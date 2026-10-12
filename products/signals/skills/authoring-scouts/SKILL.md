@@ -129,6 +129,7 @@ A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate f
 For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create` call, including creating it disabled or in dry-run **before it ever runs**.
 When creating a scout to test an idea, set `config.enabled=false` so scheduled runs cannot interfere with the trial.
 The endpoint creates the skill and config atomically, always opts the scout into the report channel, and safely re-applies config fields when the same definition is retried.
+A scout with a product-specific output must stay off the report channel, so create it with `skill-create` and `scout-config-create` instead; see [Scouts with a product-specific output](references/report-contract.md#scouts-with-a-product-specific-output).
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
 For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
 
