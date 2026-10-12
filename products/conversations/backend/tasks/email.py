@@ -18,6 +18,7 @@ from posthog.comment.formatting import rich_content_to_html, rich_content_to_mar
 from posthog.models.comment import Comment as CommentModel
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.conversations.backend.email_signature import agent_signature_html, agent_signature_text
 from products.conversations.backend.mailgun import (
     MailgunDomainNotRegistered,
     MailgunNotConfigured,
@@ -188,6 +189,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     else:
         txt_body = comment.content or ""
         html_body = f"<p>{html_mod.escape(comment.content or '')}</p>"
+
+    if comment.created_by and settings_dict.get("email_agent_signature_enabled"):
+        html_body += agent_signature_html(author_name, comment.created_by.email, config.from_name)
+        txt_body += agent_signature_text(author_name, config.from_name)
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None

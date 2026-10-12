@@ -1,4 +1,9 @@
 from datetime import timedelta
+from email import (
+    message_from_bytes,
+    policy as email_policy,
+)
+from email.message import EmailMessage
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -2006,6 +2011,31 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         assert outbox.status == EmailOutboxMessage.Status.SENT
         assert outbox.sent_at is not None
+
+    @parameterized.expand([("signature_on", True), ("signature_off", False)])
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_agent_signature(self, _name: str, enabled: bool, mock_send_mime: MagicMock):
+        self.team.conversations_settings = {"email_enabled": True, "email_agent_signature_enabled": enabled}
+        self.team.save()
+        self.user.first_name = "Ann & Co"
+        self.user.last_name = "Agent"
+        self.user.save()
+        ticket = self._create_ticket(self._create_config("support@example.com", "aaa111"))
+
+        self._run_reply(ticket)
+
+        parsed = message_from_bytes(mock_send_mime.call_args[0][1], policy=email_policy.default)
+        assert isinstance(parsed, EmailMessage)
+        text_part = parsed.get_body(preferencelist=("plain",))
+        html_part = parsed.get_body(preferencelist=("html",))
+        assert text_part is not None and html_part is not None
+        text_body = text_part.get_content()
+        html_body = html_part.get_content()
+        assert text_body.startswith("Reply from agent")
+        assert ("-- \nAnn & Co Agent\nTest" in text_body) is enabled
+        assert ('<div style="font-size:14px;font-weight:600;">Ann &amp; Co Agent</div>' in html_body) is enabled
+        assert ("https://www.gravatar.com/avatar/" in html_body) is enabled
+        assert "Ann & Co Agent" not in html_body
 
     @parameterized.expand(
         [

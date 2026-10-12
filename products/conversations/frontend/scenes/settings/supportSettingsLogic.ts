@@ -134,6 +134,7 @@ export interface supportSettingsLogicValues {
     slackNotifyOnJoin: boolean
     slackNotifyOnLeave: boolean
     slackNudgeEnabled: boolean
+    emailAgentSignatureEnabled: boolean
     slackTicketEmoji: string
     slackTicketEmojiValue: string | null
     teamsChannelId: string | null
@@ -592,6 +593,9 @@ export interface supportSettingsLogicActions {
     setSlackNudgeEnabled: (enabled: boolean) => {
         enabled: boolean
     }
+    setEmailAgentSignatureEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
     setSlackTicketEmojiValue: (value: string | null) => {
         value: string | null
     }
@@ -647,6 +651,7 @@ export interface supportSettingsLogicMeta {
         slackNotifyOnJoin: (currentTeam: TeamPublicType | TeamType | null) => boolean
         slackNotifyOnLeave: (currentTeam: TeamPublicType | TeamType | null) => boolean
         slackNudgeEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        emailAgentSignatureEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         slackAlertChannelId: (currentTeam: TeamPublicType | TeamType | null) => string | null
         emailConnected: (emailConfigs: EmailConfigStatus[]) => boolean
         teamsConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
@@ -744,6 +749,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setSlackNotifyOnJoin: (enabled: boolean) => ({ enabled }),
         setSlackNotifyOnLeave: (enabled: boolean) => ({ enabled }),
         setSlackNudgeEnabled: (enabled: boolean) => ({ enabled }),
+        setEmailAgentSignatureEnabled: (enabled: boolean) => ({ enabled }),
         setSlackAlertChannel: (channelId: string | null) => ({ channelId }),
         disconnectSlack: true,
         // Teams channel settings
@@ -1281,6 +1287,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 currentTeam?.conversations_settings?.slack_nudge_enabled ?? true,
         ],
+        emailAgentSignatureEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_settings?.email_agent_signature_enabled,
+        ],
         slackAlertChannelId: [
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string | null =>
@@ -1586,6 +1597,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     slack_nudge_enabled: enabled,
+                },
+            })
+        },
+        setEmailAgentSignatureEnabled: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    email_agent_signature_enabled: enabled,
                 },
             })
         },

@@ -809,6 +809,7 @@ export interface ConversationsSettings {
     /** Bot scopes Slack granted at install. Absent for installs authorized before we recorded them. */
     slack_scopes?: string[] | null
     email_enabled?: boolean
+    email_agent_signature_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
     teams_team_name?: string | null
