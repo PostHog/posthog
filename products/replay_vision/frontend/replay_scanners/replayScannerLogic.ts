@@ -1805,23 +1805,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, selectors, cache }) => {
-        // Returns true when it dispatched, since that nested setScannerValues already ran the side effects.
-        const keepObservationLimitAcrossModelChange = (
-            previousState: Parameters<typeof selectors.creditLimitState>[0]
-        ): boolean => {
-            const {
-                unit,
-                observationLimit: count,
-                creditsPerObservation: previousPrice,
-            } = selectors.creditLimitState(previousState)
-            const price = values.scanner ? OBSERVATION_CREDITS_BY_MODEL[values.scanner.model] : undefined
-            if (unit !== 'observations' || !count || !price || price === previousPrice) {
-                return false
-            }
-            actions.setScannerValues({ credit_limit: observationsToCredits(count, price) })
-            return true
-        }
+    listeners(({ actions, props, values, cache }) => {
         const reschedulePoll = (): void => {
             scheduleObservationPoll(
                 cache.disposables,
@@ -2327,22 +2311,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // kea-forms fires setScannerValue(s) per field change — debounced so drags don't fire a request per tick.
-            setScannerValue: ({ name }, _, __, previousState) => {
-                if (name === 'model' && keepObservationLimitAcrossModelChange(previousState)) {
-                    return
-                }
+            setScannerValue: () => {
                 actions.requestScannerEstimate()
                 persistDraft()
             },
-            setScannerValues: ({ values: changed }, _, __, previousState) => {
-                // A payload that sets its own limit, like a drafted goal budget, already priced it for the new model.
-                const rescaled =
-                    'model' in changed &&
-                    !('credit_limit' in changed) &&
-                    keepObservationLimitAcrossModelChange(previousState)
-                if (rescaled) {
-                    return
-                }
+            setScannerValues: () => {
                 actions.requestScannerEstimate()
                 persistDraft()
             },

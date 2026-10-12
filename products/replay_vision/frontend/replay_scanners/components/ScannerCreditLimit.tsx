@@ -141,12 +141,6 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                     </div>
                                 )
                             )}
-                            {observationPrice != null && (
-                                <div className="text-xs text-muted">
-                                    If you change the model, the limit in credits changes to keep the same number of
-                                    observations.
-                                </div>
-                            )}
                             <div className="text-xs text-muted">
                                 When this scanner reaches its limit, it stops scanning until the next billing period. It
                                 stays enabled, but sessions it skipped this billing period aren't scanned later, even

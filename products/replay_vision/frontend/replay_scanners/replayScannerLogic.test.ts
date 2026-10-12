@@ -1106,31 +1106,16 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it.each([
-            ['keeps the observation count when the model picker changes', 'observations', 'picker', 120],
-            ['keeps the observation count when a payload changes the model', 'observations', undefined, 120],
-            ['leaves a credit limit alone when the model changes', 'credits', 'picker', 40],
-            ['keeps a limit set alongside the model, like a drafted goal budget', 'observations', 300, 300],
-        ] as const)('%s', async (_name, unit, change, expectedLimit) => {
+        it('keeps the credits and recounts the observations when the model changes', async () => {
             logic.actions.setScannerValues({
                 model: ScannerModelEnumApi.Gemini3FlashPreview,
                 credit_limit_enabled: true,
                 credit_limit: 40,
             })
-            logic.actions.setCreditLimitUnit(unit)
-            if (change === 'picker') {
-                logic.actions.setScannerValue('model', ScannerModelEnumApi.Gemini38Flash)
-            } else {
-                logic.actions.setScannerValues({
-                    model: ScannerModelEnumApi.Gemini38Flash,
-                    ...(change !== undefined ? { credit_limit: change } : {}),
-                })
-            }
+            logic.actions.setCreditLimitUnit('observations')
+            logic.actions.setScannerValue('model', ScannerModelEnumApi.Gemini38Flash)
             await expectLogic(logic).toMatchValues({
-                creditLimitState: expect.objectContaining({
-                    limit: expectedLimit,
-                    observationLimit: Math.floor(expectedLimit / 15),
-                }),
+                creditLimitState: expect.objectContaining({ limit: 40, observationLimit: 2 }),
             })
         })
     })
