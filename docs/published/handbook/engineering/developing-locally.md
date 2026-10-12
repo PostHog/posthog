@@ -162,7 +162,7 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
-Select the `authz` intent to start OpenFGA. It uses in-memory storage and a local development bearer token, so its data resets when the container restarts. Edit the model sources in `products/authz/model/`, then run `products/authz/generate_model.sh`. It builds `model.fga` and the JSON model, checks them against the model rules in `products/authz/AGENTS.md`, and runs the model tests. The pre-commit hook runs the same script when a commit changes the sources or the tests. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 OPENFGA_API_TOKEN=local-dev-openfga-token python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
+Select the `authz` intent to start OpenFGA. It uses in-memory storage and no authentication, so its data resets when the container restarts. Edit the model sources in `products/authz/model/`, then run `products/authz/generate_model.sh`. It builds `model.fga` and the JSON model, checks them against the model rules in `products/authz/AGENTS.md`, and runs the model tests. The pre-commit hook runs the same script when a commit changes the sources or the tests. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
 
 Run the authorization checks without starting the stack:
 
@@ -285,8 +285,7 @@ Use the existing AccessControl write APIs as the database source of truth.
 Run the real-server integration tests against the local OpenFGA service:
 
 ```bash
-OPENFGA_API_URL=http://127.0.0.1:8080 OPENFGA_API_TOKEN=local-dev-openfga-token \
-    hogli test products/authz/backend/tests/openfga_e2e.py
+OPENFGA_API_URL=http://127.0.0.1:8080 hogli test products/authz/backend/tests/openfga_e2e.py
 ```
 
 The tests create and delete their own store and upload the checked-in JSON model.

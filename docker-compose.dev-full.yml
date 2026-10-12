@@ -129,7 +129,6 @@ services:
             - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
             - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
             - OPENFGA_API_URL=http://openfga:8080
-            - OPENFGA_API_TOKEN=local-dev-openfga-token
 
     web:
         extends:
@@ -150,7 +149,6 @@ services:
             - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
             - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
             - OPENFGA_API_URL=http://openfga:8080
-            - OPENFGA_API_TOKEN=local-dev-openfga-token
         depends_on:
             - db
             - redis7
