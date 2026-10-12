@@ -25,6 +25,22 @@ class TestMarketstackSource:
 
     @parameterized.expand(
         [
+            ("legacy_v1_pin_hides_v2_only_tables", MARKETSTACK_API_VERSION_V1, False),
+            ("v2_pin_lists_v2_only_tables", MARKETSTACK_API_VERSION_V2, True),
+            ("no_pin_resolves_to_v2", None, True),
+        ]
+    )
+    def test_get_schemas_lists_v2_only_tables_by_pin(self, _name: str, pin: str | None, expected: bool) -> None:
+        names = {s.name for s in MarketstackSource().get_schemas(_make_config(), team_id=1, api_version=pin)}
+        assert "eod" in names
+        assert (
+            {"tickerinfo", "companyratings", "submissions"} <= names
+            if expected
+            else not ({"tickerinfo", "companyratings", "submissions"} & names)
+        )
+
+    @parameterized.expand(
+        [
             ("valid", True, True, None),
             ("invalid", False, False, "Invalid Marketstack access key"),
         ]

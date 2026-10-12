@@ -12,6 +12,13 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
+    MarketstackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
     MARKETSTACK_API_VERSION_V1,
     MARKETSTACK_API_VERSION_V2,
@@ -21,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketstac
     marketstack_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -141,12 +149,22 @@ class TestPagination:
 
 
 class TestRequiresSymbols:
-    @parameterized.expand([("eod",), ("intraday",), ("splits",), ("dividends",)])
-    def test_time_series_endpoints_require_symbols(self, endpoint: str) -> None:
-        # Selecting a time-series table with no symbols is a permanent misconfiguration.
+    @parameterized.expand(
+        [
+            ("eod", "[missing_symbols]"),
+            ("intraday", "[missing_symbols]"),
+            ("splits", "[missing_symbols]"),
+            ("dividends", "[missing_symbols]"),
+            ("tickerinfo", "[missing_symbols]"),
+            ("companyratings", "[missing_symbols]"),
+            ("submissions", "[missing_cik_codes]"),
+        ]
+    )
+    def test_endpoints_require_their_lookup_values(self, endpoint: str, expected_code: str) -> None:
+        # Selecting a table with nothing to look up is a permanent misconfiguration.
         with pytest.raises(ValueError) as exc:
             _source(endpoint, symbols=None)
-        assert "[missing_symbols]" in str(exc.value)
+        assert expected_code in str(exc.value)
 
     def test_blank_symbols_treated_as_missing(self) -> None:
         with pytest.raises(ValueError) as exc:
@@ -318,3 +336,147 @@ class TestBaseUrl:
         _rows(_source("currencies", symbols=None, api_version=version))
 
         assert sent_urls[0].startswith(f"https://api.marketstack.com/{version}/")
+
+
+def _fan_out_driver(symbols: str | None = "AAPL", cik_codes: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        MarketstackSource(), MarketstackSourceConfig(access_key="supersecret", symbols=symbols, cik_codes=cik_codes)
+    )
+
+
+class TestFanOutEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "tickerinfo_one_row_per_symbol",
+                "tickerinfo",
+                {"data": {"name": "Apple Inc", "sector": "Technology", "key_executives": [{"name": "A"}]}},
+                [{"ticker": "AAPL", "name": "Apple Inc", "sector": "Technology", "key_executives": [{"name": "A"}]}],
+            ),
+            (
+                "companyratings_flattens_rating",
+                "companyratings",
+                {
+                    "status": {"code": 200, "message": "ok"},
+                    "result": {
+                        "basics": {"company_name": "Apple Inc", "ticker": "AAPL"},
+                        "output": {
+                            "analyst_consensus": {"consensus_conclusion": "Buy"},
+                            "analysts": [
+                                {
+                                    "analyst_name": "Jane Doe",
+                                    "analyst_firm": "Example Securities",
+                                    "analyst_role": "Analyst",
+                                    "rating": {"date_rating": "2026-09-01", "price_target": "250", "rated": "buy"},
+                                },
+                                {"analyst_name": "John Roe", "analyst_firm": "Sample Capital", "rating": None},
+                            ],
+                        },
+                    },
+                },
+                [
+                    {
+                        "ticker": "AAPL",
+                        "company_name": "Apple Inc",
+                        "analyst_name": "Jane Doe",
+                        "analyst_firm": "Example Securities",
+                        "analyst_role": "Analyst",
+                        "date_rating": "2026-09-01",
+                        "price_target": "250",
+                        "rated": "buy",
+                    },
+                    {
+                        "ticker": "AAPL",
+                        "company_name": "Apple Inc",
+                        "analyst_name": "John Roe",
+                        "analyst_firm": "Sample Capital",
+                    },
+                ],
+            ),
+            (
+                "companyratings_without_analysts_yields_nothing",
+                "companyratings",
+                {"result": {"basics": {"ticker": "AAPL"}, "output": {"analysts": None}}},
+                [],
+            ),
+            (
+                "submissions_transposes_filing_arrays",
+                "submissions",
+                {
+                    "data": {
+                        "cik_code": "0000000001",
+                        "company_name": "Example Corp",
+                        "tickers": ["EXMP"],
+                        "filings": {
+                            "recent": {
+                                "accession_number": ["0000000001-26-000002", "0000000001-26-000001"],
+                                "filing_date": ["2026-08-01", "2026-05-01"],
+                                "form": ["10-Q"],
+                            },
+                            "files": [],
+                        },
+                    }
+                },
+                [
+                    {
+                        "cik_code": "0000000001",
+                        "company_name": "Example Corp",
+                        "accession_number": "0000000001-26-000002",
+                        "filing_date": "2026-08-01",
+                        "form": "10-Q",
+                    },
+                    {
+                        "cik_code": "0000000001",
+                        "company_name": "Example Corp",
+                        "accession_number": "0000000001-26-000001",
+                        "filing_date": "2026-05-01",
+                        "form": None,
+                    },
+                ],
+            ),
+        ]
+    )
+    def test_row_shaping(self, _name: str, endpoint: str, body: dict[str, Any], expected: list[dict]) -> None:
+        result = _fan_out_driver(cik_codes="0000000001").run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.rows == expected
+        assert result.paths == [f"/v2/{endpoint}"]
+
+    def test_walks_each_distinct_value_and_saves_state_before_yielding(self) -> None:
+        def ratings(ticker: str) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "result": {
+                        "basics": {"ticker": ticker},
+                        "output": {"analysts": [{"analyst_name": "Jane Doe", "rating": {"date_rating": "2026-09-01"}}]},
+                    }
+                }
+            )
+
+        result = _fan_out_driver(symbols=" AAPL, MSFT,AAPL,").run("companyratings", [ratings("AAPL"), ratings("MSFT")])
+
+        assert result.raised is None
+        assert result.params("ticker") == ["AAPL", "MSFT"]
+        assert [row["ticker"] for row in result.rows] == ["AAPL", "MSFT"]
+        assert result.committed_states == [MarketstackResumeConfig(next_offset=1)]
+
+    def test_resumes_from_the_next_value(self) -> None:
+        result = _fan_out_driver(symbols="AAPL,MSFT").run(
+            "tickerinfo",
+            [ScriptedResponse(json={"data": {"ticker": "MSFT"}})],
+            resume_state=MarketstackResumeConfig(next_offset=1),
+        )
+
+        assert result.raised is None
+        assert result.params("ticker") == ["MSFT"]
+
+    def test_error_envelope_fails_loud(self) -> None:
+        result = _fan_out_driver().run(
+            "tickerinfo",
+            [ScriptedResponse(json={"error": {"code": "function_access_restricted", "message": "Upgrade your plan."}})],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "[function_access_restricted]" in str(result.raised)
+        assert "supersecret" not in str(result.raised)
