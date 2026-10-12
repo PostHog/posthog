@@ -655,8 +655,8 @@ async def test_coordinator_persists_each_sub_agent_under_its_session_key(
             assert result.lens_failures == 1
 
     assert [file.name for file in mock_review.call_args.kwargs["files"]] == [f"{task}.prompt.md" for task in tasks]
-    # Codex rejects spawns past its thread limit, so the limit must fit the coordinator and the largest PR.
-    assert mock_review.call_args.kwargs["codex_max_threads"] >= 2 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
+    # Codex rejects spawns past its sub-agent limit, so the limit must fit the largest PR's review units.
+    assert mock_review.call_args.kwargs["codex_max_subagents"] >= 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
     persisted = mock_persist.call_args.kwargs["results"]
     assert {key: review.issues[0].source_perspective for key, review in persisted.items()} == {
         key: source

@@ -47,7 +47,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
-    COORDINATOR_CODEX_MAX_THREADS,
+    COORDINATOR_MAX_SUBAGENTS,
     FLASH_LENSES,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
@@ -1569,7 +1569,7 @@ async def coordinator_review_activity(input: CoordinatorReviewInput) -> Coordina
                 reasoning_effort=arm.reasoning_effort,
                 initial_permission_mode=arm.initial_permission_mode,
                 files=[SessionFile(name=unit.file_name, content=unit.prompt) for unit in units],
-                codex_max_threads=COORDINATOR_CODEX_MAX_THREADS,
+                codex_max_subagents=COORDINATOR_MAX_SUBAGENTS,
             )
         except AgentTurnFailed as exc:
             _raise_if_non_retryable_unit_failure(exc)
