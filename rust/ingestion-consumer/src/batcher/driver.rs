@@ -20,7 +20,7 @@ use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
 use crate::grpc_transport::GrpcTransport;
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
-use crate::transport::SendError;
+use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
@@ -58,7 +58,7 @@ pub(super) trait RequestSender: Send + Sync + 'static {
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
         replay: bool,
-    ) -> BoxFuture<'static, Result<u32, SendError>>;
+    ) -> BoxFuture<'static, Result<SendOutcome, SendError>>;
 }
 
 pub(super) trait Workers: Send + 'static {
@@ -80,7 +80,7 @@ impl RequestSender for GrpcTransport {
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
         replay: bool,
-    ) -> BoxFuture<'static, Result<u32, SendError>> {
+    ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
         self.begin_send(worker, &make_batch_id(), messages, replay)
             .wait()
             .boxed()
@@ -104,7 +104,7 @@ impl Workers for WorkerPoolSource {
     }
 }
 
-type Response = BoxFuture<'static, (RequestId, Result<u32, SendError>)>;
+type Response = BoxFuture<'static, (RequestId, Result<SendOutcome, SendError>)>;
 
 struct BatcherTask<S, W> {
     inputs: mpsc::UnboundedReceiver<Input>,
@@ -120,7 +120,7 @@ struct BatcherTask<S, W> {
 
 enum Event {
     Input(Input),
-    Response(RequestId, Result<u32, SendError>),
+    Response(RequestId, Result<SendOutcome, SendError>),
     Wakeup,
 }
 
@@ -261,9 +261,22 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 state.on_partitions_revoked(now, &partitions)
             }
             Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.workers.candidates()),
-            Event::Response(request, Ok(accepted)) => {
+            Event::Response(request, Ok(SendOutcome::Accepted(accepted))) => {
                 state.on_request_succeeded(now, &self.workers.candidates(), request, accepted)
             }
+            Event::Response(
+                request,
+                Ok(SendOutcome::Partial {
+                    accepted,
+                    timed_out,
+                }),
+            ) => state.on_request_partial(
+                now,
+                &self.workers.candidates(),
+                request,
+                accepted,
+                timed_out,
+            ),
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
@@ -405,7 +418,7 @@ mod tests {
         offsets: Vec<i64>,
         replay: bool,
         fence_released: Option<bool>,
-        reply: oneshot::Sender<Result<u32, SendError>>,
+        reply: oneshot::Sender<Result<SendOutcome, SendError>>,
     }
 
     struct FakeSender {
@@ -424,7 +437,7 @@ mod tests {
             worker: &WorkerId,
             messages: Vec<SerializedKafkaMessage>,
             replay: bool,
-        ) -> BoxFuture<'static, Result<u32, SendError>> {
+        ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
             let fence_released = self
                 .fence
                 .lock()
@@ -592,11 +605,38 @@ mod tests {
         assert!(!sent[0].replay);
 
         let send = sent.into_iter().next().unwrap();
-        send.reply.send(Ok(1)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
         settle().await;
         assert_eq!(h.completed_offsets(), vec![1]);
         assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
         assert_eq!(h.workers.idle(), vec![WorkerId::from("w")]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_partial_response_resends_its_timed_out_messages_at_once_as_replay() {
+        let mut h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+
+        send.reply
+            .send(Ok(SendOutcome::Partial {
+                accepted: 0,
+                timed_out: vec![message("a", 0, 1)],
+            }))
+            .unwrap();
+        settle().await;
+        assert!(h.completed_offsets().is_empty());
+        assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
+        let resend = h.take_sent();
+        assert_eq!(resend.len(), 1, "the resend waits for no retry delay");
+        assert!(resend[0].replay);
+        assert_eq!(resend[0].offsets, vec![1]);
+
+        let resend = resend.into_iter().next().unwrap();
+        resend.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        settle().await;
+        assert_eq!(h.completed_offsets(), vec![1]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -669,7 +709,7 @@ mod tests {
         settle().await;
         let send = h.take_sent().pop().unwrap();
 
-        send.reply.send(Ok(1)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
         h.driver
             .revoke_sender()
             .purge_revoked(&[("events".to_string(), 0)]);
@@ -720,13 +760,13 @@ mod tests {
         let accepted = |send: &Sent| send.offsets.len() as u32;
         let first = sent.remove(0);
         let count = accepted(&first);
-        first.reply.send(Ok(count)).unwrap();
+        first.reply.send(Ok(SendOutcome::Accepted(count))).unwrap();
         settle().await;
         assert!(!load.busy_workers.lock().unwrap().is_empty());
 
         let last = sent.remove(0);
         let count = accepted(&last);
-        last.reply.send(Ok(count)).unwrap();
+        last.reply.send(Ok(SendOutcome::Accepted(count))).unwrap();
         settle().await;
         assert!(load.busy_workers.lock().unwrap().is_empty());
         assert_eq!(load.in_flight_messages.load(Ordering::Relaxed), 0);
@@ -738,7 +778,7 @@ mod tests {
         h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();
-        send.reply.send(Ok(2)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(2))).unwrap();
         settle().await;
         assert!(h.outputs.errors.try_recv().is_ok());
     }
