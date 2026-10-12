@@ -7,6 +7,7 @@ import { contextFill, shellsStatus } from "./usage";
 
 const emptyView = (): RunView => emptyRunView;
 
+import { shellMessage } from "./shell";
 import { transcriptFrom } from "./transcript";
 
 function fakeClient() {
@@ -144,6 +145,13 @@ describe("LocalSession", () => {
     expect(result).toMatchObject({ output: "clean", exitCode: 0 });
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: "bash", command: "git status" }),
+    );
+    // The agent hears about the command at once, as a message saying what ran and what it printed.
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "prompt",
+        message: shellMessage("git status", "clean"),
+      }),
     );
     const shells = transcriptFrom("pi", view.entries).lines.filter(
       (line) => line.kind === "shell",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseShell, shellBlocked } from "./shell";
+import { parseShell, shellBlocked, shellMessage } from "./shell";
 
 describe("parseShell", () => {
   it.each([
@@ -38,5 +38,16 @@ describe("shellBlocked", () => {
     const reason = shellBlocked({ ...chat, canControl: true });
     if (expected === null) expect(reason).toBeNull();
     else expect(reason).toContain(expected);
+  });
+});
+
+describe("shellMessage", () => {
+  it("tells the agent what the user ran and what it printed", () => {
+    expect(shellMessage("echo hi", "hi")).toBe(
+      "I ran `echo hi` in the shell. It printed:\n```\nhi\n```",
+    );
+    expect(shellMessage("true", "")).toBe(
+      "I ran `true` in the shell. It printed nothing.",
+    );
   });
 });

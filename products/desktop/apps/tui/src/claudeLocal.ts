@@ -21,7 +21,7 @@ import {
   promptId,
 } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
-import type { ShellResult } from "./shell";
+import { type ShellResult, shellMessage } from "./shell";
 import { claudeSettings } from "./starting";
 
 export interface ClaudeLocalInput {
@@ -262,9 +262,8 @@ export class ClaudeLocalSession implements LocalAgent {
   }
 
   // A message sent mid-turn steers it; the first message of a turn waits for the turn to end.
-  // Claude Code has no shell RPC, so a ! command runs here, in the chat's folder, and goes to the agent with the next
-  // message as the desktop app sends its own: logged as a user shell execute, so the chat shows it like any other.
-  private readonly shells: { command: string; output: string }[] = [];
+  // Claude Code has no shell RPC, so a ! command runs here, in the chat's folder, logged as the desktop app logs its
+  // own user shell execute so the chat shows it like any other, then goes to the agent as a message.
   private async bash(command: string): Promise<ShellResult> {
     const id = `shell-${globalThis.crypto.randomUUID()}`;
     const log = (result?: {
@@ -302,12 +301,9 @@ export class ClaudeLocalSession implements LocalAgent {
       exitCode = typeof failed.code === "number" ? failed.code : 1;
     }
     log({ stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), exitCode });
-    this.shells.push({ command, output: stdout.trimEnd() || stderr.trimEnd() });
-    return {
-      output: stdout.trimEnd() || stderr.trimEnd(),
-      exitCode,
-      cancelled: false,
-    };
+    const output = stdout.trimEnd() || stderr.trimEnd();
+    await this.prompt(shellMessage(command, output));
+    return { output, exitCode, cancelled: false };
   }
 
   private record(entry: StoredLogEntry): void {
@@ -318,15 +314,9 @@ export class ClaudeLocalSession implements LocalAgent {
   async prompt(message: string, images: ImageContent[] = []): Promise<void> {
     const sessionId = this.sessionId ?? (await this.connect());
     const steer = this.turn !== null;
-    const context = this.shells.splice(0).map(({ command, output }) => ({
-      type: "text" as const,
-      text: `[User executed command in ${this.input.cwd}]\n$ ${command}\n${output || "(no output)"}`,
-      _meta: { ui: { hidden: true } },
-    }));
     const sent = this.agent.prompt(
       sessionId,
       [
-        ...context,
         { type: "text", text: message },
         ...images.map(({ data, mimeType }) => ({
           type: "image" as const,

@@ -11,7 +11,7 @@ import type { McpToolPolicyUpdater } from "@posthog/workspace-server/services/ag
 import { controlOf, type PiControl } from "./models";
 import { type AgentPrompt, type PromptReply, promptId } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
-import type { ShellResult } from "./shell";
+import { type ShellResult, shellMessage } from "./shell";
 
 // Local chats reuse the cloud transcript path, which reads pi events from log entries.
 const asEntry = (event: AgentConversationEvent): StoredLogEntry => ({
@@ -121,13 +121,14 @@ export class LocalSession implements LocalAgent {
       command,
     });
     if (!response.success) throw new Error(response.error);
-    return (
-      (response as { data?: ShellResult }).data ?? {
-        output: "",
-        exitCode: undefined,
-        cancelled: false,
-      }
-    );
+    const result = (response as { data?: ShellResult }).data ?? {
+      output: "",
+      exitCode: undefined,
+      cancelled: false,
+    };
+    // pi's bash only adds the output to the agent's context; the message makes it a turn.
+    await this.prompt(shellMessage(command, result.output));
+    return result;
   }
 
   // Starts the agent and replays the conversation its session file already holds.
