@@ -25,7 +25,8 @@ def installation_team_ids(payload: dict) -> list[int]:
     if external_id is None:
         return []
 
-    # One installation can map to multiple teams; order_by makes attribution deterministic.
+    # One installation can link to several teams. The order only keeps results stable, so never treat
+    # the first team as the owner. See posthog/ingress/github/README.md#picking-the-project.
     return list(
         Integration.objects.using(SCOPE_DB_ALIAS)
         .filter(kind="github", integration_id=external_id)
