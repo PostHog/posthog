@@ -417,7 +417,7 @@ export function filterToMetricConfig(
                         ({
                             kind: NodeKind.EventsNode,
                             event: event.id,
-                            custom_name: event.custom_name,
+                            custom_name: event.custom_name || undefined,
                             properties: event.properties,
                             order: event.order,
                         }) as EventsNode & { order?: number }
@@ -430,7 +430,7 @@ export function filterToMetricConfig(
                             kind: NodeKind.ActionsNode,
                             id: action.id,
                             name: action.name,
-                            custom_name: action.custom_name,
+                            custom_name: action.custom_name || undefined,
                             properties: action.properties,
                             order: action.order,
                         }) as ActionsNode & { order?: number }
@@ -446,7 +446,7 @@ export function filterToMetricConfig(
                             timestamp_field: dataWarehouse.timestamp_field,
                             events_join_key: dataWarehouse.events_join_key,
                             data_warehouse_join_key: dataWarehouse.data_warehouse_join_key,
-                            custom_name: dataWarehouse.custom_name,
+                            custom_name: dataWarehouse.custom_name || undefined,
                             properties: dataWarehouse.properties,
                             order: dataWarehouse.order,
                         }) as ExperimentDataWarehouseNode & { order?: number }
