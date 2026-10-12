@@ -53,7 +53,7 @@ class ReviewResolutionConfigSelectSerializer(serializers.Serializer):
 
 
 class ReviewResolutionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Per-user selection of ReviewHog's single active resolution-criteria skill for a project.
+    """Per-user selection of the single active resolution-criteria skill for PostHog Review for a project.
 
     A resolution skill is any team `review-hog-resolution-*` `LLMSkill` (canonical or custom —
     handled identically at run time): the bar the resolution stage applies to each unresolved

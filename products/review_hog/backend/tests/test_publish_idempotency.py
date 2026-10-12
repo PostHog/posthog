@@ -22,8 +22,6 @@ from products.review_hog.backend.reviewer.persistence import upsert_review_repor
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
-    _promo_already_posted,
-    _promo_marker,
     _review_already_posted,
     _review_marker,
 )
@@ -54,11 +52,6 @@ def _paginated(
 def _review_posted(marker: str, reviews: list[dict[str, Any]], *, boom: bool = False) -> bool:
     with patch(_PAGINATED, side_effect=_paginated(reviews, boom=boom)):
         return _review_already_posted("o", "r", 1, marker, token="t", installation_id=None)
-
-
-def _promo_posted(marker: str, comments: list[dict[str, Any]], *, boom: bool = False) -> bool:
-    with patch(_PAGINATED, side_effect=_paginated(comments, boom=boom)):
-        return _promo_already_posted("o", "r", 1, marker, token="t", installation_id=None)
 
 
 def test_review_already_posted_detects_our_own_markered_review() -> None:
@@ -122,20 +115,6 @@ def test_legacy_markers_only_suppress_reviews_in_the_same_mode(posted_mode: str,
                 legacy_marker=legacy,
                 review_mode=requested_mode,
             ) is (posted_mode == requested_mode)
-
-
-def test_promo_already_posted_detects_the_markered_comment() -> None:
-    # The promo posts before the review, so a retry after a transient review failure re-enters
-    # with published_head_sha still unset — the marker is what stops a second promo comment.
-    marker = _promo_marker("rep-1")
-    assert _promo_posted(marker, [{"body": f"promo text\n\n{marker}"}]) is True
-    assert _promo_posted(marker, [{"body": "unrelated comment"}, {"body": None}]) is False
-
-
-def test_promo_already_posted_skips_when_readback_fails() -> None:
-    # Inverted stakes vs the review readback: a duplicate promo is spam while a missing one is
-    # harmless, so an unreadable comment list counts as already posted.
-    assert _promo_posted(_promo_marker("rep-1"), [], boom=True) is True
 
 
 def _publish_input(team_id: int, report_id: str, head_sha: str) -> PublishInput:
@@ -227,12 +206,11 @@ class TestPublishIdempotency(BaseTest):
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", "9876543"))
-    def test_first_publish_posts_promo_and_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
+    def test_first_publish_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report()
         _publish(_publish_input(self.team.id, report_id, "sha1"))
         assert mock_publish.call_count == 1
-        assert mock_publish.call_args.kwargs["post_promo"] is True
         # The resolved installation id must reach the GitHub calls — dropping it silently turns the
         # publish identity-blind (no egress budget accounting).
         assert mock_publish.call_args.kwargs["installation_id"] == "9876543"
@@ -260,12 +238,11 @@ class TestPublishIdempotency(BaseTest):
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", None))
-    def test_new_head_publishes_without_promo(self, _auth, _snapshot, mock_publish) -> None:
+    def test_new_head_publishes(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report(published_head_sha="oldsha")
         _publish(_publish_input(self.team.id, report_id, "sha2"))
         assert mock_publish.call_count == 1
-        assert mock_publish.call_args.kwargs["post_promo"] is False
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha2"
 
     @patch(_PUBLISH)
