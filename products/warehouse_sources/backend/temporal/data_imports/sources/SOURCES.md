@@ -1047,6 +1047,7 @@ doesn't conflict with concurrent PRs.
 - castor_edc
 - chargebackstop
 - chargeflow
+- checkhq
 - checkly
 - chift
 - chorus
@@ -1366,6 +1367,7 @@ doesn't conflict with concurrent PRs.
 - quay
 - quickbooks
 - railz
+- rainforest_pay
 - raisely
 - raken
 - rakuten_advertising
@@ -1445,6 +1447,7 @@ doesn't conflict with concurrent PRs.
 - sprinto
 - sprout_social
 - sqlite
+- stackadapt
 - starburst
 - statsig
 - stockx
