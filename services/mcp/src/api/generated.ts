@@ -20300,7 +20300,7 @@ export namespace Schemas {
       status: string | null;
       tags: unknown[];
       score: string | null;
-      voteCount: string | null;
+      vote_count: string | null;
       url: string | null;
       created: string | null;
     }
@@ -51788,7 +51788,7 @@ export namespace Schemas {
       status: string | null;
       tags: unknown[];
       upvotes: string | null;
-      createdAt: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -60303,7 +60303,7 @@ export namespace Schemas {
       status: string | null;
       priority: string | null;
       tags: unknown[];
-      createdAt: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -86787,7 +86787,7 @@ export namespace Schemas {
       status: string | null;
       priority: string | null;
       labels: unknown[];
-      createdAt: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -87302,8 +87302,8 @@ export namespace Schemas {
     export interface ProductboardFeedbackSignalExtra {
       state: string | null;
       tags: unknown[];
-      displayUrl: string | null;
-      createdAt: string | null;
+      display_url: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -93572,9 +93572,9 @@ export namespace Schemas {
 
     export interface RaygunErrorGroupSignalExtra {
       status: string | null;
-      applicationUrl: string | null;
-      lastOccurredAt: string | null;
-      createdAt: string | null;
+      application_url: string | null;
+      last_occurred_at: string | null;
+      created_at: string | null;
     }
 
     export interface ReadyToMergeBucket {
@@ -94756,8 +94756,8 @@ export namespace Schemas {
       level: string | null;
       status: string | null;
       permalink: string | null;
-      shortId: string | null;
-      firstSeen: string | null;
+      short_id: string | null;
+      first_seen: string | null;
     }
 
     export interface RollbarItemSignalExtra {
@@ -94781,7 +94781,7 @@ export namespace Schemas {
       status: string | null;
       component: string | null;
       rule: string | null;
-      creationDate: string | null;
+      creation_date: string | null;
     }
 
     export interface SemgrepScannerFindingSignalExtra {
@@ -94801,10 +94801,10 @@ export namespace Schemas {
 
     export interface RetentlyFeedbackSignalExtra {
       score: string | null;
-      ratingCategory: string | null;
-      feedbackTopics: unknown[];
+      rating_category: string | null;
+      feedback_topics: unknown[];
       resolved: string | null;
-      createdDate: string | null;
+      created_date: string | null;
     }
 
     export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
