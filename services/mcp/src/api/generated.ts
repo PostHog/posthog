@@ -94388,6 +94388,68 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    export interface WizardScanSignal {
+      /**
+         * Where the wizard found the tool, such as `npm`, `pypi`, `env_key` or `script_host`.
+         * @maxLength 32
+         */
+      source: string;
+      /**
+         * The package name, `.env` key name or script host that matched. Never a `.env` value.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Path of the file the signal came from, relative to the scanned directory.
+         * @maxLength 512
+         * @nullable
+         */
+      file?: string | null;
+    }
+
+    export interface WizardScanTool {
+      /**
+         * The tool's kind in the wizard tool catalog, such as `Stripe` or `Amplitude`.
+         * @maxLength 64
+         */
+      kind: string;
+      /**
+         * The signals that matched this tool.
+         * @maxItems 50
+         */
+      signals: WizardScanSignal[];
+    }
+
+    export interface RecordWizardScanRequest {
+      /**
+         * The wizard run that made the scan.
+         * @maxLength 255
+         */
+      session_id: string;
+      /**
+         * The wizard program that scanned, such as `posthog-integration` or `warehouse-source`.
+         * @maxLength 50
+         */
+      program: string;
+      /**
+         * Version of the wizard that made the scan.
+         * @maxLength 32
+         */
+      wizard_version: string;
+      /**
+         * sha256 hex digest that identifies the scanned repository without naming it.
+         * @pattern ^[0-9a-f]{64}$
+         */
+      workspace_fingerprint: string;
+      /** When the wizard scanned the codebase. */
+      scanned_at: string;
+      /**
+         * Every tool the scan found. An empty list is a scan that found nothing.
+         * @maxItems 300
+         */
+      tools: WizardScanTool[];
+    }
+
     /**
      * * `Redshift` - Redshift
      */
@@ -113870,6 +113932,13 @@ export namespace Schemas {
     export interface WizardRunTaskList {
       /** Complete task list in snapshot order. */
       readonly tasks: readonly WizardRunTask[];
+    }
+
+    export interface WizardScanResult {
+      /** ID of the stored scan. */
+      id: string;
+      /** False when this session had already reported its scan, so nothing changed. */
+      created: boolean;
     }
 
     /**
