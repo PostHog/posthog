@@ -100,7 +100,8 @@ def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionCha
     ensured: list[str] = []
     dropped: list[str] = []
 
-    with psycopg.Connection.connect(_partition_ddl_database_url(), autocommit=True) as conn:
+    # The connection goes through a transaction pooler, so server-side prepared statements break on reuse.
+    with psycopg.Connection.connect(_partition_ddl_database_url(), autocommit=True, prepare_threshold=None) as conn:
         for table in PARTITIONED_TABLES:
             for offset in range(PARTITIONS_AHEAD):
                 d = today + timedelta(days=offset)
@@ -208,7 +209,9 @@ def _drop_partition(conn: psycopg.Connection, partition_name: str) -> None:
         # migration role are owned by the worker's own role, so drop those with that role.
         if not settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL:
             raise
-        with psycopg.Connection.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as owner_conn:
+        with psycopg.Connection.connect(
+            settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True, prepare_threshold=None
+        ) as owner_conn:
             owner_conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
 
 
