@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
+use crate::pipeline::{Address, Lane, Pipeline};
 use crate::producers::ProducerName;
 
 /// Which configured output a routing decision selects, named by pipeline and
@@ -46,6 +47,43 @@ impl Destination {
         Destination::ErrorTrackingMain,
         Destination::AiMain,
     ];
+
+    /// `None` marks a pair [`pipeline::resolve`] never produces: no output
+    /// backs it.
+    ///
+    /// [`pipeline::resolve`]: crate::pipeline::resolve
+    pub(crate) fn for_lane(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
+        // Every pair is spelled out so that a new lane, or a change making an
+        // unbacked pair reachable, has to visit this match instead of being
+        // absorbed by a wildcard. Step 13 of OUTPUTS_REFACTOR_PLAN.md types
+        // lanes per pipeline so such pairs cannot be built; drop the `None`
+        // arms and this note then.
+        match (pipeline, lane) {
+            (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
+            (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
+            (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
+            (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
+            (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
+            (Pipeline::Ai, Lane::Historical) => None,
+            (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
+            (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
+            (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
+            (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
+            (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
+            (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
+            (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
+            (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
+            (Pipeline::Replay, Lane::Historical) => None,
+        }
+    }
+
+    pub(crate) fn for_address(address: Address) -> Option<Destination> {
+        match address {
+            Address::Lane { pipeline, lane } => Self::for_lane(pipeline, lane),
+            Address::Dlq => Some(Destination::Dlq),
+            Address::Custom(topic) => Some(Destination::Custom(topic)),
+        }
+    }
 
     /// Whether this output participates in the boot completeness check.
     /// Deliberately exhaustive: a new variant cannot compile without
@@ -132,8 +170,8 @@ impl<R> OutputTable<R> {
             Destination::AiMain => Some(&self.ai_main),
             Destination::AiOverflow => match &self.ai_overflow {
                 Some(target) if !target.topic.is_empty() => Some(target),
-                // Unreachable: routing only selects this output when the
-                // valve is armed, i.e. exactly when the topic is set.
+                // Callers select this output only when the valve is armed,
+                // i.e. exactly when the topic is set.
                 _ => Some(&self.ai_main),
             },
             Destination::Custom(_) => None,

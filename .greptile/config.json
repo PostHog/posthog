@@ -1,6 +1,6 @@
 {
     "strictness": 2,
-    "triggerOnUpdates": false,
+    "autoReview": ["open"],
     "triggerOnDrafts": true,
     "fileChangeLimit": 100,
     "disabledLabels": ["skip-agent-review"],

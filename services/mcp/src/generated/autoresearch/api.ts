@@ -435,6 +435,12 @@ export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
 
+export const autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax = 600
+
+export const autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax = 80
+
+export const autoresearchTrainingRunsCompleteCreateBodyNextStepsMax = 5
+
 export const autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault = ``
 
 export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
@@ -505,6 +511,16 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
             .describe(
                 'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
             ),
+        reader_summary: zod
+            .string()
+            .max(autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax)
+            .nullish()
+            .describe('One or two plain sentences for people on what this run learned. Max 600 characters.'),
+        next_steps: zod
+            .array(zod.string().max(autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax))
+            .max(autoresearchTrainingRunsCompleteCreateBodyNextStepsMax)
+            .nullish()
+            .describe('Short next steps for people, at most 5 items of a few words each (max 80 characters per item).'),
         report_notebook_short_id: zod
             .string()
             .default(autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault)
@@ -539,6 +555,8 @@ export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax = 1
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax = 2000
+
+export const autoresearchTrainingRunsIterationsCreateBodySummaryMax = 300
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
@@ -601,6 +619,13 @@ export const AutoresearchTrainingRunsIterationsCreateBody = () => zod
             .max(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax)
             .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)
             .describe("Agent's plain-English rationale for this iteration. Max 2000 characters."),
+        summary: zod
+            .string()
+            .max(autoresearchTrainingRunsIterationsCreateBodySummaryMax)
+            .nullish()
+            .describe(
+                'One plain sentence for people on what this experiment tried and what happened. Max 300 characters.'
+            ),
         agent_confidence: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)

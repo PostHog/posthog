@@ -1,6 +1,7 @@
 from products.review_hog.backend.temporal.activities import (
     append_code_review_artefact_activity,
     build_body_activity,
+    coordinator_review_activity,
     dedup_activity,
     fail_status_comment_activity,
     fetch_pr_data_activity,
@@ -68,6 +69,7 @@ ACTIVITIES = [
     review_chunk_activity,
     single_agent_review_activity,
     lens_review_activity,
+    coordinator_review_activity,
     dedup_activity,
     load_validation_skill_activity,
     validate_chunk_activity,

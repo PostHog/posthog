@@ -363,6 +363,13 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="Credits admitted since the last admission-budget refresh. Every refresh resets this to the admitting cost, or to zero on a refusal.",
     )
 
+    # A plain id rather than a foreign key, so that this product holds no constraint on the dashboards table.
+    dashboard_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Dashboard created for this scanner from Replay Vision. Can point at a dashboard the user later deleted.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)

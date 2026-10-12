@@ -13,7 +13,8 @@
 #   `Django Tests Pass` gate then relays this workflow's gate verdict. Its first step posts the
 #   `Depot run started` check that canonical's router waits for. Neither the router, the
 #   hand-off job, nor the relay has a counterpart here. A GitHub rerun does not restart this
-#   workflow, so a re-run of the relay job retries this workflow's failed jobs with `depot ci retry`.
+#   workflow, so a re-run of the relay job retries this workflow's failed and cancelled jobs with
+#   `depot ci retry`.
 #   The relay's failure log prints the label that sends the PR back to GitHub Actions, and each
 #   failed step and its log lines, read with `depot ci diagnose`, because Depot's own checks
 #   carry no output.

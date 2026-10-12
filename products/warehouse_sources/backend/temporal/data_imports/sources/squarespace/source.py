@@ -82,7 +82,7 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

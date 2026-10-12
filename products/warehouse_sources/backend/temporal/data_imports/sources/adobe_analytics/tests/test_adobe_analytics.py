@@ -12,7 +12,6 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
     AdobeAnalyticsClient,
     AdobeAnalyticsResumeConfig,
-    adobe_analytics_source,
     get_rows,
     metric_column_names,
     parse_date,
@@ -21,7 +20,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
     resolve_window,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.source import AdobeAnalyticsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adobeanalytics import (
+    AdobeAnalyticsSourceConfig,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics"
 
@@ -64,6 +72,23 @@ def _response(body: Any, status: int = 200) -> mock.MagicMock:
     return response
 
 
+def _driver(start_date: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        AdobeAnalyticsSource(),
+        AdobeAnalyticsSourceConfig(
+            client_id="cid",
+            client_secret="sec",
+            global_company_id="gcid",
+            report_suite_id="rs1",
+            start_date=start_date,
+        ),
+    )
+
+
+def _token() -> ScriptedResponse:
+    return ScriptedResponse(json={"access_token": "tok", "expires_in": 86399})
+
+
 def _report_payload(rows: list[dict[str, Any]], last_page: bool = True, total_pages: int | None = 1) -> dict[str, Any]:
     payload: dict[str, Any] = {"rows": rows, "lastPage": last_page}
     if total_pages is not None:
@@ -83,12 +108,6 @@ def _sessions() -> Iterator[tuple[mock.MagicMock, mock.MagicMock]]:
 
     with mock.patch(f"{_MODULE}.make_tracked_session", side_effect=factory):
         yield api, auth
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep() -> Iterator[mock.MagicMock]:
-    with mock.patch(f"{_MODULE}.time.sleep") as sleep:
-        yield sleep
 
 
 def _get_rows(
@@ -226,70 +245,102 @@ class TestReportRows:
 
 class TestClientAuth:
     def test_401_remints_the_token_once_and_retries(self) -> None:
-        with _sessions() as (api, auth):
-            api.get.side_effect = [_response({}, 401), _response({"content": [{"id": "s1"}]})]
+        with scripted_network(
+            [
+                _token(),
+                ScriptedResponse(status=401, json={}),
+                _token(),
+                ScriptedResponse(json={"content": [{"id": "s1"}]}),
+            ]
+        ) as network:
             client = AdobeAnalyticsClient("cid", "sec", _LOGGER, "gcid", min_request_interval=0)
 
             assert client.get_json("/segments") == {"content": [{"id": "s1"}]}
-            assert auth.post.call_count == 2
-            assert api.get.call_count == 2
+            assert network.requests_log[0].path == "/ims/token/v3"
+            assert [request.path for request in network.requests_log] == [
+                "/ims/token/v3",
+                "/api/gcid/segments",
+                "/ims/token/v3",
+                "/api/gcid/segments",
+            ]
 
     def test_persistent_401_raises(self) -> None:
-        with _sessions() as (api, _auth):
-            api.get.side_effect = [_response({}, 401), _response({}, 401)]
+        with scripted_network(
+            [_token(), ScriptedResponse(status=401), _token(), ScriptedResponse(status=401)]
+        ) as network:
             client = AdobeAnalyticsClient("cid", "sec", _LOGGER, "gcid", min_request_interval=0)
 
             with pytest.raises(requests.HTTPError):
                 client.get_json("/segments")
+            assert [request.path for request in network.requests_log] == [
+                "/ims/token/v3",
+                "/api/gcid/segments",
+                "/ims/token/v3",
+                "/api/gcid/segments",
+            ]
 
     @pytest.mark.parametrize("status", [400, 403, 404])
     def test_error_statuses_raise(self, status: int) -> None:
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({}, status)
+        with scripted_network([_token(), ScriptedResponse(status=status, json={})]) as network:
             client = AdobeAnalyticsClient("cid", "sec", _LOGGER, "gcid", min_request_interval=0)
 
             with pytest.raises(requests.HTTPError):
                 client.get_json("/segments")
+            assert [request.path for request in network.requests_log] == ["/ims/token/v3", "/api/gcid/segments"]
 
 
 class TestGlobalCompanyIdDiscovery:
     @pytest.mark.parametrize("payload", [{}, {"imsOrgs": []}, {"imsOrgs": [{"companies": []}]}])
     def test_missing_company_raises_actionable_error(self, payload: dict[str, Any]) -> None:
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response(payload)
+        with scripted_network([_token(), ScriptedResponse(json=payload)]) as network:
             client = AdobeAnalyticsClient("cid", "sec", _LOGGER, None, min_request_interval=0)
 
             with pytest.raises(ValueError, match="global company ID"):
                 client.resolve_global_company_id()
+            assert [request.path for request in network.requests_log] == ["/ims/token/v3", "/discovery/me"]
 
 
 class TestValidateCredentials:
     def test_valid_credentials(self) -> None:
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({"content": []})
-
+        with scripted_network([_token(), ScriptedResponse(json={"content": []})]) as network:
             assert validate_credentials("cid", "sec", "gcid", _LOGGER) == (True, None)
+            assert [request.path for request in network.requests_log] == [
+                "/ims/token/v3",
+                "/api/gcid/collections/suites",
+            ]
 
     def test_bad_client_credentials_are_reported(self) -> None:
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({}, 401)
-
+        with scripted_network(
+            [_token(), ScriptedResponse(status=401), _token(), ScriptedResponse(status=401)]
+        ) as network:
             valid, message = validate_credentials("cid", "sec", None, _LOGGER)
 
             assert valid is False
             assert message is not None and "client ID and secret" in message
-
-    def test_missing_product_profile_is_reported(self) -> None:
-        with _sessions() as (api, _auth):
-            api.get.side_effect = [
-                _response({"imsOrgs": [{"companies": [{"globalCompanyId": "gcid"}]}]}),
-                _response({}, 403),
+            assert [request.path for request in network.requests_log] == [
+                "/ims/token/v3",
+                "/discovery/me",
+                "/ims/token/v3",
+                "/discovery/me",
             ]
 
+    def test_missing_product_profile_is_reported(self) -> None:
+        with scripted_network(
+            [
+                _token(),
+                ScriptedResponse(json={"imsOrgs": [{"companies": [{"globalCompanyId": "gcid"}]}]}),
+                ScriptedResponse(status=403, json={}),
+            ]
+        ) as network:
             valid, message = validate_credentials("cid", "sec", None, _LOGGER)
 
             assert valid is False
             assert message is not None and "product profile" in message
+            assert [request.path for request in network.requests_log] == [
+                "/ims/token/v3",
+                "/discovery/me",
+                "/api/gcid/collections/suites",
+            ]
 
 
 class TestMetadataEndpoints:
@@ -342,97 +393,51 @@ class TestMetadataEndpoints:
 class TestReportEndpoint:
     @mock.patch(f"{_MODULE}._today", return_value=date(2024, 1, 3))
     def test_resumes_mid_window_from_saved_day_and_page(self, _mock_today: mock.MagicMock) -> None:
-        manager = FakeResumeManager(AdobeAnalyticsResumeConfig(page=2, next_date="2024-01-03"))
+        result = _driver(start_date="2024-01-01").run(
+            "report",
+            [_token(), ScriptedResponse(json=_report_payload([]))],
+            resume_state=AdobeAnalyticsResumeConfig(page=2, next_date="2024-01-03"),
+        )
 
-        with _sessions() as (api, _auth):
-            api.post.return_value = _response(_report_payload([]))
-            list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date="2024-01-01",
-                    endpoint="report",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            assert api.post.call_count == 1
-            body = api.post.call_args.kwargs["json"]
-            assert body["globalFilters"][0]["dateRange"].startswith("2024-01-03")
-            assert body["settings"]["page"] == 2
+        assert result.raised is None
+        assert result.paths == ["/ims/token/v3", "/api/gcid/reports"]
+        body = result.requests[1].json()
+        assert body["globalFilters"][0]["dateRange"].startswith("2024-01-03")
+        assert body["settings"]["page"] == 2
 
     @mock.patch(f"{_MODULE}._today", return_value=date(2024, 3, 6))
     def test_incremental_run_re_reads_the_restatement_window(self, _mock_today: mock.MagicMock) -> None:
-        manager = FakeResumeManager()
+        result = _driver(start_date="2020-01-01").run(
+            "report",
+            [_token(), *(ScriptedResponse(json=_report_payload([])) for _ in range(3))],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-03-05",
+        )
 
-        with _sessions() as (api, _auth):
-            api.post.return_value = _response(_report_payload([]))
-            list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date="2020-01-01",
-                    endpoint="report",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value="2024-03-05",
-                )
-            )
-
-            days = [call.kwargs["json"]["globalFilters"][0]["dateRange"][:10] for call in api.post.call_args_list]
-            assert days == ["2024-03-04", "2024-03-05", "2024-03-06"]
+        assert result.raised is None
+        assert result.paths == ["/ims/token/v3", "/api/gcid/reports", "/api/gcid/reports", "/api/gcid/reports"]
+        days = [request.json()["globalFilters"][0]["dateRange"][:10] for request in result.requests[1:]]
+        assert days == ["2024-03-04", "2024-03-05", "2024-03-06"]
 
     @mock.patch(f"{_MODULE}.MAX_REPORT_PAGES", 3)
     @mock.patch(f"{_MODULE}._today", return_value=date(2024, 1, 1))
     def test_page_cap_terminates_a_report_that_never_signals_completion(self, _mock_today: mock.MagicMock) -> None:
-        manager = FakeResumeManager()
+        # No `lastPage`, no `totalPages`, always rows — the cap is the only exit.
+        page = ScriptedResponse(json={"rows": [{"itemId": "1", "value": "a", "data": [1]}]})
+        result = _driver(start_date="2024-01-01").run("report", [_token(), page, page, page])
 
-        with _sessions() as (api, _auth):
-            # No `lastPage`, no `totalPages`, always rows — the cap is the only exit.
-            api.post.return_value = _response({"rows": [{"itemId": "1", "value": "a", "data": [1]}]})
-            batches = list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date="2024-01-01",
-                    endpoint="report",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            assert len(batches) == 3
-            assert api.post.call_count == 3
+        assert result.raised is None
+        assert len(result.items) == 3
+        assert result.paths == ["/ims/token/v3", "/api/gcid/reports", "/api/gcid/reports", "/api/gcid/reports"]
+        assert [request.json()["settings"]["page"] for request in result.requests[1:]] == [0, 1, 2]
 
 
 class TestAdobeAnalyticsSourceResponse:
     def test_metadata_tables_are_not_datetime_partitioned(self) -> None:
-        response = adobe_analytics_source(
-            client_id="cid",
-            client_secret="sec",
-            global_company_id="gcid",
-            report_suite_id="rs1",
-            report_dimension=None,
-            report_metrics=None,
-            start_date=None,
-            endpoint="segments",
-            logger=_LOGGER,
-            resumable_source_manager=FakeResumeManager(),
-        )
+        result = _driver().run("segments", [_token(), ScriptedResponse(json={"content": [], "lastPage": True})])
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.partition_mode is None
         assert response.partition_keys is None

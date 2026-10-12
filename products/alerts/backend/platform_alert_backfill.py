@@ -22,9 +22,10 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertConfigura
 
 logger = structlog.get_logger(__name__)
 
-# Minutes for the hourly cadence, a calendar unit for the rest. A calendar unit reads its cadence
+# Minutes for the 15-minute and hourly cadences, a calendar unit for the rest. A calendar unit reads its cadence
 # from the unit, so its minutes only feed the shard offset, which an anchored unit ignores.
 _RECURRENCE: dict[str, tuple[int, str | None]] = {
+    AlertCalculationInterval.EVERY_15_MINUTES: (15, None),
     AlertCalculationInterval.HOURLY: (60, None),
     AlertCalculationInterval.DAILY: (60 * 24, RecurrenceUnit.DAY),
     AlertCalculationInterval.WEEKLY: (60 * 24 * 7, RecurrenceUnit.WEEK),
