@@ -730,8 +730,8 @@ class SentryIssueSignalExtra(SignalExtraBase):
     level: str | None
     status: str | None
     permalink: str | None
-    shortId: str | None
-    firstSeen: str | None
+    short_id: str | None
+    first_seen: str | None
 
 
 class SentryIssueSignalInput(SignalInputBase):

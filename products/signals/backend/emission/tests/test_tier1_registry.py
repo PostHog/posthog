@@ -96,6 +96,19 @@ def test_emitter_output_matches_contract(source_type, table, product, kind):
     variant(**variant_fields)
 
 
+def test_sentry_emitter_uses_warehouse_columns() -> None:
+    config = get_signal_config(ExternalDataSourceType.SENTRY.value, "issues")
+    assert config is not None
+    assert config.fields == ("id", "title", "culprit", "level", "status", "permalink", "short_id", "first_seen")
+    assert config.partition_field == "first_seen"
+
+    record = _mock_record(config.fields)
+    output = config.emitter(1, record)
+    assert output is not None
+    assert output.extra["short_id"] == record["short_id"]
+    assert output.extra["first_seen"] == record["first_seen"]
+
+
 @pytest.mark.parametrize("source_type,table,product,kind", TIER1_SOURCES, ids=IDS)
 def test_config_has_actionability_and_summarization_prompts(source_type, table, product, kind):
     config = get_signal_config(source_type.value, table)
