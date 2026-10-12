@@ -11308,6 +11308,18 @@ export namespace Schemas {
       team: number;
     }
 
+    /**
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog
+     */
+    export type DashboardTileBadgeEnum = typeof DashboardTileBadgeEnum[keyof typeof DashboardTileBadgeEnum];
+
+
+    export const DashboardTileBadgeEnum = {
+      Winner: 'winner',
+      CheekyHog: 'cheeky-hog',
+    } as const;
+
     export interface DashboardTile {
       id?: number;
       insight: Insight;
@@ -11325,6 +11337,12 @@ export namespace Schemas {
       show_description?: boolean | null;
       /** @nullable */
       transparent_background?: boolean | null;
+      /**
+         * @maxLength 100
+         * @nullable
+         */
+      group_key?: string | null;
+      badge?: DashboardTileBadgeEnum | null;
     }
 
     export interface AddDashboardWidgetsBatchResponse {
@@ -13916,6 +13934,13 @@ export namespace Schemas {
       readonly realized_auc: number;
     }
 
+    export interface AutoresearchTrainingTrendPoint {
+      /** Iteration number inside the training run. */
+      readonly iteration_number: number;
+      /** Best holdout AUC of the run up to and including this iteration. */
+      readonly best_holdout_score: number;
+    }
+
     export interface AutoresearchPredictionCoverage {
       /** People in the inference population at the run's cutoff. */
       readonly population: number;
@@ -14049,11 +14074,28 @@ export namespace Schemas {
       readonly champion_is_preliminary: boolean | null;
       /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
       readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPoint[];
+      /** Best-so-far holdout AUC per iteration of the training run that produced the current champion, oldest first. Iterations before the first holdout score are left out. Empty when the pipeline has no champion. */
+      readonly champion_training_trend: readonly AutoresearchTrainingTrendPoint[];
       /**
          * People scored by the most recent completed inference run. Null before the first scoring run.
          * @nullable
          */
       readonly people_scored: number | null;
+      /**
+         * People the newest completed live run of the current champion scored at or above likely_threshold. Null before such a run, and for runs that did not record it.
+         * @nullable
+         */
+      readonly likely_count: number | null;
+      /**
+         * The Likely cut point that likely_count used, as it was when that run scored. It is the fixed cut point until enough predictions are checked. Null when likely_count is null.
+         * @nullable
+         */
+      readonly likely_threshold: number | null;
+      /**
+         * When online validation can first check the current champion against real outcomes: its earliest prediction date plus the horizon plus the ingestion grace. Null before the champion's first scoring run, and once a validation has checked it.
+         * @nullable
+         */
+      readonly first_check_expected_at: string | null;
       /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
       readonly coverage: AutoresearchPredictionCoverage | null;
       /** Training runs started for this pipeline. */
@@ -24606,7 +24648,7 @@ export namespace Schemas {
       top_10: ConfusionCounts;
       /** Counts when the top 20% of users by score are flagged. */
       top_20: ConfusionCounts;
-      /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+      /** Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged. */
       likely: ConfusionCounts;
     }
 
@@ -27462,6 +27504,12 @@ export namespace Schemas {
      */
     export type DashboardPersistedVariables = { [key: string]: unknown } | null;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type DashboardGroupTitles = {[key: string]: string} | null;
+
     export type DashboardTilesItem = { [key: string]: unknown };
 
     /**
@@ -27512,6 +27560,11 @@ export namespace Schemas {
       Stable: 'stable',
     } as const;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     */
+    export type DashboardCustomizationGroupTitles = {[key: string]: string};
+
     export interface DashboardCustomization {
       /** Named tile density preset.
        *
@@ -27527,6 +27580,8 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+      group_titles?: DashboardCustomizationGroupTitles;
     }
 
     /**
@@ -27620,6 +27675,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: DashboardGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -27810,6 +27870,17 @@ export namespace Schemas {
       layouts?: _DashboardPatchTileLayoutsOpenApi;
       /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
       show_description?: boolean;
+      /**
+         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+         * @maxLength 100
+         * @nullable
+         */
+      group_key?: string | null;
+      /** Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.
+       *
+       * * `winner` - Winner
+       * * `cheeky-hog` - Cheeky hog */
+      badge?: DashboardTileBadgeEnum | null;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
     }
@@ -27945,6 +28016,12 @@ export namespace Schemas {
      */
     export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type DashboardWriteOpenApiGroupTitles = {[key: string]: string} | null;
+
     export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
 
     /**
@@ -28039,6 +28116,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: DashboardWriteOpenApiGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -54453,9 +54535,32 @@ export namespace Schemas {
       readonly suggestions_enabled: boolean | null;
     }
 
+    /**
+     * * `running` - Running
+     * * `paused_by_user` - Paused By User
+     * * `paused_by_system` - Paused By System
+     * * `not_running` - Not Running
+     */
+    export type SuggestionsScoutStatusEnum = typeof SuggestionsScoutStatusEnum[keyof typeof SuggestionsScoutStatusEnum];
+
+
+    export const SuggestionsScoutStatusEnum = {
+      Running: 'running',
+      PausedByUser: 'paused_by_user',
+      PausedBySystem: 'paused_by_system',
+      NotRunning: 'not_running',
+    } as const;
+
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
+      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+       *
+       * * `running` - Running
+       * * `paused_by_user` - Paused By User
+       * * `paused_by_system` - Paused By System
+       * * `not_running` - Not Running */
+      readonly scout_status: SuggestionsScoutStatusEnum;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -67819,6 +67924,11 @@ export namespace Schemas {
       /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
       confusion: ConfusionByCutoff | null;
       /**
+         * The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the dates checked before it. Null when confusion is null.
+         * @nullable
+         */
+      likely_threshold: number | null;
+      /**
          * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
          * @nullable
          */
@@ -67835,9 +67945,39 @@ export namespace Schemas {
       validated_at: string | null;
     }
 
+    export interface PredictionSegmentThresholds {
+      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+      likely_threshold: number;
+      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+      possible_threshold: number;
+      /** How many times the base rate a score must reach to be in the Likely segment. */
+      likely_lift: number;
+      /**
+         * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+         * @nullable
+         */
+      base_rate: number | null;
+      /** Number of checked prediction dates the base rate pools. */
+      base_rate_dates: number;
+      /**
+         * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
+         * @nullable
+         */
+      champion_mean_p_y: number | null;
+      /**
+         * The real rate of the target event over the same dates as champion_mean_p_y.
+         * @nullable
+         */
+      champion_base_rate: number | null;
+      /** True when champion_mean_p_y is far above or below champion_base_rate. The scores are then not probabilities (for example after class weighting in train.py), so a score of likely_lift times the base rate does not mean the user is that many times as likely to convert. */
+      scores_miscalibrated: boolean;
+    }
+
     export interface OnlinePerformance {
       /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
       rows: OnlinePerformanceRow[];
+      /** The current cut points between the Likely, Possible and Unlikely segments, set by lift over the realized base rate. They do not depend on limit. */
+      segment_thresholds: PredictionSegmentThresholds;
     }
 
     /**
@@ -73464,6 +73604,40 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Subscription[];
+    }
+
+    export interface SubscriptionSummary {
+      /** ID of the delivery that included this summary. */
+      readonly id: string;
+      /** ID of the subscription that generated this summary. */
+      readonly subscription: number;
+      /**
+         * Title of the subscription that generated this summary. Null when the subscription has no title.
+         * @nullable
+         */
+      readonly subscription_title: string | null;
+      /** Channel the summary was sent to: email, slack, or teams. */
+      readonly target_type: string;
+      /**
+         * AI-generated summary text included in the delivery.
+         * @nullable
+         */
+      readonly change_summary: string | null;
+      /**
+         * Start of the period this summary covers: the time of the previous completed delivery of the same subscription. Null for the first delivery, which has no earlier data to compare with.
+         * @nullable
+         */
+      readonly period_start: string | null;
+      /** When the delivery started. This is also the end of the covered period. */
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSubscriptionSummaryList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SubscriptionSummary[];
     }
 
     /**
@@ -81434,6 +81608,12 @@ export namespace Schemas {
     }
 
     /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type PatchedPatchedDashboardOpenApiGroupTitles = {[key: string]: string} | null;
+
+    /**
      * OpenAPI-only PATCH body for dashboards (agents/MCP).
      *
      * Must be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``
@@ -81485,6 +81665,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: PatchedPatchedDashboardOpenApiGroupTitles;
       /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
@@ -83647,16 +83832,20 @@ export namespace Schemas {
          */
       write_scopes?: string[];
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @maxLength 10000
          * @nullable
          */
       precheck_query?: string | null;
+      /** True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null. */
+      precheck_disabled?: boolean;
       /**
          * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
          * @maxLength 64
          */
       suggestion_id?: string;
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      lifecycle_locked?: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -95220,6 +95409,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `pipeline` - Pipeline
+     * * `single_agent` - Single agent
+     */
+    export type ReviewTurnDesignEnum = typeof ReviewTurnDesignEnum[keyof typeof ReviewTurnDesignEnum];
+
+
+    export const ReviewTurnDesignEnum = {
+      Pipeline: 'pipeline',
+      SingleAgent: 'single_agent',
+    } as const;
+
+    /**
      * * `fetching` - fetching
      * * `chunking` - chunking
      * * `selecting` - selecting
@@ -95446,6 +95647,88 @@ export namespace Schemas {
       validator_note: string;
     }
 
+    /**
+     * * `must_fix` - Must fix
+     * * `should_fix` - Should fix
+     * * `consider` - Consider
+     */
+    export type ReviewDroppedFindingPriorityEnum = typeof ReviewDroppedFindingPriorityEnum[keyof typeof ReviewDroppedFindingPriorityEnum];
+
+
+    export const ReviewDroppedFindingPriorityEnum = {
+      MustFix: 'must_fix',
+      ShouldFix: 'should_fix',
+      Consider: 'consider',
+    } as const;
+
+    /**
+     * * `old_code` - On unchanged code
+     * * `dedup_prior` - Repeat of an earlier review
+     * * `dedup_comment` - Already in a PR comment
+     * * `dedup_anchor` - Same spot as another finding
+     * * `dedup_sibling` - Repeat of a finding
+     * * `cap` - Over the limit
+     */
+    export type ReviewDropDispositionEnum = typeof ReviewDropDispositionEnum[keyof typeof ReviewDropDispositionEnum];
+
+
+    export const ReviewDropDispositionEnum = {
+      OldCode: 'old_code',
+      DedupPrior: 'dedup_prior',
+      DedupComment: 'dedup_comment',
+      DedupAnchor: 'dedup_anchor',
+      DedupSibling: 'dedup_sibling',
+      Cap: 'cap',
+    } as const;
+
+    export interface ReviewDroppedFinding {
+      /** One-line summary of the finding. */
+      title: string;
+      /** Repository-relative path of the affected file. */
+      file: string;
+      /** Affected line ranges within the file. */
+      lines: ReviewFindingLineRange[];
+      /** Description of the problem. */
+      body: string;
+      /** The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body with the fix direction instead. */
+      suggestion: string;
+      /** The reviewer's priority for the finding.
+       *
+       * * `must_fix` - Must fix
+       * * `should_fix` - Should fix
+       * * `consider` - Consider */
+      priority: ReviewDroppedFindingPriorityEnum;
+      /**
+         * The session that raised the finding: the main review or a lens.
+         * @nullable
+         */
+      source_perspective: string | null;
+      /** Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+       *
+       * * `old_code` - On unchanged code
+       * * `dedup_prior` - Repeat of an earlier review
+       * * `dedup_comment` - Already in a PR comment
+       * * `dedup_anchor` - Same spot as another finding
+       * * `dedup_sibling` - Repeat of a finding
+       * * `cap` - Over the limit */
+      disposition: ReviewDropDispositionEnum;
+      /**
+         * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
+         * @nullable
+         */
+      duplicate_of: string | null;
+      /**
+         * Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is known. Null otherwise.
+         * @nullable
+         */
+      comment_url: string | null;
+      /**
+         * For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.
+         * @nullable
+         */
+      rank: number | null;
+    }
+
     export interface ReviewDetail {
       /** The review report's id, for fetching the review's detail. */
       id: string;
@@ -95501,6 +95784,11 @@ export namespace Schemas {
        * * `full` - Deep
        * * `flash` - Standard */
       review_mode: ReviewTriggerReviewModeEnum | null;
+      /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+       *
+       * * `pipeline` - Pipeline
+       * * `single_agent` - Single agent */
+      review_design: ReviewTurnDesignEnum | null;
       /**
          * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
          * @nullable
@@ -95575,6 +95863,8 @@ export namespace Schemas {
       findings: ReviewFinding[];
       /** The returned turn's findings the validator dismissed, with its reasoning. */
       dismissed_findings: ReviewFinding[];
+      /** The returned turn's findings a single-agent (Standard) review raised but did not post, each with the reason. Empty for pipeline turns and for turns that predate the record. */
+      dropped_findings: ReviewDroppedFinding[];
     }
 
     export interface ReviewHogSettingsError {
@@ -95871,6 +96161,11 @@ export namespace Schemas {
        * * `full` - Deep
        * * `flash` - Standard */
       review_mode: ReviewTriggerReviewModeEnum | null;
+      /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+       *
+       * * `pipeline` - Pipeline
+       * * `single_agent` - Single agent */
+      review_design: ReviewTurnDesignEnum | null;
       /**
          * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
          * @nullable
@@ -96185,6 +96480,15 @@ export namespace Schemas {
       description: string;
       /** The resolution skill's SKILL.md body, for the read-only skill viewer. */
       body: string;
+    }
+
+    export interface ReviewReviewsTablePage {
+      /** How many reviews match the scope and every filter, across all pages. */
+      count: number;
+      /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
+      running_count: number;
+      /** One page of reviews, most recent activity first. */
+      results: ReviewRecentReview[];
     }
 
     export interface ReviewStateCounts {
@@ -96964,6 +97268,8 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      lifecycle_locked?: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -96975,7 +97281,7 @@ export namespace Schemas {
        * * `support_notes` - Support notes */
       tool_preset?: ToolPresetEnum;
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @maxLength 10000
          * @nullable
          */
@@ -97136,6 +97442,15 @@ export namespace Schemas {
       Background: 'background',
     } as const;
 
+    export type ScoutPrecheckQuerySourceEnum = typeof ScoutPrecheckQuerySourceEnum[keyof typeof ScoutPrecheckQuerySourceEnum];
+
+
+    export const ScoutPrecheckQuerySourceEnum = {
+      Config: 'config',
+      SkillDefault: 'skill_default',
+      Off: 'off',
+    } as const;
+
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -97235,6 +97550,8 @@ export namespace Schemas {
          * @maxItems 10
          */
       readonly write_scopes: readonly string[];
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      readonly lifecycle_locked: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -97246,10 +97563,19 @@ export namespace Schemas {
          */
       readonly tool_preset: string | null;
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @nullable
          */
       readonly precheck_query: string | null;
+      /** True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null. */
+      readonly precheck_disabled: boolean;
+      /**
+         * The pre-check query the next scheduled run uses: `precheck_query`, or the default the scout's skill ships. Null when no pre-check runs.
+         * @nullable
+         */
+      readonly effective_precheck_query: string | null;
+      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+      readonly precheck_query_source: ScoutPrecheckQuerySourceEnum;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -98457,6 +98783,7 @@ export namespace Schemas {
     export const TrialComparisonOutcomeStatusEnum = {
       Winner: 'winner',
       Tie: 'tie',
+      Provisional: 'provisional',
       Inconclusive: 'inconclusive',
     } as const;
 
@@ -100141,6 +100468,8 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      lifecycle_locked?: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -100152,7 +100481,7 @@ export namespace Schemas {
        * * `support_notes` - Support notes */
       tool_preset?: ToolPresetEnum;
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @maxLength 10000
          * @nullable
          */
@@ -100315,6 +100644,8 @@ export namespace Schemas {
       since: string;
       /** The value bound to `{now}`. */
       now: string;
+      /** The value bound to `{interval_minutes}`: the scout's rolling interval, or for a cron schedule the gap in minutes between the fire times around now. */
+      interval_minutes: number;
       /** How many rows the query returned, at most 50. */
       row_count: number;
       /** The column names of the result, in order. */
@@ -100326,11 +100657,13 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** The member scheduled runs check the query as, when that is not you. The test runs with your access, so a table you can read can still fail on a scheduled run, and the run then starts as if there were no pre-check. Null when scheduled runs check it as you. */
+      readonly acting_user: UserBasic | null;
     }
 
     export interface SignalScoutPrecheckTestRequest {
       /**
-         * HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.
+         * HogQL `SELECT` to try, with the same `{since}`, `{now}` and `{interval_minutes}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the scout's effective query: its own `precheck_query`, or the default its skill ships.
          * @maxLength 10000
          * @nullable
          */
@@ -100344,10 +100677,11 @@ export namespace Schemas {
       has_chart: boolean;
       has_self_validation: boolean;
       has_structured_output: boolean;
+      has_not_in_use_closeout: boolean;
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunDetailMetadata = {
       harness_prompt_version?: string;
@@ -100432,7 +100766,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
@@ -100443,10 +100777,11 @@ export namespace Schemas {
       has_chart: boolean;
       has_self_validation: boolean;
       has_structured_output: boolean;
+      has_not_in_use_closeout: boolean;
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunSummaryMetadata = {
       harness_prompt_version?: string;
@@ -100531,7 +100866,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 
@@ -126737,6 +127072,79 @@ export namespace Schemas {
       Flash: 'flash',
     } as const;
 
+    export type ReviewHogReviewsTableRetrieveParams = {
+    /**
+     * Rows per page. Defaults to 25, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many rows to skip, for paging through the table.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
+    /**
+     * Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.
+     * @nullable
+     */
+    published?: boolean | null;
+    /**
+     * Only reviews of this repository, as `owner/repo`. Matched case-insensitively.
+     * @minLength 1
+     */
+    repository?: string;
+    /**
+     * Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' (Standard). Turns that did not record their mode match neither value.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    review_mode?: ReviewHogReviewsTableRetrieveReviewMode;
+    /**
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - Mine
+     * * `everyone` - Everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsTableRetrieveScope;
+    /**
+     * Only reviews in this state: 'running' for reviews with a run in flight (activity within the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * @minLength 1
+     */
+    status?: ReviewHogReviewsTableRetrieveStatus;
+    };
+
+    export type ReviewHogReviewsTableRetrieveReviewMode = typeof ReviewHogReviewsTableRetrieveReviewMode[keyof typeof ReviewHogReviewsTableRetrieveReviewMode];
+
+
+    export const ReviewHogReviewsTableRetrieveReviewMode = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveScope = typeof ReviewHogReviewsTableRetrieveScope[keyof typeof ReviewHogReviewsTableRetrieveScope];
+
+
+    export const ReviewHogReviewsTableRetrieveScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveStatus = typeof ReviewHogReviewsTableRetrieveStatus[keyof typeof ReviewHogReviewsTableRetrieveStatus];
+
+
+    export const ReviewHogReviewsTableRetrieveStatus = {
+      Running: 'running',
+      Completed: 'completed',
+    } as const;
+
     export type SandboxCustomImagesListParams = {
     /**
      * Number of results to return per page.
@@ -127684,6 +128092,23 @@ export namespace Schemas {
       Skipped: 'skipped',
       Starting: 'starting',
     } as const;
+
+    export type SubscriptionsSummariesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Dashboard ID. Returns summaries from the subscriptions on this dashboard. Set either dashboard or insight.
+     * @minimum 1
+     */
+    dashboard?: number;
+    /**
+     * Insight ID. Returns summaries from the subscriptions on this insight. Set either insight or dashboard.
+     * @minimum 1
+     */
+    insight?: number;
+    };
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;

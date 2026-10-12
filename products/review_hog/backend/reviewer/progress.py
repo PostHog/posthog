@@ -9,12 +9,26 @@ comment, so the two surfaces can never disagree.
 
 import logging
 import operator
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import reduce
 from typing import Any, Final, Literal
 
-from django.db.models import Case, CharField, Func, IntegerField, JSONField, Max, Q, QuerySet, Value, When
+from django.db.models import (
+    Case,
+    CharField,
+    Exists,
+    Func,
+    IntegerField,
+    JSONField,
+    Max,
+    OuterRef,
+    Q,
+    QuerySet,
+    Value,
+    When,
+)
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -32,8 +46,9 @@ from products.review_hog.backend.reviewer.artefact_content import (
     RunOutcomeNote,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
+from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, effective_priority
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import (
@@ -99,6 +114,22 @@ class TurnStats:
     selection_chunks: list[ChunkPerspectiveSelection] | None = None
     # The turn marker is written right before the review sessions start, so it ends the preparing step.
     has_turn_marker: bool = False
+
+
+def finding_counts(
+    pairs: Sequence[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+) -> tuple[dict[IssuePriority, int], int]:
+    """Kept findings per effective priority, and the dismissed count. Unjudged findings count in neither."""
+    counts = dict.fromkeys(IssuePriority, 0)
+    dismissed = 0
+    for finding, verdict in pairs:
+        if verdict is None:
+            continue
+        if verdict.is_valid:
+            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
+        else:
+            dismissed += 1
+    return counts, dismissed
 
 
 def _content_json() -> Cast:
@@ -676,6 +707,17 @@ def in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str
         if last_activity is not None and last_activity >= cutoff:
             fresh.add(str(report.id))
     return fresh
+
+
+def running_q(team_id: int) -> Q:
+    """The same liveness as `in_progress_report_ids`, as a queryset filter for the paginated table."""
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh_artefact = Exists(
+        _activity_artefacts(
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=OuterRef("id"), created_at__gte=cutoff)
+        )
+    )
+    return Q(status=ReviewReport.Status.ACTIVE) & (Q(updated_at__gte=cutoff) | Q(fresh_artefact))
 
 
 def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int | None:
