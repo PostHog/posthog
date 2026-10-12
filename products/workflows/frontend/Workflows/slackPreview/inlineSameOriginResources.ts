@@ -5,7 +5,7 @@ import { BLANK_IMAGE } from 'lib/utils/captureElementImage'
 // capture never requests one itself.
 const RESOURCE_FETCH_TIMEOUT_MS = 5000
 const BYTES_PER_CHUNK = 0x8000
-const CSS_URL = /url\(\s*(['"]?)(.*?)\1\s*\)/g
+const CSS_URL = /url\(\s*(['"]?)(.*?)\1\s*\)/gi
 const SVG_IMAGE_HREF_ATTRIBUTES = ['href', 'xlink:href']
 
 export async function inlineSameOriginResources(emailDocument: Document): Promise<void> {

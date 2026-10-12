@@ -6,12 +6,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { workflowLogic } from '../workflowLogic'
+import { latestSaveStamp, workflowLogic } from '../workflowLogic'
 import { UNSAVED_CHANGES_REASON } from './shareDisabledReason'
 import { ShareWorkflowPreviewLogicProps, shareWorkflowPreviewLogic } from './shareWorkflowPreviewLogic'
 
 export function ShareWorkflowPreviewPanelButton({ id }: ShareWorkflowPreviewLogicProps): JSX.Element {
-    const { workflow, workflowUserAccessLevel, hasUnsavedChanges } = useValues(workflowLogic)
+    const { workflow, originalWorkflow, workflowUserAccessLevel, hasUnsavedChanges } = useValues(workflowLogic)
     const { openModal } = useActions(shareWorkflowPreviewLogic({ id }))
 
     return (
@@ -25,7 +25,7 @@ export function ShareWorkflowPreviewPanelButton({ id }: ShareWorkflowPreviewLogi
                 return (
                     <ButtonPrimitive
                         menuItem
-                        onClick={() => openModal(workflow)}
+                        onClick={() => openModal(workflow, latestSaveStamp(originalWorkflow) ?? workflow.updated_at)}
                         disabled={!!disabledReason}
                         tooltip={disabledReason ?? undefined}
                         data-attr="workflow-share-preview-btn"

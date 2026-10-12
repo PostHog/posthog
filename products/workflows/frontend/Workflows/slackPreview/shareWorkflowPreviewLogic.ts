@@ -46,6 +46,7 @@ export interface shareWorkflowPreviewLogicValues {
     isOpen: boolean
     isSubmitting: boolean
     note: string
+    savedAt: string
     selectedEmailSteps: EmailStep[]
     selectedSlackIntegration: IntegrationType | null
     submitDisabledReason: string | undefined
@@ -58,7 +59,11 @@ export interface shareWorkflowPreviewLogicActions {
     closeModal: () => {
         value: true
     }
-    openModal: (workflow: HogFlow) => {
+    openModal: (
+        workflow: HogFlow,
+        savedAt: string
+    ) => {
+        savedAt: string
         workflow: HogFlow
     }
     setChannel: (channel: string | null) => {
@@ -128,7 +133,7 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
         values: [projectLogic, ['currentProjectId'], integrationsLogic, ['integrations', 'slackIntegrations']],
     })),
     actions({
-        openModal: (workflow: HogFlow) => ({ workflow }),
+        openModal: (workflow: HogFlow, savedAt: string) => ({ workflow, savedAt }),
         closeModal: true,
         setIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setChannel: (channel: string | null) => ({ channel }),
@@ -141,6 +146,7 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
     }),
     reducers({
         workflow: [null as HogFlow | null, { openModal: (_, { workflow }) => workflow }],
+        savedAt: ['', { openModal: (_, { savedAt }) => savedAt }],
         isOpen: [false, { openModal: () => true, closeModal: () => false, submitSuccess: () => false }],
         integrationId: [null as number | null, { setIntegrationId: (_, { integrationId }) => integrationId }],
         channel: [null as string | null, { setChannel: (_, { channel }) => channel, setIntegrationId: () => null }],
@@ -212,7 +218,7 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         submit: async () => {
-            const { integrationId, channel, threadLink, note, selectedEmailSteps, currentProjectId } = values
+            const { integrationId, channel, threadLink, note, selectedEmailSteps, currentProjectId, savedAt } = values
             if (!integrationId || !currentProjectId) {
                 actions.submitFailure('incomplete_form', 'Select a Slack workspace and a channel first.')
                 return
@@ -246,6 +252,7 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
             try {
                 await hogFlowsSharePreviewToSlack(String(currentProjectId), props.id, {
                     integration_id: integrationId,
+                    workflow_saved_at: savedAt,
                     channel,
                     thread_link: threadLink.trim() || null,
                     note,
@@ -253,7 +260,7 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
                 })
             } catch (e) {
                 actions.submitFailure(
-                    'slack_rejected',
+                    e instanceof ApiError && e.status === 429 ? 'throttled' : 'slack_rejected',
                     (e instanceof ApiError && e.detail) || "Couldn't share the preview to Slack. Try again."
                 )
                 return

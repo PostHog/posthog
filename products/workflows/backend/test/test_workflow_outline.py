@@ -105,9 +105,88 @@ class TestWorkflowOutline(SimpleTestCase):
             f"{INDENT}↳ Paid plan",
             f'{INDENT}{INDENT}• Thanks: email "Thanks for paying"',
             f"{INDENT}↳ No match",
-            f'{INDENT}{INDENT}• Upsell: email ""',
+            f"{INDENT}{INDENT}• Upsell: email",
         )
         assert outline.email_steps[-1] == EmailStep(action_id="upsell", title="Upsell")
+
+    @parameterized.expand(
+        [
+            ("named_condition", {"condition": {"name": "Opened the app"}}, "Opened the app"),
+            (
+                "property_condition_only",
+                {"condition": {"filters": {"properties": [{"key": "plan"}]}}},
+                "Condition matched",
+            ),
+            ("event_only", {"events": [{"filters": {"events": [{"id": "uploaded file"}]}}]}, "Event received"),
+            (
+                "event_or_property_condition",
+                {
+                    "condition": {"filters": {"properties": [{"key": "plan"}]}},
+                    "events": [{"filters": {"events": [{"id": "uploaded file"}]}}],
+                },
+                "Condition or event matched",
+            ),
+        ]
+    )
+    def test_labels_how_a_wait_resolves_like_the_editor(
+        self, _name: str, config: dict[str, Any], expected_match: str
+    ) -> None:
+        actions = [
+            SIGNED_UP_TRIGGER,
+            {"id": "wait", "name": "Wait for upload", "type": "wait_until_condition", "config": config},
+            _email("nudge", "Nudge", "Need a hand?"),
+            _email("thanks", "Thanks", "Nice upload"),
+        ]
+        edges = [
+            {"from": "trigger", "to": "wait", "type": "continue"},
+            {"from": "wait", "to": "thanks", "type": "branch", "index": 0},
+            {"from": "wait", "to": "nudge", "type": "continue"},
+        ]
+
+        outline = outline_workflow(actions, edges)
+
+        assert outline.lines[1:] == (
+            "• Wait for upload",
+            f"{INDENT}↳ {expected_match}",
+            f'{INDENT}{INDENT}• Thanks: email "Nice upload"',
+            f"{INDENT}↳ No match",
+            f'{INDENT}{INDENT}• Nudge: email "Need a hand?"',
+        )
+
+    def test_labels_a_wait_timeout_and_a_split_fallback(self) -> None:
+        actions = [
+            SIGNED_UP_TRIGGER,
+            {"id": "wait", "name": "Wait", "type": "wait_until_condition", "config": {"max_wait_duration": "3d"}},
+            {
+                "id": "split",
+                "name": "Split",
+                "type": "random_cohort_branch",
+                "config": {"cohorts": [{"percentage": 100}]},
+            },
+            {"id": "first", "name": "First cohort", "type": "delay", "config": {"delay_duration": "1h"}},
+            {"id": "unnamed", "name": "", "type": "delay", "config": {"delay_duration": "1h"}},
+        ]
+        edges = [
+            {"from": "trigger", "to": "wait", "type": "continue"},
+            {"from": "wait", "to": "split", "type": "branch", "index": 0},
+            {"from": "wait", "to": "unnamed", "type": "continue"},
+            {"from": "split", "to": "first", "type": "branch", "index": 0},
+            {"from": "split", "to": "unnamed", "type": "continue"},
+        ]
+
+        outline = outline_workflow(actions, edges)
+
+        assert outline.lines[1:] == (
+            "• Wait: up to 3d",
+            f"{INDENT}↳ Condition matched",
+            f"{INDENT}{INDENT}• Split",
+            f"{INDENT}{INDENT}{INDENT}↳ If cohort #1 matches (100%)",
+            f"{INDENT}{INDENT}{INDENT}{INDENT}• First cohort: 1h",
+            f"{INDENT}{INDENT}{INDENT}↳ Fallback if no cohort has traffic",
+            f"{INDENT}{INDENT}{INDENT}{INDENT}• 1h",
+            f"{INDENT}↳ No match within 3d",
+            f"{INDENT}{INDENT}• Continues at an earlier step",
+        )
 
     @parameterized.expand(
         [

@@ -1,5 +1,6 @@
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
 from slack_sdk import WebClient
@@ -15,7 +16,10 @@ from products.workflows.backend.facade.contracts import Workflow
 from products.workflows.backend.services.workflow_outline import WorkflowOutline, outline_workflow
 
 SLACK_REQUEST_TIMEOUT_SECONDS = 15
-MAX_OUTLINE_LINES = 100
+# Slack cuts message text off at 40,000 characters, so the outline yields room to everything else.
+MAX_MESSAGE_LENGTH = 30_000
+MAX_DESCRIPTION_LENGTH = 1000
+OUTLINE_CUT_NOTE = "• …more steps. Open the workflow to see them all."
 FILE_UPLOAD_SCOPE = "files:write"
 SLACK_ERROR_MESSAGES = {
     "not_in_channel": "PostHog is not in this Slack channel. Add it with /invite @PostHog, then share again.",
@@ -88,11 +92,16 @@ def share_workflow_preview_to_slack(
     destination: SlackDestination,
     note: str,
     email_images: Sequence[EmailStepImage],
+    rendered_from_save: datetime,
 ) -> None:
     """Post the workflow's outline, as the editor shows it, with the given rendered emails.
 
     The message text comes from the stored workflow, so a caller only adds its note and an image
-    for each of the workflow's own email steps."""
+    for each of the workflow's own email steps, rendered from the save it names."""
+    if _last_saved_at(workflow) > rendered_from_save:
+        raise WorkflowPreviewShareError(
+            "This workflow changed after you opened the preview. Close it and share again to include the changes."
+        )
     outline = _outline_of(workflow)
     emails = _attach_to_email_steps(outline, email_images)
     slack = SlackIntegration(integration, source="workflows_preview")
@@ -112,6 +121,12 @@ def share_workflow_preview_to_slack(
         ) from error
     except (SlackClientError, OSError) as error:
         raise WorkflowPreviewShareError("Couldn't reach Slack. Try again in a moment.") from error
+
+
+def _last_saved_at(workflow: Workflow) -> datetime:
+    if workflow.draft_updated_at and workflow.draft_updated_at > workflow.updated_at:
+        return workflow.draft_updated_at
+    return workflow.updated_at
 
 
 def _outline_of(workflow: Workflow) -> WorkflowOutline:
@@ -172,24 +187,30 @@ def _post_preview(
 def _preview_message(workflow: Workflow, shared_by: User, note: str, outline: WorkflowOutline, email_count: int) -> str:
     workflow_url = absolute_uri(f"/project/{workflow.team_id}/workflows/{workflow.id}/workflow")
     sharer = escape_slack_mrkdwn(shared_by.first_name or shared_by.email)
-    sections = [f"{sharer} shared a preview of the workflow *{escape_slack_mrkdwn(workflow.name or 'Untitled')}*"]
+    header = [f"{sharer} shared a preview of the workflow *{escape_slack_mrkdwn(workflow.name or 'Untitled')}*"]
     if workflow.description:
-        sections.append(f"> {escape_slack_mrkdwn(workflow.description)}")
+        header.append(f"> {escape_slack_mrkdwn(_clip(workflow.description, MAX_DESCRIPTION_LENGTH))}")
     if note.strip():
-        sections.append(escape_slack_mrkdwn(note.strip()))
-    if outline.lines:
-        sections.append(f"*Steps*\n{_steps(outline.lines)}")
-    if email_count:
-        sections.append(f"_{_email_count(email_count)} attached below as rendered previews._")
-    sections.append(f"<{workflow_url}|Open the workflow in PostHog>")
-    return "\n\n".join(sections)
+        header.append(escape_slack_mrkdwn(note.strip()))
+    footer = [f"_{_email_count(email_count)} attached below as rendered previews._"] if email_count else []
+    footer.append(f"<{workflow_url}|Open the workflow in PostHog>")
+    steps_budget = MAX_MESSAGE_LENGTH - len("\n\n".join([*header, *footer, "*Steps*\n"]))
+    steps = [f"*Steps*\n{_steps(outline.lines, steps_budget)}"] if outline.lines else []
+    return "\n\n".join([*header, *steps, *footer])
 
 
-def _steps(lines: Sequence[str]) -> str:
-    shown = [escape_slack_mrkdwn(line) for line in lines[:MAX_OUTLINE_LINES]]
-    hidden = len(lines) - len(shown)
-    if hidden:
-        shown.append(f"• …and {hidden} more {'step' if hidden == 1 else 'steps'}")
+def _clip(text: str, max_length: int) -> str:
+    return text if len(text) <= max_length else f"{text[: max_length - 1]}…"
+
+
+def _steps(lines: Sequence[str], budget: int) -> str:
+    shown: list[str] = []
+    room = budget - len(OUTLINE_CUT_NOTE) - 1
+    for line in map(escape_slack_mrkdwn, lines):
+        room -= len(line) + 1
+        if room < 0:
+            return "\n".join([*shown, OUTLINE_CUT_NOTE])
+        shown.append(line)
     return "\n".join(shown)
 
 

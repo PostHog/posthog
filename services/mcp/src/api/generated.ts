@@ -99088,6 +99088,8 @@ export namespace Schemas {
     export interface SharePreviewToSlackRequest {
       /** ID of the project's Slack integration to post with. */
       integration_id: number;
+      /** When the workflow the emails were rendered from was saved: the newer of its `updated_at` and `draft_updated_at`. A workflow saved after that is rejected, so images always match the posted text. */
+      workflow_saved_at: string;
       /**
          * Slack channel to post in: a channel ID, or the channel picker's `ID|#name` value. Ignored when `thread_link` is set.
          * @nullable

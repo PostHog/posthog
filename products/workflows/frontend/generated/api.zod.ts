@@ -2755,6 +2755,11 @@ export const hogFlowsSharePreviewToSlackBodyEmailsMax = 10
 
 export const HogFlowsSharePreviewToSlackBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().describe("ID of the project's Slack integration to post with."),
+    workflow_saved_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'When the workflow the emails were rendered from was saved: the newer of its `updated_at` and `draft_updated_at`. A workflow saved after that is rejected, so images always match the posted text.'
+        ),
     channel: zod
         .string()
         .nullish()

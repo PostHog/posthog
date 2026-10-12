@@ -17,6 +17,37 @@ const workflowSendingFrom = (from: unknown): HogFlow =>
     }) as unknown as HogFlow
 
 describe('listEmailSteps', () => {
+    it('lists the emails the trigger reaches in the order a contact runs through them', () => {
+        const email = (id: string): Record<string, unknown> => ({
+            id,
+            name: id,
+            type: 'function_email',
+            config: { inputs: { email: { value: { subject: id } } } },
+        })
+        const workflow = {
+            actions: [
+                email('unreachable'),
+                email('after_split'),
+                email('second_branch'),
+                email('first_branch'),
+                { id: 'split', name: 'Split', type: 'conditional_branch', config: {} },
+                { id: 'trigger', name: 'Trigger', type: 'trigger', config: { type: 'event' } },
+            ],
+            edges: [
+                { from: 'trigger', to: 'split', type: 'continue' },
+                { from: 'split', to: 'after_split', type: 'continue' },
+                { from: 'split', to: 'second_branch', type: 'branch', index: 1 },
+                { from: 'split', to: 'first_branch', type: 'branch', index: 0 },
+            ],
+        } as unknown as HogFlow
+
+        expect(listEmailSteps(workflow).map((step) => step.actionId)).toEqual([
+            'first_branch',
+            'second_branch',
+            'after_split',
+        ])
+    })
+
     it.each([
         ['the connected sender', { integrationId: 7 }, 'Hedgebox team <hello@example.com>'],
         ['a blank sender override', { integrationId: 7, email: '', name: '' }, 'Hedgebox team <hello@example.com>'],

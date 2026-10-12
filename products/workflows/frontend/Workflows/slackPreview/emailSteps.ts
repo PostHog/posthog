@@ -1,7 +1,7 @@
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { isEmailAction } from '../hogflows/steps/types'
-import type { HogFlow, HogFlowAction } from '../hogflows/types'
+import type { HogFlow, HogFlowAction, HogFlowEdge } from '../hogflows/types'
 
 export interface EmailStep {
     actionId: string
@@ -25,7 +25,35 @@ export function listEmailSteps(
     workflow: HogFlow,
     sendersByIntegrationId: EmailSendersByIntegrationId = {}
 ): EmailStep[] {
-    return workflow.actions.filter(isEmailAction).map((action) => toEmailStep(action, sendersByIntegrationId))
+    return actionsInRunOrder(workflow)
+        .filter(isEmailAction)
+        .map((action) => toEmailStep(action, sendersByIntegrationId))
+}
+
+// The order the server's outline lists steps in: depth first from the trigger, each branch in index
+// order before the step that follows when no branch matches. Steps the trigger cannot reach are left out.
+function actionsInRunOrder(workflow: HogFlow): HogFlowAction[] {
+    const actionsById = new Map(workflow.actions.map((action) => [action.id, action]))
+    const nextSteps = (actionId: string): HogFlowEdge[] => {
+        const outgoing = workflow.edges.filter((edge) => edge.from === actionId)
+        const branches = outgoing
+            .filter((edge) => edge.type === 'branch')
+            .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+        return [...branches, ...outgoing.filter((edge) => edge.type === 'continue')]
+    }
+    const visited = new Set<string>()
+    const ordered: HogFlowAction[] = []
+    const visit = (actionId: string | undefined): void => {
+        const action = actionId ? actionsById.get(actionId) : undefined
+        if (!action || visited.has(action.id)) {
+            return
+        }
+        visited.add(action.id)
+        ordered.push(action)
+        nextSteps(action.id).forEach((edge) => visit(edge.to))
+    }
+    visit(workflow.actions.find((action) => action.type === 'trigger')?.id)
+    return ordered
 }
 
 function emailTemplateOf(action: EmailAction): Partial<EmailTemplate> {

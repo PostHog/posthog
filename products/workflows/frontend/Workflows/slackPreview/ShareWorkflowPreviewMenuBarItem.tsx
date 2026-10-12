@@ -6,12 +6,12 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { workflowLogic } from '../workflowLogic'
+import { latestSaveStamp, workflowLogic } from '../workflowLogic'
 import { UNSAVED_CHANGES_REASON } from './shareDisabledReason'
 import { ShareWorkflowPreviewLogicProps, shareWorkflowPreviewLogic } from './shareWorkflowPreviewLogic'
 
 export function ShareWorkflowPreviewMenuBarItem({ id }: ShareWorkflowPreviewLogicProps): JSX.Element {
-    const { workflow, workflowUserAccessLevel, hasUnsavedChanges } = useValues(workflowLogic)
+    const { workflow, originalWorkflow, workflowUserAccessLevel, hasUnsavedChanges } = useValues(workflowLogic)
     const { openModal } = useActions(shareWorkflowPreviewLogic({ id }))
 
     return (
@@ -25,7 +25,7 @@ export function ShareWorkflowPreviewMenuBarItem({ id }: ShareWorkflowPreviewLogi
                 return (
                     <SceneMenuBarItem
                         opensFloatingUi
-                        onClick={() => openModal(workflow)}
+                        onClick={() => openModal(workflow, latestSaveStamp(originalWorkflow) ?? workflow.updated_at)}
                         disabled={!!disabledReason}
                         tooltip={disabledReason ?? undefined}
                         data-attr="workflow-menubar-share-preview"
