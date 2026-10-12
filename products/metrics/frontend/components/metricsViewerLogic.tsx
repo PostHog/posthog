@@ -964,8 +964,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 setRangeFunction: (state, { rangeFunction }) =>
                     withActiveClause(state, (clause) => ({ ...clause, rangeFunction })),
                 // Attribute keys to split the clause into one series each (e.g. ['service.name', 'env']).
+                // Grouping needs an aggregation to combine series, so default to sum when none is set.
                 setGroupByKeys: (state, { groupByKeys }) =>
-                    withActiveClause(state, (clause) => ({ ...clause, groupByKeys })),
+                    withActiveClause(state, (clause) => ({
+                        ...clause,
+                        groupByKeys,
+                        aggregation: clause.aggregation ?? (groupByKeys.length ? 'sum' : null),
+                    })),
                 // The clause's UniversalFilters group; converted into backend matchers by `metricFiltersForGroup`.
                 setFilterGroup: (state, { filterGroup }) =>
                     withActiveClause(state, (clause) => ({ ...clause, filterGroup })),

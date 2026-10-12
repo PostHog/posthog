@@ -126,12 +126,15 @@ function captureScoutConfigUpdates(
     success: boolean
 ): void {
     for (const [setting, newValue] of Object.entries(updates)) {
+        const oldValue = config ? (config as unknown as Record<string, unknown>)[setting] : null
+        // A pre-check query can name values from the team's own data, so only whether it is set is sent.
+        const masked = setting === 'precheck_query'
         captureScoutConfigChanged({
             skillName: config?.skill_name ?? '',
             scoutOrigin: config?.scout_origin ?? null,
             setting,
-            oldValue: config ? (config as unknown as Record<string, unknown>)[setting] : null,
-            newValue,
+            oldValue: masked ? Boolean(oldValue) : oldValue,
+            newValue: masked ? Boolean(newValue) : newValue,
             success,
         })
     }

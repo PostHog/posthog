@@ -36,11 +36,16 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
         })
     }
     return urlForNewWorkflowWithTrigger(
-        audience.workflowTrigger ?? { type: 'batch', filters: { properties: audience.properties } }
+        audience.workflowTrigger ?? { type: 'batch', filters: { properties: audience.properties } },
+        audience.source
     )
 }
 
-export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): void {
+export function captureMessageAudienceClicked(
+    source: string,
+    destination: MessageAudienceDestination,
+    extra: { succeeded?: boolean } = {}
+): void {
     // pinned: analytics event name
-    posthog.capture('message audience clicked', { source, destination })
+    posthog.capture('message audience clicked', { source, destination, ...extra })
 }

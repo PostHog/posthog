@@ -21,7 +21,7 @@ export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source
             action: () => router.actions.push(urls.cohort(savedCohort.id)),
         },
         secondaryButton: {
-            label: 'Send a broadcast',
+            label: 'Email this cohort',
             dataAttr: `message-audience-${source}-broadcast`,
             action: () => {
                 captureMessageAudienceClicked(source, 'broadcast')

@@ -13,7 +13,6 @@ import re
 from datetime import timedelta
 from typing import Any
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -33,6 +32,7 @@ from posthog.models.integration import (
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
 logger = structlog.get_logger(__name__)
 
@@ -219,7 +219,7 @@ def create_tracker_issue_for_report(
         if tracker is None:
             return SignalReportTrackerIssue.objects.for_team(team_id).filter(report_id=report_id).first()
 
-        report_url = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+        report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
         try:
             external_context = _create_provider_issue(
                 target,
@@ -405,7 +405,7 @@ def close_tracker_issue_for_report(
         if tracker is None or tracker.closed_at is not None:
             return False
 
-        report_url = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+        report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
         _comment_before_close(
             tracker,
             report_link=f"[linked PostHog report]({report_url})",

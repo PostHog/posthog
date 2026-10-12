@@ -252,7 +252,7 @@ function toMetricSummary(
  *
  * A PostHog server that predates the field, such as an older self-hosted instance, omits it. For that
  * server this function applies the overrides itself. It copies the rules of
- * `resolve_saved_metric_definition` in products/experiments/backend/metric_resolution.py as those
+ * `apply_saved_metric_overrides` in products/experiments/backend/metric_resolution.py as those
  * servers run them. A server that serves `effective_query` never reaches that code, so a later change
  * to the backend rules does not need a change here.
  */

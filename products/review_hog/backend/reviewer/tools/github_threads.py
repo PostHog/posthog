@@ -433,8 +433,8 @@ def inspect_fix_commit(
 
     Fails closed on GitHub's 300-file cap: a files list that may be truncated reports the commit as
     unverifiable rather than clean — a comment-driven fix that big deserves human eyes anyway.
-    Provenance: signed-commit fixes are authored as the app's bot (`is_app_bot_author`, fail-open on
-    login when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset) and carry a verified web-flow signature; a
+    Provenance: signed-commit fixes are authored as the app's bot (`is_app_bot_author`, which fails
+    closed in production when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset) and carry a verified web-flow signature; a
     reachable SHA failing either is not provably this run's fix. The residual — echoing one of the
     bot's own earlier commits — stays with the recorded session-provenance follow-up.
     """

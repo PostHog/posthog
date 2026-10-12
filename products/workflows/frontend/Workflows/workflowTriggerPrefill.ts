@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { parseBroadcastAudiencePrefill } from '../Broadcasts/broadcastAudiencePrefill'
+import { SOURCE_PREFILL_PARAM, parseBroadcastAudiencePrefill } from '../Broadcasts/broadcastAudiencePrefill'
 import { HogFlowTriggerSchema } from './hogflows/steps/types'
 import type { HogFlowAction } from './hogflows/types'
 
@@ -10,8 +10,11 @@ export type WorkflowTriggerConfig = Extract<HogFlowAction, { type: 'trigger' }>[
 
 export const TRIGGER_PREFILL_PARAM = 'trigger'
 
-export function urlForNewWorkflowWithTrigger(config: WorkflowTriggerConfig): string {
-    return combineUrl(urls.workflowNew(), { [TRIGGER_PREFILL_PARAM]: JSON.stringify(config) }).url
+export function urlForNewWorkflowWithTrigger(config: WorkflowTriggerConfig, source?: string): string {
+    return combineUrl(urls.workflowNew(), {
+        [TRIGGER_PREFILL_PARAM]: JSON.stringify(config),
+        ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),
+    }).url
 }
 
 // kea-router hands over JSON-looking search params already parsed, so accept an object too.

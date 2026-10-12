@@ -237,11 +237,12 @@ The property identifies the active environment: explicitly include every environ
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
 
-Newly enabled projects get manual review and resolution. The first `REVIEWHOG_TEAM_IDS` entry retains
-Flash and all automation UI (`show_internal_features`); other projects do not query Stamphog.
-Existing Inbox or Stamphog opt-ins remain visible in other projects until the user switches them off.
+Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
+the `reviewhog` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
+Inbox switch.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
-Existing automation routing and label secrets stay unchanged.
+Automatic reviews and the label trigger also need the project to claim the repository in the Code review
+settings. No environment variable or shared secret picks the project.
 
 Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.
 Ownership does not authenticate commenters: operators must assess repository and comment trust before
@@ -250,10 +251,8 @@ missing commenter authorization and the post-push path check. Public or untruste
 [ReviewHog's architecture](../../products/review_hog/ARCHITECTURE.md#status--next).
 
 ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
-The configured internal project's **ReviewHog Flash - Experimental** subsection under **What gets reviewed** groups the automatic Flash review toggle and **Flash strength** setting.
-These settings apply only to Flash reviews.
-**Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
-Each turn saves the effort it starts with, so a settings change applies to later turns.
+The configured internal project's **ReviewHog Flash - Experimental** subsection under **What gets reviewed** holds the automatic Flash review toggle.
+Flash reviews use the medium reasoning effort.
 The shared `FLASH_ARM` and `flash_arm_for_effort` in `products/review_hog/backend/reviewer/constants.py` pin the Codex runtime and `full-access` permission mode.
 Flash uses the existing `review_hog` model allowance.
 Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
@@ -263,27 +262,16 @@ Flash requests preserve an existing report's review tier, including when they jo
 Flash marks its status comment header as `PostHog Review (flash)`, skips the clean-review media, and never starts comment resolution.
 
 **Review all your PRs in Flash mode** is off by default and shown only on the configured internal project.
-Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.
-The head branch must belong to `PostHog/posthog`; fork PRs are excluded.
+Turn it on in Code review to review PRs you author in the repositories your project reviews when they open or receive new commits, including drafts.
+The head branch must belong to the PR's own repository; fork PRs are excluded.
 Enabling it does not review existing PRs immediately; an existing PR becomes eligible on its next push.
 Only one review runs per PR, and pushes during a review coalesce into a follow-up for the latest head.
 An explicit Full request also runs after an active Flash review when that head still needs a Full review.
 Turning the setting off stops future and pending automatic starts; a running review finishes.
 Automatic Flash uses your existing severity threshold and never resolves comments or changes the PR branch.
 
-To change this setting from the CLI for a selected user:
-
-```bash
-.codex/with-flox python manage.py enable_authored_pr_reviews \
-  --team-id 1 --user-ids 1 --effort medium
-.codex/with-flox python manage.py disable_authored_pr_reviews \
-  --team-id 1 --user-ids 1
-```
-
-Use `--effort xhigh` to select Extra high; omitting `--effort` preserves the saved choice.
-Disabling automatic reviews also preserves that choice for manual Flash reviews.
-Both commands accept `--dry-run`.
-Omitting `--user-ids` changes every active member of the team's organization.
+The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
+Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
 
 To run Flash locally, use `run_review --review-mode flash` from the repository root:
 
