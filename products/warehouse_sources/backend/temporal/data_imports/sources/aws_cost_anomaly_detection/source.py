@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AwsCostAnomalyDetectionSource(
     ResumableSource[AwsCostAnomalyDetectionSourceConfig, AwsCostAnomalyDetectionResumeConfig]
 ):
-    codebase_detection = detect(DEEP_LINK, env=("^(AWS_COST_ANOMALY_DETECTION|AWSCOSTANOMALYDETECTION)_",))
+    codebase_detection = detect(env=("^(AWS_COST_ANOMALY_DETECTION|AWSCOSTANOMALYDETECTION)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"

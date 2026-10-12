@@ -3,7 +3,7 @@ from typing import Optional, cast
 
 import structlog
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,7 +48,7 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class AdobeAnalyticsSource(ResumableSource[AdobeAnalyticsSourceConfig, AdobeAnalyticsResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(ADOBE_ANALYTICS|ADOBEANALYTICS)_",))
+    codebase_detection = detect(env=("^(ADOBE_ANALYTICS|ADOBEANALYTICS)_",))
 
     api_docs_url = "https://developer.adobe.com/analytics-apis/docs/2.0/"
 

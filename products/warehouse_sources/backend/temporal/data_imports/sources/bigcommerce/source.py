@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResumeConfig]):
-    codebase_detection = detect(IN_CLI, npm=("node-bigcommerce",), env=("^BIGCOMMERCE_",))
+    codebase_detection = detect(npm=("node-bigcommerce",), env=("^BIGCOMMERCE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

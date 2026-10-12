@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,7 +42,7 @@ _SCOPE_REQUIRED_MESSAGE = (
 
 @SourceRegistry.register
 class CrossrefSource(ResumableSource[CrossrefSourceConfig, CrossrefResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^CROSSREF_",))
+    codebase_detection = detect(env=("^CROSSREF_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://github.com/CrossRef/rest-api-doc"

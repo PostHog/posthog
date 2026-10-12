@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,7 +40,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class ZapierSupportedStorageSource(SimpleSource[ZapierSupportedStorageSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(ZAPIER_SUPPORTED_STORAGE|ZAPIERSUPPORTEDSTORAGE)_",))
+    codebase_detection = detect(env=("^(ZAPIER_SUPPORTED_STORAGE|ZAPIERSUPPORTEDSTORAGE)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://help.zapier.com/hc/en-us/articles/8496293271053"

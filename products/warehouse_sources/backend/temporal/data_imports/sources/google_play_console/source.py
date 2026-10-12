@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -54,7 +54,7 @@ def _service_account_key(config: GooglePlayConsoleSourceConfig) -> ServiceAccoun
 
 @SourceRegistry.register
 class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, GooglePlayConsoleResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(GOOGLE_PLAY_CONSOLE|GOOGLEPLAYCONSOLE)_",))
+    codebase_detection = detect(env=("^(GOOGLE_PLAY_CONSOLE|GOOGLEPLAYCONSOLE)_",))
 
     supported_versions = ("v1beta1",)
     default_version = "v1beta1"

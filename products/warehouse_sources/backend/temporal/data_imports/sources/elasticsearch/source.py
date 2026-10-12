@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,6 @@ def _auth_from_config(config: ElasticsearchSourceConfig) -> ElasticsearchAuth:
 @SourceRegistry.register
 class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        IN_CLI,
         npm=("@elastic/elasticsearch",),
         pypi=("elasticsearch",),
         rubygems=("elasticsearch",),

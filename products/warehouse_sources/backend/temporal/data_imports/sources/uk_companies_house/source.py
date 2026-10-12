@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -51,7 +51,7 @@ def _invalid_company_numbers_error(invalid: list[str]) -> str:
 
 @SourceRegistry.register
 class UkCompaniesHouseSource(ResumableSource[UkCompaniesHouseSourceConfig, UkCompaniesHouseResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(UK_COMPANIES_HOUSE|UKCOMPANIESHOUSE)_",))
+    codebase_detection = detect(env=("^(UK_COMPANIES_HOUSE|UKCOMPANIESHOUSE)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # The Public Data API has no version segment, header or param to pin, so the framework

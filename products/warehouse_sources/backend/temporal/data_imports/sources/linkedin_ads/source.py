@@ -4,7 +4,7 @@ from typing import Optional, cast
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -77,7 +77,7 @@ _API_HEADER_BY_VERSION = {
 
 @SourceRegistry.register
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
-    codebase_detection = detect(DEEP_LINK, env=("^LINKEDIN_ADS_",))
+    codebase_detection = detect(env=("^LINKEDIN_ADS_",))
 
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
 

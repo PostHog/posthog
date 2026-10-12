@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,7 +46,7 @@ def _base_url_for(config: SurveySparrowSourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveySparrowSource(ResumableSource[SurveySparrowSourceConfig, SurveySparrowResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(SURVEY_SPARROW|SURVEYSPARROW)_",))
+    codebase_detection = detect(env=("^(SURVEY_SPARROW|SURVEYSPARROW)_",))
 
     supported_versions = ("v3",)
     default_version = "v3"

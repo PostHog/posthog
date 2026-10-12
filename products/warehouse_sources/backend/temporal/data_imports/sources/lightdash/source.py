@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightdashSource(SimpleSource[LightdashSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^LIGHTDASH_",))
+    codebase_detection = detect(env=("^LIGHTDASH_",))
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.

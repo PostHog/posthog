@@ -7,7 +7,7 @@ from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -470,7 +470,6 @@ class PostgresSource(
     # names its connection with the generic signals below. Two sources over
     # one database import the same tables twice.
     codebase_detection = detect(
-        IN_CLI,
         npm=("pg", "postgres", "postgres.js", "knex", "sequelize"),
         pypi=("psycopg", "psycopg2", "psycopg2-binary", "asyncpg"),
         rubygems=("pg",),

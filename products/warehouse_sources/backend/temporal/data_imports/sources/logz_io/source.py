@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(LOGZ_IO|LOGZIO)_",))
+    codebase_detection = detect(env=("^(LOGZ_IO|LOGZIO)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

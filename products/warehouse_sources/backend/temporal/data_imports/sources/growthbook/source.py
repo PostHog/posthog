@@ -4,7 +4,7 @@ from requests.exceptions import HTTPError
 
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,7 +47,6 @@ MISSING_PERMISSIONS = "Your GrowthBook API key lacks read access to this table. 
 @SourceRegistry.register
 class GrowthBookSource(ResumableSource[GrowthBookSourceConfig, GrowthBookResumeConfig]):
     codebase_detection = detect(
-        DEEP_LINK,
         npm=("@growthbook/growthbook", "@growthbook/growthbook-react"),
         pypi=("growthbook",),
         rubygems=("growthbook",),

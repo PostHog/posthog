@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(PEEC_AI|PEECAI)_",))
+    codebase_detection = detect(env=("^(PEEC_AI|PEECAI)_",))
 
     supported_versions = ("v1",)
     default_version = "v1"

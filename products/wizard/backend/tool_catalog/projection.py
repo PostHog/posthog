@@ -38,7 +38,9 @@ def catalog_json() -> str:
             "kind": tool.kind,
             "label": tool.label,
             "warehouse_source_type": tool.warehouse_source_type.value if tool.warehouse_source_type else None,
-            "wizard_setup_mode": tool.detection.setup_mode.value if tool.detection.setup_mode else None,
+            "wizard_setup_mode": None
+            if tool.setup_requires_ui is None
+            else ("deep-link" if tool.setup_requires_ui else "in-cli"),
             "competes_with": [product.value for product in tool.detection.competes_with],
             "superseded_by": list(tool.detection.superseded_by),
             "signals": {

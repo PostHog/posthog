@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeyGenSource(ResumableSource[HeyGenSourceConfig, HeyGenResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(HEY_GEN|HEYGEN)_",))
+    codebase_detection = detect(env=("^(HEY_GEN|HEYGEN)_",))
 
     supported_versions = ("v3",)
     default_version = "v3"

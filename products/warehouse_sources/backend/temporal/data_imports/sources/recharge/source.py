@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RechargeSource(ResumableSource[RechargeSourceConfig, RechargeResumeConfig]):
-    codebase_detection = detect(IN_CLI, env=("^RECHARGE_",))
+    codebase_detection = detect(env=("^RECHARGE_",))
 
     supported_versions = ("2021-11",)
     default_version = "2021-11"

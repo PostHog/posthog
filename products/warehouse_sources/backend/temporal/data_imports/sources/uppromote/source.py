@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -57,7 +57,7 @@ class UpPromoteSource(
     ResumableSource[UpPromoteSourceConfig, UpPromoteResumeConfig],
     WebhookSource[UpPromoteSourceConfig],
 ):
-    codebase_detection = detect(DEEP_LINK, env=("^(UP_PROMOTE|UPPROMOTE)_",))
+    codebase_detection = detect(env=("^(UP_PROMOTE|UPPROMOTE)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

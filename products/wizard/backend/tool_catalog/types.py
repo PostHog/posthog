@@ -11,6 +11,8 @@ class Tool:
     label: str
     warehouse_source_type: ExternalDataSourceType | None
     detection: Detection
+    # Whether the wizard sends the user to the app to create the source. None for a tool with no source.
+    setup_requires_ui: bool | None
 
     @property
     def competes_with(self) -> tuple[ProductKey, ...]:

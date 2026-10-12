@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -63,7 +63,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 @SourceRegistry.register
 class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
     codebase_detection = detect(
-        IN_CLI, npm=("algoliasearch",), pypi=("algoliasearch",), rubygems=("algolia",), env=("^ALGOLIA_",)
+        npm=("algoliasearch",), pypi=("algoliasearch",), rubygems=("algolia",), env=("^ALGOLIA_",)
     )
 
     api_docs_url = "https://www.algolia.com/doc/rest-api/search"

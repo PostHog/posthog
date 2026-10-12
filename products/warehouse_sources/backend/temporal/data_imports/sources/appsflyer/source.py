@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 import requests
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
-    codebase_detection = detect(IN_CLI, npm=("react-native-appsflyer",), env=("^APPSFLYER_",))
+    codebase_detection = detect(npm=("react-native-appsflyer",), env=("^APPSFLYER_",))
 
     api_docs_url = "https://support.appsflyer.com/hc/en-us/articles/207034366-Pull-APIs-aggregate-and-raw-data"
 

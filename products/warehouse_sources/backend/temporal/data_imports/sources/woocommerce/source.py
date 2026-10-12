@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from asgiref.sync import async_to_sync
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -71,7 +71,7 @@ class WooCommerceSource(
     WebhookSource[WooCommerceSourceConfig],
 ):
     codebase_detection = detect(
-        IN_CLI, npm=("@woocommerce/woocommerce-rest-api",), pypi=("woocommerce",), env=("^WOOCOMMERCE_",)
+        npm=("@woocommerce/woocommerce-rest-api",), pypi=("woocommerce",), env=("^WOOCOMMERCE_",)
     )
 
     supported_versions = ("v3",)

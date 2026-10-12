@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
-    codebase_detection = detect(IN_CLI, npm=("drip-nodejs",), env=("^DRIP_",))
+    codebase_detection = detect(npm=("drip-nodejs",), env=("^DRIP_",))
 
     supported_versions = ("v2",)
     default_version = "v2"

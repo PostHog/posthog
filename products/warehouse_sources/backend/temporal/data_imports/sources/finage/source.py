@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -49,7 +49,7 @@ _ENDPOINT_DESCRIPTIONS = {
 
 @SourceRegistry.register
 class FinageSource(SimpleSource[FinageSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^FINAGE_",))
+    codebase_detection = detect(env=("^FINAGE_",))
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.

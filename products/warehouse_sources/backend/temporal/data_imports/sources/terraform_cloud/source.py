@@ -1,7 +1,7 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,7 +37,7 @@ _ORGANIZATION_NAME_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-_]*$")
 
 @SourceRegistry.register
 class TerraformCloudSource(ResumableSource[TerraformCloudSourceConfig, TerraformCloudResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(TERRAFORM_CLOUD|TERRAFORMCLOUD)_",))
+    codebase_detection = detect(env=("^(TERRAFORM_CLOUD|TERRAFORMCLOUD)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

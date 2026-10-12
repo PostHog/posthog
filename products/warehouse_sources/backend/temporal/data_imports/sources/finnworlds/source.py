@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^FINNWORLDS_",))
+    codebase_detection = detect(env=("^FINNWORLDS_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://finnworlds.com/documentation/"

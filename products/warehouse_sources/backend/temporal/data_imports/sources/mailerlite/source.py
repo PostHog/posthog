@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -59,9 +59,7 @@ class MailerLiteSource(
     ResumableSource[MailerLiteSourceConfig, MailerLiteResumeConfig],
     WebhookSource[MailerLiteSourceConfig],
 ):
-    codebase_detection = detect(
-        IN_CLI, npm=("@mailerlite/mailerlite-nodejs",), pypi=("mailerlite",), env=("^MAILERLITE_",)
-    )
+    codebase_detection = detect(npm=("@mailerlite/mailerlite-nodejs",), pypi=("mailerlite",), env=("^MAILERLITE_",))
 
     api_docs_url = "https://developers.mailerlite.com"
 

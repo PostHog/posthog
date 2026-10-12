@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -51,7 +51,6 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
     # have no Firestore data to import. We accept the false positives - the
     # package is a strong signal for the common case.
     codebase_detection = detect(
-        DEEP_LINK,
         npm=("firebase-admin", "firebase"),
         pypi=("firebase-admin",),
         env=("^FIREBASE_", "^NEXT_PUBLIC_FIREBASE_"),

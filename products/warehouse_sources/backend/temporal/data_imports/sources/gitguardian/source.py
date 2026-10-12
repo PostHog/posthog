@@ -1,7 +1,7 @@
 from typing import Optional, cast
 from urllib.parse import urlsplit
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^GITGUARDIAN_",))
+    codebase_detection = detect(env=("^GITGUARDIAN_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

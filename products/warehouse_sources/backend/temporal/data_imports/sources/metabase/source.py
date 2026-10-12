@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetabaseSource(ResumableSource[MetabaseSourceConfig, MetabaseResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^METABASE_",))
+    codebase_detection = detect(env=("^METABASE_",))
 
     api_docs_url = "https://www.metabase.com/docs/latest/api"
 

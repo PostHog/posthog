@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -59,7 +59,7 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^DYNATRACE_",))
+    codebase_detection = detect(env=("^DYNATRACE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

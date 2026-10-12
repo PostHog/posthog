@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^CLOUDINARY_",))
+    codebase_detection = detect(env=("^CLOUDINARY_",))
 
     supported_versions = ("v1_1",)
     default_version = "v1_1"

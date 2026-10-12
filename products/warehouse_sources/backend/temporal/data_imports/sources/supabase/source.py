@@ -6,7 +6,7 @@ from posthog.security.postgres_hosts import (
     SUPABASE_DIRECT_HOST_RE as _SUPABASE_DIRECT_HOST_RE,
 )
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -98,7 +98,7 @@ _VAULT_SCHEMA = "vault"
 
 @SourceRegistry.register
 class SupabaseSource(PostgresSource):
-    codebase_detection = detect(IN_CLI, npm=("@supabase/supabase-js",), pypi=("supabase",), env=("^SUPABASE_",))
+    codebase_detection = detect(npm=("@supabase/supabase-js",), pypi=("supabase",), env=("^SUPABASE_",))
 
     def __init__(self):
         super().__init__(source_name="Supabase")

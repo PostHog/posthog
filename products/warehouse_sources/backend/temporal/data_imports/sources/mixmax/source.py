@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,7 +37,7 @@ MIXMAX_SHOULD_SYNC_DEFAULT = {name: config.should_sync_default for name, config 
 
 @SourceRegistry.register
 class MixMaxSource(ResumableSource[MixMaxSourceConfig, MixmaxResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(MIX_MAX|MIXMAX)_",))
+    codebase_detection = detect(env=("^(MIX_MAX|MIXMAX)_",))
 
     api_docs_url = "https://developer.mixmax.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

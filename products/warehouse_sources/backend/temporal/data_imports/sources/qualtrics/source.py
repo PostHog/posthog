@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -54,7 +54,7 @@ def _credentials_from_config(config: QualtricsSourceConfig) -> QualtricsCredenti
 
 @SourceRegistry.register
 class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^QUALTRICS_",))
+    codebase_detection = detect(env=("^QUALTRICS_",))
 
     supported_versions = (QUALTRICS_API_VERSION,)
     default_version = QUALTRICS_API_VERSION

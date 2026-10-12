@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,7 +48,6 @@ Grant the token these read scopes for the tables you want to sync:
 @SourceRegistry.register
 class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
     codebase_detection = detect(
-        IN_CLI,
         npm=("raygun",),
         pypi=("raygun4py",),
         rubygems=("raygun4ruby",),

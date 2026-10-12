@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DoItSource(SimpleSource[DoItSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(DO_IT|DOIT)_",))
+    codebase_detection = detect(env=("^(DO_IT|DOIT)_",))
 
     supported_versions = ("v1",)
     default_version = "v1"

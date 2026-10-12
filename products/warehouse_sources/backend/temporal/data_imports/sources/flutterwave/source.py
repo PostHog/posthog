@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FlutterwaveSource(ResumableSource[FlutterwaveSourceConfig, FlutterwaveResumeConfig]):
     codebase_detection = detect(
-        IN_CLI, npm=("flutterwave-node-v3",), pypi=("flutterwave",), env=("^FLUTTERWAVE_", "^FLW_(PUBLIC|SECRET)_KEY$")
+        npm=("flutterwave-node-v3",), pypi=("flutterwave",), env=("^FLUTTERWAVE_", "^FLW_(PUBLIC|SECRET)_KEY$")
     )
 
     # v3 is Flutterwave's generally available API and the version every request below calls (the

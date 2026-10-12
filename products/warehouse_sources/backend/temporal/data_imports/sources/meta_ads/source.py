@@ -3,7 +3,7 @@ from typing import cast
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -86,7 +86,6 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 @SourceRegistry.register
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     codebase_detection = detect(
-        DEEP_LINK,
         npm=("facebook-nodejs-business-sdk",),
         pypi=("facebook-business",),
         env=("^META_ADS_", "^FACEBOOK_ADS_"),

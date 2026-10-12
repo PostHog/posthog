@@ -1,7 +1,7 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -62,7 +62,7 @@ _ERR_NON_JSON = (
 
 @SourceRegistry.register
 class FreshchatSource(ResumableSource[FreshchatSourceConfig, FreshchatResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^FRESHCHAT_",))
+    codebase_detection = detect(env=("^FRESHCHAT_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

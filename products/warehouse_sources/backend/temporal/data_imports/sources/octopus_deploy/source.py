@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OctopusDeploySource(ResumableSource[OctopusDeploySourceConfig, OctopusDeployResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(OCTOPUS_DEPLOY|OCTOPUSDEPLOY)_",))
+    codebase_detection = detect(env=("^(OCTOPUS_DEPLOY|OCTOPUSDEPLOY)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

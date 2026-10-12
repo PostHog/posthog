@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TodoistSource(ResumableSource[TodoistSourceConfig, TodoistResumeConfig]):
     codebase_detection = detect(
-        IN_CLI, npm=("@doist/todoist-api-typescript",), pypi=("todoist-api-python",), env=("^TODOIST_",)
+        npm=("@doist/todoist-api-typescript",), pypi=("todoist-api-python",), env=("^TODOIST_",)
     )
 
     supported_versions = ("v1",)

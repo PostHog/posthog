@@ -2,7 +2,7 @@ from typing import cast
 
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,7 +36,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig], OAuthMixin):
     codebase_detection = detect(
-        DEEP_LINK,
         npm=("intercom-client", "@intercom/messenger-js-sdk"),
         pypi=("python-intercom",),
         env=("^INTERCOM_",),

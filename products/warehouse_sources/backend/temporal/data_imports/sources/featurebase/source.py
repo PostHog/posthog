@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -55,7 +55,7 @@ class FeaturebaseSource(
     ResumableSource[FeaturebaseSourceConfig, FeaturebaseResumeConfig],
     WebhookSource[FeaturebaseSourceConfig],
 ):
-    codebase_detection = detect(DEEP_LINK, env=("^FEATUREBASE_",))
+    codebase_detection = detect(env=("^FEATUREBASE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

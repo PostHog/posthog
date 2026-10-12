@@ -1,7 +1,10 @@
 import re
 
+import pytest
+
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
-from products.warehouse_sources.backend.facade.codebase_detection import Detection
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, fields_require_ui
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
 ALL_SOURCES = SourceRegistry.get_all_sources()
@@ -34,3 +37,21 @@ def test_env_key_patterns_are_anchored_regexes() -> None:
             # Unanchored, a pattern matches any key that merely contains the vendor name.
             assert pattern.startswith("^"), f"{source_type}: {pattern!r} is not anchored"
             re.compile(pattern)
+
+
+@pytest.mark.parametrize(
+    "source_type, requires_ui",
+    [
+        # Every login option is OAuth or a key file upload, though each option marks its field optional.
+        (ExternalDataSourceType.BIGQUERY, True),
+        (ExternalDataSourceType.GOOGLEADS, True),
+        # One login option takes a pasted API key.
+        (ExternalDataSourceType.STRIPE, False),
+        (ExternalDataSourceType.POSTGRES, False),
+    ],
+    ids=str,
+)
+def test_fields_require_ui_only_when_no_option_can_be_typed(
+    source_type: ExternalDataSourceType, requires_ui: bool
+) -> None:
+    assert fields_require_ui(ALL_SOURCES[source_type].get_source_config.fields) is requires_ui
