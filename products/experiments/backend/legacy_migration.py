@@ -54,9 +54,7 @@ def migrate_saved_metric(saved_metric_id: int, team_id: int) -> ExperimentSavedM
 
         try:
             # Through the service, so the new query gets the uuid every new-engine metric needs.
-            query = ExperimentSavedMetricService.normalize_query_for_write(
-                convert_legacy_metric(original.query), team=original.team
-            )
+            query = ExperimentSavedMetricService.normalize_query_for_write(convert_legacy_metric(original.query))
         except ValidationError as e:
             raise LegacyMigrationError(
                 f'The shared metric "{original.name}" (id {original.id}) is not valid: {_validation_reason(e)}'

@@ -27879,7 +27879,7 @@
                     "type": "number"
                 },
                 "source": {
-                    "$ref": "#/definitions/WarehouseMetricSource"
+                    "$ref": "#/definitions/WarehouseRowSource"
                 },
                 "statistic": {
                     "const": "proportion",
@@ -27927,7 +27927,7 @@
                     "type": "string"
                 },
                 "source": {
-                    "$ref": "#/definitions/WarehouseMetricSource"
+                    "$ref": "#/definitions/WarehouseRowSource"
                 },
                 "statistic": {
                     "const": "proportion",
@@ -58306,23 +58306,34 @@
         },
         "WarehouseMetricSource": {
             "additionalProperties": false,
-            "description": "Outcome rows for a warehouse-native metric. PostHog joins them to the experiment's exposures inside the warehouse, so the SQL never mentions variants or exposures.",
+            "description": "Outcome rows plus how an entity's rows collapse to one value.",
             "properties": {
                 "aggregation": {
-                    "$ref": "#/definitions/WarehouseMetricAggregation",
-                    "description": "How an entity's rows collapse to one value. Not used by proportion metrics."
+                    "$ref": "#/definitions/WarehouseMetricAggregation"
                 },
                 "query": {
-                    "description": "Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for `count` and for proportions.",
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count.",
+                    "type": "string"
+                }
+            },
+            "required": ["aggregation", "query"],
+            "type": "object"
+        },
+        "WarehouseMetricStatistic": {
+            "enum": ["mean", "proportion", "ratio"],
+            "type": "string"
+        },
+        "WarehouseRowSource": {
+            "additionalProperties": false,
+            "description": "Outcome rows for a warehouse-native metric. PostHog joins them to the experiment's exposures inside the warehouse, so the SQL never mentions variants or exposures.",
+            "properties": {
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count.",
                     "type": "string"
                 }
             },
             "required": ["query"],
             "type": "object"
-        },
-        "WarehouseNativeStatistic": {
-            "enum": ["mean", "proportion", "ratio"],
-            "type": "string"
         },
         "WebAgentAnalyticsQuery": {
             "additionalProperties": false,

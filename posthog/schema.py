@@ -328,7 +328,7 @@ from posthog.schema_enums import (
     UsageMetricFormat as UsageMetricFormat,
     ValueDisplay as ValueDisplay,
     WarehouseMetricAggregation as WarehouseMetricAggregation,
-    WarehouseNativeStatistic as WarehouseNativeStatistic,
+    WarehouseMetricStatistic as WarehouseMetricStatistic,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -3541,16 +3541,27 @@ class WarehouseMetricSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation: WarehouseMetricAggregation | None = Field(
-        default=None,
-        description=("How an entity's rows collapse to one value. Not used by proportion metrics."),
+    aggregation: WarehouseMetricAggregation
+    query: str = Field(
+        ...,
+        description=(
+            "Read-only SQL in the warehouse's dialect, returning one row per outcome"
+            " with `entity_id`, `timestamp` and `value` columns. `value` is optional"
+            " for a proportion or a count."
+        ),
+    )
+
+
+class WarehouseRowSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
     query: str = Field(
         ...,
         description=(
             "Read-only SQL in the warehouse's dialect, returning one row per outcome"
             " with `entity_id`, `timestamp` and `value` columns. `value` is optional"
-            " for `count` and for proportions."
+            " for a proportion or a count."
         ),
     )
 
@@ -6054,7 +6065,7 @@ class ExperimentWarehouseNativeProportionMetric(BaseModel):
     name: str | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
-    source: WarehouseMetricSource
+    source: WarehouseRowSource
     statistic: Literal["proportion"] = "proportion"
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
@@ -6086,7 +6097,7 @@ class ExperimentWarehouseNativeProportionMetricTypeProps(BaseModel):
         ),
     )
     metric_type: Literal["warehouse_native"] = "warehouse_native"
-    source: WarehouseMetricSource
+    source: WarehouseRowSource
     statistic: Literal["proportion"] = "proportion"
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,

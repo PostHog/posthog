@@ -6110,7 +6110,7 @@ export const enum WarehouseMetricAggregation {
     MIN = 'min',
 }
 
-export const enum WarehouseNativeStatistic {
+export const enum WarehouseMetricStatistic {
     MEAN = 'mean',
     PROPORTION = 'proportion',
     RATIO = 'ratio',
@@ -6118,12 +6118,15 @@ export const enum WarehouseNativeStatistic {
 
 /** Outcome rows for a warehouse-native metric. PostHog joins them to the experiment's exposures
  *  inside the warehouse, so the SQL never mentions variants or exposures. */
-export interface WarehouseMetricSource {
+export interface WarehouseRowSource {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with
-     *  `entity_id`, `timestamp` and `value` columns. `value` is optional for `count` and for proportions. */
+     *  `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
     query: string
-    /** How an entity's rows collapse to one value. Not used by proportion metrics. */
-    aggregation?: WarehouseMetricAggregation
+}
+
+/** Outcome rows plus how an entity's rows collapse to one value. */
+export interface WarehouseMetricSource extends WarehouseRowSource {
+    aggregation: WarehouseMetricAggregation
 }
 
 /** A metric computed inside the customer's own warehouse through a direct connection. PostHog wraps the
@@ -6140,19 +6143,19 @@ type ExperimentWarehouseNativeMetricBase = ExperimentMetricBaseProperties &
 
 /** Share of exposed entities with at least one outcome row in the window. */
 export type ExperimentWarehouseNativeProportionMetric = ExperimentWarehouseNativeMetricBase & {
-    statistic: WarehouseNativeStatistic.PROPORTION
-    source: WarehouseMetricSource
+    statistic: WarehouseMetricStatistic.PROPORTION
+    source: WarehouseRowSource
 }
 
 /** One aggregated value per exposed entity. */
 export type ExperimentWarehouseNativeMeanMetric = ExperimentWarehouseNativeMetricBase & {
-    statistic: WarehouseNativeStatistic.MEAN
+    statistic: WarehouseMetricStatistic.MEAN
     source: WarehouseMetricSource
 }
 
 /** Two aggregated values per exposed entity; the per-variant sums are divided. */
 export type ExperimentWarehouseNativeRatioMetric = ExperimentWarehouseNativeMetricBase & {
-    statistic: WarehouseNativeStatistic.RATIO
+    statistic: WarehouseMetricStatistic.RATIO
     numerator: WarehouseMetricSource
     denominator: WarehouseMetricSource
 }

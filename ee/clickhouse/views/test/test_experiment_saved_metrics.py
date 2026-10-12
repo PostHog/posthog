@@ -4,7 +4,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
@@ -20,12 +19,12 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         original_validate_query = ExperimentSavedMetricService.validate_query
         validate_query_call_count = 0
 
-        def counting_validate_query(query: dict | None, team: Team) -> None:
+        def counting_validate_query(cls, query: dict | None) -> None:
             nonlocal validate_query_call_count
             validate_query_call_count += 1
-            original_validate_query(query, team)
+            original_validate_query(query)
 
-        with patch.object(ExperimentSavedMetricService, "validate_query", staticmethod(counting_validate_query)):
+        with patch.object(ExperimentSavedMetricService, "validate_query", classmethod(counting_validate_query)):
             create_response = self.client.post(
                 f"/api/projects/{self.team.id}/experiment_saved_metrics/",
                 data={
@@ -45,7 +44,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         saved_metric_id = create_response.json()["id"]
         validate_query_call_count = 0
 
-        with patch.object(ExperimentSavedMetricService, "validate_query", staticmethod(counting_validate_query)):
+        with patch.object(ExperimentSavedMetricService, "validate_query", classmethod(counting_validate_query)):
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
                 data={

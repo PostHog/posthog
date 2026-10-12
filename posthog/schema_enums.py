@@ -3211,7 +3211,7 @@ class WarehouseMetricAggregation(StrEnum):
     MIN = "min"
 
 
-class WarehouseNativeStatistic(StrEnum):
+class WarehouseMetricStatistic(StrEnum):
     MEAN = "mean"
     PROPORTION = "proportion"
     RATIO = "ratio"

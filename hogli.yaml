@@ -1292,5 +1292,5 @@ environment:
         hidden: true
     patch:schema:nested:discriminators:
         bin_script: patch-schema-nested-discriminators.py
-        description: 'TODO: add description for patch-schema-nested-discriminators.py'
+        description: 'Re-nest discriminated unions that datamodel-code-generator collapsed in posthog/schema.py'
         hidden: true

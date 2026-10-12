@@ -7042,21 +7042,8 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export type WarehouseMetricAggregation = typeof WarehouseMetricAggregation[keyof typeof WarehouseMetricAggregation];
-
-
-    export const WarehouseMetricAggregation = {
-      Sum: 'sum',
-      Count: 'count',
-      CountDistinct: 'count_distinct',
-      Max: 'max',
-      Min: 'min',
-    } as const;
-
-    export interface WarehouseMetricSource {
-      /** How an entity's rows collapse to one value. Not used by proportion metrics. */
-      aggregation?: WarehouseMetricAggregation | null;
-      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for `count` and for proportions. */
+    export interface WarehouseRowSource {
+      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
       query: string;
     }
 
@@ -7088,13 +7075,30 @@ export namespace Schemas {
       name?: string | null;
       response?: ExperimentWarehouseNativeProportionMetricResponse;
       sharedMetricId?: number | null;
-      source: WarehouseMetricSource;
+      source: WarehouseRowSource;
       statistic: ExperimentWarehouseNativeProportionMetricStatistic;
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
       upper_bound_percentile?: number | null;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export type WarehouseMetricAggregation = typeof WarehouseMetricAggregation[keyof typeof WarehouseMetricAggregation];
+
+
+    export const WarehouseMetricAggregation = {
+      Sum: 'sum',
+      Count: 'count',
+      CountDistinct: 'count_distinct',
+      Max: 'max',
+      Min: 'min',
+    } as const;
+
+    export interface WarehouseMetricSource {
+      aggregation: WarehouseMetricAggregation;
+      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
+      query: string;
     }
 
     export type ExperimentWarehouseNativeMeanMetricStatistic = typeof ExperimentWarehouseNativeMeanMetricStatistic[keyof typeof ExperimentWarehouseNativeMeanMetricStatistic];

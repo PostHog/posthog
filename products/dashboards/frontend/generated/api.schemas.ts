@@ -6775,21 +6775,8 @@ export interface ExperimentRetentionMetricApi {
     version?: number | null
 }
 
-export type WarehouseMetricAggregationApi =
-    (typeof WarehouseMetricAggregationApi)[keyof typeof WarehouseMetricAggregationApi]
-
-export const WarehouseMetricAggregationApi = {
-    Sum: 'sum',
-    Count: 'count',
-    CountDistinct: 'count_distinct',
-    Max: 'max',
-    Min: 'min',
-} as const
-
-export interface WarehouseMetricSourceApi {
-    /** How an entity's rows collapse to one value. Not used by proportion metrics. */
-    aggregation?: WarehouseMetricAggregationApi | null
-    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for `count` and for proportions. */
+export interface WarehouseRowSourceApi {
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
     query: string
 }
 
@@ -6814,13 +6801,30 @@ export interface ExperimentWarehouseNativeProportionMetricApi {
     name?: string | null
     response?: ExperimentWarehouseNativeProportionMetricApiResponse
     sharedMetricId?: number | null
-    source: WarehouseMetricSourceApi
+    source: WarehouseRowSourceApi
     statistic?: 'proportion'
     /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
     uuid?: string | null
     /** version of the node, used for schema migrations */
     version?: number | null
+}
+
+export type WarehouseMetricAggregationApi =
+    (typeof WarehouseMetricAggregationApi)[keyof typeof WarehouseMetricAggregationApi]
+
+export const WarehouseMetricAggregationApi = {
+    Sum: 'sum',
+    Count: 'count',
+    CountDistinct: 'count_distinct',
+    Max: 'max',
+    Min: 'min',
+} as const
+
+export interface WarehouseMetricSourceApi {
+    aggregation: WarehouseMetricAggregationApi
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for a proportion or a count. */
+    query: string
 }
 
 export type ExperimentWarehouseNativeMeanMetricApiResponse = { [key: string]: unknown } | null

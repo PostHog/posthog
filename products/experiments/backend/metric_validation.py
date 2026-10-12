@@ -6,8 +6,6 @@ referenced actions through `validate_metric_action_ids`. Checks that need a user
 waive (team ownership, permissions, whether a referenced event exists) stay with the callers.
 """
 
-from typing import TYPE_CHECKING
-
 import pydantic
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -19,8 +17,6 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetric as ExperimentMetricUnion,
     ExperimentRetentionMetric,
-    ExperimentWarehouseNativeMeanMetric,
-    ExperimentWarehouseNativeProportionMetric,
 )
 
 from products.actions.backend.models.action import Action
@@ -33,13 +29,6 @@ from products.experiments.backend.metric_resolution import (
     ExperimentWarehouseNativeMetric,
 )
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
-from products.experiments.backend.warehouse_native_metrics import (
-    has_direct_connection,
-    warehouse_native_metrics_enabled,
-)
-
-if TYPE_CHECKING:
-    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -118,11 +107,10 @@ def _semantic_error(metric: ExperimentMetric) -> str | None:
     return None
 
 
-def parse_and_validate_metric(metric: object, *, error_prefix: str, team: "Team") -> ExperimentMetric:
+def parse_and_validate_metric(metric: object, *, error_prefix: str) -> ExperimentMetric:
     """Parse a metric payload into its schema type and apply the intrinsic metric rules.
 
     `error_prefix` locates the metric in the request, for example "Invalid metric at index 2: ".
-    `team` resolves the connection a warehouse-native metric runs against.
     """
     if not isinstance(metric, dict):
         raise ValidationError(f"{error_prefix}must be a dict")
@@ -153,29 +141,11 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str, team: "Team"
 
     error = _semantic_error(parsed)
     if error is None and isinstance(parsed, ExperimentWarehouseNativeMetric):
-        error = _warehouse_native_error(parsed, team)
+        # The type exists so the rest of the product can be built against it; nothing can run it yet.
+        error = "warehouse-native metrics are not supported yet."
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed
-
-
-def _warehouse_native_error(metric: ExperimentWarehouseNativeMetric, team: "Team") -> str | None:
-    if not warehouse_native_metrics_enabled(team):
-        return "warehouse-native metrics are not enabled for this project."
-    sources = (
-        [metric.source]
-        if isinstance(metric, ExperimentWarehouseNativeProportionMetric | ExperimentWarehouseNativeMeanMetric)
-        else [metric.numerator, metric.denominator]
-    )
-    for source in sources:
-        if not source.query.strip():
-            return "every warehouse-native metric source requires a query."
-        # A proportion is "at least one row", so only the other statistics need to know how rows collapse.
-        if source.aggregation is None and not isinstance(metric, ExperimentWarehouseNativeProportionMetric):
-            return "mean and ratio warehouse-native metrics require an aggregation on each source."
-    if not has_direct_connection(team, metric.connection_id):
-        return "the selected connection does not exist or cannot be queried directly."
-    return None
 
 
 class _SavedMetricLinkOverrides(pydantic.BaseModel):

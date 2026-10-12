@@ -973,7 +973,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return exposure_criteria
 
     def _validate_metrics_list(self, metrics: list | None) -> list | None:
-        ExperimentService.validate_experiment_metrics(metrics, self.context["get_team"]())
+        ExperimentService.validate_experiment_metrics(metrics)
         return metrics
 
     def validate_metrics(self, value):
