@@ -1,4 +1,4 @@
-"""Contract types that review_hog exposes to other products. No Django imports."""
+"""Types of the head review status that review_hog exposes to other products. No Django imports."""
 
 from dataclasses import dataclass
 from enum import StrEnum

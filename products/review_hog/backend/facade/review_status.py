@@ -6,7 +6,7 @@ be a dependency cycle. Lives apart from `reviews.py` and `github.py` because the
 Temporal client.
 """
 
-from products.review_hog.backend.facade.contracts import HeadReviewState, HeadReviewStatus
+from products.review_hog.backend.facade.review_status_types import HeadReviewState, HeadReviewStatus
 from products.review_hog.backend.head_review_status import HeadReviewStatusLookup
 from products.review_hog.backend.ownership import RepositoryOwnership
 

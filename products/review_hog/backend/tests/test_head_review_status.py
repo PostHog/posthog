@@ -5,7 +5,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.review_hog.backend.facade.contracts import HeadReviewState
+from products.review_hog.backend.facade.review_status_types import HeadReviewState
 from products.review_hog.backend.head_review_status import HeadReviewStatusLookup
 from products.review_hog.backend.models import ReviewInstallationClaim, ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.receivers import review_evidence_for_stamphog

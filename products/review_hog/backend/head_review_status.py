@@ -9,7 +9,7 @@ workflow, so the workflow's `requested_heads` query answers for it.
 
 from datetime import timedelta
 
-from products.review_hog.backend.facade.contracts import HeadReviewState, HeadReviewStatus
+from products.review_hog.backend.facade.review_status_types import HeadReviewState, HeadReviewStatus
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import load_turn_findings
