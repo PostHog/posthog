@@ -1,17 +1,14 @@
-import { mapOtelAttributes } from '~/ingestion/pipelines/ai/otel/attribute-mapping'
 import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel/index'
 import { createEvent } from '~/ingestion/pipelines/ai/otel/test-helpers'
 
 jest.mock('~/ingestion/pipelines/ai/metrics', () => ({
     aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     aiOtelEventTypeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    aiOtelGroupsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    aiOtelOlderSpecEventsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    aiOtelSystemInstructionsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    aiOtelUnknownPartTypeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
 }))
-
-jest.mock('~/ingestion/pipelines/ai/otel/attribute-mapping', () => ({
-    mapOtelAttributes: jest.fn(),
-}))
-
-const mockedMapOtelAttributes = jest.mocked(mapOtelAttributes)
 
 describe('pydantic-ai middleware', () => {
     beforeEach(() => {
@@ -19,14 +16,6 @@ describe('pydantic-ai middleware', () => {
     })
 
     describe('$ai_trace (root span)', () => {
-        beforeEach(() => {
-            mockedMapOtelAttributes.mockImplementation((e) => {
-                if (e.event === '$ai_span' && !e.properties?.['$ai_parent_id']) {
-                    e.event = '$ai_trace'
-                }
-            })
-        })
-
         it('extracts input from pydantic_ai.all_messages and output from final_result', () => {
             const messages = [
                 { role: 'system', parts: [{ type: 'text', content: 'You are helpful' }] },
@@ -240,14 +229,17 @@ describe('pydantic-ai middleware', () => {
         })
     })
 
-    describe('$ai_span with tool data', () => {
-        it('maps tool_arguments and tool_response to state properties', () => {
+    describe.each([
+        ['legacy', 'tool_arguments', 'tool_response'],
+        ['standard', 'gen_ai.tool.call.arguments', 'gen_ai.tool.call.result'],
+    ])('$ai_span with %s tool data', (_label, argumentsKey, resultKey) => {
+        it('maps tool arguments and results to state properties', () => {
             const toolArgs = { latitude: 45.5, longitude: -73.5 }
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'running tool: get_weather',
-                tool_arguments: JSON.stringify(toolArgs),
-                tool_response: 'Sunny, 25°C',
+                [argumentsKey]: JSON.stringify(toolArgs),
+                [resultKey]: 'Sunny, 25°C',
                 'gen_ai.tool.name': 'get_weather',
                 'gen_ai.tool.call.id': 'call-123',
                 'logfire.json_schema': '{}',
@@ -259,18 +251,22 @@ describe('pydantic-ai middleware', () => {
             expect(event.properties!['$ai_span_name']).toBe('get_weather')
             expect(event.properties!['tool_arguments']).toBeUndefined()
             expect(event.properties!['tool_response']).toBeUndefined()
+            expect(event.properties!['gen_ai.tool.call.arguments']).toBeUndefined()
+            expect(event.properties!['gen_ai.tool.call.result']).toBeUndefined()
             expect(event.properties!['gen_ai.tool.name']).toBeUndefined()
             expect(event.properties!['gen_ai.tool.call.id']).toBeUndefined()
             expect(event.properties!['logfire.msg']).toBeUndefined()
             expect(event.properties!['logfire.json_schema']).toBeUndefined()
         })
 
-        it('parses tool_response JSON string into object for $ai_output_state', () => {
-            const toolResponse = { temperature: 25, unit: 'celsius', condition: 'sunny' }
+        it.each([
+            [{ temperature: 25, unit: 'celsius', condition: 'sunny' }],
+            [[{ temperature: 25 }, { temperature: 20 }]],
+        ])('parses structured tool results: %j', (toolResponse) => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'running tool: get_weather',
-                tool_response: JSON.stringify(toolResponse),
+                [resultKey]: JSON.stringify(toolResponse),
                 'gen_ai.tool.name': 'get_weather',
             })
             convertOtelEvent(event)
@@ -278,36 +274,126 @@ describe('pydantic-ai middleware', () => {
             expect(event.properties!['$ai_output_state']).toEqual(toolResponse)
         })
 
-        it('keeps tool_response as plain string when not valid JSON', () => {
+        it.each([
+            ['Sunny, 25°C', 'Sunny, 25°C'],
+            ['{"temperature":', '{"temperature":'],
+            ['0', '0'],
+            ['false', 'false'],
+            ['null', 'null'],
+            ['"sunny"', '"sunny"'],
+            [0, '0'],
+            [false, 'false'],
+            [null, 'null'],
+        ])('keeps tool result %j readable as %j', (toolResponse, expected) => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'running tool: get_weather',
-                tool_response: 'Sunny, 25°C',
+                [resultKey]: toolResponse,
             })
             convertOtelEvent(event)
 
-            expect(event.properties!['$ai_output_state']).toBe('Sunny, 25°C')
+            expect(event.properties!['$ai_output_state']).toBe(expected)
         })
 
         it('keeps tool_arguments as string when JSON parsing fails', () => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'tool run',
-                tool_arguments: 'not json',
+                [argumentsKey]: 'not json',
             })
             convertOtelEvent(event)
             expect(event.properties!['$ai_input_state']).toBe('not json')
         })
 
-        it('passes through already-parsed tool_arguments', () => {
-            const toolArgs = { key: 'value' }
+        it.each([[{ key: 'value' }], [['first', 'second']]])(
+            'passes through already-parsed tool data: %j',
+            (toolArgs) => {
+                const event = createEvent('$ai_span', {
+                    $ai_parent_id: 'parent-1',
+                    'logfire.msg': 'tool run',
+                    [argumentsKey]: toolArgs,
+                    [resultKey]: toolArgs,
+                })
+                convertOtelEvent(event)
+                expect(event.properties!['$ai_input_state']).toEqual(toolArgs)
+                expect(event.properties!['$ai_output_state']).toEqual(toolArgs)
+            }
+        )
+    })
+
+    describe('mixed tool attribute versions', () => {
+        it.each([
+            [
+                'both standard attributes',
+                '{"source":"standard"}',
+                '{"status":"standard"}',
+                { source: 'standard' },
+                { status: 'standard' },
+            ],
+            [
+                'missing standard arguments',
+                undefined,
+                '{"status":"standard"}',
+                { source: 'legacy' },
+                { status: 'standard' },
+            ],
+            [
+                'missing standard result',
+                '{"source":"standard"}',
+                undefined,
+                { source: 'standard' },
+                { status: 'legacy' },
+            ],
+            ['zero and false', 0, false, '0', 'false'],
+            ['empty arguments and null result', '', null, '', 'null'],
+            ['null arguments and zero result', null, 0, 'null', '0'],
+        ])('prefers standard values with %s', (_label, toolArgs, toolResult, expectedInput, expectedOutput) => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
                 'logfire.msg': 'tool run',
-                tool_arguments: toolArgs,
+                'gen_ai.tool.call.arguments': toolArgs,
+                'gen_ai.tool.call.result': toolResult,
+                tool_arguments: '{"source":"legacy"}',
+                tool_response: '{"status":"legacy"}',
             })
             convertOtelEvent(event)
-            expect(event.properties!['$ai_input_state']).toEqual(toolArgs)
+
+            expect(event.properties!['$ai_input_state']).toEqual(expectedInput)
+            expect(event.properties!['$ai_output_state']).toEqual(expectedOutput)
+            for (const key of [
+                'gen_ai.tool.call.arguments',
+                'gen_ai.tool.call.result',
+                'tool_arguments',
+                'tool_response',
+            ]) {
+                expect(event.properties).not.toHaveProperty(key)
+            }
+        })
+
+        it('maps standard tool data after the real generic OTel mapping', () => {
+            const event = createEvent('$ai_span', {
+                $ai_parent_id: 'parent-1',
+                $otel_span_name: 'execute_tool get_weather',
+                'logfire.msg': 'running tool: get_weather',
+                'gen_ai.tool.name': 'get_weather',
+                'gen_ai.tool.call.arguments': '{"city":"Example City"}',
+                'gen_ai.tool.call.result': '{"temperature":25}',
+                'gen_ai.provider.name': 'openai',
+                'gen_ai.request.model': 'test-model',
+            })
+            convertOtelEvent(event)
+
+            expect(event.event).toBe('$ai_span')
+            expect(event.properties).toMatchObject({
+                $ai_input_state: { city: 'Example City' },
+                $ai_output_state: { temperature: 25 },
+                $ai_span_name: 'get_weather',
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_lib: 'opentelemetry/pydantic-ai',
+            })
+            expect(event.properties).not.toHaveProperty('gen_ai.tool.call.arguments')
+            expect(event.properties).not.toHaveProperty('gen_ai.tool.call.result')
         })
     })
 
@@ -336,7 +422,7 @@ describe('pydantic-ai middleware', () => {
             })
             convertOtelEvent(event)
 
-            expect(mockedMapOtelAttributes).toHaveBeenCalledWith(event)
+            expect(event.properties!['$ai_provider']).toBe('openai')
             expect(event.properties!['logfire.json_schema']).toBeUndefined()
             expect(event.properties!['operation.cost']).toBeUndefined()
             expect(event.properties!['model_request_parameters']).toBeUndefined()
