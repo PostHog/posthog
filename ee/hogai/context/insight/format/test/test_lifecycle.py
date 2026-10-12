@@ -191,7 +191,7 @@ class TestLifecycleResultsFormatter(BaseTest):
             _make_result("$pageview", "$pageview", "resurrecting", [10, 8], days),
             _make_result("$pageview", "$pageview", "dormant", [-20, -15], days),
         ]
-        queries = [
+        queries: list[AssistantLifecycleQuery | LifecycleQuery] = [
             LifecycleQuery(
                 series=[EventsNode(event="$pageview")], lifecycleFilter=LifecycleFilter(toggledLifecycles=toggled)
             ),
