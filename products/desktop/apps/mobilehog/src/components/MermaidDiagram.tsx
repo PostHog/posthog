@@ -10,19 +10,24 @@ import WebView from "react-native-webview";
 import {
   type DiagramSize,
   hasRemoteImageNode,
+  inlineScriptSource,
   mermaidHtml,
   parseMermaidMessage,
+  rememberSize,
 } from "@/lib/mermaid";
 import { colors } from "@/lib/theme";
 
 const PADDING = 12;
 const PENDING_HEIGHT = 120;
+const SIZE_CACHE_LIMIT = 50;
 
 let bundle: string | null = null;
 
 // Metro exports the prebuilt browser bundle as a string (see metro.transformer.js).
 function mermaidBundle(): string {
-  bundle ??= require("mermaid/dist/mermaid.min.js") as string;
+  bundle ??= inlineScriptSource(
+    require("mermaid/dist/mermaid.min.js") as string,
+  );
   return bundle;
 }
 
@@ -34,24 +39,43 @@ interface MermaidDiagramProps {
   fallback: ReactNode;
 }
 
-export function MermaidDiagram({ code, fallback }: MermaidDiagramProps) {
+// Keyed by theme and code, so a new diagram starts without the old failure or size.
+export function MermaidDiagram(props: MermaidDiagramProps): ReactNode {
   const dark = useColorScheme() === "dark";
-  const key = `${dark ? "dark" : "light"}\n${code}`;
-  const html = useMemo(() => mermaidHtml(code, dark), [code, dark]);
+  const key = `${dark ? "dark" : "light"}\n${props.code}`;
+  return <DiagramView key={key} cacheKey={key} dark={dark} {...props} />;
+}
+
+interface DiagramViewProps extends MermaidDiagramProps {
+  cacheKey: string;
+  dark: boolean;
+}
+
+function DiagramView({
+  code,
+  fallback,
+  cacheKey,
+  dark,
+}: DiagramViewProps): ReactNode {
+  const html = useMemo(
+    () => mermaidHtml(code, dark, mermaidBundle()),
+    [code, dark],
+  );
   const [width, setWidth] = useState(0);
-  const [size, setSize] = useState(() => sizes.get(key) ?? null);
+  const [size, setSize] = useState(() => sizes.get(cacheKey) ?? null);
   const [failed, setFailed] = useState(false);
 
   if (failed || hasRemoteImageNode(code)) return fallback;
 
+  const fail = () => setFailed(true);
   const onMessage = (data: string) => {
     const message = parseMermaidMessage(data);
     if (message?.type === "size") {
       const next = { width: message.width, height: message.height };
-      sizes.set(key, next);
+      rememberSize(sizes, cacheKey, next, SIZE_CACHE_LIMIT);
       setSize(next);
     } else if (message?.type === "error") {
-      setFailed(true);
+      fail();
     }
   };
 
@@ -69,14 +93,15 @@ export function MermaidDiagram({ code, fallback }: MermaidDiagramProps) {
       >
         {width > 0 ? (
           <WebView
-            key={key}
             source={{ html }}
-            injectedJavaScriptBeforeContentLoaded={mermaidBundle()}
             originWhitelist={["*"]}
             onShouldStartLoadWithRequest={(request) =>
               request.url.startsWith("about:")
             }
             onMessage={(event) => onMessage(event.nativeEvent.data)}
+            onError={fail}
+            onContentProcessDidTerminate={fail}
+            onRenderProcessGone={fail}
             javaScriptEnabled
             scrollEnabled={false}
             bounces={false}
