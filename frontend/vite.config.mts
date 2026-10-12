@@ -121,7 +121,7 @@ export default defineConfig(({ mode }) => {
         },
         worker: {
             format: 'es', // Use ES modules to support WASM imports
-            plugins: () => [react()],
+            plugins: () => [react(), zodJitlessPlugin()],
             rollupOptions: {
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
