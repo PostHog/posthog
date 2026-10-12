@@ -49,8 +49,10 @@ import yaml
 import requests
 from prometheus_client import Counter
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 from posthog.models import User
 from posthog.ph_client import ph_background_capture, ph_scoped_capture
@@ -128,6 +130,9 @@ _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_t
 
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
 _CONTEXT_FETCH_WORKERS = 8
+
+# GitHub asks a caller to wait at least a minute after a secondary rate limit that names no reset.
+_GITHUB_MIN_BACKOFF_SECONDS = 60
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -486,6 +491,13 @@ class _StepTimer:
             self.timings_ms[name] = int((time.monotonic() - started) * 1000)
 
 
+def _wait_for_github_backoff(error: GitHubRateLimitError | GitHubEgressBudgetExhausted) -> ApplicationError:
+    # ACTIVITY_RETRY_POLICY retries after 5s and 10s, so without this delay every attempt lands in the same window.
+    retry_after = error.retry_after if isinstance(error, GitHubRateLimitError) else None
+    delay = max(retry_after or 0, _GITHUB_MIN_BACKOFF_SECONDS)
+    return ApplicationError(str(error), next_retry_delay=timedelta(seconds=delay))
+
+
 @activity.defn
 @asyncify
 def fetch_review_context(input: StamphogReviewInput) -> dict:
@@ -494,6 +506,13 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     The reads are independent GitHub round trips, so they run concurrently. Only the reads that need
     the PR's author or its file list wait for those two.
     """
+    try:
+        return _fetch_review_context(input)
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as error:
+        raise _wait_for_github_backoff(error) from error
+
+
+def _fetch_review_context(input: StamphogReviewInput) -> dict:
     run = _load_run(input)
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
