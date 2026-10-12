@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -21,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartlook.
     ],
 )
 def test_import_uses_documented_search_body_and_next_links(
-    region: str, table: str, path: str, method: str, sort_field: str | None
+    region: Literal["eu", "us"], table: str, path: str, method: str, sort_field: str | None
 ) -> None:
     driver = SourceDriver(SmartlookSource(), SmartlookSourceConfig(api_token="test-token", region=region))
     next_path = f"{path}?after=next-token&limit=100"

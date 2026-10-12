@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -50,7 +52,7 @@ def test_credential_probe_rejects_non_json_response() -> None:
         ("test-token", "https://example.com", "EU or US"),
     ],
 )
-def test_invalid_connection_fields_do_not_send_credentials(token: str, region: str, message: str) -> None:
+def test_invalid_connection_fields_do_not_send_credentials(token: str, region: Any, message: str) -> None:
     config = SmartlookSourceConfig(api_token=token, region=region)
     with scripted_network([]) as network:
         valid, error = SmartlookSource().validate_credentials(config, team_id=1)
