@@ -112,6 +112,19 @@ def _detail_text(exc: exceptions.APIException) -> str:
     return str(detail)
 
 
+class SetupWizardGatewayTokenSerializer(serializers.Serializer):
+    """Document the body without coercing capabilities before the authenticated compatibility checks."""
+
+    program = serializers.CharField(help_text="Program ID from the Wizard gateway allowlist.")
+    reads_refusal_reason = serializers.BooleanField(
+        required=False,
+        help_text="Send JSON true when the client displays refusal details. Older clients receive compatible 404 refusals.",
+    )
+    supports_prompt_pinning = serializers.BooleanField(
+        help_text="Must be JSON true. The client must prepend the returned system_prompt to every model request.",
+    )
+
+
 class SetupWizardCloudRunSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(
         help_text="ID of the PostHog project to integrate PostHog into. The authenticated user must have access to it."
@@ -156,6 +169,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
         super().throttled(request, wait)
 
+    @extend_schema(request=SetupWizardGatewayTokenSerializer)
     @action(
         methods=["POST"],
         detail=False,
@@ -300,6 +314,13 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if rolled_out is False:
             refuse_absent_gateway(
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
+            )
+
+        if body.get("supports_prompt_pinning") is not True:
+            refuse_absent_gateway(
+                "program_unknown",
+                "This Wizard version is no longer supported. Upgrade with: npx @posthog/wizard@latest",
+                user=user,
             )
 
         # Read once, after every gate that needs no flag, so an unauthenticated or

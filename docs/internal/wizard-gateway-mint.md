@@ -12,6 +12,13 @@ Code: `posthog/api/wizard/http.py` (the endpoint and its gates),
 
 ## Mint request
 
+The CLI sends `program`, `reads_refusal_reason: true`, and `supports_prompt_pinning: true` to `POST /api/wizard/gateway_token/`.
+`supports_prompt_pinning` must be the JSON boolean `true`.
+It declares that the client will prepend the returned `system_prompt` to every model request.
+A missing, false, or malformed capability receives the existing `program_unknown` upgrade refusal after authorization and block checks, before policy reads or a mint reservation.
+`reads_refusal_reason` independently controls whether that refusal uses 403 or the legacy 404 response.
+Django includes the prompt pin in every mint request.
+
 Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 `Authorization: Bearer {WIZARD_GATEWAY_MINT_KEY}`:
 
