@@ -15,7 +15,7 @@ PAGE_SIZE = 1000
 STATISTICS_LOOKBACK_DAYS = 365
 
 
-@dataclass
+@dataclass(frozen=True)
 class ElasticEmailEndpointConfig:
     name: str
     path: str

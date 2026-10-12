@@ -520,8 +520,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/easypost/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/easypromos/easypromos.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/easypromos/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/elasticemail/elasticemail.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/elasticemail/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/elasticsearch/elasticsearch.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/elevenlabs/elevenlabs.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/elevenlabs/settings.py

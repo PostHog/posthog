@@ -52,7 +52,7 @@ VALIDATION_PATH = "/statistics"
 _AUTH_BODY_TOKENS = ("apikey", "api key", "access token", "unauthorized", "expired")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ElasticEmailResumeConfig:
     # Next offset to request. Elastic Email paginates with limit/offset, so the offset alone is enough
     # to resume mid-endpoint; the incremental `from` window is re-derived from the stored cursor each run.
