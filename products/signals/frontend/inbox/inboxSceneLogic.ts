@@ -24,6 +24,7 @@ import type { UserType } from '~/types'
 
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
+    signalsReportsLocateRetrieve,
     signalsReportsRefreshMetricsCreate,
     signalsReportsViewedCreate,
     signalsScoutRunsList,
@@ -32,6 +33,7 @@ import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/g
 
 import {
     captureInboxReportClosed,
+    captureInboxReportNotFound,
     captureInboxReportOpened,
     captureInboxReportScrolled,
     InboxReportCloseMethod,
@@ -504,6 +506,7 @@ export interface inboxSceneLogicValues {
     isScratchpadOpen: boolean
     isStaff: boolean
     isTriageOpen: boolean
+    redirectingToReportProject: boolean
     scoutDetailTab: ScoutDetailTab | null
     scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
@@ -571,6 +574,13 @@ export interface inboxSceneLogicActions {
     refreshSelectedReportMetrics: (id: string) => {
         id: string
     }
+    redirectToReportProject: (
+        id: string,
+        teamId: number
+    ) => {
+        id: string
+        teamId: number
+    }
     reportDetailScrolled: () => {
         value: true
     }
@@ -627,7 +637,7 @@ export interface inboxSceneLogicMeta {
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
         selectedReport: (selectedReportResponse: SignalReport | null) => SignalReport | null
-        selectedReportLoading: (selectedReportResponseLoading: boolean) => boolean
+        selectedReportLoading: (selectedReportResponseLoading: boolean, redirectingToReportProject: boolean) => boolean
     }
 }
 
@@ -674,6 +684,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // Ask the server for the newest snapshot of the open report's metrics. Best effort: a failure
         // leaves the saved snapshot in place, and the detail shows the live query result anyway.
         refreshSelectedReportMetrics: (id: string) => ({ id }),
+        // The report 404ed here, but another project the person can read owns it.
+        redirectToReportProject: (id: string, teamId: number) => ({ id, teamId }),
         applySelectedReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => ({ snapshots }),
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
         // Scout detail surface: selecting a scout opens its full-width detail over the list. An
@@ -710,7 +722,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         // Runs panel: a newest-first list of scout + signals-pipeline runs, composed from two existing
         // endpoints, scout runs (clean `skill_name`) and signal-pipeline tasks (whose title is the
         // originating report's title). Merged client-side; there is no unified backend "runs" resource
@@ -770,6 +782,23 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         // Return null so the scene shows a "not found" empty state instead of the
                         // global raw error toast. Let every other failure surface as before.
                         if (error instanceof ApiError && error.status === 404) {
+                            // The id is only looked up in the URL's project, so a link opened under
+                            // another project 404s too. Send the person to the owning project if they can read it.
+                            const located = await signalsReportsLocateRetrieve(String(teamLogic.values.currentTeamId), {
+                                report_id: id,
+                            }).catch(() => null)
+                            breakpoint()
+                            // Closing the report dispatches no new load, so the breakpoint above does not cancel
+                            // this one. Don't move a person who left the report to another project.
+                            if (values.selectedReportId !== id) {
+                                return null
+                            }
+                            const teamId = located?.team_id ?? null
+                            if (teamId !== null && teamId !== teamLogic.values.currentTeamId) {
+                                actions.redirectToReportProject(id, teamId)
+                            } else {
+                                captureInboxReportNotFound({ reportId: id, outcome: 'not_accessible' })
+                            }
                             return null
                         }
                         throw error
@@ -840,6 +869,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setScratchpadOpen: (state, { open }) => (open ? false : state),
                 setFindingsOpen: (state, { open }) => (open ? false : state),
                 setTriageOpen: (state, { open }) => (open ? false : state),
+            },
+        ],
+        // Holds the skeleton while the page leaves for the owning project.
+        redirectingToReportProject: [
+            false,
+            {
+                redirectToReportProject: () => true,
             },
         ],
         isTriageOpen: [
@@ -929,8 +965,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (selectedReportResponse: SignalReport | null): SignalReport | null => selectedReportResponse,
         ],
         selectedReportLoading: [
-            (s) => [s.selectedReportResponseLoading],
-            (selectedReportResponseLoading: boolean): boolean => selectedReportResponseLoading,
+            (s) => [s.selectedReportResponseLoading, s.redirectingToReportProject],
+            (selectedReportResponseLoading: boolean, redirectingToReportProject: boolean): boolean =>
+                selectedReportResponseLoading || redirectingToReportProject,
         ],
     }),
 
@@ -1047,6 +1084,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // Reuse the list row if we already have it (instant render), then refresh from the server.
             actions.seedSelectedReport(findLoadedReport(id))
             actions.loadSelectedReport({ id })
+        },
+        redirectToReportProject: ({ id, teamId }) => {
+            captureInboxReportNotFound({ reportId: id, outcome: 'redirected' })
+            const { pathname, search, hash } = window.location
+            // Replace, not push: Back would return to the broken link and redirect again.
+            window.location.replace(`/project/${teamId}${removeProjectIdIfPresent(pathname)}${search}${hash}`)
         },
         // Fire `Inbox report opened` once the authoritative record lands (skip background refreshes
         // of the already-open report). Rank/list_size come from whichever loaded list holds it.
