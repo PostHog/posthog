@@ -36,13 +36,6 @@ def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None
 def create_default_modifiers_for_user(
     user: "User", team: "Team", modifiers: Optional["HogQLQueryModifiers"] = None
 ) -> "HogQLQueryModifiers":
-    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
-
-    if modifiers is None:
-        modifiers = HogQLQueryModifiers()
-    else:
-        modifiers = modifiers.model_copy()
-
     from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
 
     modifiers = create_default_modifiers_for_team(team, modifiers)

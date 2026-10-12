@@ -1,11 +1,26 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMathType, ExperimentQuery
+from posthog.schema import (
+    EventsNode,
+    ExperimentExposureQuery,
+    ExperimentMeanMetric,
+    ExperimentMetricMathType,
+    ExperimentQuery,
+    HogQLQueryModifiers,
+)
 
+from posthog.hogql.parser import parse_select
+
+from posthog.clickhouse.workload import Workload
+
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -14,7 +29,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
     def setUp(self):
         super().setUp()
-        feature_flag = FeatureFlag.objects.create(
+        feature_flag = self.feature_flag = FeatureFlag.objects.create(
             name="Test flag",
             key="test-flag",
             team=self.team,
@@ -29,7 +44,9 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             },
             created_by=self.user,
         )
-        experiment = Experiment.objects.create(name="test-experiment", team=self.team, feature_flag=feature_flag)
+        experiment = self.experiment = Experiment.objects.create(
+            name="test-experiment", team=self.team, feature_flag=feature_flag
+        )
         self.query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
@@ -50,3 +67,62 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             results_request.get_cache_key(),
             results_request.single_flight_variant(),
         )
+
+    @parameterized.expand([("metric", False), ("metric", True), ("exposures", False), ("exposures", True)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_experiment_execution_preserves_selected_table_and_debug_sql(self, kind: str, native: bool) -> None:
+        experiment, flag = self.experiment, self.feature_flag
+        experiment.start_date = datetime(2024, 1, 1, tzinfo=UTC)
+        experiment.end_date = datetime(2024, 1, 7, tzinfo=UTC)
+        experiment.save(update_fields=["start_date", "end_date"])
+        assert experiment.start_date is not None and experiment.end_date is not None
+        eligibility = patch(
+            "posthog.models.event.new_events_schema.get_instance_setting",
+            side_effect=lambda key: [self.team.id] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+        )
+        eligibility.start()
+        self.addCleanup(eligibility.stop)
+        modifiers = HogQLQueryModifiers(useNewEventsSchema=native, useNewEventsCluster=native)
+        runner: ExperimentQueryRunner | ExperimentExposuresQueryRunner
+        if kind == "metric":
+            runner = ExperimentQueryRunner(
+                query=ExperimentQuery(
+                    experiment_id=experiment.id, metric=ExperimentMeanMetric(source=EventsNode(event="example"))
+                ),
+                team=self.team,
+                user=self.user,
+                modifiers=modifiers,
+            )
+            builder = "_get_experiment_query"
+        else:
+            runner = ExperimentExposuresQueryRunner(
+                query=ExperimentExposureQuery(
+                    experiment_id=experiment.id,
+                    experiment_name=experiment.name,
+                    feature_flag={"key": flag.key},
+                    start_date=experiment.start_date.isoformat(),
+                    end_date=experiment.end_date.isoformat(),
+                ),
+                team=self.team,
+                user=self.user,
+                modifiers=modifiers,
+            )
+            builder = "_get_exposure_query"
+        cache_key = runner.get_cache_key()
+        with (
+            patch.object(runner, builder, return_value=parse_select("SELECT count() FROM events")),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [("count()", "UInt64")])) as execute,
+        ):
+            if kind == "metric":
+                assert isinstance(runner, ExperimentQueryRunner)
+                runner._evaluate_experiment_query()
+            else:
+                assert isinstance(runner, ExperimentExposuresQueryRunner)
+                runner._calculate()
+        self.assertEqual("events_json" in execute.call_args.args[0], native)
+        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NATIVE_EVENTS, native)
+        self.assertEqual(runner.get_cache_key(), cache_key)
+        if kind == "metric":
+            assert isinstance(runner, ExperimentQueryRunner)
+            assert runner.clickhouse_sql is not None
+            self.assertEqual("events_json" in runner.clickhouse_sql, native)

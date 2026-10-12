@@ -12,12 +12,17 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest import skip
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
+    ActorsQuery,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -29,10 +34,17 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     GroupPropertyFilter,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyOperator,
 )
 
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.models import Organization, Team, User
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
@@ -2497,3 +2509,133 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
                 error_msg = str(e).lower()
                 # Should not be a SQL syntax error
                 self.assertNotIn("syntax error", error_msg, f"Special character handling failed for: {repr(prop_name)}")
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+class TestNativeEventsActorRouting(SimpleTestCase):
+    def setUp(self) -> None:
+        self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
+        self.user = User(id=123, is_staff=True, is_active=True)
+        self.modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+        self.settings_patch = patch(
+            "posthog.models.event.new_events_schema.get_instance_setting",
+            side_effect=lambda key: [44] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+        )
+        self.settings_patch.start()
+        self.addCleanup(self.settings_patch.stop)
+        cookieless = patch(
+            "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
+            return_value=True,
+        )
+        cookieless.start()
+        self.addCleanup(cookieless.stop)
+
+    def _enqueue(self, runner: QueryRunner) -> dict:
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            runner.enqueue_async_calculation(
+                cache_manager=MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None), user=self.user
+            )
+        return enqueue.call_args.kwargs["query_json"]
+
+    @parameterized.expand(
+        [
+            (kind, True, None, None, None, True, True)
+            for kind in ("InsightActorsQuery", "InsightActorsQueryOptions", "ActorsQuery", "FunnelCorrelationQuery")
+        ]
+        + [
+            (kind, None, not native, native, native, native, native)
+            for kind in ("InsightActorsQuery", "ActorsQuery")
+            for native in (False, True)
+        ]
+        + [
+            (kind, None, True, None, choice, False, choice)
+            for kind in ("InsightActorsQuery", "ActorsQuery")
+            for choice in (False, None)
+        ]
+    )
+    def test_nested_route_and_cache_identity_survive_worker_reconstruction(
+        self,
+        kind: str,
+        source_choice: bool | None,
+        wrapper_choice: bool | None,
+        schema_override: bool | None,
+        cluster_override: bool | None,
+        schema: bool,
+        cluster: bool | None,
+    ) -> None:
+        query = self._nested_query(kind, source_choice)
+        override = None
+        if wrapper_choice is not None:
+            assert isinstance(query, (ActorsQuery, InsightActorsQuery))
+            query.modifiers = self.modifiers.model_copy(
+                update={
+                    "useNewEventsSchema": wrapper_choice if schema_override is not None else None,
+                    "useNewEventsCluster": wrapper_choice,
+                }
+            )
+            override = self.modifiers.model_copy(
+                update={
+                    "useNewEventsSchema": schema_override,
+                    "useNewEventsCluster": cluster_override,
+                }
+            )
+        original = query.model_dump()
+        with override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com" if cluster else None):
+            request = get_query_runner(query, self.team, modifiers=override, user=self.user)
+            worker = get_query_runner(self._enqueue(request), self.team, user=self.user)
+        self.assertIs(worker.modifiers.useNewEventsSchema, schema)
+        self.assertIs(worker.modifiers.useNewEventsCluster, cluster)
+        self.assertEqual(query.model_dump(), original)
+        with (
+            patch.object(request, "_get_property_access_restrictions", return_value=None),
+            patch.object(worker, "_get_property_access_restrictions", return_value=None),
+            patch.object(request, "_products_modifiers_for_cache", return_value={}),
+            patch.object(worker, "_products_modifiers_for_cache", return_value={}),
+            patch("posthog.hogql_queries.query_runner.events_retention_months_for_team", return_value=None),
+        ):
+            self.assertEqual(request.get_cache_payload(), worker.get_cache_payload())
+
+    def _nested_query(self, kind: str, native: bool | None = None) -> BaseModel:
+        modifiers = self.modifiers.model_copy(update={"useNewEventsSchema": native, "useNewEventsCluster": native})
+        funnels = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")], modifiers=modifiers)
+        actors = FunnelsActorsQuery(source=funnels, funnelStep=1)
+        if kind == "InsightActorsQuery":
+            return InsightActorsQuery(source=funnels)
+        if kind == "ActorsQuery":
+            return ActorsQuery(source=actors)
+        if kind == "InsightActorsQueryOptions":
+            return InsightActorsQueryOptions(source=actors)
+        if kind == "FunnelCorrelationQuery":
+            return FunnelCorrelationQuery(
+                funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
+                source=actors,
+            )
+        return actors
+
+    @parameterized.expand([(False,), (True,)])
+    def test_actor_source_explicit_choice_survives_late_user(self, native: bool) -> None:
+        runner = get_query_runner(self._nested_query("ActorsQuery", native), self.team)
+        with patch.object(runner, "get_cache_key", side_effect=RuntimeError("cache boundary")):
+            with self.assertRaisesRegex(RuntimeError, "cache boundary"):
+                runner.run(user=self.user)
+        self.assertIs(runner.modifiers.useNewEventsSchema, native)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_explicit_wrapper_choices_take_precedence_over_source(self, native: bool) -> None:
+        query = self._nested_query("ActorsQuery", not native)
+        assert isinstance(query, ActorsQuery)
+        query.modifiers = self.modifiers.model_copy(
+            update={"useNewEventsSchema": native, "useNewEventsCluster": native}
+        )
+        runner = get_query_runner(query, self.team, user=self.user)
+        assert isinstance(runner, ActorsQueryRunner)
+        with patch.object(runner, "get_cache_key", side_effect=RuntimeError("cache boundary")):
+            with self.assertRaisesRegex(RuntimeError, "cache boundary"):
+                runner.run(user=self.user)
+        self.assertIs(runner.modifiers.useNewEventsSchema, native)
+        assert runner.source_query_runner is not None
+        self.assertIs(runner.source_query_runner.modifiers.useNewEventsSchema, native)
