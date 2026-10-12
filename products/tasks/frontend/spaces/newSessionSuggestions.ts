@@ -1,6 +1,17 @@
-import type { ComposerStarterSuggestion } from 'products/posthog_ai/frontend/api/runner'
+import type { ComposerPrefillRequest } from 'products/posthog_ai/frontend/api/runner'
 
-export const DEFAULT_NEW_SESSION_SUGGESTIONS: ComposerStarterSuggestion[] = [
+export type NewSessionSuggestionIcon = 'trends' | 'bug' | 'canvas' | 'code' | 'revenue' | 'feedback'
+
+export interface NewSessionSuggestion {
+    id: string
+    label: string
+    description: string
+    prompt: string
+    icon: NewSessionSuggestionIcon
+    mode?: ComposerPrefillRequest['mode']
+}
+
+export const DEFAULT_NEW_SESSION_SUGGESTIONS: NewSessionSuggestion[] = [
     {
         id: 'feature-analysis',
         label: 'Run a feature analysis',

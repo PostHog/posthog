@@ -24,6 +24,7 @@ import {
 import {
     cycleMode,
     getModesForRuntimeAdapter,
+    type PermissionMode,
     resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
@@ -44,10 +45,6 @@ import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttac
 import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
-import {
-    type ComposerStarterSuggestion,
-    QuillComposerStarterSuggestions,
-} from '../../../components/quill/QuillComposerStarterSuggestions'
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
@@ -59,16 +56,20 @@ export interface TaskComposerProps {
     focusRequest?: number
     /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
     autoFocus?: boolean
-    starterSuggestions?: ComposerStarterSuggestion[]
-    onStarterSuggestionSelect?: (suggestion: ComposerStarterSuggestion, index: number) => void
+    prefillRequest?: ComposerPrefillRequest | null
+}
+
+export interface ComposerPrefillRequest {
+    id: number
+    prompt: string
+    mode?: PermissionMode
 }
 
 export function TaskComposer({
     variant = 'page',
     focusRequest = 0,
     autoFocus = true,
-    starterSuggestions,
-    onStarterSuggestionSelect,
+    prefillRequest = null,
 }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const {
@@ -131,14 +132,18 @@ export function TaskComposer({
         }
     }
 
-    const handleSelectStarterSuggestion = (suggestion: ComposerStarterSuggestion, index: number): void => {
-        if (suggestion.mode && getModesForRuntimeAdapter(composerAdapter).includes(suggestion.mode)) {
-            pickPermissionMode(suggestion.mode)
+    const appliedPrefillId = useRef(prefillRequest?.id ?? null)
+    useEffect(() => {
+        if (!prefillRequest || prefillRequest.id === appliedPrefillId.current) {
+            return
         }
-        applySuggestion({ content: suggestion.prompt, requiresUserInput: true })
+        appliedPrefillId.current = prefillRequest.id
+        if (prefillRequest.mode && getModesForRuntimeAdapter(composerAdapter).includes(prefillRequest.mode)) {
+            pickPermissionMode(prefillRequest.mode)
+        }
+        applySuggestion({ content: prefillRequest.prompt, requiresUserInput: true })
         textAreaRef.current?.focus()
-        onStarterSuggestionSelect?.(suggestion, index)
-    }
+    }, [prefillRequest, composerAdapter, pickPermissionMode, applySuggestion])
 
     const field = (
         <Composer.Field>
@@ -295,15 +300,7 @@ export function TaskComposer({
                             {skin === 'lemon' && withConsent(<Composer.Submit data-attr="task-composer-send" />)}
                         </Composer.Root>
                     </div>
-
-                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
-                    {skin === 'quill' && starterSuggestions && starterSuggestions.length > 0 && (
-                        <QuillComposerStarterSuggestions
-                            suggestions={starterSuggestions}
-                            hidden={draft.value.length > 0}
-                            onSelect={handleSelectStarterSuggestion}
-                        />
-                    )}
+                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}{' '}
                 </Suggestions.Root>
             </div>
         </div>

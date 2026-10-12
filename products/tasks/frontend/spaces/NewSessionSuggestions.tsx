@@ -10,12 +10,11 @@ import {
     ItemMedia,
     ItemTitle,
     Text,
-    cn,
-} from '@posthog/quill-primitives'
+} from '@posthog/quill'
 
-import type { PermissionMode } from '../../utils/composerModes'
+import type { NewSessionSuggestion, NewSessionSuggestionIcon } from './newSessionSuggestions'
 
-const STARTER_SUGGESTION_ICONS = {
+const SUGGESTION_ICONS: Record<NewSessionSuggestionIcon, { Icon: typeof IconBug; color: string }> = {
     trends: { Icon: IconTrending, color: 'var(--color-product-customer-analytics-light)' },
     bug: { Icon: IconBug, color: 'var(--color-product-error-tracking-light)' },
     canvas: { Icon: IconPalette, color: 'var(--color-product-product-analytics-light)' },
@@ -24,43 +23,22 @@ const STARTER_SUGGESTION_ICONS = {
     feedback: { Icon: IconMessage, color: 'var(--color-product-llm-analytics-light)' },
 }
 
-export type ComposerStarterSuggestionIcon = keyof typeof STARTER_SUGGESTION_ICONS
-
-export interface ComposerStarterSuggestion {
-    id: string
-    label: string
-    description: string
-    prompt: string
-    icon: ComposerStarterSuggestionIcon
-    mode?: PermissionMode
+export interface NewSessionSuggestionsProps {
+    suggestions: NewSessionSuggestion[]
+    onSelect: (suggestion: NewSessionSuggestion, index: number) => void
 }
 
-export interface QuillComposerStarterSuggestionsProps {
-    suggestions: ComposerStarterSuggestion[]
-    hidden: boolean
-    onSelect: (suggestion: ComposerStarterSuggestion, index: number) => void
-}
-
-export function QuillComposerStarterSuggestions({
-    suggestions,
-    hidden,
-    onSelect,
-}: QuillComposerStarterSuggestionsProps): JSX.Element {
+export function NewSessionSuggestions({ suggestions, onSelect }: NewSessionSuggestionsProps): JSX.Element {
     const [activeId, setActiveId] = useState<string | null>(null)
 
     return (
-        <div
-            className={cn(
-                '@container/starter-suggestions flex flex-col gap-2 transition-[opacity,visibility] duration-200 motion-reduce:transition-none',
-                hidden && 'invisible opacity-0'
-            )}
-        >
+        <div className="@container/new-session-suggestions flex flex-col gap-2">
             <Text size="xs" variant="muted" weight="medium" className="px-1">
                 Suggestions
             </Text>
-            <div className="grid grid-cols-1 gap-2 @lg/starter-suggestions:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 @lg/new-session-suggestions:grid-cols-2">
                 {suggestions.map((suggestion, index) => {
-                    const { Icon, color } = STARTER_SUGGESTION_ICONS[suggestion.icon]
+                    const { Icon, color } = SUGGESTION_ICONS[suggestion.icon]
                     const activate = (): void => setActiveId(suggestion.id)
                     const deactivate = (): void => setActiveId(null)
                     return (
@@ -77,7 +55,7 @@ export function QuillComposerStarterSuggestions({
                                     onMouseLeave={deactivate}
                                     onFocus={activate}
                                     onBlur={deactivate}
-                                    data-attr="task-composer-starter-suggestion"
+                                    data-attr="today-new-session-suggestion"
                                 />
                             }
                         >
