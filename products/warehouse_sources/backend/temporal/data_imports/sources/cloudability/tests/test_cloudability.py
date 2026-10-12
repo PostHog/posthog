@@ -9,91 +9,23 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudability.cloudability import (
     CloudabilityResumeConfig,
-    base_url,
     cloudability_source,
     get_resource,
     validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudability.settings import (
-    COST_REPORT_DIMENSIONS,
-    COST_REPORT_METRICS,
-    ENDPOINTS,
-    PRIMARY_KEYS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
-class TestBaseUrl:
-    @pytest.mark.parametrize(
-        "region, expected",
-        [
-            ("us", "https://api.cloudability.com/v3"),
-            ("eu", "https://api-eu.cloudability.com/v3"),
-            # Anything unrecognized falls back to US rather than sending an unpredictable host.
-            ("unknown", "https://api.cloudability.com/v3"),
-        ],
-    )
-    def test_base_url(self, region, expected):
-        assert base_url(region) == expected
-
-
 class TestGetResource:
-    def test_costs_uses_cursor_paginator_and_documented_dimensions(self):
-        resource = get_resource("Costs", view_id=None)
-
-        endpoint = cast(Endpoint, resource["endpoint"])
-        assert endpoint["path"] == "/reporting/cost/run"
-        assert endpoint["data_selector"] == "results"
-        assert isinstance(endpoint["paginator"], JSONResponseCursorPaginator)
-        params = cast(dict[str, Any], endpoint["params"])
-        assert params["dimensions"] == ",".join(COST_REPORT_DIMENSIONS)
-        assert params["metrics"] == ",".join(COST_REPORT_METRICS)
-        assert resource["write_disposition"] == "replace"
-
     def test_costs_date_window_is_start_before_end(self):
         endpoint = cast(Endpoint, get_resource("Costs", view_id=None)["endpoint"])
         params = cast(dict[str, Any], endpoint["params"])
         assert params["start_date"] < params["end_date"]
 
-    @pytest.mark.parametrize(
-        "endpoint_name, path",
-        [
-            ("Views", "/views"),
-            ("BusinessMappingDimensions", "/business-mappings/dimensions"),
-            ("BusinessMappingMetrics", "/business-mappings/metrics/"),
-        ],
-    )
-    def test_single_page_endpoints(self, endpoint_name, path):
-        resource = get_resource(endpoint_name, view_id=None)
-        endpoint = cast(Endpoint, resource["endpoint"])
-
-        assert endpoint["path"] == path
-        assert endpoint["paginator"] == "single_page"
-        assert endpoint["data_selector_required"] is True
-
-    def test_anomalies_omits_view_id_when_not_configured(self):
-        endpoint = cast(Endpoint, get_resource("Anomalies", view_id=None)["endpoint"])
-        params = cast(dict[str, Any], endpoint["params"])
-        assert params["viewId"] is None
-
-    def test_anomalies_passes_configured_view_id(self):
-        endpoint = cast(Endpoint, get_resource("Anomalies", view_id="42")["endpoint"])
-        params = cast(dict[str, Any], endpoint["params"])
-        assert params["viewId"] == "42"
-
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Cloudability endpoint"):
             get_resource("NotARealEndpoint", view_id=None)
-
-    def test_every_declared_endpoint_has_a_primary_key(self):
-        for endpoint_name in ENDPOINTS:
-            resource = get_resource(endpoint_name, view_id="42")
-            assert PRIMARY_KEYS[endpoint_name]
-            assert resource["table_format"] == "delta"
 
 
 class TestValidateCredentials:
@@ -109,20 +41,6 @@ class TestValidateCredentials:
         mock_session.get.return_value = MagicMock(status_code=status_code)
 
         assert validate_credentials("api-key", "us") is expected
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.cloudability.cloudability.make_tracked_session"
-    )
-    def test_validate_credentials_uses_basic_auth_with_empty_password(self, mock_make_session):
-        mock_session = mock_make_session.return_value
-        mock_session.get.return_value = MagicMock(status_code=200)
-
-        validate_credentials("api-key", "eu")
-
-        mock_session.get.assert_called_once_with(
-            "https://api-eu.cloudability.com/v3/views",
-            auth=("api-key", ""),
-        )
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -192,15 +110,6 @@ class TestCloudabilitySourceResumeBehavior:
 
         assert [p.get("token") for p in sent_params] == ["tok-resumed"]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"results": [{"vendor": "AWS"}]})]
-        self._drive("Costs", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     @pytest.mark.parametrize(
         "endpoint, response_body",

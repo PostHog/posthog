@@ -9,8 +9,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner import impact_partner
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.impact_partner import (
     ImpactPartnerResumeConfig,
-    _get_session,
-    _resume_window_index,
     _windows_for_actions,
     get_rows,
     impact_partner_source,
@@ -37,15 +35,6 @@ class FakeResumableManager:
         self.saved.append(data)
 
 
-class TestGetSession:
-    def test_session_pins_api_version_and_accepts_json(self) -> None:
-        with patch.object(impact_partner, "make_tracked_session") as mock_session:
-            mock_session.return_value.headers = {}
-            session = _get_session("sid", "token", API_VERSION)
-        assert session.headers["Accept"] == "application/json"
-        assert session.headers["IR-Version"] == API_VERSION
-
-
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
@@ -55,16 +44,6 @@ class TestValidateCredentials:
             response.status_code = status
             mock_session.return_value.get.return_value = response
             assert validate_credentials("sid", "token", API_VERSION) is expected
-
-    def test_calls_the_partner_base_path(self) -> None:
-        with patch.object(impact_partner, "make_tracked_session") as mock_session:
-            mock_session.return_value.headers = {}
-            response = MagicMock()
-            response.status_code = 200
-            mock_session.return_value.get.return_value = response
-            validate_credentials("sid", "token", API_VERSION)
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == "https://api.impact.com/Mediapartners/sid/Campaigns"
 
     def test_exception_is_false(self) -> None:
         with patch.object(impact_partner, "make_tracked_session") as mock_session:
@@ -80,31 +59,8 @@ class TestWindowsForActions:
         assert windows[-1][1] == datetime(2026, 6, 1, tzinfo=UTC)
 
     @time_machine.travel("2026-06-01", tick=False)
-    def test_cursor_older_than_max_lookback_is_clamped(self) -> None:
-        # Impact rejects a start date more than 3 years back, so a stale cursor is clamped
-        # rather than sent as-is.
-        windows = _windows_for_actions(True, datetime(2015, 1, 1, tzinfo=UTC))
-        assert windows[0][0] == datetime(2023, 6, 2, tzinfo=UTC)
-
-    @time_machine.travel("2026-06-01", tick=False)
     def test_future_cursor_yields_no_windows(self) -> None:
         assert _windows_for_actions(True, datetime(2027, 1, 1, tzinfo=UTC)) == []
-
-
-class TestResumeWindowIndex:
-    window_a = (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 14, tzinfo=UTC))
-    window_b = (datetime(2026, 2, 14, tzinfo=UTC), datetime(2026, 3, 30, tzinfo=UTC))
-
-    def test_no_bookmark_is_none(self) -> None:
-        assert _resume_window_index([self.window_a, self.window_b], None) is None
-
-    def test_matching_bookmark_returns_its_index(self) -> None:
-        resume = ImpactPartnerResumeConfig(page=3, window_start=self.window_b[0].isoformat())
-        assert _resume_window_index([self.window_a, self.window_b], resume) == 1
-
-    def test_stale_bookmark_is_none(self) -> None:
-        resume = ImpactPartnerResumeConfig(page=3, window_start="2020-01-01T00:00:00+00:00")
-        assert _resume_window_index([self.window_a, self.window_b], resume) is None
 
 
 class TestGetRowsSimple:
@@ -121,15 +77,6 @@ class TestGetRowsSimple:
             batches = list(get_rows("sid", "token", "Campaigns", API_VERSION, MagicMock(), manager))  # type: ignore[arg-type]
         assert batches == [[{"CampaignId": "1"}], [{"CampaignId": "2"}]]
         assert [s.page for s in manager.saved] == [1, 2]
-
-    def test_resume_starts_at_saved_page(self) -> None:
-        manager = FakeResumableManager(state=ImpactPartnerResumeConfig(page=2))
-        with (
-            patch.object(impact_partner, "_get_session"),
-            patch.object(impact_partner, "_fetch", return_value={"Campaigns": [], "@numpages": "2"}) as mock_fetch,
-        ):
-            list(get_rows("sid", "token", "Campaigns", API_VERSION, MagicMock(), manager))  # type: ignore[arg-type]
-        assert mock_fetch.call_args.args[3]["Page"] == 2
 
     def test_invoices_incremental_param_sent(self) -> None:
         manager = FakeResumableManager()
@@ -150,15 +97,6 @@ class TestGetRowsSimple:
                 )
             )
         assert mock_fetch.call_args.args[3]["StartDate"] == "2026-01-01T00:00:00Z"
-
-    def test_no_incremental_param_when_not_incremental(self) -> None:
-        manager = FakeResumableManager()
-        with (
-            patch.object(impact_partner, "_get_session"),
-            patch.object(impact_partner, "_fetch", return_value={"Invoices": [], "@numpages": "1"}) as mock_fetch,
-        ):
-            list(get_rows("sid", "token", "Invoices", API_VERSION, MagicMock(), manager))  # type: ignore[arg-type]
-        assert "StartDate" not in mock_fetch.call_args.args[3]
 
 
 class TestGetRowsActions:

@@ -1,12 +1,24 @@
 """Payloads for workflow/run/job-scoped reads: health, activity, jobs, costs, and master state."""
 
+from typing import Any
+
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CI_TIMING_MAX_JOB_IDS,
+    CIDataFreshness,
+    CIEngine,
+    CITimingContext,
+    CITimingKind,
+    CITimingSample,
     CostPerMergeBucket,
     CurrentBranchHealth,
     DeliveryPipeline,
     DeliveryStageTiming,
+    JobLogBadge,
+    JobLogInsights,
+    JobStepLogBadges,
     MasterFailureGroup,
     OpenToMergeBucket,
     PassRateBucket,
@@ -18,6 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowJobAggregate,
+    WorkflowJobStep,
     WorkflowRunActivity,
     WorkflowRunActivityPoint,
     WorkflowRunDetail,
@@ -26,17 +39,16 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
-    ci_engine_field,
 )
 
 
 class WorkflowRunDetailSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
     class Meta:
         dataclass = WorkflowRunDetail
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
             "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
             "id": {"help_text": "Integer run id; unique only together with ci_engine."},
@@ -77,15 +89,25 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "help_text": "True when a merge queue pushed this run to gate pr_number, rather than the author "
                 "pushing it. Count it when measuring CI; drop it when counting what the author did."
             },
+            "workflow_id": {
+                "help_text": "GitHub's numeric id of the workflow. It stays the same when the workflow is renamed, "
+                "so use it to follow one workflow over time. Null for a Depot CI run, and for a run whose source "
+                "does not carry the id.",
+                "allow_null": True,
+            },
+            "event": {
+                "help_text": "Event that triggered the run, such as 'push', 'pull_request' or 'schedule'. Null when "
+                "unknown, as for a Depot CI run.",
+                "allow_null": True,
+            },
         }
 
 
 class WorkflowRunActivityPointSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
     class Meta:
         dataclass = WorkflowRunActivityPoint
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Integer run id; unique only together with ci_engine."},
             "conclusion": {
                 "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
@@ -122,12 +144,37 @@ class WorkflowRunActivitySerializer(DataclassSerializer):
         }
 
 
+class WorkflowJobStepSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowJobStep
+        extra_kwargs = {
+            "number": {"help_text": "1-based position of the step in the job."},
+            "name": {"help_text": "Step name."},
+            "status": {"help_text": "Raw step status: 'queued', 'in_progress', 'completed', etc."},
+            "conclusion": {
+                "help_text": "Step conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null until the "
+                "step finishes.",
+                "allow_null": True,
+            },
+            "started_at": {"help_text": "When the step started, or null if it has not started.", "allow_null": True},
+            "completed_at": {"help_text": "When the step finished, or null while it runs.", "allow_null": True},
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the step finishes.",
+                "allow_null": True,
+            },
+        }
+
+
 class WorkflowJobSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
+    steps = WorkflowJobStepSerializer(
+        many=True,
+        help_text="The job's steps in run order. Empty when the source reports no steps, as for a Depot CI job.",
+    )
 
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "native_attempt_id": {"help_text": "Source-native attempt id; use with ci_engine for identity."},
             "native_job_id": {"help_text": "Source-native job id; use with ci_engine for identity."},
             "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
@@ -156,6 +203,229 @@ class WorkflowJobSerializer(DataclassSerializer):
             "estimated_cost_usd": {
                 "help_text": "Estimated cost in USD from runner tier + elapsed time; null when the tier is "
                 "unknown or the job hasn't finished.",
+                "allow_null": True,
+            },
+        }
+
+
+class JobLogInsightsQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="'owner/name' repository the job ran in.")
+    run_id = serializers.IntegerField(help_text="Workflow run id the job belongs to.")
+    job_id = serializers.IntegerField(help_text="Job id to read the log of; a row id from workflow_jobs.")
+    ci_engine = serializers.ChoiceField(
+        choices=CIEngine.choices,
+        required=False,
+        help_text="CI engine. Required when job_id exists in both engines. Only GitHub Actions job logs are read.",
+    )
+    source_id = serializers.UUIDField(
+        required=False,
+        help_text="Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.",
+    )
+
+
+class JobLogBadgeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = JobLogBadge
+        extra_kwargs = {
+            "kind": {"help_text": "What the badge is about: a dependency cache, or migrations."},
+            "state": {
+                "help_text": "What happened. For a cache: 'hit' (exact key restored), 'partial' (an older cache "
+                "restored from a restore key), 'miss' (nothing restored), 'failed' (the restore itself failed). For "
+                "migrations: 'none' (nothing to apply) or 'applied'.",
+            },
+            "count": {"help_text": "How many times the log reports this outcome."},
+            "detail": {
+                "help_text": "What each occurrence was about: a cache key or a migration name. Capped, so it can "
+                "hold fewer entries than `count`.",
+            },
+        }
+
+
+class JobStepLogBadgesSerializer(DataclassSerializer):
+    badges = JobLogBadgeSerializer(many=True, help_text="What the log says this step did.")
+
+    class Meta:
+        dataclass = JobStepLogBadges
+        extra_kwargs = {
+            "number": {"help_text": "The step's number in the job, matching `number` of the job's steps."},
+        }
+
+
+class JobLogInsightsSerializer(DataclassSerializer):
+    job = JobLogBadgeSerializer(many=True, help_text="Every badge found in the log, for the job as a whole.")
+    steps = JobStepLogBadgesSerializer(
+        many=True,
+        help_text="The same badges per step. Only steps with a badge are listed. Empty when `attributed_to_steps` "
+        "is false.",
+    )
+
+    class Meta:
+        dataclass = JobLogInsights
+        extra_kwargs = {
+            "log_read": {
+                "help_text": "False when no log was read: a Depot CI job, a job the source does not hold, a log "
+                "GitHub no longer keeps, or a failed fetch. Empty badges then mean 'unknown', not 'nothing found'.",
+            },
+            "attributed_to_steps": {
+                "help_text": "False when the log's step markers did not line up with the job's steps, so the "
+                "badges are reported for the job only.",
+            },
+            "log_truncated": {
+                "help_text": "True when only part of the log was parsed, because the log is too large or its "
+                "download took too long. The badges are then a lower bound: an outcome in the part that was not "
+                "parsed is missing.",
+            },
+        }
+
+
+class CIDataFreshnessQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="'owner/name' repository to report on.")
+    source_id = serializers.UUIDField(
+        required=False,
+        help_text="Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.",
+    )
+
+
+class CIDataFreshnessSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CIDataFreshness
+        extra_kwargs = {
+            "runs_synced_at": {
+                "help_text": "When the last completed sync of the stored workflow runs started. Every stored run is "
+                "at least this fresh. The older of the GitHub and Depot CI times when the repository syncs both. "
+                "Null when a runs table has never synced.",
+                "allow_null": True,
+            },
+            "jobs_synced_at": {
+                "help_text": "The same time for the stored workflow jobs. Null when jobs are not synced.",
+                "allow_null": True,
+            },
+        }
+
+
+class CITimingContextQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="'owner/name' repository the run belongs to.")
+    source_id = serializers.UUIDField(
+        required=False,
+        help_text="Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.",
+    )
+    ci_engine = serializers.ChoiceField(choices=CIEngine.choices, help_text="CI engine that ran the run.")
+    run_id = serializers.IntegerField(help_text="Integer run id of the run that holds the selection.")
+    run_attempt = serializers.IntegerField(min_value=1, help_text="Run attempt that holds the selection.")
+    kind = serializers.ChoiceField(
+        choices=CITimingKind.choices,
+        help_text="What to compare: the whole 'workflow', a 'matrix' (several jobs of the run), one 'job', or one "
+        "'step' of a job.",
+    )
+    job_ids = serializers.CharField(
+        required=False,
+        help_text=f"Comma-separated job ids from workflow_jobs, at most {CI_TIMING_MAX_JOB_IDS}. Required for 'matrix', 'job' "
+        "and 'step'. Give exactly one id for 'job' and 'step'. Ignored for 'workflow'.",
+    )
+    step_number = serializers.IntegerField(
+        required=False, help_text="Number of the step within the job. Required when kind is 'step'."
+    )
+
+    def validate_job_ids(self, value: str) -> list[int]:
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        if len(parts) > CI_TIMING_MAX_JOB_IDS:
+            raise serializers.ValidationError(f"Give at most {CI_TIMING_MAX_JOB_IDS} job ids.")
+        try:
+            return [int(part) for part in parts]
+        except ValueError:
+            raise serializers.ValidationError("Give job ids as comma-separated integers.") from None
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        kind = attrs["kind"]
+        job_ids = attrs.get("job_ids") or []
+        if kind != CITimingKind.WORKFLOW and not job_ids:
+            raise serializers.ValidationError({"job_ids": f"Give at least one job id when kind is '{kind}'."})
+        if kind in (CITimingKind.JOB, CITimingKind.STEP) and len(job_ids) != 1:
+            raise serializers.ValidationError({"job_ids": f"Give exactly one job id when kind is '{kind}'."})
+        if kind == CITimingKind.STEP and attrs.get("step_number") is None:
+            raise serializers.ValidationError({"step_number": "Give a step number when kind is 'step'."})
+        return attrs
+
+
+class CITimingSampleSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CITimingSample
+        extra_kwargs = {
+            "ci_engine": {"help_text": "CI engine that ran the sampled run."},
+            "status": {
+                "help_text": "'success' when every matched job succeeded, or the matched step did. Otherwise "
+                "'failure'.",
+            },
+            "run_id": {"help_text": "Integer run id of the sampled run; unique only together with ci_engine."},
+            "run_attempt": {"help_text": "Run attempt the sample was taken from, which is the run's latest."},
+            "job_id": {
+                "help_text": "Job id of the matched job. Null for a workflow or matrix sample, which spans jobs.",
+                "allow_null": True,
+            },
+            "step_number": {
+                "help_text": "Number of the matched step in the sampled job. Steps match by name, so it can differ "
+                "from the selected step's number. Null unless kind is 'step'.",
+                "allow_null": True,
+            },
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine to link to the run."},
+            "native_workflow_run_id": {
+                "help_text": "Source-native workflow run id; use with ci_engine to link to the run."
+            },
+            "native_job_id": {
+                "help_text": "Source-native job id of the matched job. Null for a workflow or matrix sample."
+            },
+            "native_attempt_id": {
+                "help_text": "Source-native job attempt id of the matched job. Null for a workflow or matrix sample."
+            },
+            "duration_seconds": {
+                "help_text": "For a workflow, matrix or job: seconds from the first matched job's start to the last "
+                "one's end. For a step: the step's own duration."
+            },
+            "completed_at": {"help_text": "When the last matched job finished."},
+            "head_sha": {"help_text": "Commit SHA the sampled run ran on."},
+        }
+
+
+class CITimingContextSerializer(DataclassSerializer):
+    recent = CITimingSampleSerializer(
+        many=True, help_text="The newest matched samples of any status, newest first. At most three."
+    )
+
+    class Meta:
+        dataclass = CITimingContext
+        extra_kwargs = {
+            "identity": {
+                "help_text": "How runs of the same workflow were found: by 'workflow_id', which a rename keeps, or "
+                "by 'workflow_name' when the run has no workflow id.",
+            },
+            "unavailable_reason": {
+                "help_text": "Why no comparison was made: 'default_branch_unknown' (no synced pull request names the "
+                "repository's default branch), 'jobs_not_synced', or 'not_executed' (every selected job was skipped, "
+                "so there is no duration to compare). Null when the comparison ran, even if it found no samples.",
+                "allow_null": True,
+            },
+            "default_branch": {
+                "help_text": "The repository's default branch, which the samples ran on. Null when unknown.",
+                "allow_null": True,
+            },
+            "window_days": {"help_text": "How many days back the comparison looks."},
+            "runs_scanned": {"help_text": "How many default-branch runs of the workflow were checked for a match."},
+            "sampled": {
+                "help_text": "True when the window held more eligible runs than were checked, so the figures cover "
+                "the newest runs only."
+            },
+            "sample_count": {"help_text": "How many checked runs matched the selection and succeeded."},
+            "average_seconds": {
+                "help_text": "Mean duration of the successful samples, in seconds. Null when there are none. A run "
+                "counts only when it ran the same jobs on the same runners, so a null means no comparable run.",
+                "allow_null": True,
+            },
+            "runs_synced_at": {
+                "help_text": "When the last completed sync of the stored workflow runs started. Null when unknown.",
+                "allow_null": True,
+            },
+            "jobs_synced_at": {
+                "help_text": "When the last completed sync of the stored workflow jobs started. Null when unknown.",
                 "allow_null": True,
             },
         }
@@ -194,7 +464,6 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
 
 
 class WorkflowHealthItemSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
     buckets = WorkflowHealthBucketSerializer(
         many=True, help_text="Run history across the whole window, oldest first, zero-filled, bucketed by granularity."
@@ -203,6 +472,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowHealthItem
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
             "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
@@ -668,12 +938,12 @@ class CurrentBranchHealthSerializer(DataclassSerializer):
 
 
 class MasterFailureGroupSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
 
     class Meta:
         dataclass = MasterFailureGroup
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
             "failed_job": {
                 "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped): the group's failure "
@@ -688,7 +958,6 @@ class MasterFailureGroupSerializer(DataclassSerializer):
 
 
 class RunFailureLogsSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
     jobs = CIJobFailureLogSerializer(
         many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
     )
@@ -696,6 +965,7 @@ class RunFailureLogsSerializer(DataclassSerializer):
     class Meta:
         dataclass = RunFailureLogs
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Workflow run id the failure logs are for."},
             "logs_available": {
                 "help_text": "False when no failure logs were found: the run didn't fail, or its logs aged out of "

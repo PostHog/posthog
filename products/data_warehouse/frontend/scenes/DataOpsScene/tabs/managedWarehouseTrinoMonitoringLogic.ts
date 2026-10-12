@@ -217,6 +217,7 @@ export const managedWarehouseTrinoMonitoringLogic = kea<managedWarehouseTrinoMon
             resetMonitoringData: () => null,
         },
         monitoringSeries: {
+            setMonitoringWindow: () => [],
             resetMonitoringData: () => [],
         },
         monitoringSeriesResolved: [
@@ -224,6 +225,7 @@ export const managedWarehouseTrinoMonitoringLogic = kea<managedWarehouseTrinoMon
             {
                 loadMonitoringSeriesSuccess: () => true,
                 loadMonitoringSeriesFailure: () => true,
+                setMonitoringWindow: () => false,
                 resetMonitoringData: () => false,
             },
         ],
@@ -231,6 +233,7 @@ export const managedWarehouseTrinoMonitoringLogic = kea<managedWarehouseTrinoMon
             null as TrinoMonitoringWindow | null,
             {
                 loadMonitoringSeriesSuccess: (state, { payload }) => payload ?? state,
+                setMonitoringWindow: () => null,
                 resetMonitoringData: () => null,
             },
         ],
@@ -245,6 +248,7 @@ export const managedWarehouseTrinoMonitoringLogic = kea<managedWarehouseTrinoMon
         monitoringSeriesError: [
             false,
             {
+                setMonitoringWindow: () => false,
                 setMonitoringSeriesError: (_, { hasError }) => hasError,
                 resetMonitoringData: () => false,
             },

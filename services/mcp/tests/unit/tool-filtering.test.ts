@@ -937,11 +937,24 @@ describe('Tool Filtering - Read-Only Mode', () => {
 })
 
 describe('Tool Filtering - Feature Flags', () => {
-    it.each([undefined, false, true])('gates private trial tools on scout-trials: %s', (enabled) => {
+    it.each([undefined, false, true])('gates rubric and private trial tools on scout-trials: %s', (enabled) => {
         const tools = getToolsForFeatures({ featureFlags: { 'scout-trials': enabled } })
         expect(tools).toContain('scout-runs-list')
-        expect(tools.includes('scout-trial-create')).toBe(enabled === true)
-        expect(tools.includes('scout-trial-get')).toBe(enabled === true)
+        for (const name of [
+            'scout-rubric-generate',
+            'scout-rubric-get',
+            'scout-rubric-save',
+            'scout-trial-create',
+            'scout-trial-get',
+            'scout-trial-setup',
+            'scout-trial-start',
+            'scout-trial-report',
+            'scout-trial-resume',
+            'scout-trial-list',
+            'scout-trial-archive',
+        ]) {
+            expect(tools.includes(name), name).toBe(enabled === true)
+        }
     })
 
     const baseAnnotations = {
@@ -1072,6 +1085,10 @@ describe('Tool Filtering - Feature Flags', () => {
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'cross-project-dashboards',
+            'warehouse-suggestions',
+            'scouts-tool-access',
+            'replay-vision-scanner-dashboard',
+            'metrics-dashboard-import',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1107,7 +1124,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
-                'billing-alerts',
                 'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
@@ -1120,6 +1136,8 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
                 'autoresearch',
                 'today-rail-nav',
+                'marketing-analytics-setup-plan-mcp',
+                'subscription-source-summaries',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

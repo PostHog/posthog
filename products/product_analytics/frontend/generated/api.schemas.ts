@@ -1839,6 +1839,7 @@ export const ChartDisplayTypeApi = {
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsDonut: 'ActionsDonut',
+    ActionsProportionBar: 'ActionsProportionBar',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -3840,6 +3841,8 @@ export interface HogQLNoticeApi {
     fix?: string | null
     message: string
     start?: number | null
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string | null
 }
 
 export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
@@ -8128,9 +8131,9 @@ export const ValueDisplayApi = {
 } as const
 
 export interface PieChartSettingsApi {
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean | null
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: SliceContentApi | null
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
     valueDisplay?: ValueDisplayApi | null
@@ -8214,7 +8217,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
-    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
     pie?: PieChartSettingsApi | null
@@ -8294,6 +8297,39 @@ export const BIDateBucketApi = {
     Year: 'year',
 } as const
 
+export type DatePartApi = (typeof DatePartApi)[keyof typeof DatePartApi]
+
+export const DatePartApi = {
+    Month: 'month',
+    Quarter: 'quarter',
+    DayOfWeek: 'day_of_week',
+} as const
+
+export interface BILocalFieldDefinition1Api {
+    aggregate: boolean
+    expression: string
+    kind?: 'expression'
+}
+
+export interface BICategoryGroupApi {
+    name: string
+    values: string[]
+}
+
+export interface BILocalFieldDefinition2Api {
+    expression: string
+    groups: BICategoryGroupApi[]
+    kind?: 'groups'
+    other: string
+}
+
+export interface BILocalFieldDefinition3Api {
+    expression: string
+    kind?: 'bins'
+    origin: number
+    width: number
+}
+
 export interface BIDataSourceApi {
     connectionId?: string | null
     table: string
@@ -8323,12 +8359,21 @@ export const DatabaseSerializedFieldTypeApi = {
 
 export interface BIFieldApi {
     dateBucket?: BIDateBucketApi | null
+    datePart?: DatePartApi | null
     expression: string
     id: string
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | BILocalFieldDefinition3Api | null
+    localFieldId?: string | null
     name: string
     source: BIDataSourceApi
     type: DatabaseSerializedFieldTypeApi
 }
+
+export type ComparisonPeriodApi = (typeof ComparisonPeriodApi)[keyof typeof ComparisonPeriodApi]
+
+export const ComparisonPeriodApi = {
+    Previous: 'previous',
+} as const
 
 export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
 
@@ -8365,6 +8410,50 @@ export const BIQueryLimitApi = {
     Number10000: 10000,
     Number50000: 50000,
 } as const
+
+export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
+
+export const MissingDatesApi = {
+    Gap: 'gap',
+    Zero: 'zero',
+} as const
+
+export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
+
+export const Operator1Api = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export interface BIConditionGroupApi {
+    filters: string[]
+    groups: BIConditionGroupApi[]
+    operator: Operator1Api
+}
+
+export type Operator2Api = (typeof Operator2Api)[keyof typeof Operator2Api]
+
+export const Operator2Api = {
+    Equals: 'equals',
+    NotEquals: 'not_equals',
+    GreaterThan: 'greater_than',
+    LessThan: 'less_than',
+    GreaterThanOrEqual: 'greater_than_or_equal',
+    LessThanOrEqual: 'less_than_or_equal',
+    Between: 'between',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface BIResultFilterApi {
+    enabled?: boolean | null
+    id: string
+    /** @minimum 0 */
+    measureIndex: number
+    operator: Operator2Api
+    value: string
+    valueTo?: string | null
+}
 
 export type BISortDirectionApi = (typeof BISortDirectionApi)[keyof typeof BISortDirectionApi]
 
@@ -8405,6 +8494,13 @@ export const BIAggregationApi = {
     Custom: 'custom',
 } as const
 
+export type ShelfApi = (typeof ShelfApi)[keyof typeof ShelfApi]
+
+export const ShelfApi = {
+    Rows: 'rows',
+    Columns: 'columns',
+} as const
+
 export type BITableCalculationTypeApi = (typeof BITableCalculationTypeApi)[keyof typeof BITableCalculationTypeApi]
 
 export const BITableCalculationTypeApi = {
@@ -8419,6 +8515,8 @@ export const BITableCalculationTypeApi = {
 export interface BITableCalculationApi {
     /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
     computeUsing?: string | null
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean | null
     type: BITableCalculationTypeApi
     /** Number of points, including the current point, in a trailing moving average. */
     window?: number | null
@@ -8431,18 +8529,30 @@ export interface BIValueApi {
     field: BIFieldApi
     formatting?: ChartSettingsFormattingApi | null
     label?: string | null
+    /** Measures in older worksheets belong to rows. */
+    shelf?: ShelfApi | null
     tableCalculation?: BITableCalculationApi | null
 }
 
 export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
+    colorBy?: string | null
     columns: BIFieldApi[]
     compareFilter?: CompareFilterApi | null
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: ComparisonPeriodApi | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIFieldApi | null
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
     limit: BIQueryLimitApi
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIFieldApi[] | null
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: MissingDatesApi | null
+    resultFilterGroup?: BIConditionGroupApi | null
+    resultFilters?: BIResultFilterApi[] | null
+    rowFilterGroup?: BIConditionGroupApi | null
     rows: BIFieldApi[]
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISortApi | null
@@ -8625,6 +8735,8 @@ export interface MetricsQueryFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -8666,6 +8778,7 @@ export interface DashboardFilterApi {
 
 export interface TileFiltersApi {
     breakdown_filter?: BreakdownFilterApi | null
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -9345,6 +9458,10 @@ export type InsightsListParams = {
      */
     date_to?: string
     /**
+     * Exclude Business intelligence worksheets from the insight list.
+     */
+    exclude_bi?: boolean
+    /**
      * Include this parameter (any value) to restrict results to insights marked as favorited.
      */
     favorited?: boolean
@@ -9354,7 +9471,7 @@ export type InsightsListParams = {
      */
     include_dashboards?: boolean
     /**
-     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.
      */
     insight?: InsightsListInsight
     /**
@@ -9373,6 +9490,10 @@ export type InsightsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.
+     */
+    order?: string
     /**
      *
      * Whether to refresh the retrieved insights, how aggressively, and if sync or async:
@@ -9414,6 +9535,7 @@ export const InsightsListFormat = {
 export type InsightsListInsight = (typeof InsightsListInsight)[keyof typeof InsightsListInsight]
 
 export const InsightsListInsight = {
+    Bi: 'BI',
     Funnels: 'FUNNELS',
     Journeys: 'JOURNEYS',
     Json: 'JSON',

@@ -1976,6 +1976,13 @@ SQL
     column "service_name" {
       type = "LowCardinality(String)"
     }
+    column "metric_types" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "metric_type" {
+      type  = "String"
+      alias = "metric_types[1]"
+    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"
       replica_name = "{replica}-{shard}"

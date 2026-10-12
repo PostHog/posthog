@@ -23,10 +23,10 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
         review_mode: zod
             .enum(['all', 'label'])
-            .describe('\* `all` - all\n\* `label` - label')
+            .describe('\* `all` - All pull requests\n\* `label` - Labeled pull requests')
             .optional()
             .describe(
-                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - All pull requests\n\* `label` - Labeled pull requests"
             ),
         trigger_label: zod
             .string()
@@ -51,10 +51,10 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
         review_mode: zod
             .enum(['all', 'label'])
-            .describe('\* `all` - all\n\* `label` - label')
+            .describe('\* `all` - All pull requests\n\* `label` - Labeled pull requests')
             .optional()
             .describe(
-                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - All pull requests\n\* `label` - Labeled pull requests"
             ),
         trigger_label: zod
             .string()
@@ -79,10 +79,10 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
         review_mode: zod
             .enum(['all', 'label'])
-            .describe('\* `all` - all\n\* `label` - label')
+            .describe('\* `all` - All pull requests\n\* `label` - Labeled pull requests')
             .optional()
             .describe(
-                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+                "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - All pull requests\n\* `label` - Labeled pull requests"
             ),
         trigger_label: zod
             .string()

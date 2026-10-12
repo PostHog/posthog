@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { BIConfig } from '~/queries/schema/schema-business-intelligence'
+import { BIConditionGroup, BIConfig } from '~/queries/schema/schema-business-intelligence'
 
 import { type BIEditorState, BIEditorView } from 'products/business_intelligence/frontend/biEditorTypes'
 
@@ -18,6 +18,10 @@ function uniqueSorted<T extends string>(values: T[]): T[] {
     return [...new Set(values)].sort()
 }
 
+function filterGroupCount(group: BIConditionGroup | undefined): number {
+    return group ? 1 + group.groups.reduce((count, child) => count + filterGroupCount(child), 0) : 0
+}
+
 function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> {
     const fields = [
         ...config.rows,
@@ -31,6 +35,11 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
         config.filters.filter((filter) => filter.operator === 'custom').length
 
     return {
+        local_group_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'groups').length ?? 0,
+        local_bin_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'bins').length ?? 0,
+        result_filter_count: config.resultFilters?.length ?? 0,
+        row_filter_group_count: filterGroupCount(config.rowFilterGroup),
+        result_filter_group_count: filterGroupCount(config.resultFilterGroup),
         source_kind: config.source ? (config.source.connectionId ? 'external_connection' : 'project_data') : 'none',
         chart_type: config.chartType,
         row_count: config.rows.length,
@@ -51,6 +60,10 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
         top_n_count: config.topN?.count ?? null,
         top_n_include_other: config.topN?.includeOther ?? false,
         comparison_enabled: !!config.compareFilter?.compare,
+        missing_dates: config.missingDates ?? 'observed',
+        full_window_measure_count: config.values.filter(
+            (value) => value.tableCalculation?.type === 'moving_average' && value.tableCalculation.requireFullWindow
+        ).length,
         comparison_period: config.compareFilter?.compare
             ? config.compareFilter.compare_to
                 ? 'custom_offset'
@@ -73,6 +86,13 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
 }
 
 export type BIWorksheetAction =
+    | 'starter_selected'
+    | 'filter_values_searched'
+    | 'filter_values_page_loaded'
+    | 'local_field_saved'
+    | 'undo'
+    | 'redo'
+    | 'copied'
     | 'opened'
     | 'source_selected'
     | 'first_chart'
@@ -85,11 +105,20 @@ export type BIWorksheetAction =
     | 'related_table_expanded'
     | 'properties_browsed'
     | 'properties_searched'
+    | 'pivot_hierarchy_toggled'
 
 export function captureBIWorksheetAction(
     action: BIWorksheetAction,
     config: BIConfig,
-    context: { insight_id?: number; previous_period?: boolean; result_count?: number } = {}
+    context: {
+        insight_id?: number
+        previous_period?: boolean
+        result_count?: number
+        hierarchy_axis?: 'rows' | 'columns'
+        hierarchy_depth?: number
+        expanded?: boolean
+        starter_kind?: 'events'
+    } = {}
 ): void {
     posthog.capture(BI_EDITOR_EVENTS.WORKSHEET_ACTION, {
         action,

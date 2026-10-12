@@ -353,6 +353,26 @@ class DeltaTableRef:
         self._known_missing = False
         self._expect_missing = False
 
+    async def adopt_open_table(self, table: deltalake.DeltaTable) -> bool:
+        """Take a handle that an earlier ref opened on this table, in place of a new open.
+
+        The handle first reads the commits that landed since its last use, which is one log listing
+        and one read for each new commit. A commit from another writer is thus in the snapshot before
+        any caller reads it. Returns False and keeps nothing when that read fails, so the next
+        `get_delta_table` opens the table and classifies the error as it always did.
+
+        Only for a caller that knows the table was not replaced under this URI since the handle was
+        last used: an incremental read cannot tell a new table from the old one.
+        """
+        try:
+            await asyncio.to_thread(table.update_incremental)
+        except Exception:
+            return False
+        self._cached_table = table
+        self._cached_table_stale = False
+        self._known_missing = False
+        return True
+
     async def _refresh_cached_table(self, table: deltalake.DeltaTable) -> None:
         try:
             await asyncio.to_thread(table.update_incremental)

@@ -136,6 +136,41 @@ describe('managedWarehouseTrinoMonitoringLogic', () => {
         expect(logic.values.monitoringSeriesError).toBe(true)
     })
 
+    it.each([true, false])('clears the previous range while a new range loads (failure: %s)', async (fails) => {
+        silenceKeaLoadersErrors()
+        mountLogic()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.monitoringSeries).toHaveLength(9)
+
+        let resolve: () => void = () => {}
+        let reject: (reason: Error) => void = () => {}
+        const pending = new Promise<void>((resolvePromise, rejectPromise) => {
+            resolve = resolvePromise
+            reject = rejectPromise
+        })
+        mockSeriesRetrieve.mockImplementation(async (_teamId, { metric }) => {
+            await pending
+            return seriesResponse(metric)
+        })
+
+        logic.actions.setMonitoringWindow('1h')
+        expect(logic.values.monitoringWindow).toBe('1h')
+        expect(logic.values.monitoringSeries).toEqual([])
+        expect(logic.values.initialMonitoringSeriesLoading).toBe(true)
+
+        if (fails) {
+            reject(new Error('series unavailable'))
+        } else {
+            resolve()
+        }
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.monitoringSeries).toHaveLength(fails ? 0 : 9)
+        expect(logic.values.monitoringSeriesError).toBe(fails)
+        expect(logic.values.initialMonitoringSeriesLoading).toBe(false)
+        expect(logic.values.monitoringSeriesWindow).toBe(fails ? null : '1h')
+    })
+
     it('stops polling after unmount', async () => {
         mountLogic()
         await jest.advanceTimersByTimeAsync(0)

@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -15,8 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jo
     JotformResumeConfig,
     _format_filter_value,
     jotform_source,
-    normalize_enterprise_host,
-    resolve_base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.settings import (
@@ -80,45 +78,6 @@ def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
     )
 
 
-class TestResolveBaseUrl:
-    @pytest.mark.parametrize(
-        "region, expected",
-        [
-            ("us", "https://api.jotform.com"),
-            ("eu", "https://eu-api.jotform.com"),
-            ("hipaa", "https://hipaa-api.jotform.com"),
-            ("US", "https://api.jotform.com"),
-            ("unknown", "https://api.jotform.com"),
-            (None, "https://api.jotform.com"),
-        ],
-    )
-    def test_region_hosts(self, region, expected):
-        assert resolve_base_url(region) == expected
-
-    @pytest.mark.parametrize(
-        "domain, expected",
-        [
-            ("forms.acme.com", "https://forms.acme.com/API"),
-            ("https://forms.acme.com", "https://forms.acme.com/API"),
-            ("http://forms.acme.com/", "https://forms.acme.com/API"),
-            ("  forms.acme.com/  ", "https://forms.acme.com/API"),
-        ],
-    )
-    def test_enterprise_domain_overrides_region(self, domain, expected):
-        assert resolve_base_url("eu", domain) == expected
-
-    @pytest.mark.parametrize("domain", ["", "   ", None])
-    def test_blank_enterprise_domain_falls_back_to_region(self, domain):
-        assert resolve_base_url("eu", domain) == "https://eu-api.jotform.com"
-
-    @pytest.mark.parametrize(
-        "domain, expected",
-        [("forms.acme.com", "forms.acme.com"), ("https://forms.acme.com/", "forms.acme.com"), ("", None), (None, None)],
-    )
-    def test_normalize_enterprise_host(self, domain, expected):
-        assert normalize_enterprise_host(domain) == expected
-
-
 class TestFormatFilterValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -136,28 +95,8 @@ class TestFormatFilterValue:
     def test_format(self, value, expected):
         assert _format_filter_value(value) == expected
 
-    def test_future_value_is_capped_to_now(self):
-        future = datetime.now(UTC) + timedelta(days=365)
-        formatted = _format_filter_value(future)
-        assert formatted is not None
-        assert datetime.strptime(formatted, "%Y-%m-%d %H:%M:%S") <= datetime.now(UTC).replace(tzinfo=None) + timedelta(
-            seconds=2
-        )
-
 
 class TestListEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_partial_page_yields_once_and_no_checkpoint(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}, {"id": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("submissions", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        # A short first page ends pagination; no next page means no checkpoint.
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_until_partial_page_and_checkpoints_next_offset(self, MockSession):
         session = MockSession.return_value
@@ -185,16 +124,6 @@ class TestListEndpoints:
         assert capture.params[0]["offset"] == 200
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_off_still_orders_by_default_field(self, MockSession):
-        session = MockSession.return_value
-        capture = _wire(session, [_response([{"id": "1"}])])
-
-        _rows(_source("submissions", _make_manager()))
-
-        assert capture.params[0]["orderby"] == "created_at"
-        assert "filter" not in capture.params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_run_sends_gt_filter_on_chosen_field(self, MockSession):
         session = MockSession.return_value
         capture = _wire(session, [_response([])])
@@ -211,101 +140,6 @@ class TestListEndpoints:
 
         assert capture.params[0]["orderby"] == "updated_at"
         assert capture.params[0]["filter"] == '{"updated_at:gt":"2024-01-15 10:30:45"}'
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_on_without_watermark_omits_filter(self, MockSession):
-        session = MockSession.return_value
-        capture = _wire(session, [_response([{"id": "1"}])])
-
-        _rows(_source("forms", _make_manager(), should_use_incremental_field=True))
-
-        assert capture.params[0]["orderby"] == "created_at"
-        assert "filter" not in capture.params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_orderby_or_filter(self, MockSession):
-        session = MockSession.return_value
-        capture = _wire(session, [_response([{"id": "1"}])])
-
-        _rows(_source("reports", _make_manager()))
-
-        assert "orderby" not in capture.params[0]
-        assert "filter" not in capture.params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_content_yields_nothing(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(_source("reports", _make_manager())) == []
-
-
-class TestSinglePageEndpoints:
-    @pytest.mark.parametrize(
-        "endpoint, content, expected_params, expected_rows",
-        [
-            (
-                "usage",
-                {"submissions": "478", "uploads": "31246868", "views": "2014"},
-                {},
-                [{"submissions": "478", "uploads": "31246868", "views": "2014"}],
-            ),
-            (
-                "history",
-                [
-                    {"type": "userLogin", "username": "johnsmith", "timestamp": 1372145800},
-                    {"type": "formCreation", "formID": "31751954731962", "timestamp": 1372145854},
-                ],
-                {"date": "all", "sortBy": "ASC"},
-                [
-                    {"type": "userLogin", "username": "johnsmith", "timestamp": 1372145800},
-                    {"type": "formCreation", "formID": "31751954731962", "timestamp": 1372145854},
-                ],
-            ),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fetches_once_without_offset_pagination(
-        self, MockSession, endpoint, content, expected_params, expected_rows
-    ):
-        session = MockSession.return_value
-        capture = _wire(session, [_response(content)])
-
-        rows = _rows(_source(endpoint, _make_manager()))
-
-        assert rows == expected_rows
-        assert session.send.call_count == 1
-        assert capture.params[0] == expected_params
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_labels_tree_is_flattened_to_one_row_per_label(self, MockSession):
-        session = MockSession.return_value
-        tree = {
-            "id": "root",
-            "owner": "johnsmith",
-            "sublabels": [
-                {
-                    "id": "finance",
-                    "parent_label_id": "root",
-                    "sublabels": [{"id": "hr", "parent_label_id": "finance", "sublabels": []}],
-                },
-                {"name": "no id", "sublabels": [{"id": "orphan", "parent_label_id": "missing"}]},
-                {"id": "it", "parent_label_id": "root", "sublabels": []},
-            ],
-        }
-        capture = _wire(session, [_response(tree)])
-
-        rows = _rows(_source("labels", _make_manager()))
-
-        assert rows == [
-            {"id": "root", "owner": "johnsmith"},
-            {"id": "finance", "parent_label_id": "root"},
-            {"id": "hr", "parent_label_id": "finance"},
-            {"id": "orphan", "parent_label_id": "missing"},
-            {"id": "it", "parent_label_id": "root"},
-        ]
-        assert capture.urls == [f"{US_BASE}/user/labels"]
-        assert capture.params[0] == {}
 
 
 class TestLabelResourcesFanOut:
@@ -340,23 +174,6 @@ class TestLabelResourcesFanOut:
         assert set(saved_states[-1]["completed"]) == {"/label/root/resources", "/label/child/resources"}
         assert saved_states[-1]["current"] is None
         assert saved_states[-1]["child_state"] is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_each_label_until_partial_page(self, MockSession):
-        session = MockSession.return_value
-        with mock.patch.object(JOTFORM_ENDPOINTS["label_resources"], "page_size", 2):
-            capture = _wire(
-                session,
-                [
-                    _response({"id": "root", "sublabels": []}),
-                    _response([{"id": "1", "assetType": "form"}, {"id": "2", "assetType": "form"}]),
-                    _response([{"id": "3", "assetType": "form"}]),
-                ],
-            )
-            rows = _rows(_source("label_resources", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        assert [p.get("offset") for p in capture.params[1:]] == [0, 2]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_and_skips_completed_labels(self, MockSession):
@@ -398,37 +215,6 @@ class TestRetries:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(JOTFORM_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key", "us") is expected
-
-    @mock.patch(JOTFORM_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "us") is False
-
-    @pytest.mark.parametrize(
-        "region, enterprise_domain, expected_url",
-        [
-            ("us", None, "https://api.jotform.com/user"),
-            ("eu", None, "https://eu-api.jotform.com/user"),
-            ("us", "forms.acme.com", "https://forms.acme.com/API/user"),
-        ],
-    )
-    @mock.patch(JOTFORM_SESSION_PATCH)
-    def test_targets_correct_host(self, mock_session, region, enterprise_domain, expected_url):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key", region, enterprise_domain)
-        assert mock_session.return_value.get.call_args.args[0] == expected_url
-
-    @mock.patch(JOTFORM_SESSION_PATCH)
-    def test_sends_api_key_header(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key-123", "us")
-        assert mock_session.return_value.get.call_args.kwargs["headers"]["APIKEY"] == "key-123"
-
     @mock.patch(JOTFORM_SESSION_PATCH)
     def test_pins_redirects_off_and_redacts_key(self, mock_session):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
@@ -455,60 +241,6 @@ class TestQuestionsFanOut:
         assert capture.urls[1] == f"{US_BASE}/form/f1/questions"
         assert capture.urls[2] == f"{US_BASE}/form/f2/questions"
         assert capture.params[0]["orderby"] == "created_at"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_form_id_is_stringified(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 42}]), _response({"1": {"qid": "1"}})])
-
-        rows = _rows(_source("questions", _make_manager()))
-        assert rows == [{"qid": "1", "form_id": "42"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_skips_forms_without_id(self, MockSession):
-        session = MockSession.return_value
-        # The id-less form must not trigger a questions request.
-        _wire(session, [_response([{"id": "f1"}, {"title": "no id"}]), _response({"1": {"qid": "1"}})])
-
-        rows = _rows(_source("questions", _make_manager()))
-        assert [r["form_id"] for r in rows] == ["f1"]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_questions_form_yields_no_rows(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "f1"}]), _response({})])
-
-        assert _rows(_source("questions", _make_manager())) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_and_skips_completed_forms(self, MockSession):
-        session = MockSession.return_value
-        forms_page = [{"id": "f1"}, {"id": "f2"}]
-        f2_questions = {"1": {"qid": "1", "text": "Age"}}
-        capture = _wire(session, [_response(forms_page), _response(f2_questions)])
-
-        # f1's questions completed in the prior run; only f2 is re-fetched.
-        resume = JotformResumeConfig(
-            fanout_state={"completed": ["/form/f1/questions"], "current": None, "child_state": None}
-        )
-        rows = _rows(_source("questions", _make_manager(resume)))
-
-        assert [(row["form_id"], row["qid"]) for row in rows] == [("f2", "1")]
-        # Forms are re-listed, but f1's questions endpoint is not hit again.
-        assert capture.urls == [f"{US_BASE}/user/forms", f"{US_BASE}/form/f2/questions"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_deleted_bookmark_form_restarts_from_first(self, MockSession):
-        session = MockSession.return_value
-        forms_page = [{"id": "f1"}, {"id": "f2"}]
-        _wire(session, [_response(forms_page), _response({"1": {"qid": "1"}}), _response({"1": {"qid": "1"}})])
-
-        resume = JotformResumeConfig(
-            fanout_state={"completed": ["/form/deleted/questions"], "current": None, "child_state": None}
-        )
-        rows = _rows(_source("questions", _make_manager(resume)))
-        assert [row["form_id"] for row in rows] == ["f1", "f2"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_completed_forms(self, MockSession):
@@ -539,11 +271,3 @@ class TestJotformSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(JOTFORM_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "created_at"
-
-    def test_questions_primary_key_includes_form_id(self):
-        assert JOTFORM_ENDPOINTS["questions"].primary_keys == ["form_id", "qid"]

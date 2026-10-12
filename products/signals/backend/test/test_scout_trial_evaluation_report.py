@@ -38,8 +38,7 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
             created_at=datetime.now(UTC),
             request=request,
             request_hash="synthetic-request-hash",
-            rubric_document={"revision": 3},
-            rubric_reference_context=_reference_context(),
+            rubric_document={"revision": 3, "reference_context": _reference_context().model_dump(mode="json")},
             rubric_reference_generation_id=str(uuid4()),
             criteria=[
                 TrialEvaluationCriterion(
@@ -111,9 +110,10 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.variants[1].criteria[0].baseline_delta == delta
         assert report.runs[-1].score == (0.0 if candidate_verdict == "fail" else None)
         assert report.outcome is not None
-        assert report.outcome.status == ("tie" if candidate_verdict == "fail" else "inconclusive")
+        expected_status = {"fail": "tie", "unknown": "provisional", "not_applicable": "inconclusive"}
+        assert report.outcome.status == expected_status[candidate_verdict]
         assert report.outcome.variant_ids == (
-            [self.baseline.id, self.candidate.id] if candidate_verdict == "fail" else []
+            [self.baseline.id, self.candidate.id] if candidate_verdict != "not_applicable" else []
         )
 
     @parameterized.expand([("excluded",), ("judge_error",)])
@@ -140,6 +140,76 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
         assert report.runs[-1].score is None
         assert report.outcome is not None and report.outcome.status == "inconclusive"
         assert report.outcome.variant_ids == []
+        assert "At least two versions" in report.outcome.summary
+
+    @parameterized.expand([("excluded",), ("judge_error",)])
+    def test_completed_versions_compete_even_when_most_versions_failed(self, status: str) -> None:
+        failed_variants = [
+            self.baseline.model_copy(
+                update={"id": uuid4(), "label": f"Incomplete {index}", "launch_ids": [uuid4(), uuid4()]}
+            )
+            for index in range(3)
+        ]
+        failed_runs = [
+            self.snapshot.runs[0].model_copy(update={"launch_id": launch_id, "variant_id": variant.id})
+            for variant in failed_variants
+            for launch_id in variant.launch_ids
+        ]
+        snapshot = self.snapshot.model_copy(
+            update={
+                "request": self.snapshot.request.model_copy(
+                    update={
+                        "variants": [*failed_variants, self.baseline, self.candidate],
+                        "baseline_variant_id": failed_variants[0].id,
+                    }
+                ),
+                "runs": [*failed_runs, *self.snapshot.runs],
+            }
+        )
+        failed_judgments = [
+            TrialRunJudgment.model_validate(
+                {
+                    "launch_id": run.launch_id,
+                    "variant_id": run.variant_id,
+                    "status": status,
+                    "summary": "Incomplete run",
+                }
+            )
+            for run in failed_runs
+        ]
+        report = build_trial_comparison_report(
+            snapshot,
+            [
+                *failed_judgments,
+                *[
+                    self._judgment(run, verdict)
+                    for run, verdict in zip(self.snapshot.runs, ["pass", "fail", "pass", "pass"], strict=True)
+                ],
+            ],
+        )
+        assert report.outcome is not None and report.outcome.status == "winner"
+        assert report.outcome.variant_ids == [self.candidate.id]
+        assert "3 of 5 versions excluded" in report.outcome.summary
+        assert len(report.runs) == 10
+        assert all(variant.baseline_delta is None for variant in report.variants)
+
+    @parameterized.expand(
+        [
+            ("leader", ["pass", "unknown", "fail", "fail"], "provisional"),
+            ("no_confirmed_passes", ["fail", "unknown", "fail", "fail"], "inconclusive"),
+            ("unknown_competitor", ["pass", "pass", "unknown", "unknown"], "provisional"),
+        ]
+    )
+    def test_unknown_checks_earn_no_passes(self, _name: str, verdicts: list[str], status: str) -> None:
+        report = build_trial_comparison_report(
+            self.snapshot,
+            [self._judgment(run, verdict) for run, verdict in zip(self.snapshot.runs, verdicts, strict=True)],
+        )
+        assert report.outcome is not None and report.outcome.status == status
+        assert report.outcome.variant_ids == ([self.baseline.id] if status == "provisional" else [])
+        assert report.variants[1].baseline_delta is None
+        if status == "provisional":
+            assert "unknown checks earn no passes" in report.outcome.summary
 
     @parameterized.expand([("unknown", 0.0), ("not_applicable", None)])
     def test_no_decisive_verdicts_produce_no_score(self, verdict: str, coverage: float | None) -> None:

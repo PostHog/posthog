@@ -45,6 +45,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
+    _committed_file_count_change,
+    _committed_version,
     _deltalite_write_stats,
     _merge_predicate_ops,
     commit_covers_batch,
@@ -1183,6 +1185,20 @@ class TestDeltaliteWritePath:
         stats = SimpleNamespace(version=7, rows_inserted=2, files_added=1, _private=9)
         stats.helper = lambda: None  # callable attribute must be ignored
         assert _deltalite_write_stats(stats) == {"version": 7, "rows_inserted": 2, "files_added": 1}
+
+    def test_unreadable_post_commit_stats_are_ignored(self):
+        class UnreadableStats:
+            @property
+            def version(self) -> int:
+                raise RuntimeError("stats unavailable")
+
+            @property
+            def files_added(self) -> int:
+                raise RuntimeError("stats unavailable")
+
+        stats = UnreadableStats()
+        assert _committed_version(stats) is None
+        assert _committed_file_count_change(stats) is None
 
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(self):

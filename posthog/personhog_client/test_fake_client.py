@@ -529,6 +529,52 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert self._delete(uuid, uuid) == expected
         assert self._present(uuid) == expect_present
 
+    @pytest.mark.parametrize(
+        "bounds,expected,expect_present",
+        [
+            (
+                [("newer", 3)],
+                person_pb2.DeleteTombstonedPersonsResponse(deleted_count=1, rows_deleted=1, version_guard_applied=True),
+                False,
+            ),
+            (
+                [("newer", 2)],
+                person_pb2.DeleteTombstonedPersonsResponse(skipped_version_count=1, version_guard_applied=True),
+                True,
+            ),
+            (
+                [("newer", 5), ("newer", 2)],
+                person_pb2.DeleteTombstonedPersonsResponse(skipped_version_count=1, version_guard_applied=True),
+                True,
+            ),
+            (
+                [("live", 0)],
+                person_pb2.DeleteTombstonedPersonsResponse(skipped_live_count=1, version_guard_applied=True),
+                True,
+            ),
+        ],
+    )
+    def test_bounded_persons_delete_only_at_or_below_their_bound(self, bounds, expected, expect_present):
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=5,
+            uuid="newer",
+            version=3,
+            distinct_ids=["n-1"],
+            is_deleted=True,
+            tombstoned_distinct_ids=["n-1"],
+        )
+        resp = self.client.delete_tombstoned_persons(
+            person_pb2.DeleteTombstonedPersonsRequest(
+                team_id=self.TEAM_ID,
+                bounded_persons=[
+                    person_pb2.VersionBoundedPerson(person_uuid=uuid, max_version=bound) for uuid, bound in bounds
+                ],
+            )
+        )
+        assert resp == expected
+        assert self._present(bounds[0][0]) == expect_present
+
     def test_a_person_over_the_budget_is_trimmed_across_calls_then_deleted(self):
         pending = person_pb2.DeleteTombstonedPersonsResponse(pending_person_uuids=["big"], rows_deleted=2)
 

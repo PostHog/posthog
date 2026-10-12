@@ -1,6 +1,7 @@
 import time
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 import structlog
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
@@ -56,6 +58,8 @@ class IntercomResumeConfig:
     completed_conversation_ids: list[str] = dataclasses.field(default_factory=list)
     # company_segments: every company id that sorts at or before this one is already yielded.
     last_company_id: str | None = None
+    # Page-number list endpoints: the next page to fetch.
+    page: int | None = None
 
 
 def _load_resume_state(
@@ -293,6 +297,19 @@ class IntercomPagesPaginator(BaseNextUrlPaginator):
         return "IntercomPagesPaginator()"
 
 
+def _to_unix_seconds(value: Any) -> int:
+    """Coerce a watermark to the Unix seconds Intercom's query-param filters expect.
+
+    Most Intercom timestamps are epoch integers, but macros carry ISO 8601 strings, so their
+    watermark arrives as a datetime.
+    """
+    if isinstance(value, datetime):
+        return int((value if value.tzinfo else value.replace(tzinfo=UTC)).timestamp())
+    if isinstance(value, str) and not value.lstrip("-").isdigit():
+        return _to_unix_seconds(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    return int(value)
+
+
 def _build_search_body(
     cfg: IntercomEndpointConfig,
     incremental_field: str,
@@ -326,6 +343,8 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
         return JSONResponsePaginator(next_url_path="pages.next")
     if cfg.paginator_kind == "pages":
         return IntercomPagesPaginator()
+    if cfg.paginator_kind == "page_number":
+        return PageNumberPaginator(base_page=1, total_path="total_pages")
     return SinglePagePaginator()
 
 
@@ -351,14 +370,14 @@ def get_resource(
         # `value: 0` matches every record. Default to "updated_at" (the only
         # cursor Intercom search endpoints support) when no field is passed.
         endpoint["json"] = _build_search_body(cfg, incremental_field or "updated_at", db_incremental_field_last_value)
-    elif cfg.paginator_kind in ("cursor", "next_url", "pages"):
+    elif cfg.paginator_kind in ("cursor", "next_url", "pages", "page_number"):
         params: dict[str, Any] = {"per_page": cfg.page_size, **cfg.extra_params}
         if cfg.incremental_query_param:
             # Intercom's `/admins/activity_logs` returns a much smaller default
             # window when called without `created_at_after`, so we always set
             # the param. `0` matches every record (Unix epoch start).
             if should_use_incremental_field and db_incremental_field_last_value is not None:
-                params[cfg.incremental_query_param] = int(db_incremental_field_last_value)
+                params[cfg.incremental_query_param] = _to_unix_seconds(db_incremental_field_last_value)
             else:
                 params[cfg.incremental_query_param] = 0
         endpoint["params"] = params
@@ -763,6 +782,8 @@ def _rest_resume_state(cfg: IntercomEndpointConfig, resume: IntercomResumeConfig
             return {"next_url": resume.next_url}
         if resume.cursor is not None:
             return {"cursor": resume.cursor}
+    if cfg.paginator_kind == "page_number" and resume.page is not None:
+        return {"page": resume.page}
     return None
 
 
@@ -778,6 +799,11 @@ def intercom_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
+    if cfg.api_versions is not None and api_version not in cfg.api_versions:
+        raise ValueError(
+            f"Intercom table {endpoint} requires Intercom API version {', '.join(cfg.api_versions)}, "
+            f"but this source is pinned to {api_version}"
+        )
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
     supports_resume = True
 
@@ -832,6 +858,8 @@ def intercom_source(
                 resumable_source_manager.save_state(
                     IntercomResumeConfig(cursor=state["cursor"], query_value=query_value)
                 )
+            elif state.get("page"):
+                resumable_source_manager.save_state(IntercomResumeConfig(page=state["page"]))
 
         config: RESTAPIConfig = {
             "client": {

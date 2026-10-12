@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, type ReactNode } from 'react'
 
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { IconTableChart } from 'lib/lemon-ui/icons'
@@ -12,23 +14,25 @@ import {
     parseBIShelfPillDragData,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIFilterControl } from 'products/business_intelligence/frontend/BIFilterControl'
+import { BIChartTypes } from 'products/business_intelligence/frontend/components/BIChartTypes'
 import { BIDataPane } from 'products/business_intelligence/frontend/components/BIDataPane'
 import { BIFieldPill } from 'products/business_intelligence/frontend/components/BIFieldPill'
 import { BIFiltersCard } from 'products/business_intelligence/frontend/components/BIFiltersCard'
 import { BIMarksCard } from 'products/business_intelligence/frontend/components/BIMarksCard'
 import { BIShelfStrip } from 'products/business_intelligence/frontend/components/BIShelfStrip'
-import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 import { BIToolbar } from 'products/business_intelligence/frontend/components/BIToolbar'
 
 import { BIAnalysisControls } from './BIAnalysisControls'
+import { BILocalFieldModal } from './BILocalFieldModal'
 import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
+import { BIResultFiltersCard } from './components/BIResultFiltersCard'
 
 /**
  * A worksheet laid out like desktop BI tools: data pane, filter and marks cards, rows and columns
  * shelves above the view, and a chart picker on the right.
  */
 export function BIEditor({ tabId, children }: { tabId: string; children: ReactNode }): JSX.Element {
-    const { config, showMeOpen, dragSessionId } = useValues(biEditorLogic({ tabId }))
+    const { config, chartTypesOpen, dragSessionId } = useValues(biEditorLogic({ tabId }))
     const { removeFieldFromShelf, setActiveDropShelf } = useActions(biEditorLogic({ tabId }))
     const containerRef = useRef<HTMLDivElement>(null)
     const cardsRef = useRef<HTMLDivElement>(null)
@@ -70,6 +74,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
             >
                 <BIToolbar />
                 <BICalculatedMeasureModal />
+                <BILocalFieldModal />
                 <BIMeasureSettingsModal />
                 <div className="flex min-h-0 flex-1">
                     <div
@@ -92,6 +97,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         >
                             <div className="min-h-0 overflow-y-auto">
                                 <BIFiltersCard />
+                                <BIResultFiltersCard />
                                 <BIMarksCard />
                                 <BIAnalysisControls />
                             </div>
@@ -105,9 +111,22 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                             icon={<IconTableChart className="rotate-90" />}
                             emptyText="Drop dimensions here for a second grouping"
                         >
-                            {config.columns.map((field, index) => (
-                                <BIFieldPill key={field.id} shelf="columns" index={index} />
-                            ))}
+                            {[
+                                ...config.columns.map((field, index) => (
+                                    <BIFieldPill key={field.id} shelf="columns" index={index} />
+                                )),
+                                ...config.values.flatMap((value, index) =>
+                                    value.shelf === 'columns'
+                                        ? [
+                                              <BIFieldPill
+                                                  key={`${value.field.id}-${index}`}
+                                                  shelf="values"
+                                                  index={index}
+                                              />,
+                                          ]
+                                        : []
+                                ),
+                            ]}
                         </BIShelfStrip>
                         <BIShelfStrip
                             shelf="rows"
@@ -119,18 +138,37 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                                 ...config.rows.map((field, index) => (
                                     <BIFieldPill key={field.id} shelf="rows" index={index} />
                                 )),
-                                ...config.values.map((value, index) => (
-                                    <BIFieldPill key={`${value.field.id}-${index}`} shelf="values" index={index} />
-                                )),
+                                ...config.values.flatMap((value, index) =>
+                                    value.shelf !== 'columns'
+                                        ? [
+                                              <BIFieldPill
+                                                  key={`${value.field.id}-${index}`}
+                                                  shelf="values"
+                                                  index={index}
+                                              />,
+                                          ]
+                                        : []
+                                ),
+                                ...(config.values.length === 0 && (config.rows.length > 0 || config.columns.length > 0)
+                                    ? [
+                                          <LemonTag
+                                              key="count"
+                                              type="success"
+                                              title="Counts source rows in each group. Add a measure to replace this count."
+                                          >
+                                              Count of rows
+                                          </LemonTag>,
+                                      ]
+                                    : []),
                             ]}
                         </BIShelfStrip>
                         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
                     </div>
-                    {showMeOpen || config.filters.length > 0 ? (
+                    {chartTypesOpen || config.filters.length > 0 ? (
                         <div className="hidden w-44 shrink-0 flex-col overflow-y-auto border-l bg-surface-primary @3xl/bi-editor:flex @6xl/bi-editor:w-80">
                             {config.filters.length > 0 && (
                                 <section className="border-b p-2" aria-label="Quick filters">
-                                    <h3 className="mb-2 text-xs font-semibold">Filters</h3>
+                                    <h3 className="mb-2 text-xs font-semibold">Row filters</h3>
                                     <div className="grid grid-cols-1 items-start gap-x-2 gap-y-2 @6xl/bi-editor:grid-cols-2">
                                         {config.filters.map((filter, index) => (
                                             <BIFilterControl key={filter.field.id} index={index} />
@@ -138,7 +176,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                                     </div>
                                 </section>
                             )}
-                            {showMeOpen && <BIShowMe docked />}
+                            {chartTypesOpen && <BIChartTypes docked />}
                         </div>
                     ) : null}
                 </div>

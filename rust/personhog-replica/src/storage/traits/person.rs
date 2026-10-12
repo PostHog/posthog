@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
     DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstonedDeleteOutcome, TombstonedPerson,
+    TombstoneTarget, TombstonedDeleteOutcome, TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -65,10 +65,13 @@ pub trait PersonLookup: Send + Sync {
     /// persons that fit the budget go whole, the first that does not is trimmed with the leftover
     /// and returned pending, the rest are returned pending untouched. A revival either wins the
     /// row lock first and is skipped, or lands afterwards on a fresh row. Idempotent.
+    ///
+    /// A person is deleted only while its version is at or below its target's `max_version`,
+    /// checked under the same row lock. A uuid listed twice keeps its lowest bound.
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,
-        uuids: &[Uuid],
+        targets: &[TombstoneTarget],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome>;
 

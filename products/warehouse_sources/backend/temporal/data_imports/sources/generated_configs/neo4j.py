@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class Neo4jSourceConfig(config.Config):
-    pass
+    host: str
+    database: str
+    username: str
+    password: str

@@ -75,6 +75,7 @@ from personhog.types.v1.person_pb2 import (
     TombstonedPerson,
     DeleteTombstonedPersonsRequest,
     DeleteTombstonedPersonsResponse,
+    VersionBoundedPerson,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,

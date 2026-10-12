@@ -381,6 +381,20 @@ class TestSSOUserMapping:
                 sso_setup["installation"], "existing_user_123", sso_setup["user"].pk
             )
 
+    def test_sso_redirect_sends_a_blocked_account_to_login_without_a_session(self, sso_setup):
+        sso_setup["installation"].config["user_mappings"] = {"existing_user_123": sso_setup["user"].pk}
+        sso_setup["installation"].save()
+
+        with (
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"], "existing_user_123")),
+            patch("ee.vercel.integration.account_refused", return_value=True),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        SSOTestHelper.assert_successful_redirect(response, "/login?error_code=access_blocked")
+        assert "_auth_user_id" not in sso_setup["client"].session
+
     def test_sso_redirect_sends_a_mapped_user_with_another_email_to_login_without_an_email(self, sso_setup):
         sso_setup["installation"].config["user_mappings"] = {"existing_user_123": sso_setup["user"].pk}
         sso_setup["installation"].save()

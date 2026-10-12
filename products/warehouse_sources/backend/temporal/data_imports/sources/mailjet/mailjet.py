@@ -1,6 +1,7 @@
 import base64
 import secrets
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
@@ -32,6 +33,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import (
     MAILJET_ENDPOINTS,
     MAILJET_WEBHOOK_EVENTS,
+    STATCOUNTERS_EARLIEST_UNIX_TS,
+    STATCOUNTERS_ENDPOINT,
+    STATCOUNTERS_PARAMS,
+    STATCOUNTERS_WINDOW_DAYS,
     WEBHOOK_PRIMARY_KEY,
     WEBHOOK_TABLE_NAME,
     MailjetEndpointConfig,
@@ -40,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.se
 MAILJET_BASE_URL = "https://api.mailjet.com/v3/REST"
 WEBHOOK_PATH = "/eventcallbackurl"
 REQUEST_TIMEOUT_SECONDS = 30
+DAY_SECONDS = 24 * 60 * 60
 
 # Mailjet does not sign deliveries. Its documented way to prove a delivery came from Mailjet is
 # HTTP basic credentials embedded in the registered callback URL, which Mailjet then sends as an
@@ -50,12 +56,14 @@ WEBHOOK_BASIC_AUTH_USERNAME = "posthog"
 LOGGER = structlog.get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MailjetResumeConfig:
     offset: int = 0
     # The schema this offset belongs to. A single job can sync multiple schemas, so we
     # guard against applying one endpoint's offset to another on resume.
     endpoint: Optional[str] = None
+    # Start of the next `/statcounters` window to fetch (Unix timestamp).
+    from_ts: Optional[int] = None
 
 
 def _get_headers(api_key: str, secret_key: str) -> dict[str, str]:
@@ -154,6 +162,73 @@ def _webhook_source(endpoint: str, webhook_source_manager: WebhookSourceManager)
     )
 
 
+def _statcounters_start(db_incremental_field_last_value: Any) -> int:
+    value = db_incremental_field_last_value
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            value = None
+    last_ts = _to_unix_ts(value)
+    if last_ts is None:
+        return STATCOUNTERS_EARLIEST_UNIX_TS
+    # Re-read the last synced day: it was probably still in progress when it was synced.
+    return max(last_ts - last_ts % DAY_SECONDS, STATCOUNTERS_EARLIEST_UNIX_TS)
+
+
+def _statcounters_source(
+    api_key: str,
+    secret_key: str,
+    endpoint: str,
+    resumable_source_manager: ResumableSourceManager[MailjetResumeConfig],
+    db_incremental_field_last_value: Any,
+) -> SourceResponse:
+    config = MAILJET_ENDPOINTS[endpoint]
+    start = _statcounters_start(db_incremental_field_last_value)
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.endpoint == endpoint and resume.from_ts:
+            start = resume.from_ts
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        session = make_tracked_session(headers=_get_headers(api_key, secret_key), redact_values=(secret_key,))
+        now = int(datetime.now(UTC).timestamp())
+        window_start = start
+        while window_start <= now:
+            window_end = window_start + STATCOUNTERS_WINDOW_DAYS * DAY_SECONDS
+            params: dict[str, str | int] = {
+                **STATCOUNTERS_PARAMS,
+                "FromTS": window_start,
+                # Windows must not overlap, or a full refresh writes the boundary day twice.
+                "ToTS": min(window_end - 1, now),
+                "Limit": config.page_size,
+            }
+            response = session.get(f"{MAILJET_BASE_URL}/{config.path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            rows = sorted(
+                (row for row in response.json().get("Data") or [] if isinstance(row, dict)),
+                key=lambda row: str(row.get("Timeslice") or ""),
+            )
+            resumable_source_manager.save_state(MailjetResumeConfig(endpoint=endpoint, from_ts=window_end))
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            window_start = window_end
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
+        primary_keys=[config.primary_key],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode="asc",
+    )
+
+
 def mailjet_source(
     api_key: str,
     secret_key: str,
@@ -167,6 +242,15 @@ def mailjet_source(
 ) -> SourceResponse:
     if endpoint == WEBHOOK_TABLE_NAME:
         return _webhook_source(endpoint, webhook_source_manager)
+
+    if endpoint == STATCOUNTERS_ENDPOINT:
+        return _statcounters_source(
+            api_key,
+            secret_key,
+            endpoint,
+            resumable_source_manager,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
 
     config = MAILJET_ENDPOINTS[endpoint]
     limit = config.page_size

@@ -10,7 +10,14 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, PropertyMathType } from '~/types'
+import {
+    AccessControlLevel,
+    BaseMathType,
+    PropertyMathType,
+    ExternalDataSource,
+    ExternalDataSchemaStatus,
+    ExternalDataJobStatus,
+} from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import {
@@ -21,6 +28,8 @@ import {
     goalSumsAProperty,
     getSortedColumnsByArray,
     orderArrayByPreference,
+    nativeSourceConnectionStatus,
+    NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     rowMatchesSearch,
     sanitizeIntegrationFilter,
     validColumnsForTiles,
@@ -412,6 +421,36 @@ describe('marketing analytics utils', () => {
             }
         }
 
+        it.each([
+            ['googleads_campaign_overview_stats', undefined],
+            ['analytics_googleads_campaign_stats', undefined],
+            ['prefix.campaign_stats', undefined],
+            ['renamed_stats', 'campaign_stats'],
+        ])('builds a Google Ads cost series from %s', (tableName, schemaName) => {
+            const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+            source.tables[0].name = tableName
+            if (schemaName) {
+                source.tables[0].schema = { name: schemaName } as DatabaseSchemaDataWarehouseTable['schema']
+            }
+
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')).toMatchObject({
+                kind: 'DataWarehouseNode',
+                table_name: tableName,
+                timestamp_field: 'segments_date',
+                math: 'hogql',
+            })
+        })
+
+        it('prefers the current Google Ads stats schema over the legacy schema', () => {
+            const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+            const currentTable = source.tables[0]
+            source.tables = [{ ...currentTable, name: 'googleads_campaign_stats' }, currentTable]
+
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')?.table_name).toBe(
+                currentTable.name
+            )
+        })
+
         it.each(['GBP', 'AUD'])('uses stored Rokt currency after the source setting changes to %s', (currency) => {
             const source = makeMockSource('RoktAds', sourceFields.RoktAds)
             source.source.job_inputs = { currency_code: currency }
@@ -655,6 +694,43 @@ describe('marketing analytics utils', () => {
             expect(goalSumsAProperty(goalWithMath(math))).toBe(expected)
         })
     })
+
+    it.each([ExternalDataSchemaStatus.Failed, ExternalDataSchemaStatus.Paused, ExternalDataSchemaStatus.Cancelled])(
+        'reports a required %s schema as needing attention before the first sync',
+        (status) => {
+            const source: ExternalDataSource = {
+                id: 'source',
+                source_id: 'source',
+                connection_id: 'connection',
+                prefix: null,
+                description: null,
+                created_via: 'web',
+                latest_error: null,
+                sync_frequency: '24hour',
+                job_inputs: {},
+                revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                user_access_level: AccessControlLevel.Admin,
+                source_type: 'GoogleAds',
+                status: ExternalDataJobStatus.Completed,
+                schemas: NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS.GoogleAds.map((name) => ({
+                    id: name,
+                    name,
+                    label: null,
+                    should_sync: true,
+                    status,
+                    incremental: false,
+                    sync_type: 'full_refresh',
+                    sync_time_of_day: null,
+                    latest_error: null,
+                    incremental_field: null,
+                    incremental_field_type: null,
+                    sync_frequency: '24hour',
+                    primary_key_columns: null,
+                })),
+            }
+            expect(nativeSourceConnectionStatus(source).status).toBe('Needs attention')
+        }
+    )
 
     describe('sanitizeIntegrationFilter', () => {
         it('drops a key the query schema no longer accepts', () => {
