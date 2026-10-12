@@ -16,8 +16,7 @@ import { LogErrorCount } from './LogErrorCount'
 
 export type LogContextLinksSurface = 'drawer' | 'row'
 
-// The drawer's trace attr shipped before this component existed.
-// pinned: data-attr values — renaming breaks autocapture dashboards.
+// Frozen data-attr values: autocapture dashboards match on them, so the two surfaces keep different trace attrs.
 const TRACE_DATA_ATTR: Record<LogContextLinksSurface, string> = {
     drawer: 'logs-details-view-trace',
     row: 'logs-row-view-trace',
@@ -75,6 +74,7 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
                     sessionId={sessionId}
                     timestamp={log.timestamp}
                     size="xsmall"
+                    type="secondary"
                     openPlayerIn={RecordingPlayerType.Modal}
                     checkRecordingExists
                     data-attr={`logs-${surface}-context-recording`}
