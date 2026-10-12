@@ -139,6 +139,11 @@ export function buildLabUserShares(rows: LabUsersRow[], namedModelUsers: number)
         .map(({ lab, users }) => ({ lab, share: namedModelUsers > 0 ? (users / namedModelUsers) * 100 : 0 }))
 }
 
+export function leadingLabs(shares: LabShare[]): ModelLab[] {
+    const topShare = Math.max(0, ...shares.map(({ share }) => share))
+    return topShare > 0 ? shares.filter(({ share }) => share === topShare).map(({ lab }) => lab) : []
+}
+
 const HARNESS_ERROR_RATE_LIMIT = 8
 
 // The most used harnesses, so a harness with a handful of calls cannot top the error rate chart.

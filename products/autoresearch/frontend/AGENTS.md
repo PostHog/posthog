@@ -21,7 +21,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | `agentSearch.ts`                | The agent's search across training runs: chart points, best score so far, AUC change per experiment, log groups and the latest agent notes.  |
 | `onlinePerformance.ts`          | Accuracy tab helpers over the `online_performance` endpoint: the headline, the realized AUC series, predicted against actual by segment.     |
 | `predictionCoverage.ts`         | Predictions tab coverage from the runs list: the measured summary and the coverage and score age per day.                                    |
-| `predictionSegments.ts`         | The likelihood segment thresholds, from `predictionSegmentThresholds.json`. Online validation reads the same file for its Likely cutoff.     |
+| `predictionSegments.ts`         | The likelihood segments from the cut points the `online_performance` endpoint returns: lift over the base rate, or a fixed pair until then.  |
 | `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                                                   |
 | `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                                                  |
 | `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                                         |

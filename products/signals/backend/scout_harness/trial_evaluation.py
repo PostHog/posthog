@@ -55,6 +55,7 @@ from products.signals.backend.scout_harness.trial_result import (
     get_trial_workflow_status,
     read_trial_result,
     recover_trial_result,
+    trial_timeout_error,
 )
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
@@ -443,11 +444,16 @@ def _run_evidence(
     if status not in {"completed", "failed", "cancelled", "skipped"} or (run is None and status == "completed"):
         raise TrialEvaluationNotReady("Every selected trial must have a known terminal state before scoring.")
     if run is not None:
-        run.task_run.refresh_from_db(fields=["status", "state"])
+        run.task_run.refresh_from_db(fields=["status", "state", "error_message"])
         if run.task_run.status not in {"completed", "failed", "cancelled"}:
             raise TrialEvaluationNotReady("Every selected trial task must finish before scoring.")
         if status == "completed":
             status = run.task_run.status
+    exclusion_reason = None
+    if status != "completed":
+        exclusion_reason = (
+            trial_timeout_error(run, status=status) if run is not None else None
+        ) or "The trial did not complete successfully."
     evidence = TrialRunEvidence(
         launch_id=launch.id,
         variant_id=variant_id,
@@ -455,7 +461,7 @@ def _run_evidence(
         task_id=run.task_run.task_id if run else None,
         task_run_id=run.task_run_id if run else None,
         execution_status=status,
-        exclusion_reason=None if status == "completed" else "The trial did not complete successfully.",
+        exclusion_reason=exclusion_reason,
         model=launch.model,
         runtime_adapter=launch.runtime_adapter,
         reasoning_effort=launch.reasoning_effort,
