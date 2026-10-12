@@ -739,6 +739,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             deleted=True,
             inputs_schema=[subject, body],
             inputs={"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
+            filters={"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
             hog=custom_hog,
         )
         restore_response = self.client.patch(

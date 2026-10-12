@@ -581,8 +581,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
 
         proposed_hog = attrs.get("hog")
-        undeleting = instance is not None and instance.deleted and attrs.get("deleted") is False
-        if undeleting:
+        if instance is not None and instance.deleted and attrs.get("deleted") is False:
             # An unchanged saved `hog` is normally accepted, but a restore must not bring back custom code.
             proposed_hog = proposed_hog if proposed_hog is not None else instance.hog
             allowed_hog: tuple = (template.code,)
