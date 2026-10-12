@@ -3,12 +3,16 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+import orjson
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.redis import get_client
 
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.notifications.backend import pubsub
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
@@ -48,6 +52,36 @@ class TestCreateNotification(BaseTest):
         assert event.organization_id == self.organization.id
         assert event.notification_type == "comment_mention"
         assert NotificationEvent.objects.count() == 1
+
+    @parameterized.expand(
+        [
+            ("deactivated", lambda user, organization: User.objects.filter(id=user.id).update(is_active=False)),
+            (
+                "left_organization",
+                lambda user, organization: OrganizationMembership.objects.filter(
+                    user=user, organization=organization
+                ).delete(),
+            ),
+        ]
+    )
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_skips_user_without_active_membership(self, _name, revoke, mock_publish, mock_ff):
+        revoke(self.user, self.organization)
+
+        event = create_notification(
+            NotificationData(
+                team_id=self.team.id,
+                notification_type=NotificationType.COMMENT_MENTION,
+                title="Test notification",
+                body="Test body",
+                target_type=TargetType.USER,
+                target_id=str(self.user.id),
+            )
+        )
+
+        assert event is None
+        mock_publish.assert_not_called()
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
@@ -439,3 +473,76 @@ class TestPublishResourceEdited(BaseTest):
 
         mock_ac_filter.assert_not_called()
         mock_get_producer.return_value.produce.assert_called_once()
+
+
+class TestRedisPublish(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = Organization.objects.create(name="Redis Org")
+        self.team = Team.objects.create(organization=self.organization, name="Redis Team")
+        self.user = User.objects.create_and_join(self.organization, "redis@test.com", "password")
+        paused_until = patch.object(pubsub._publisher, "paused_until", 0.0)
+        paused_until.start()
+        self.addCleanup(paused_until.stop)
+        self.subscriber = get_client().pubsub(ignore_subscribe_messages=True)
+        self.subscriber.subscribe(pubsub.notifications_channel(self.organization.id, self.user.id))
+        self.addCleanup(self.subscriber.close)
+
+    def _create_notification(self) -> None:
+        create_notification(
+            NotificationData(
+                team_id=self.team.id,
+                notification_type=NotificationType.COMMENT_MENTION,
+                title="Test notification",
+                body="Test body",
+                target_type=TargetType.USER,
+                target_id=str(self.user.id),
+            )
+        )
+
+    def _publish_resource_edited(self) -> None:
+        publish_resource_edited(
+            team=self.team,
+            resource_type="HogFlow",
+            resource_id="flow-123",
+            updated_at="2026-06-16T00:00:00+00:00",
+        )
+
+    @parameterized.expand(
+        [
+            ("create_notification", "_create_notification"),
+            ("resource_edited", "_publish_resource_edited"),
+        ]
+    )
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_publishes_kafka_payload_to_recipient_channel_after_commit(
+        self, _name, publish_method, mock_get_producer, mock_ff
+    ):
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            getattr(self, publish_method)()
+        assert self.subscriber.get_message(timeout=0) is None
+
+        for callback in callbacks:
+            callback()
+
+        mock_get_producer.return_value.produce.assert_called_once()
+        kafka_payload = mock_get_producer.return_value.produce.call_args.kwargs["data"]
+        assert kafka_payload["resolved_user_ids"] == [self.user.id]
+        message = self.subscriber.get_message(timeout=1)
+        assert message is not None
+        assert orjson.loads(message["data"]) == {
+            key: value for key, value in kafka_payload.items() if key != "resolved_user_ids"
+        }
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_redis_failure_spares_kafka_and_pauses_later_publishes(self, mock_get_producer, mock_ff):
+        with patch("products.notifications.backend.pubsub.get_client", side_effect=RedisError("down")) as redis_client:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._create_notification()
+            with self.captureOnCommitCallbacks(execute=True):
+                self._publish_resource_edited()
+
+        assert mock_get_producer.return_value.produce.call_count == 2
+        assert redis_client.call_count == 1

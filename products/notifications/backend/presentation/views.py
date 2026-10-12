@@ -3,13 +3,18 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.http import HttpResponse
+from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
+from loginas.utils import is_impersonated_session
 from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -19,15 +24,23 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.models import User
+from posthog.renderers import ServerSentEventRenderer
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
+from products.notifications.backend.presentation.stream import NOTIFICATIONS_STREAM_BUDGET, notification_event_stream
 
 _BULK_NOTIFICATION_IDS_MAX = 500
+
+REAL_TIME_NOTIFICATIONS_FLAG = "real-time-notifications"
+# Also checked on the server, so that turning it off stops every Django stream, including tabs that still run
+# with the old flag value.
+NOTIFICATIONS_DJANGO_SSE_FLAG = "notifications-django-sse"
 
 
 class BulkNotificationIdsRequestSerializer(drf_serializers.Serializer):
@@ -55,14 +68,14 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def _get_user(self) -> User:
         return cast(User, self.request.user)
 
-    def _is_feature_enabled(self) -> bool:
+    def _is_feature_enabled(self, flag: str = REAL_TIME_NOTIFICATIONS_FLAG) -> bool:
         user = self._get_user()
         if not user.distinct_id:
             return False
         org_id = str(self.team.organization_id)
         return bool(
             posthoganalytics.feature_enabled(
-                "real-time-notifications",
+                flag,
                 user.distinct_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
@@ -246,6 +259,34 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             count = queryset.filter(read=False).count()
             set_unread_count(user.id, org_id, count)
         return Response({"count": count})
+
+    @extend_schema(
+        description=(
+            "Stream the current user's real-time notifications as server-sent events. The first event is "
+            "`ready`, sent when the server is subscribed: refetch what changed while disconnected when it "
+            "arrives. Each `data` line after it is one notification as JSON. The stream sends a heartbeat "
+            "comment about every 15 seconds and ends after about 15 minutes with an `end` event; reconnect "
+            "when it arrives. Returns 204 when real-time notifications or this stream are off: do not "
+            "reconnect after a 204."
+        ),
+        responses={(200, "text/event-stream"): OpenApiTypes.STR, 204: None},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None, renderer_classes=[ServerSentEventRenderer])
+    def stream(self, request: Request, **kwargs) -> HttpResponseBase:
+        if not (self._is_feature_enabled() and self._is_feature_enabled(NOTIFICATIONS_DJANGO_SSE_FLAG)):
+            return HttpResponse(status=204)
+        if settings.SERVER_GATEWAY_INTERFACE != "ASGI":
+            raise RuntimeError("notifications.stream requires ASGI.")
+        # Read both IDs here: sse_streaming_response releases the DB connection, and the generator must not touch the ORM.
+        organization_id = self.team.organization_id
+        user_id = self._get_user().id
+        return sse_streaming_response(
+            notification_event_stream(
+                organization_id, user_id, domain_enforcement_exempt=is_impersonated_session(request)
+            ),
+            endpoint="notifications",
+            budget=NOTIFICATIONS_STREAM_BUDGET,
+        )
 
     @extend_schema(request=None)
     @action(methods=["POST"], detail=False)
