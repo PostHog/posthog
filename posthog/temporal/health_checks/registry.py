@@ -29,6 +29,7 @@ HEALTH_CHECK_MODULES = [
     "products.web_analytics.backend.temporal.health_checks.path_cleaning_suggestions",
     "products.error_tracking.backend.temporal.health_checks.missing_source_maps",
     "products.feature_flags.backend.temporal.health_checks.stale_flags",
+    "products.experiments.backend.temporal.health_checks.flag_state",
 ]
 
 _registry_loaded = False
