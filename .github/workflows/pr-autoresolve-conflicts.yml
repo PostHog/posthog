@@ -315,17 +315,6 @@ jobs:
             - name: Install Python dependencies
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            # build:openapi regenerates the desktop API client and fails in CI without its generator.
-            # Same filtered install as ci-backend; a branch that predates the generator skips it.
-            - name: Install desktop API client generator
-              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
-              working-directory: products/desktop
-              run: |
-                  if [ ! -f ../../bin/build-desktop-api-client.sh ]; then
-                      echo "This branch predates the desktop API client regen, so there is nothing to install."
-                      exit 0
-                  fi
-                  pnpm install --frozen-lockfile --filter @posthog/api-client --ignore-scripts --config.node-linker=isolated
             - name: Wait for backend services
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               env:
@@ -410,6 +399,12 @@ jobs:
                   bin/hogli ci:preflight --fix || true
                   # API types: regenerate against the already-up stack (hogli's `services:` are display-only).
                   if [ "$NEEDS_BACKEND" = "true" ]; then
+                    # build:openapi regenerates the desktop API client and fails in CI without its
+                    # generator. Installed here, after source resolution, because pnpm reads every
+                    # desktop manifest and a conflict marker in one aborts the install.
+                    if [ -f bin/build-desktop-api-client.sh ]; then
+                      (cd products/desktop && pnpm install --frozen-lockfile --filter @posthog/api-client --ignore-scripts --config.node-linker=isolated)
+                    fi
                     bin/hogli build:openapi
                   fi
                   # MCP files that come from YAML and Zod only. They run after build:openapi so they
