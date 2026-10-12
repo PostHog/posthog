@@ -543,8 +543,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             }
         },
         resetConfig: () => {
+            const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
+            dataLogic?.actions.cancelQuery()
+            dataLogic?.actions.clearResponse()
             actions.restoreWorksheet({
                 ...emptyWorksheet(),
+                config: values.config,
                 source: { kind: NodeKind.HogQLQuery, query: '', connectionId: values.connectionId ?? undefined },
             })
             actions.syncWorksheetUrl()
@@ -567,9 +571,32 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (connectionChanged) {
                 databaseTableListLogic.actions.setConnection(connectionId)
             }
+            const config = { ...applyBIDateRange(worksheet.config, worksheet.source.filters?.dateRange) }
+            if (
+                worksheet.source.query &&
+                config.source &&
+                !config.rows.length &&
+                !config.columns.length &&
+                !config.values.length
+            ) {
+                config.values = [
+                    {
+                        field: {
+                            id: 'bi-default-count',
+                            name: 'Count of rows',
+                            expression: '',
+                            type: 'integer',
+                            source: config.source,
+                        },
+                        aggregation: 'custom',
+                        customExpression: 'count(*)',
+                        label: 'Count of rows',
+                    },
+                ]
+            }
             actions.restoreState({
                 editorView: BIEditorView.BI,
-                config: applyBIDateRange(worksheet.config, worksheet.source.filters?.dateRange),
+                config,
             })
             if (connectionChanged || !databaseTableListLogic.values.database) {
                 databaseTableListLogic.actions.loadDatabase({ shallow: true })

@@ -76,6 +76,8 @@ export interface BICategoryGroup {
 
 export interface BIValue {
     field: BIField
+    /** Measures in older worksheets belong to rows. */
+    shelf?: 'rows' | 'columns'
     aggregation: BIAggregation
     customExpression?: string
     label?: string

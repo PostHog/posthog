@@ -51,7 +51,14 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
-    it.each([0, 1, 2])('keeps Top N and result filters attached to their measures when removing value %s', (index) => {
+    it.each([
+        ['remove', 0],
+        ['remove', 1],
+        ['remove', 2],
+        ['reorder', 0],
+        ['reorder', 1],
+        ['reorder', 2],
+    ] as const)('keeps Top N and result filters attached when %s changes value %s', (operation, index) => {
         const logic = biEditorLogic({ tabId: TAB_ID })
         logic.mount()
         logic.actions.setAutoUpdate(false)
@@ -72,19 +79,61 @@ describe('biEditorLogic', () => {
                 })),
             },
         })
-        logic.actions.removeFieldFromShelf('values', index)
-        expect(logic.values.config.resultFilters).toHaveLength(2)
+        if (operation === 'remove') {
+            logic.actions.removeFieldFromShelf('values', index)
+        } else {
+            logic.actions.moveFieldToShelf('values', index, 'values', index === 0 ? 3 : 0)
+        }
+        expect(logic.values.config.resultFilters).toHaveLength(operation === 'remove' ? 2 : 3)
         for (const filter of logic.values.config.resultFilters!) {
             expect(logic.values.config.values[filter.measureIndex].field.id).toBe(
                 filter.id.replace('filter-', 'measure-')
             )
         }
-        if (index === 1) {
+        if (index === 1 && operation === 'remove') {
             expect(logic.values.config.topN).toBeUndefined()
         } else {
             const measureIndex = logic.values.config.topN!.measureIndex
             expect(logic.values.config.values[measureIndex].field.id).toBe('measure-1')
         }
+        logic.unmount()
+    })
+
+    it('reorders dimension pills and swaps measures without losing their calculations or placement on reload', () => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        const category = { ...eventField, id: 'category', name: 'Category', expression: 'properties.category' }
+        const revenue = {
+            field: { ...eventField, id: 'revenue', expression: 'properties.revenue' },
+            aggregation: 'sum' as const,
+            tableCalculation: { type: 'running_total' as const },
+        }
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                columns: [eventField, category],
+                rows: [],
+                values: [revenue],
+                sort: { key: `columns:${category.id}`, direction: 'asc' },
+            },
+        })
+        logic.actions.moveFieldToShelf('columns', 1, 'columns', 0)
+        expect(logic.values.config.columns).toEqual([category, eventField])
+        logic.actions.swapRowsAndColumns()
+        expect(logic.values.config.rows).toEqual([category, eventField])
+        expect(logic.values.config.columns).toEqual([])
+        expect(logic.values.config.values).toEqual([{ ...revenue, shelf: 'columns' }])
+        expect(logic.values.config.sort?.key).toBe(`rows:${category.id}`)
+        expect(logic.values.config.chartType).toBe(ChartDisplayType.ActionsBarValue)
+        expect(parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))?.config.values).toEqual(
+            logic.values.config.values
+        )
+        logic.actions.moveFieldToShelf('values', 0, 'rows')
+        expect(logic.values.config.values).toEqual([{ ...revenue, shelf: 'rows' }])
+        logic.actions.convertMeasureToDimension(0)
+        expect(logic.values.config.values).toEqual([])
+        expect(logic.values.config.rows).toEqual([category, eventField, revenue.field])
         logic.unmount()
     })
 

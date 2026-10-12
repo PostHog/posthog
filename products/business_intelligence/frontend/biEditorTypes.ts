@@ -113,6 +113,7 @@ export function mergeBIChartSettings(
     return {
         ...current,
         ...generated,
+        leftYAxisSettings: { ...current?.leftYAxisSettings, ...generated.leftYAxisSettings },
         xAxis: generated.xAxis
             ? {
                   ...(current?.xAxis?.column === generated.xAxis.column ? current.xAxis : {}),
@@ -544,6 +545,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   !field ||
                   !isBIMeasureSettings(valueCandidate) ||
                   !BI_AGGREGATIONS.has(valueCandidate.aggregation as BIAggregation) ||
+                  (valueCandidate.shelf !== undefined && !['rows', 'columns'].includes(valueCandidate.shelf)) ||
                   (valueCandidate.label !== undefined && typeof valueCandidate.label !== 'string') ||
                   (valueCandidate.tableCalculation !== undefined &&
                       !isBITableCalculation(valueCandidate.tableCalculation)) ||
@@ -556,6 +558,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   aggregation: valueCandidate.aggregation as BIAggregation,
                   customExpression: valueCandidate.customExpression,
                   label: valueCandidate.label,
+                  ...(valueCandidate.shelf ? { shelf: valueCandidate.shelf } : {}),
                   ...(valueCandidate.formatting ? { formatting: valueCandidate.formatting } : {}),
                   ...(valueCandidate.display ? { display: valueCandidate.display } : {}),
                   ...(valueCandidate.tableCalculation ? { tableCalculation: valueCandidate.tableCalculation } : {}),
@@ -1257,6 +1260,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         [
             ChartDisplayType.Auto,
             ChartDisplayType.ActionsBar,
+            ChartDisplayType.ActionsBarValue,
             ChartDisplayType.ActionsStackedBar,
             ChartDisplayType.ActionsLineGraph,
             ChartDisplayType.ActionsAreaGraph,
@@ -1317,7 +1321,15 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                   seriesBreakdownColumn: breakdownDimension.alias,
                   showLegend: true,
               }
-            : undefined
+            : {
+                  xAxis: xDimension
+                      ? { column: hasBIAnalysis(config) ? xDimension.alias : fieldExpression(xDimension.field) }
+                      : undefined,
+                  yAxis: configuredValues.length
+                      ? configuredValues.map(({ alias }) => ({ column: alias }))
+                      : [{ column: 'count' }],
+                  seriesBreakdownColumn: undefined,
+              }
 
     if (comparing) {
         const orderDimension = dimensions.find(({ field }) =>
@@ -1437,6 +1449,18 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
             column: alias,
             settings: getBIMeasureSettings(value),
         }))
+    seriesSettings = {
+        ...seriesSettings,
+        xAxisLabel: seriesSettings?.xAxisLabel ?? (xDimension ? getBIFieldPillLabel(xDimension.field) : undefined),
+        leftYAxisSettings: {
+            label:
+                configuredValues.length === 0
+                    ? 'Count of rows'
+                    : configuredValues.length === 1
+                      ? getBIValuePillLabel(configuredValues[0].value)
+                      : undefined,
+        },
+    }
     if (config.missingDates) {
         seriesSettings = { ...seriesSettings, showNullsAsZero: false }
     }
