@@ -1,13 +1,19 @@
 from collections.abc import Callable, Iterator
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
+
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
@@ -21,7 +27,12 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_already_posted,
     _review_marker,
 )
-from products.review_hog.backend.temporal.activities import PublishInput, _publish
+from products.review_hog.backend.temporal.activities import (
+    PUBLISH_MAX_RATE_LIMIT_WAIT_SECONDS,
+    PublishInput,
+    _publish,
+    publish_review_activity,
+)
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
 # snapshot load are patched there; the installation auth is still resolved in the activity wrapper.
@@ -29,14 +40,17 @@ _PUBLISH = "products.review_hog.backend.reviewer.tools.publish_review.publish_re
 _SNAPSHOT = "products.review_hog.backend.reviewer.tools.publish_review.load_pr_snapshot"
 _AUTH = "products.review_hog.backend.temporal.activities._installation_auth"
 _PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_api_get_paginated"
+_ACTIVITIES = "products.review_hog.backend.temporal.activities"
 
 
-def _paginated(items: list[dict[str, Any]], *, boom: bool = False) -> Callable[..., Iterator[dict[str, Any]]]:
+def _paginated(
+    items: list[dict[str, Any]], *, boom: bool = False, status: int = 500
+) -> Callable[..., Iterator[dict[str, Any]]]:
     """A github_api_get_paginated stand-in yielding `items` (or failing the readback with `boom`)."""
 
     def fake(path: str, **kwargs: Any) -> Iterator[dict[str, Any]]:
         if boom:
-            raise GitHubAPIError("readback failed", status=500)
+            raise GitHubAPIError("readback failed", status=status)
         return iter(items)
 
     return fake
@@ -78,7 +92,17 @@ def test_review_already_posted_detects_our_own_markered_review() -> None:
 def test_review_already_posted_proceeds_when_readback_fails() -> None:
     # Best-effort: if listing reviews errors we post rather than silently drop the review (the
     # published_head_sha watermark still guards the common retry path).
-    assert _review_posted(_review_marker("rep-1", "sha1"), [], boom=True) is False
+    with patch(_PAGINATED, side_effect=_paginated([], boom=True, status=404)):
+        assert (
+            _review_already_posted("o", "r", 1, _review_marker("rep-1", "sha1"), token="t", installation_id=None)
+            is False
+        )
+
+
+def test_review_already_posted_raises_on_a_transient_readback_failure() -> None:
+    # An earlier attempt may have posted already, so posting blind on a 5xx risks a second review.
+    with pytest.raises(GitHubAPIError):
+        _review_posted(_review_marker("rep-1", "sha1"), [], boom=True)
 
 
 @parameterized.expand(
@@ -274,3 +298,15 @@ class TestPublishIdempotency(BaseTest):
             _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source="automatic"))
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert report.automatic_reviewed_head_sha is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retry_after,expected_wait", [(120, 120), (7200, PUBLISH_MAX_RATE_LIMIT_WAIT_SECONDS)])
+async def test_publish_waits_for_the_rate_limit_reset_github_names(retry_after: int, expected_wait: int) -> None:
+    with (
+        patch(f"{_ACTIVITIES}._publish", side_effect=GitHubRateLimitError("limited", retry_after=retry_after)),
+        pytest.raises(ApplicationError) as raised,
+    ):
+        await ActivityEnvironment().run(publish_review_activity, _publish_input(1, "rep-1", "sha1"))
+
+    assert raised.value.next_retry_delay == timedelta(seconds=expected_wait)

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
@@ -498,6 +499,7 @@ class TestFinalizeStatusCommentErrors(BaseTest):
         [
             ("egress_budget", GitHubEgressBudgetExhausted("shed", scope="1"), True),
             ("github_5xx", GitHubAPIError("boom", status=502), True),
+            ("network", requests.ConnectionError("reset"), True),
             ("github_4xx", GitHubAPIError("gone", status=404), False),
         ]
     )

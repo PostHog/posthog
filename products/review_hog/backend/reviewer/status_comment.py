@@ -27,7 +27,6 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.utils import pluralize
 
@@ -60,6 +59,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
+    is_transient_github_error,
 )
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
@@ -681,12 +681,6 @@ class FinalizeStatusCommentInput:
     raised_elsewhere_count: int = 0
 
 
-def _is_transient_github_error(error: Exception) -> bool:
-    return isinstance(error, GitHubEgressBudgetExhausted | GitHubRateLimitError) or (
-        isinstance(error, GitHubAPIError) and error.status >= 500
-    )
-
-
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: everything found vs. what was published.
 
@@ -721,7 +715,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             logger.warning("Redacted %s credential-shaped string(s) from the status comment", redacted)
         _edit_and_stamp(input.team_id, report, body)
     except Exception as error:
-        if _is_transient_github_error(error):
+        if is_transient_github_error(error):
             raise
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 

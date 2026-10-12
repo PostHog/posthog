@@ -26,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -1859,6 +1860,9 @@ def _publish(input: PublishInput) -> PublishResult:
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
+PUBLISH_MAX_RATE_LIMIT_WAIT_SECONDS = 15 * 60
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1868,7 +1872,14 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    try:
+        return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        if error.retry_after is None:
+            raise
+        # GitHub names its reset time, which can be later than the retry policy's next attempt.
+        wait = datetime.timedelta(seconds=min(error.retry_after, PUBLISH_MAX_RATE_LIMIT_WAIT_SECONDS))
+        raise ApplicationError(str(error), next_retry_delay=wait) from error
 
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
