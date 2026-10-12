@@ -5789,10 +5789,10 @@ Today (4): `batches`, `files`, `fine_tuning_jobs`, `models`
 
 Diffed against: <https://docs.tokenfactory.nebius.com/llms.txt>
 
-- [ ] `GET /v1/datasets (list datasets in project)` — datasets are the training inputs fine-tuning jobs reference; also the lookup resolving dataset ids on jobs (high)
-- [ ] `GET /v1/fine_tuning/jobs/{id}/events` — per-job status and training-metric updates over time — the only way to chart loss/progress (high)
-- [ ] `GET /v1/fine_tuning/jobs/{id}/checkpoints` — checkpoints produced per job with their metrics, and the ids deployed models map back to (medium)
-- [ ] `GET /v1/datasets operations (list/filter operations by attributes)` — dataset operation history (uploads, conversions, fine-tuning ops) with outcomes and errors (medium)
+- [x] `GET /v1/datasets (list datasets in project)` — datasets are the training inputs fine-tuning jobs reference; also the lookup resolving dataset ids on jobs (high)
+- [x] `GET /v1/fine_tuning/jobs/{id}/events` — per-job status and training-metric updates over time — the only way to chart loss/progress (high)
+- [x] `GET /v1/fine_tuning/jobs/{id}/checkpoints` — checkpoints produced per job with their metrics, and the ids deployed models map back to (medium)
+- [x] `GET /v1/datasets operations (list/filter operations by attributes)` — dataset operation history (uploads, conversions, fine-tuning ops) with outcomes and errors (medium)
 - [ ] `GET /v1/dedicated-endpoints` — inventory of deployed dedicated inference endpoints and the models behind them (medium)
 
 Note: Nebius Token Factory (formerly AI Studio) is OpenAI-compatible for inference; the non-OpenAI surface is datasets, fine-tuning sub-resources, dedicated endpoints and sandboxes. No usage/billing API is published in the reference, so token-spend cannot be synced. Sandbox endpoints (images, instances, subprocesses) are execution plumbing, not warehouse data.
