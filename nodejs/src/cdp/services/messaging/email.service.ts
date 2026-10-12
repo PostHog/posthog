@@ -608,6 +608,10 @@ export class EmailService {
 
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
+                default:
+                    throw new Error(
+                        "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+                    )
             }
 
             // Emit the `[Email:…]` token in the success log only when an asset row
