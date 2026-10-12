@@ -68,7 +68,12 @@ export class LocalSesAwsEnvironment {
     }
 
     restore(): void {
-        process.env = { ...this.original }
+        for (const key of Object.keys(process.env)) {
+            if (!(key in this.original)) {
+                delete process.env[key]
+            }
+        }
+        Object.assign(process.env, this.original)
     }
 }
 

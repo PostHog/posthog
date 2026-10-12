@@ -166,6 +166,7 @@ export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap:
 }
 
 export interface TeamEmailCapConfig {
+    // Optional and off by default, so a send path that builds an EmailService without caps keeps its old behavior.
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
@@ -306,6 +307,7 @@ export class TeamSendingCap implements SendPacer {
             }
         }
 
+        // Shadow mode always sends, so drain each bucket by the send's cost and log the first cap that would delay it.
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {
             const granted = await this.limiter.claimUpTo({

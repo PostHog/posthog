@@ -412,10 +412,12 @@ export function createCdpCoreServices(
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres, deps.pubSub)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
+    // EmailService owns the suppression check, so every send path shares one choke point.
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
+    // The SES Valkey pool exists only on pods that execute email actions, so null elsewhere disables pacing.
     const workflowEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'workflow-email' })
         : null
@@ -459,6 +461,7 @@ export function createCdpCoreServices(
             backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
+        // Push writes only to Valkey, without a dual-write, because push is pre-release.
         valkeyShadow.writer,
         messageAssetsService
     )

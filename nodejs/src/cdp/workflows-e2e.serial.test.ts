@@ -2616,6 +2616,7 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+        // Without a Valkey host the SES rate limiter pool is null, which silently disables every sending limit.
         hub.SES_RATE_LIMITER_VALKEY_HOST = hub.CDP_REDIS_HOST || '127.0.0.1'
         if (hub.CDP_REDIS_PORT) {
             hub.SES_RATE_LIMITER_VALKEY_PORT = hub.CDP_REDIS_PORT
@@ -2673,6 +2674,7 @@ describe('Workflows E2E (email queue)', () => {
         matcher = undefined
         deps = createCdpConsumerDeps(hub, kafkaProducer)
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+        // Consumers sharing one CyclotronJobQueuePostgresV2 collide on `this.worker` and its pg pool.
         const eventsProducerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         const hogflowConsumerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         const emailConsumerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
@@ -2718,6 +2720,7 @@ describe('Workflows E2E (email queue)', () => {
         })
     }
 
+    // AppMetricsAggregator dedupes in memory, so sum `count` because counting messages would hide a double emit.
     function sumCounts(filter: (message: DecodedKafkaMessage) => boolean): number {
         return mockProducerObserver
             .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
@@ -3279,6 +3282,7 @@ describe('Workflows E2E (email queue)', () => {
         for (const slot of slots) {
             expect(slot).toBeGreaterThan(Date.now() + 20_000)
         }
+        // Enqueue, hogflow pass and email pass make at most 4 transitions, so more means a denied send looped.
         for (const job of parkedA) {
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
@@ -3292,6 +3296,7 @@ describe('Workflows E2E (email queue)', () => {
         const enforcedQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         emailWorker = new CdpCyclotronWorkerEmail(hub, deps, enforcedQueue)
         await emailWorker.start()
+        // The test Redis keeps the team-keyed tier buckets between runs, so clear them before team A sends.
         const capValkey = createRedisV2PoolFromConfig({
             connection: hub.CDP_REDIS_HOST
                 ? {

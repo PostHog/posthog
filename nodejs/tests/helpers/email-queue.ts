@@ -52,6 +52,7 @@ export class EmailRetryClock {
         private readonly bucketKeys: string[]
     ) {}
 
+    // Valkey TIME ignores the Date.now mock, so age the stored bucket timestamps by the same wait.
     private async ageBucketTimestamps(elapsed: number): Promise<void> {
         await this.redis.useClient({ name: 'advance-email-buckets' }, async (client) => {
             for (const key of this.bucketKeys) {

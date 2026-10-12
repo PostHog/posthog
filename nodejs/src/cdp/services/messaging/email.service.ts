@@ -147,6 +147,7 @@ export function sanitizeEmailSubject(subject: string): string {
         .trim()
 }
 
+// The suppression list stores bare addresses, so strip the name from RFC-822 `"Name" <email>` entries.
 export function extractEmailsFromAddressList(value: string | undefined): string[] {
     if (typeof value !== 'string' || value.trim().length === 0) {
         return []
@@ -374,6 +375,7 @@ export class EmailService {
                 return result
             }
 
+            // Resolve tracking at the same choke point as suppression, so every send path gets the same decision.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
@@ -573,6 +575,7 @@ export class EmailService {
         return result
     }
 
+    // SES delivers to every address in to, cc and bcc, so a suppressed address in any list blocks the send.
     private async buildSuppressionSkipReason(
         teamId: number,
         params: CyclotronInvocationQueueParametersEmailType

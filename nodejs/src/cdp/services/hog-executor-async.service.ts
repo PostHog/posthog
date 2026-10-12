@@ -53,6 +53,7 @@ export interface HogExecutorAsyncConfig {
     internalApiBaseUrl: string
 }
 
+// All capabilities are required because a missing one surfaces only as a throw deep in a customer function.
 export interface HogExecutorAsyncDependencies {
     teamManager: TeamManager
     conversationsTicketsJwt: ScopedServiceJwt
@@ -142,6 +143,7 @@ export class HogExecutorAsyncService {
                         options?.isTest ?? false
                     )
                 } else if (queueParamsType === 'email') {
+                    // Test runs execute in-process and never enqueue, so routing them would leave the job unworked.
                     const routeToEmailQueue = invocation.queue !== 'email' && !options?.isTest
                     if (routeToEmailQueue) {
                         // Stash the entry invocation's priority as the origin, not nextInvocation's:
@@ -298,6 +300,7 @@ export class HogExecutorAsyncService {
             invocation,
             {
                 queue: targetQueue as CyclotronJobInvocationHogFunction['queue'],
+                // Restore the pre-routing priority so an email-class value never orders jobs on the origin queue.
                 queuePriority: originPriority,
                 queueParameters: invocation.queueParameters,
                 queueMetadata: undefined,

@@ -313,6 +313,7 @@ describe('EmailService', () => {
             })
         })
         describe('SES throttle handling', () => {
+            // The local Valkey bucket only estimates the SES quota, so an SES throttle reschedules instead of failing.
             const throttleCases: Array<[string, () => Error]> = [
                 [
                     'TooManyRequestsException',
@@ -506,6 +507,7 @@ describe('EmailService', () => {
                 })
                 const realSendSpy: jest.SpyInstance = jest.spyOn(realLimitedService.sesV2Client!, 'send')
                 realSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                // 6/minute refills a token every 10s, far slower than the test runs, so denials park 10s apart.
                 invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 6, period: 'minute' } }
 
                 const first = await realLimitedService.executeSendEmail(invocation)
@@ -621,6 +623,7 @@ describe('EmailService', () => {
                 expect(cappedSendSpy).toHaveBeenCalled()
             })
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
+                // 360/hour refills one token every 10s, so the denied sends park on slots 10s apart.
                 const hourlyCap = 360
                 const dailyCap = 8640
                 const redis = services.createRateLimiterRedis()
@@ -798,6 +801,7 @@ describe('EmailService', () => {
         })
 
         describe('suppression enforcement at send time', () => {
+            // The email destination hog function skips shouldSkipAction, so only this check covers that path.
             it('does not call SES when the recipient is on the suppression list', async () => {
                 const isSuppressedSpy = jest.spyOn(services.suppression, 'isSuppressed').mockResolvedValue(true)
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -844,6 +848,7 @@ describe('EmailService', () => {
         })
 
         describe('team suspension enforcement at send time', () => {
+            // A real config row also covers the SELECT, which a getEmailSendingSuspension mock would not.
             const suspendTeam = async (): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -933,6 +938,7 @@ describe('EmailService', () => {
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
 
+            // email_sending_suspension_reason is NOT NULL with a Django-side default, so the raw INSERT supplies it.
             const setProviderTenantStatus = async (status: string): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -965,12 +971,14 @@ describe('EmailService', () => {
                 await setProviderTenantStatus('DISABLED')
 
                 await waitForExpect(async () => {
+                    // Publish on every poll because the first publish can land before the subscriber listens.
                     await hub.pubSub.publish('reload-team-workflows-config', JSON.stringify({ teamId: team.id }))
                     expect(await configService.getEmailSendingSuspension(team.id)).toEqual('provider')
                 }, 3000)
             })
 
             it('fails open when the suspension lookup errors', async () => {
+                // The suspension check is the first config read, so later reads still use the real loader.
                 jest.spyOn(services.workflowsConfig, 'get').mockRejectedValueOnce(new Error('pg down'))
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
@@ -1180,7 +1188,11 @@ describe('EmailService', () => {
             })
 
             it('skips pixel and link rewriting and uses the untracked configuration set when tracking is off', async () => {
-                services.sesConfig.sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
+                service = services.create({
+                    sesConfig: { sesUntrackedConfigurationSet: 'posthog-messaging-untracked' },
+                })
+                sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentCommand = new SesEmailRequest(sendEmailSpy)
