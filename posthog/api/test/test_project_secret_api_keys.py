@@ -135,96 +135,117 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.status_code == 400
         assert "Invalid scope" in response.json()["detail"]
 
-    @parameterized.expand(
-        [
-            ("blocked_when_flag_disabled", False, 400),
-            ("allowed_when_flag_enabled", True, 201),
-        ]
-    )
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_create_llm_gateway_scope_gated_on_flag(self, _name, flag_enabled, expected_status, mock_feature_enabled):
-        mock_feature_enabled.return_value = flag_enabled
+    def _make_staff(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
 
+    def _key(self, scopes: list[str] | None) -> ProjectSecretAPIKey:
+        return ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=scopes,
+            created_by=self.user,
+        )
+
+    def test_staff_create_llm_gateway_scope(self):
+        self._make_staff()
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
             {"label": "my key", "scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == expected_status, response.json()
-        if expected_status == 201:
-            assert response.json()["scopes"] == ["llm_gateway:read"]
-        else:
-            assert "LLM gateway scope is not available" in response.json()["detail"]
-        mock_feature_enabled.assert_called_once()
+        assert response.status_code == 201, response.json()
+        assert response.json()["scopes"] == ["llm_gateway:read"]
 
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="existing",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["llm_gateway:read"],
-            created_by=self.user,
+    @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
+    def test_staff_update_adding_llm_gateway_scope(self, _name, existing_scopes):
+        self._make_staff()
+        key = self._key(existing_scopes)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": [*(existing_scopes or []), "llm_gateway:read"]},
         )
+        assert response.status_code == 200, response.json()
+        assert response.json()["scopes"] == [*(existing_scopes or []), "llm_gateway:read"]
 
+    def test_non_staff_cannot_grant_llm_gateway_scope(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["llm_gateway:read"]},
+        )
+        key = self._key(["endpoint:read"])
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": ["endpoint:read", "llm_gateway:read"]},
+        )
+        for response in (create, update):
+            assert response.status_code == 400, response.json()
+            assert "Scope 'llm_gateway:read' can not be assigned" in response.json()["detail"]
+
+    def test_non_staff_keeps_existing_llm_gateway_scope(self):
+        key = self._key(["llm_gateway:read"])
         response = self.client.patch(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
             {"label": "renamed", "scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == 200
-        assert response.json()["label"] == "renamed"
+        assert response.status_code == 200, response.json()
         assert response.json()["scopes"] == ["llm_gateway:read"]
-        mock_feature_enabled.assert_not_called()
 
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_update_adding_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="existing",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["endpoint:read"],
-            created_by=self.user,
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"scopes": ["endpoint:read", "llm_gateway:read"]},
-        )
-        assert response.status_code == 400
-        assert "LLM gateway scope is not available" in response.json()["detail"]
-        mock_feature_enabled.assert_called_once()
-
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_update_adding_llm_gateway_scope_to_key_with_null_scopes(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = True
-
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="existing",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=None,
-            created_by=self.user,
-        )
-
+    def test_non_staff_cannot_upgrade_gateway_write_only_key(self):
+        key = self._key(["llm_gateway:write"])
         response = self.client.patch(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
             {"scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == 200
-        assert response.json()["scopes"] == ["llm_gateway:read"]
+        assert response.status_code == 400, response.json()
 
-    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_non_gateway_scope_unaffected_by_flag(self, mock_feature_enabled):
-        response = self.client.post(
+    @parameterized.expand([("wizard_blocklist", True, False), ("security_rule", False, True)])
+    def test_banned_staff_cannot_grant_llm_gateway_scope(self, _name, wizard_blocked, security_refused):
+        self._make_staff()
+        with (
+            patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=wizard_blocked),
+            patch("posthog.api.project_secret_api_key.security_access_refused", return_value=security_refused),
+        ):
+            create = self.client.post(
+                f"/api/projects/{self.team.id}/project_secret_api_keys",
+                {"label": "my key", "scopes": ["llm_gateway:read"]},
+            )
+            key = self._key(["endpoint:read"])
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+                {"scopes": ["endpoint:read", "llm_gateway:read"]},
+            )
+        assert create.status_code == 403, create.json()
+        assert "blocked from the PostHog AI gateway" in create.json()["detail"]
+        assert update.status_code == 403, update.json()
+        assert not ProjectSecretAPIKey.objects.filter(team=self.team, label="my key").exists()
+
+    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=False)
+    @patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=True)
+    def test_ban_checks_skip_kept_and_other_scopes(self, mock_blocked, mock_refused):
+        self._make_staff()
+        key = self._key(["llm_gateway:read"])
+        kept = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"label": "renamed", "scopes": ["llm_gateway:read", "endpoint:read"]},
+        )
+        other = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
             {"label": "my key", "scopes": ["endpoint:read"]},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["endpoint:read"]
-        mock_feature_enabled.assert_not_called()
+        assert kept.status_code == 200, kept.json()
+        assert other.status_code == 201, other.json()
+        mock_blocked.assert_not_called()
+        mock_refused.assert_not_called()
+
+    def test_llm_gateway_write_scope_rejected(self):
+        self._make_staff()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["llm_gateway:write"]},
+        )
+        assert response.status_code == 400
+        assert "Scope 'llm_gateway:write' can not be assigned" in response.json()["detail"]
 
     def test_update_label(self):
         create_response = self.client.post(

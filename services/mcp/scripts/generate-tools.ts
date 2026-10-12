@@ -21,6 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
+import { hasScope } from '../src/lib/api'
 import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
@@ -37,6 +38,7 @@ const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
+const TOOLS_SRC_DIR = path.resolve(MCP_ROOT, 'src/tools')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
@@ -87,6 +89,10 @@ interface OpenApiSchema {
 
 interface OpenApiOperation {
     operationId: string
+    /** Scopes the API requires, written by `posthog/api/documentation.py`. */
+    security?: Array<Record<string, string[]>>
+    /** The API picks the scopes per request, so `security` lists only the fallback for human callers. */
+    'x-request-dependent-scopes'?: boolean
     parameters?: OpenApiParam[]
     requestBody?: {
         content?: {
@@ -1070,6 +1076,17 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
 
 // ------------------------------------------------------------------
 // Code generation for a single tool
+
+// The underscore keeps the alias apart from factory names, which are camelCase without underscores.
+function hooksVarName(toolName: string): string {
+    return `hooks_${toCamelCase(toolName)}`
+}
+
+/** Emits the handler expression, wrapped with the tool's `hooks:` module when it has one. */
+function renderHandler(config: ToolConfig, toolName: string, handlerFn: string): string {
+    return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
+}
+
 // ------------------------------------------------------------------
 
 function generateToolCode(
@@ -1343,8 +1360,12 @@ function generateToolCode(
     const toolBody = `{
     name: '${toolName}',
     schema: ${schemaName}(),
-    handler: async (context: Context, ${paramsName}: z.infer<ReturnType<typeof ${schemaName}>>) => {
-${handlerBody}    },
+    handler: ${renderHandler(
+        config,
+        toolName,
+        `async (context: Context, ${paramsName}: z.infer<ReturnType<typeof ${schemaName}>>) => {
+${handlerBody}    }`
+    )},
 }`
 
     const factoryBody = appKey ? `withUiApp('${appKey}', ${toolBody})` : `(${toolBody})`
@@ -1658,8 +1679,12 @@ const ${schemaName} = () => ${baseSchemaExpr}
 const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${customResultType}> => ({
     name: '${toolName}',
     schema: ${schemaName}(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
-${handlerBody}    },
+    handler: ${renderHandler(
+        config,
+        toolName,
+        `async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
+${handlerBody}    }`
+    )},
 })
 `
 
@@ -1686,6 +1711,86 @@ ${handlerBody}    },
 }
 
 // ------------------------------------------------------------------
+// Scope and annotation resolution
+// ------------------------------------------------------------------
+
+type ToolAnnotations = EnabledToolConfig['annotations']
+
+// Only methods whose behavior is the same for every endpoint get defaults.
+// PATCH, POST and PUT vary too much (partial update vs. soft delete, search vs. create vs. upsert),
+// so authors declare them.
+const ANNOTATION_DEFAULTS_BY_METHOD: Record<string, ToolAnnotations> = {
+    GET: { readOnly: true, destructive: false, idempotent: true },
+    DELETE: { readOnly: false, destructive: true, idempotent: true },
+}
+
+function getSpecScopes(operation: OpenApiOperation): string[] {
+    const scopes = new Set<string>()
+    for (const requirement of operation.security ?? []) {
+        for (const requirementScopes of Object.values(requirement)) {
+            for (const scope of requirementScopes) {
+                scopes.add(scope)
+            }
+        }
+    }
+    return [...scopes]
+}
+
+/** YAML `scopes` win. Without them, the scopes the API itself requires are used. */
+function resolveToolScopes(name: string, config: ToolConfig, resolved: ResolvedOperation): string[] {
+    if (config.scopes?.length) {
+        return config.scopes
+    }
+    if (resolved.operation['x-request-dependent-scopes']) {
+        throw new Error(
+            `Enabled tool "${name}" has no "scopes", and the API picks the scopes for "${resolved.operation.operationId}" per request. ` +
+                `The spec lists only the fallback scopes for human callers. Add the scopes the tool's callers need to "scopes" in the tool's YAML.`
+        )
+    }
+    const specScopes = getSpecScopes(resolved.operation)
+    if (specScopes.length === 0) {
+        throw new Error(
+            `Enabled tool "${name}" has no "scopes" and the OpenAPI spec lists none for "${resolved.operation.operationId}" ` +
+                `(the API computes them per request). Add "scopes" to the tool's YAML by hand.`
+        )
+    }
+    return specScopes
+}
+
+/** YAML `annotations` win. Without them, GET and DELETE get fixed defaults. */
+function resolveToolAnnotations(name: string, config: ToolConfig, method: string): ToolAnnotations {
+    if (config.annotations) {
+        return config.annotations
+    }
+    const defaults = ANNOTATION_DEFAULTS_BY_METHOD[method]
+    if (!defaults) {
+        throw new Error(
+            `Enabled tool "${name}" is missing required "annotations". ` +
+                `${method} endpoints have no defaults, so declare readOnly, destructive and idempotent in the tool's YAML.`
+        )
+    }
+    return { ...defaults }
+}
+
+/** Scopes the API requires that the YAML list leaves out. A `:write` scope covers `:read`, as at runtime. Empty when the YAML has no list, the spec has none, or the API picks the scopes per request. */
+function findMissingSpecScopes(config: ToolConfig, resolved: ResolvedOperation): string[] {
+    if (!config.scopes?.length || resolved.operation['x-request-dependent-scopes']) {
+        return []
+    }
+    return getSpecScopes(resolved.operation).filter((scope) => !hasScope(config.scopes ?? [], scope))
+}
+
+function reportMissingSpecScopes(name: string, yamlLabel: string, missingScopes: string[]): void {
+    const message =
+        `Tool "${name}" does not list the scope(s) the API requires: ${missingScopes.join(', ')}. ` +
+        `A token without them sees the tool and then gets a 403. Add them to "scopes" or drop "scopes" to use the API's.`
+    console.error(`ERROR ${yamlLabel}: ${message}`)
+    if (process.env.GITHUB_ACTIONS === 'true') {
+        process.stdout.write(`::error file=${yamlLabel}::${message}\n`)
+    }
+}
+
+// ------------------------------------------------------------------
 // Generate a full category file
 // ------------------------------------------------------------------
 
@@ -1707,22 +1812,40 @@ function generateCategoryFile(
         if (!config.enabled) {
             continue
         }
-        if (!config.scopes?.length) {
-            console.error(`Enabled tool "${name}" is missing required "scopes"`)
-            process.exit(1)
-        }
-        if (!config.annotations) {
-            console.error(`Enabled tool "${name}" is missing required "annotations"`)
-            process.exit(1)
-        }
         const resolved = findOperation(spec, config.operation)
         if (!resolved) {
-            console.warn(
-                `Warning: operationId "${config.operation}" not found in OpenAPI for tool "${name}" — skipping`
+            console.error(
+                `Enabled tool "${name}": operationId "${config.operation}" not found in OpenAPI. ` +
+                    `The operationId no longer exists. Fix "operation:" in the tool's YAML, or remove the tool.`
             )
-            continue
+            process.exit(1)
         }
-        enabledTools.push([name, config as EnabledToolConfig, resolved])
+        if (config.hooks && !fs.existsSync(path.join(TOOLS_SRC_DIR, `${config.hooks}.ts`))) {
+            console.error(
+                `Enabled tool "${name}": hooks module "${config.hooks}" not found. ` +
+                    `Expected services/mcp/src/tools/${config.hooks}.ts. Fix "hooks:" in the tool's YAML or create the module.`
+            )
+            process.exit(1)
+        }
+        const missingScopes = findMissingSpecScopes(config, resolved)
+        if (missingScopes.length > 0) {
+            reportMissingSpecScopes(name, fileName, missingScopes)
+            process.exit(1)
+        }
+        try {
+            enabledTools.push([
+                name,
+                {
+                    ...config,
+                    scopes: resolveToolScopes(name, config, resolved),
+                    annotations: resolveToolAnnotations(name, config, resolved.method),
+                },
+                resolved,
+            ])
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error))
+            process.exit(1)
+        }
     }
 
     // Collect enabled query wrappers from the optional wrappers section
@@ -1967,6 +2090,15 @@ function generateCategoryFile(
         toolUtilsImportLine = `import type { ${toolUtilsTypeImports.join(', ')} } from '@/tools/tool-utils'\n`
     }
 
+    const hookedTools = enabledTools.filter(([, toolConfig]) => toolConfig.hooks)
+    const hooksImportLines =
+        hookedTools.length > 0
+            ? `import { withToolHooks } from '@/tools/tool-hooks'\n` +
+              hookedTools
+                  .map(([name, toolConfig]) => `import ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
+                  .join('')
+            : ''
+
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
@@ -1980,7 +2112,7 @@ function generateCategoryFile(
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${hooksImportLines}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
@@ -2500,6 +2632,11 @@ export {
     generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
+    findMissingSpecScopes,
+    getSpecScopes,
+    reportMissingSpecScopes,
+    resolveToolAnnotations,
+    resolveToolScopes,
 }
 export type { OpenApiSpec, ResolvedOperation }
 

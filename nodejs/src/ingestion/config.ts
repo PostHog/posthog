@@ -154,6 +154,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    // Teams whose batch person writes merge per key with the row. Comma-separated team IDs, or '*'; empty means none.
+    PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: string
     /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
     PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
@@ -190,22 +192,15 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
-    // Teams whose merges and deletes tombstone the person row instead of hard-deleting it, and
-    // whose creates revive a tombstoned key. Every environment rolled this out to all teams, so
-    // '*' is the default. Comma-separated team IDs, or '*' for all teams; empty means no teams.
-    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Teams whose merges lock the person rows and write the survivor in the transaction; other teams queue it for
+    // the next flush. Enable after PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST. Team IDs, or '*'; empty means none.
+    PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: string
     // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
     // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
     // a merge's commit and its produce; see MergeMappingDebounce for why the cache is in-memory.
     PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: boolean
     PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: number
     PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: number
-    // Teams whose person creation claims an existing unreachable posthog_person row holding
-    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
-    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
-    // for everyone else the probe is wasted load on the hottest write statement.
-    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
-    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -356,6 +351,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: '',
         PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
 
@@ -377,11 +373,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: '',
         PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
-        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
@@ -504,6 +499,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: string
     INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_HEATMAPS_TOPIC: string
     INGESTION_OUTPUT_HEATMAPS_PRODUCER: ProducerName
 
@@ -539,6 +537,8 @@ export type IngestionOutputsConfig = {
 
     INGESTION_OUTPUT_TOPHOG_TOPIC: string
     INGESTION_OUTPUT_TOPHOG_PRODUCER: ProducerName
+
+    INGESTION_OUTPUTS_DISABLED: boolean
 }
 
 export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
@@ -555,6 +555,14 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         // createFlagEvaluationsService.
         INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: '',
         INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // An empty topic skips the startup topic-existence check. While it is empty, a
+        // FLAG_EVALUATIONS_ONLY team's flag calls reach no realtime destination, so set it
+        // on every lane that sets INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC. Enable
+        // ordering: (1) create the realtime_only_events_json topic, (2) start the CDP
+        // consumers that read it, (3) set INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC. A
+        // consumer group that joins after step 3 can start past the first routed calls.
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_HEATMAPS_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         INGESTION_OUTPUT_HEATMAPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
@@ -580,5 +588,6 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
         INGESTION_OUTPUT_TOPHOG_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUTS_DISABLED: false,
     }
 }

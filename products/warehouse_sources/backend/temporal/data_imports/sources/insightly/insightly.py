@@ -183,6 +183,8 @@ def insightly_source(
         # envelope, an HTML gateway page) must fail loud instead of silently syncing 0 rows.
         "data_selector_required": True,
     }
+    if config.params:
+        endpoint_config["params"] = dict(config.params)
     if use_incremental:
         endpoint_config["incremental"] = {
             "start_param": UPDATED_AFTER_PARAM,

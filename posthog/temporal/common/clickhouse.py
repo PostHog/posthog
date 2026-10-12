@@ -20,11 +20,16 @@ import pyarrow as pa
 from structlog import get_logger
 from temporalio import activity
 
+from posthog.hogql.escape_sql import backquote_clickhouse_identifier
+
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 from posthog.security.outbound_proxy import internal_requests_session
+
+if typing.TYPE_CHECKING:
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
 
 LOGGER = get_logger(__name__)
 
@@ -92,6 +97,42 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             str_data = str(data)
             str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
             return f"{quote_char}{str_data}{quote_char}".encode()
+
+
+def _encode_external_value(value: typing.Any) -> typing.Any:
+    # Epoch strings parse into DateTime and DateTime64 columns in any timezone; a formatted
+    # datetime would be read in the column's timezone instead of the value's.
+    if isinstance(value, dt.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt.UTC)
+        return f"{value.timestamp():.6f}"
+    if isinstance(value, dt.date):
+        return value.isoformat()
+    return str(value)
+
+
+def _external_tables_form(
+    query: str, external_tables: collections.abc.Sequence["ClickHouseExternalTable"]
+) -> aiohttp.FormData:
+    """Build the multipart body that carries query-scoped tables over the HTTP interface.
+
+    The query goes in the form rather than the URL, so its length is not bound by URL limits.
+    """
+    form = aiohttp.FormData()
+    form.add_field("query", query)
+    for table in external_tables:
+        name = table["name"]
+        form.add_field(
+            f"{name}_structure",
+            ", ".join(
+                f"{backquote_clickhouse_identifier(column)} {clickhouse_type}"
+                for column, clickhouse_type in table["structure"]
+            ),
+        )
+        form.add_field(f"{name}_format", "JSONEachRow")
+        rows = b"\n".join(json.dumps(row, default=_encode_external_value).encode() for row in table["data"])
+        form.add_field(name, rows, filename=name, content_type="application/octet-stream")
+    return form
 
 
 class ClickHouseQueryStatus(enum.StrEnum):
@@ -483,6 +524,7 @@ class ClickHouseClient:
         query_id,
         timeout: float | None = None,
         settings: dict[str, str] | None = None,
+        external_tables: collections.abc.Sequence["ClickHouseExternalTable"] | None = None,
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -497,14 +539,20 @@ class ClickHouseClient:
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
             settings: Extra ClickHouse HTTP-interface settings to include as query-string parameters.
+            external_tables: Query-scoped tables the query reads, sent in the request body.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
         """
         if self.session is None:
             raise ClickHouseClientNotConnected()
+        if external_tables and data:
+            raise ValueError("A query cannot send both external tables and request data.")
 
         params = {**self.params}
+        if external_tables:
+            # Named tuples, such as a jev choice, are encoded as JSON arrays.
+            params["input_format_json_named_tuples_as_objects"] = "0"
         if settings is not None:
             params.update(settings)
         if query_id is not None:
@@ -528,12 +576,15 @@ class ClickHouseClient:
                     params[f"param_{key}"] = str(value)
         add_log_comment_param(params)
 
-        request_data = self.prepare_request_data(data)
-
-        if request_data:
-            params["query"] = query
+        request_data: bytes | aiohttp.FormData | None
+        if external_tables:
+            request_data = _external_tables_form(query, external_tables)
         else:
-            request_data = query.encode("utf-8")
+            request_data = self.prepare_request_data(data)
+            if request_data:
+                params["query"] = query
+            else:
+                request_data = query.encode("utf-8")
 
         if timeout:
             client_timeout = aiohttp.ClientTimeout(total=timeout)
@@ -929,12 +980,15 @@ class ClickHouseClient:
         query_parameters=None,
         query_id: str | None = None,
         on_schema: collections.abc.Callable[[pa.Schema], None] | None = None,
+        external_tables: collections.abc.Sequence["ClickHouseExternalTable"] | None = None,
     ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with self.apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, external_tables=external_tables
+        ) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
             if on_schema is not None:
                 on_schema(await reader.get_schema())

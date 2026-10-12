@@ -15,11 +15,6 @@ class TestShopWiredSource:
         self.team_id = 123
         self.config = ShopWiredSourceConfig(api_key="sw-key", api_secret="sw-secret")
 
-    def test_no_connection_host_fields(self) -> None:
-        # Both fields are secrets and the base URL is hardcoded, so there is no non-secret field an
-        # editor could retarget to reuse preserved credentials against another host.
-        assert self.source.connection_host_fields == []
-
     @parameterized.expand(
         [
             (

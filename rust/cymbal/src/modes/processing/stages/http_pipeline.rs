@@ -34,12 +34,14 @@ impl Stage for HttpEventPipeline {
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let (preprocess, postprocess) =
             create_pre_post_processing(batch.len(), Box::new(handle_result));
-        // Strip first: pre-processing keeps this copy and returns it unchanged on failure.
+        // Drop or mask first: pre-processing keeps this copy and returns it unchanged on failure.
         let drop_team_ids = self.app_context.drop_code_variables_team_ids.clone();
         let batch = batch.map(
             |mut event, ()| {
                 if drop_team_ids.contains(&event.team_id) {
                     event.drop_code_variables();
+                } else {
+                    event.mask_code_variables();
                 }
                 event
             },

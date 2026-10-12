@@ -42,6 +42,10 @@ confirmation before creating. This is the heart of the skill; the rest is suppor
 
 ### Step 1: What should the scanner do?
 
+If the question, type, or prompt is still vague, run [[designing-replay-vision-scanners]] first. It turns a wish
+into one visible question with a fixed answer shape, a proof rule, and permission to say inconclusive. Come back
+here once those are settled.
+
 Pick a `scanner_type` and write its `scanner_config`. Every type needs a `prompt`; the rest is type-specific:
 
 | Type         | What it produces                                                  | `scanner_config` shape                                                                                                                                                      |
@@ -168,6 +172,9 @@ observations they have to go read.
   and call `vision-scanners-backfills-create` only once they agree, passing that `total_credits` as
   `max_total_credits`. If the create is rejected because the window now costs more, estimate again and ask
   again. Watch it with `vision-scanners-backfills-get`.
+- **Dashboard, once there is data.** When `vision-scanners-get` returns `dashboard_suggested: true` (the scanner
+  has enough observations and no dashboard yet), offer once to create one with `vision-scanners-dashboard-create`.
+  Do not repeat the offer if the user declines. A brand-new scanner is never suggested, because it has nothing to chart.
 - **Notifications and digests.** `vision-alerts-create` (plus a destination) notifies on findings;
   `vision-scanners-scouts-create` adds a scheduled scout that writes a report about the scanner's findings.
 - **Say how the scanner gets better.** A first prompt is a guess, and the first sweep is what corrects it.

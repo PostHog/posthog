@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class ProofpointTapSourceConfig(config.Config):
-    pass
+    service_principal: str
+    secret: str

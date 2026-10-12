@@ -1,21 +1,21 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
 
 /// A buffered person plus the partition its latest message arrived on, so
 /// drains can select whole partitions.
-struct Buffered {
-    person: Person,
-    partition: i32,
+pub struct BufferedPerson {
+    pub person: Person,
+    pub partition: i32,
 }
 
 /// A partition-complete slice of the buffer, ready to flush. Offsets cover
 /// exactly the partitions whose entries were drained, so committing them
 /// can never skip past a person still sitting in the buffer.
 pub struct DrainedBatch {
-    pub persons: Vec<Person>,
+    pub persons: Vec<BufferedPerson>,
     /// Max offset seen per drained partition.
     pub offsets: HashMap<i32, i64>,
     /// Oldest message timestamp across the drained partitions (millis
@@ -26,7 +26,7 @@ pub struct DrainedBatch {
 /// In-memory dedup buffer keyed by (team_id, person_id).
 /// Later messages for the same person overwrite earlier ones.
 pub struct PersonBuffer {
-    entries: HashMap<(i64, i64), Buffered>,
+    entries: HashMap<(i64, i64), BufferedPerson>,
     /// Max offset seen per partition for offset commits.
     offsets: HashMap<i32, i64>,
     /// Oldest message timestamp per partition with buffered entries.
@@ -71,11 +71,11 @@ impl PersonBuffer {
         let key = (person.team_id, person.id);
         match self.entries.entry(key) {
             Entry::Occupied(mut e) => {
-                e.insert(Buffered { person, partition });
+                e.insert(BufferedPerson { person, partition });
                 counter!("personhog_writer_messages_deduped_total").increment(1);
             }
             Entry::Vacant(e) => {
-                e.insert(Buffered { person, partition });
+                e.insert(BufferedPerson { person, partition });
             }
         }
     }
@@ -95,6 +95,18 @@ impl PersonBuffer {
     /// Get the current offset for a partition, if tracked.
     pub fn partition_offset(&self, partition: i32) -> Option<i64> {
         self.offsets.get(&partition).copied()
+    }
+
+    pub fn remove_partitions(&mut self, partitions: &[i32]) -> usize {
+        let revoked: HashSet<i32> = partitions.iter().copied().collect();
+        let before = self.entries.len();
+        self.entries
+            .retain(|_, buffered| !revoked.contains(&buffered.partition));
+        for partition in &revoked {
+            self.offsets.remove(partition);
+            self.oldest_ts_ms.remove(partition);
+        }
+        before - self.entries.len()
     }
 
     /// Drain whole partitions — oldest buffered message first — until at
@@ -131,7 +143,7 @@ impl PersonBuffer {
             }
             for key in &keys_by_partition[&partition] {
                 let buffered = self.entries.remove(key).expect("key collected above");
-                persons.push(buffered.person);
+                persons.push(buffered);
             }
             if let Some(offset) = self.offsets.remove(&partition) {
                 offsets.insert(partition, offset);
@@ -195,7 +207,7 @@ mod tests {
         assert_eq!(buf.len(), 1);
 
         let batch = buf.drain_up_to(usize::MAX).unwrap();
-        assert_eq!(batch.persons[0].version, 3);
+        assert_eq!(batch.persons[0].person.version, 3);
     }
 
     #[test]
@@ -237,7 +249,10 @@ mod tests {
 
         let batch = buf.drain_up_to(2).unwrap();
         assert_eq!(batch.persons.len(), 2);
-        assert!(batch.persons.iter().all(|p| p.id == 1 || p.id == 2));
+        assert!(batch
+            .persons
+            .iter()
+            .all(|p| p.person.id == 1 || p.person.id == 2));
         assert_eq!(batch.offsets.len(), 1);
         assert_eq!(batch.offsets[&0], 11);
         assert_eq!(batch.oldest_message_ts_ms, Some(100));
@@ -274,8 +289,32 @@ mod tests {
         buf.insert(make_person(1, 2, 1), 7, 0, Some(100));
 
         let batch = buf.drain_up_to(1).unwrap();
-        assert_eq!(batch.persons[0].id, 2);
+        assert_eq!(batch.persons[0].person.id, 2);
         assert_eq!(batch.offsets.len(), 1);
         assert_eq!(batch.offsets[&7], 0);
+    }
+
+    #[test]
+    fn remove_partitions_drops_rows_offsets_and_timestamps() {
+        let mut buf = PersonBuffer::new(100);
+        buf.insert(make_person(1, 1, 1), 0, 10, Some(100));
+        buf.insert(make_person(1, 2, 1), 1, 20, Some(50));
+        buf.insert(make_person(1, 3, 1), 1, 21, Some(60));
+
+        assert_eq!(buf.remove_partitions(&[1]), 2);
+        assert_eq!(buf.len(), 1);
+        assert_eq!(buf.partition_offset(1), None);
+
+        let batch = buf.drain_up_to(usize::MAX).unwrap();
+        assert_eq!(
+            batch
+                .persons
+                .iter()
+                .map(|p| p.person.id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!(batch.offsets, HashMap::from([(0, 10)]));
+        assert_eq!(batch.oldest_message_ts_ms, Some(100));
     }
 }

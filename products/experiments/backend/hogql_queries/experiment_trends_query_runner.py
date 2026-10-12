@@ -76,11 +76,19 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
 
+        # The two runners run on separate threads and HogQLTimings is not thread safe, so each one
+        # gets its own clone. _calculate merges them back once both threads have joined.
         self.count_query_runner = TrendsQueryRunner(
-            query=self.prepared_count_query, team=self.team, timings=self.timings, limit_context=self.limit_context
+            query=self.prepared_count_query,
+            team=self.team,
+            timings=self.timings.clone_for_subquery(0),
+            limit_context=self.limit_context,
         )
         self.exposure_query_runner = TrendsQueryRunner(
-            query=self.prepared_exposure_query, team=self.team, timings=self.timings, limit_context=self.limit_context
+            query=self.prepared_exposure_query,
+            team=self.team,
+            timings=self.timings.clone_for_subquery(1),
+            limit_context=self.limit_context,
         )
 
     def _uses_math_aggregation_by_user_or_property_value(self, query: TrendsQuery):
@@ -271,6 +279,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             ]
             [j.start() for j in jobs]  # type: ignore
             [j.join() for j in jobs]  # type: ignore
+
+        self.timings.timings.update(self.count_query_runner.timings.timings)
+        self.timings.timings.update(self.exposure_query_runner.timings.timings)
 
         if errors:
             raise errors[0]

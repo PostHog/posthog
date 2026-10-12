@@ -36,7 +36,7 @@ import { urls } from 'scenes/urls'
 import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { SignalReportPullRequestApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { PRIORITY_TAG_TYPE } from '../../filterOptions'
+import { INBOX_RANKING_SCORES, PRIORITY_TAG_TYPE, rankingScoreForHead } from '../../filterOptions'
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
@@ -81,7 +81,7 @@ import {
     WorkReleaseContent,
 } from './artefactTypes'
 import { prActivityTitle } from './prActivityPresentation'
-import { CHECK_LIFECYCLE_ENTRIES } from './reportCheckPresentation'
+import { CHECK_LIFECYCLE_ENTRIES, inconclusiveReasonLabel } from './reportCheckPresentation'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -385,7 +385,7 @@ const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label:
     passed: { label: 'Still holds', type: 'success' },
     failed: { label: 'No longer holds', type: 'danger' },
     errored: { label: "Couldn't measure", type: 'warning' },
-    inconclusive: { label: 'Inconclusive', type: 'warning' },
+    inconclusive: { label: 'Inconclusive', type: 'info' },
 }
 
 function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {
@@ -395,6 +395,9 @@ function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Elem
     return (
         <div className="flex w-full flex-col items-start gap-1">
             <span className="text-xs text-default">{content.explanation}</span>
+            {content.outcome === 'inconclusive' ? (
+                <span className="text-xs text-tertiary">{inconclusiveReasonLabel(content.reason)}</span>
+            ) : null}
             {content.threshold ? (
                 <span className="text-xs text-tertiary">
                     Expected {content.threshold}
@@ -482,9 +485,16 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }): JSX.Element {
         <div className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto_auto] items-center justify-start gap-x-2 gap-y-1">
             {heads.map((head) => {
                 const tone = head.readable ? 'text-default' : 'text-tertiary'
+                const score = rankingScoreForHead(head.name)
                 return (
                     <Fragment key={head.name}>
-                        <span className={`truncate ${tone}`}>{prettify(head.name)}</span>
+                        {score ? (
+                            <Tooltip title={score.description}>
+                                <span className={`truncate ${tone}`}>{score.name}</span>
+                            </Tooltip>
+                        ) : (
+                            <span className={`truncate ${tone}`}>{prettify(head.name)}</span>
+                        )}
                         <RankingLiftBar
                             lift={head.lift}
                             className={head.readable ? 'bg-primary-3000' : 'bg-border-bold'}
@@ -509,11 +519,30 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }): JSX.Element {
     )
 }
 
+/** The three scores first, in display order. Every other head stays behind a collapsed disclosure for debugging. */
+function RankingHeads({ heads }: { heads: RankingHead[] }): JSX.Element {
+    const scoreHeads = INBOX_RANKING_SCORES.flatMap((score) => heads.filter((head) => head.name === score.head))
+    const otherHeads = heads.filter((head) => !rankingScoreForHead(head.name))
+    return (
+        <div className="flex min-w-0 flex-col gap-1">
+            {scoreHeads.length > 0 ? <RankingHeadRows heads={scoreHeads} /> : null}
+            {otherHeads.length > 0 ? (
+                <details>
+                    <summary className="cursor-pointer text-secondary">Other heads ({otherHeads.length})</summary>
+                    <div className="mt-1 pl-3">
+                        <RankingHeadRows heads={otherHeads} />
+                    </div>
+                </details>
+            ) : null}
+        </div>
+    )
+}
+
 function RankingModelResult({ model }: { model: RankingModel }): JSX.Element {
     return model.status === 'skipped' || model.heads.length === 0 ? (
         <span className="text-tertiary">Skipped{model.skipReason ? `: ${model.skipReason}` : ''}</span>
     ) : (
-        <RankingHeadRows heads={model.heads} />
+        <RankingHeads heads={model.heads} />
     )
 }
 

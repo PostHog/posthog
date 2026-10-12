@@ -42,6 +42,7 @@ class InsightlyEndpointConfig:
     # `parent_id_field` on each row of the `fanout_parent` endpoint.
     fanout_parent: Optional[str] = None
     parent_id_field: Optional[str] = None
+    params: dict[str, str] = field(default_factory=dict)
 
     @property
     def primary_keys(self) -> list[str]:
@@ -93,11 +94,35 @@ INSIGHTLY_ENDPOINTS: dict[str, InsightlyEndpointConfig] = {
     "LeadSources": InsightlyEndpointConfig(
         name="LeadSources", path="/LeadSources", primary_key="LEAD_SOURCE_ID", partition_key=None
     ),
+    "LeadStatuses": InsightlyEndpointConfig(
+        name="LeadStatuses",
+        path="/LeadStatuses",
+        primary_key="LEAD_STATUS_ID",
+        partition_key=None,
+        # The converted status is left out by default, but converted leads still reference it.
+        params={"include_converted": "true"},
+    ),
     "OpportunityLineItem": _incremental_endpoint(
         "OpportunityLineItem",
         "/OpportunityLineItem",
         "OPPORTUNITY_ITEM_ID",
         incremental_path="/OpportunityLineItem/Search",
+    ),
+    "Ticket": _incremental_endpoint("Ticket", "/Ticket", "TICKET_ID", incremental_path="/Ticket/Search"),
+    "Quotation": _incremental_endpoint("Quotation", "/Quotation", "QUOTE_ID", incremental_path="/Quotation/Search"),
+    "QuotationLineItem": _incremental_endpoint(
+        "QuotationLineItem",
+        "/QuotationLineItem",
+        "QUOTATION_ITEM_ID",
+        incremental_path="/QuotationLineItem/Search",
+    ),
+    "Product": _incremental_endpoint("Product", "/Product", "PRODUCT_ID", incremental_path="/Product/Search"),
+    "Pricebook": _incremental_endpoint("Pricebook", "/Pricebook", "PRICEBOOK_ID", incremental_path="/Pricebook/Search"),
+    "PricebookEntry": _incremental_endpoint(
+        "PricebookEntry",
+        "/PricebookEntry",
+        "PRICEBOOK_ENTRY_ID",
+        incremental_path="/PricebookEntry/Search",
     ),
     # One request per opportunity and no server-side filter, so full refresh only. History rows
     # carry no id of their own; a transition is identified by its opportunity, time, and state.

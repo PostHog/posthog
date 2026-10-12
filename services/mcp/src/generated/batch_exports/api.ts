@@ -459,7 +459,7 @@ export const BatchExportsCreateBody = () => zod
             .string()
             .nullish()
             .describe(
-                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
             ),
         hogql_modifiers: zod
             .union([
@@ -694,7 +694,7 @@ export const BatchExportsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
         timezone: zod
             .string()
@@ -1173,7 +1173,7 @@ export const BatchExportsPartialUpdateBody = () => zod
             .string()
             .nullish()
             .describe(
-                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
             ),
         hogql_modifiers: zod
             .union([
@@ -1408,7 +1408,7 @@ export const BatchExportsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
         timezone: zod
             .string()
@@ -1851,7 +1851,7 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                 })
                 .optional()
                 .describe(
-                    "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                    "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
                 ),
             data_interval_start: zod.iso
                 .datetime({ offset: true })
@@ -2139,7 +2139,7 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
             })
             .optional()
             .describe(
-                "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
         data_interval_start: zod.iso
             .datetime({ offset: true })

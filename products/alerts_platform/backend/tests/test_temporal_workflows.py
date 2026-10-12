@@ -35,8 +35,10 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL
 from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
+    AlertDeliveryRequest,
     AlertDemand,
     DemandDiscoveryInputs,
     OrchestrateInputs,
@@ -45,6 +47,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
+    DELIVERY_EXECUTION_TIMEOUT,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
@@ -54,8 +57,12 @@ from products.alerts_platform.backend.facade.temporal import (
 )
 from products.alerts_platform.backend.logic import demand
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
-from products.alerts_platform.backend.temporal import postgres
+from products.alerts_platform.backend.temporal import (
+    postgres,
+    workflows as alert_workflows,
+)
 from products.alerts_platform.backend.temporal.workflows import (
+    THREAD_BUSY,
     AlertsPlatformEvaluateWorkflow,
     AlertsPlatformInputs,
     AlertsPlatformOrchestrateWorkflow,
@@ -317,11 +324,61 @@ async def test_delivery_survives_parent_closure(
         assert await child.result() is None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("frees_after", [PENDING_CLAIM_TTL, None])
+async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
+    environment: WorkflowEnvironment, frees_after: dt.timedelta | None
+) -> None:
+    attempts: list[dt.datetime] = []
+
+    @activity.defn(name="alerts_platform_deliver_preview_activity")
+    async def held_thread(request: AlertDeliveryRequest) -> None:
+        scheduled = activity.info().current_attempt_scheduled_time
+        attempts.append(scheduled)
+        if frees_after is None or scheduled - attempts[0] < frees_after:
+            raise ApplicationError("thread held", type=THREAD_BUSY, non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=[held_thread],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            "alerts-platform-deliver-preview",
+            AlertDeliveryRequest(
+                source=SourceKind.LOGS,
+                team_id=1,
+                configuration_id="cfg-1",
+                evaluation_key="eval-1",
+                destination_alert_id="legacy-1",
+                event_ids_by_kind={},
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+        )
+        if frees_after is None:
+            with pytest.raises(WorkflowFailureError) as failure:
+                await handle.result()
+            assert isinstance(failure.value.cause, ActivityError)
+        else:
+            assert await handle.result() is None
+
+    assert attempts[-1] - attempts[0] >= PENDING_CLAIM_TTL
+
+
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
 async def test_probe_timeout_still_starts_independent_delivery(
-    environment: WorkflowEnvironment, caplog: pytest.LogCaptureFixture, timeout_type: TimeoutType
+    environment: WorkflowEnvironment,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    timeout_type: TimeoutType,
 ) -> None:
     caplog.set_level(logging.WARNING, logger="temporalio.workflow")
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=5))
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=15))
     activity_started = asyncio.Event()
     release_activity = asyncio.Event()
 
@@ -352,7 +409,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
                 pass
         if timeout_type == TimeoutType.SCHEDULE_TO_CLOSE:
             # Separate the close deadlines instead of racing schedule-to-start at the same deadline.
-            await environment.sleep(25)
+            await environment.sleep(12)
         async with Worker(
             client,
             task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
@@ -437,9 +494,6 @@ class TestDemandDiscovery(APIBaseTest):
                 enabled=enabled,
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
-                threshold_count=1,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=5,
                 next_check_at=None if minutes_ago is None else self.tick - dt.timedelta(minutes=minutes_ago),
             )
@@ -499,7 +553,7 @@ class TestDemandDiscovery(APIBaseTest):
         self._configuration(minutes_ago=1, name="newer")
         self._configuration(minutes_ago=5, name="oldest")
 
-        bounded = demand.discover_demand(self.tick.isoformat(), limit_per_source=1)
+        bounded = demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 1})
 
         # Oldest first, so a key the bound leaves out grows more overdue and wins a later tick.
         assert bounded.batch_keys_by_source == {SourceKind.LOGS: [self._key(5)]}
@@ -526,7 +580,7 @@ class TestDemandDiscovery(APIBaseTest):
 
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):
-            demand.discover_demand(self.tick.isoformat(), limit_per_source=0)
+            demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
@@ -576,21 +630,30 @@ def test_the_dispatcher_is_registered_on_the_fleet_the_tick_starts_it_on() -> No
     assert AlertsPlatformSourceDispatchWorkflow in registered
 
 
-def test_every_source_evaluation_binding_names_a_registered_workflow() -> None:
+def test_every_source_evaluation_binding_names_a_workflow_registered_on_its_queue() -> None:
     import temporalio.workflow  # noqa: PLC0415 — read after the registry
 
     # The registry imports every product's workflows, so it stays off this module's import path.
-    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT  # noqa: PLC0415
+    from posthog.management.commands.start_temporal_worker import ACTIVITIES_DICT, WORKFLOWS_DICT  # noqa: PLC0415
 
+    from products.alerts_platform.backend.temporal.outcomes import (  # noqa: PLC0415 — read after the registry
+        alerts_platform_record_outcomes_activity,
+    )
     from products.alerts_platform.backend.temporal.sources import (  # noqa: PLC0415 — read after the registry
-        SOURCE_EVALUATION_WORKFLOWS,
+        SOURCE_BINDINGS,
     )
 
-    definitions = (
-        temporalio.workflow._Definition.from_class(registered_workflow)
-        for registered_workflow in WORKFLOWS_DICT[settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE]
-    )
-    registered = {definition.name for definition in definitions if definition is not None}
-    # A binding naming a workflow no evaluation worker registers leaves every dispatch for
-    # that source queued until it times out.
-    assert set(SOURCE_EVALUATION_WORKFLOWS.values()) <= registered
+    def registered_on(task_queue: str) -> set[str | None]:
+        definitions = (temporalio.workflow._Definition.from_class(w) for w in WORKFLOWS_DICT[task_queue])
+        return {definition.name for definition in definitions if definition is not None}
+
+    # A binding naming a workflow its queue's worker does not register leaves every dispatch for
+    # that source queued until it times out. The source's workflow records its outcomes on the
+    # same queue, so a queue without that activity evaluates every check and records none.
+    unregistered = {
+        source: binding.task_queue
+        for source, binding in SOURCE_BINDINGS.items()
+        if binding.workflow not in registered_on(binding.task_queue)
+        or alerts_platform_record_outcomes_activity not in ACTIVITIES_DICT[binding.task_queue]
+    }
+    assert unregistered == {}

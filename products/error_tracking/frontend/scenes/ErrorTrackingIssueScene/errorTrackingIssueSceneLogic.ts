@@ -784,6 +784,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         issue_id: props.id,
                         destination: response.integration.kind,
                         stacktrace_included: includeStacktrace,
+                        assignee_set: !!config.assignee,
                     })
                     const externalIssues = values.issue.external_issues ?? []
                     return { ...values.issue, external_issues: [...externalIssues, response] }

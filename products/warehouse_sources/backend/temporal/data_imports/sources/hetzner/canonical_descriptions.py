@@ -272,4 +272,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "value": "Sample value: a count for open_connections, per second for the rates, bytes/s for bandwidth.",
         },
     },
+    "network_members": {
+        "description": "Servers and load balancers attached to each private network, with their IP inside the network.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "network_id": "ID of the network the resource is attached to.",
+            "type": "Type of the attached resource: server or load_balancer.",
+            "id": "ID of the attached server or load balancer.",
+            "ip": "IP address of the resource within the network.",
+            "alias_ips": "Additional IP addresses of the resource within the network.",
+            "subnet": "IP range of the subnet the resource is attached to, in CIDR notation.",
+            "status": "Status of the resource within the network: ok, attaching, detaching, updating or error.",
+        },
+    },
 }

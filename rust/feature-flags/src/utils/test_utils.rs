@@ -693,6 +693,24 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
     Arc::new(MockPgClient)
 }
 
+/// A database that never answers: every connection request waits forever.
+#[derive(Default)]
+pub struct StalledPgClient {
+    pub connection_requests: AtomicUsize,
+}
+
+#[async_trait]
+impl Client for StalledPgClient {
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.connection_requests.fetch_add(1, Ordering::SeqCst);
+        std::future::pending().await
+    }
+
+    fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
+        None
+    }
+}
+
 /// Inserts an organization if it doesn't exist
 /// If slug is not provided, generates one from the org_id
 async fn insert_organization_if_not_exists(

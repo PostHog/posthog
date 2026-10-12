@@ -150,8 +150,12 @@ class LLMPromptDependency(UUIDModel):
     created_at = models.DateTimeField(default=timezone.now)
 
 
-def annotate_llm_prompt_version_history_metadata(queryset: QuerySet[LLMPrompt]) -> QuerySet[LLMPrompt]:
-    active_versions = LLMPrompt.objects.filter(team_id=OuterRef("team_id"), name=OuterRef("name"), deleted=False)
+def annotate_llm_prompt_version_history_metadata(
+    queryset: QuerySet[LLMPrompt], *, deleted: bool = False
+) -> QuerySet[LLMPrompt]:
+    # With deleted=True the metadata describes an archived prompt's own version
+    # set, since none of its rows are active.
+    active_versions = LLMPrompt.objects.filter(team_id=OuterRef("team_id"), name=OuterRef("name"), deleted=deleted)
 
     version_count = Subquery(
         active_versions.values("name").annotate(count=Count("id")).values("count")[:1],

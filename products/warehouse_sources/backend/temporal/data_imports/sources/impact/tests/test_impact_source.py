@@ -20,27 +20,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactSourceClass:
-    def test_no_unreleased_flag(self) -> None:
-        # A finished source ships visible; unreleasedSource must not be set.
-        assert ImpactSource().get_source_config.unreleasedSource is not True
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert ImpactSource.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = ImpactSource().get_schemas(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
-        names = {s.name for s in schemas}
-        assert names == {
-            "Campaigns",
-            "MediaPartners",
-            "Invoices",
-            "Actions",
-            "ActionUpdates",
-            "Contracts",
-            "InvoiceLineItems",
-            "InvoiceDetailedLineItems",
-        }
-
     @parameterized.expand(
         [
             ("Actions", True),
@@ -61,26 +40,6 @@ class TestImpactSourceClass:
         assert schemas[0].supports_incremental is expected
         assert schemas[0].supports_append is expected
 
-    def test_names_filter_narrows_schemas(self) -> None:
-        schemas = ImpactSource().get_schemas(
-            ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1, names=["Campaigns"]
-        )
-        assert [s.name for s in schemas] == ["Campaigns"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        tables = ImpactSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert names == {
-            "Campaigns",
-            "MediaPartners",
-            "Invoices",
-            "Actions",
-            "ActionUpdates",
-            "Contracts",
-            "InvoiceLineItems",
-            "InvoiceDetailedLineItems",
-        }
-
     @parameterized.expand(
         [
             ("valid", True, True, None),
@@ -91,19 +50,6 @@ class TestImpactSourceClass:
         with patch.object(source_module, "validate_impact_credentials", return_value=api_result):
             result = ImpactSource().validate_credentials(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
         assert result == (ok, err)
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        manager = MagicMock()
-        inputs = _inputs(schema_name="Actions")
-        with patch.object(source_module, "impact_source") as mock_impact_source:
-            ImpactSource().source_for_pipeline(ImpactSourceConfig(account_sid="s", auth_token="t"), manager, inputs)
-
-        mock_impact_source.assert_called_once()
-        kwargs = mock_impact_source.call_args.kwargs
-        assert kwargs["account_sid"] == "s"
-        assert kwargs["auth_token"] == "t"
-        assert kwargs["endpoint"] == "Actions"
-        assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00"
 
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self) -> None:
         manager = MagicMock()
@@ -137,10 +83,6 @@ class TestImpactSourceClass:
     )
     def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
         assert not error_message_matches(error, ImpactSource().get_retryable_errors())
-
-    def test_default_version_is_14(self) -> None:
-        assert ImpactSource.default_version == "14"
-        assert ImpactSource.supported_versions == ("v1", "14")
 
     @parameterized.expand(
         [

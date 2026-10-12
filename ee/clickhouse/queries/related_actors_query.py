@@ -4,10 +4,11 @@ from typing import Any, Optional, Union, cast
 
 from django.utils.timezone import now
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, ProductKey
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -43,7 +44,9 @@ class RelatedActorsQuery:
         # Treat a missing group key as the empty string (not NULL), matching the legacy raw query
         # which read the non-nullable materialized `$group_N` column directly. This keeps the
         # `(index, key)` tuples in the IN-subquery non-nullable.
-        self._modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
+        self._modifiers = create_default_modifiers_for_team(
+            team, HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
+        )
 
     @property
     def is_aggregating_by_groups(self) -> bool:
@@ -163,6 +166,40 @@ class RelatedActorsQuery:
                 "actor_filter": actor_filter,
             },
         )
+        if (
+            isinstance(query, ast.SelectQuery)
+            and not self.is_aggregating_by_groups
+            and self._modifiers.personsOnEventsMode
+            in (
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            )
+        ):
+            # Detached IDs can own history without a current Personhog mapping. Include stored
+            # ownership and all override candidates; the resolved person filter rejects stale versions.
+            # Keep IN local so candidates and person resolution use the same shard's snapshot.
+            # GLOBAL IN can miss overrides on shards whose replicas are ahead of the initiator.
+            query.prewhere = parse_expr(
+                """
+                events.team_id = {team_id}
+                AND timestamp > {after}
+                AND timestamp < {before}
+                AND (
+                    events.event_person_id = {person_id}
+                    OR events.distinct_id IN (
+                        SELECT distinct_id
+                        FROM raw_person_distinct_id_overrides
+                        WHERE person_id = {person_id}
+                    )
+                )
+                """,
+                placeholders={
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "after": ast.Constant(value=self._after),
+                    "before": ast.Constant(value=self._before),
+                    "person_id": ast.Constant(value=self.id),
+                },
+            )
         response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
         results = response.results
         if not results:

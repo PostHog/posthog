@@ -63,9 +63,6 @@ class RasterizeRecordingInputs(BaseModel, frozen=True):
     # benchmark). The workflow then skips the asset steps: preparing, finalizing and recording failures.
     render_input: RasterizationActivityInput | None = None
     product: Literal["session_replay", "replay_vision", "replay_vision_benchmark"] = "session_replay"
-    # Routes the render activity. None keeps the shared rasterization queue, so histories
-    # recorded before this field existed replay unchanged.
-    task_queue: str | None = None
 
     @model_validator(mode="after")
     def _one_render_target(self) -> "RasterizeRecordingInputs":

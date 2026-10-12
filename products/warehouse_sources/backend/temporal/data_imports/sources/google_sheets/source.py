@@ -26,8 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     GOOGLE_SHEETS_API_VERSION_V4,
-    get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
-    get_worksheets as get_google_sheets_worksheets,
+    discover_worksheet_schemas,
     google_sheets_client,
     google_sheets_source,
 )
@@ -112,19 +111,10 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Listing worksheets is version-agnostic (gspread's `worksheets()`), but the per-worksheet
-        # header read goes through `_get_worksheet`, whose memoization key includes the version —
-        # so discovery must resolve the pin rather than let it default.
-        resolved_version = self.resolve_api_version(api_version)
-        worksheets = get_google_sheets_worksheets(config)
-
-        if names is not None:
-            names_set = set(names)
-            worksheets = [worksheet for worksheet in worksheets if worksheet.name in names_set]
-
         schemas: list[SourceSchema] = []
-        for worksheet in worksheets:
-            incremental_fields = get_google_sheets_schema_incremental_fields(config, worksheet.name, resolved_version)
+        for discovered in discover_worksheet_schemas(config, names=names):
+            worksheet = discovered.worksheet
+            incremental_fields = discovered.incremental_fields
 
             schemas.append(
                 SourceSchema(

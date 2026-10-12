@@ -67,6 +67,14 @@ class ProviderTimeoutError(ProviderConnectionError):
         )
 
 
+class ProviderHostUnresolvedError(ProviderConnectionError):
+    """A configured endpoint whose hostname did not resolve. A DNS lookup can fail for a moment
+    while the endpoint is healthy, so this is retryable and must not disable the provider key."""
+
+    def __init__(self) -> None:
+        super().__init__("Could not resolve the base URL host. Check the base URL, then try again.")
+
+
 RESPONSE_LIMIT_MESSAGE = (
     "The endpoint returned a compressed or oversized response. "
     "Configure it to return uncompressed responses no larger than 1 MiB."
@@ -142,6 +150,14 @@ def is_output_limit_error_message(message: str) -> bool:
     return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
 
 
+class ContentFilteredError(LLMError):
+    """Raised when the provider's content filter refused the prompt or withheld the reply.
+
+    The prompt is usually built from customer trace content, so the refusal is not a PostHog
+    defect. Callers should skip the item rather than report one.
+    """
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
@@ -203,6 +219,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "This conversation is too long for the model's context window. Shorten it, then try again."
     if isinstance(error, OutputTokenLimitError):
         return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
+    if isinstance(error, ContentFilteredError):
+        return "The provider's content filter refused this request. Change the input, then try again."
     if isinstance(error, (ProviderTimeoutError, ProviderRequestRejectedError)):
         return str(error)
     if isinstance(error, ProviderConnectionError):

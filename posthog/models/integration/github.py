@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 
 import requests
 import structlog
@@ -27,6 +28,7 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
 from . import common, model, refresh_tracking
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +39,8 @@ _GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 # GitHub's own login rule: alphanumerics and single hyphens, never leading or trailing. Keeps a
 # crafted login out of the collaborator-permission URL path.
+GITHUB_ASSIGNEES_CACHE_TTL_SECONDS = 5 * 60
+
 _GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
@@ -409,11 +413,15 @@ class GitHubIntegration(GitHubIntegrationBase):
         body: str = config.pop("body")
         repository: str = config.pop("repository")
         labels = config.pop("labels", None)
+        assignee = config.pop("assignee", None)
 
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         json_body: dict[str, Any] = {"title": title, "body": body}
         if labels:
             json_body["labels"] = labels
+        if assignee:
+            # GitHub drops a login it cannot assign instead of failing, so the issue is still created.
+            json_body["assignees"] = [assignee]
 
         response = self.api_request(
             "POST",
@@ -429,6 +437,35 @@ class GitHubIntegration(GitHubIntegrationBase):
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
+
+    def list_assignees(self, repository: str, search: str = "") -> list[Assignee]:
+        """Logins that can be assigned issues in ``repository``, matching ``search``.
+
+        GitHub cannot search assignees, so the full list is fetched once, cached briefly, and filtered here.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path):
+            raise AssigneeLookupFailed(f"Unsafe GitHub repository path: {repo_path}")
+
+        cache_key = f"github_assignees:{self.integration.id}:{repo_path}"
+        logins: list[str] | None = cache.get(cache_key)
+        if logins is None:
+            responses, complete = self._installation_authenticated_get_pages(
+                f"https://api.github.com/repos/{repo_path}/assignees",
+                endpoint="/repos/{owner}/{repo}/assignees",
+                params={"per_page": 100},
+            )
+            pages = [response for response in responses if response.status_code == 200]
+            if not pages:
+                raise AssigneeLookupFailed(f"Could not list the assignable users in {repo_path}")
+            logins = [user["login"] for page in pages for user in page.json()]
+            # A partial list is still useful to show, but is not cached so the next search retries.
+            if complete:
+                cache.set(cache_key, logins, timeout=GITHUB_ASSIGNEES_CACHE_TTL_SECONDS)
+
+        needle = search.strip().lower()
+        matches = [login for login in logins if needle in login.lower()]
+        return [Assignee(id=login, name=login) for login in matches[:MAX_ASSIGNEES]]
 
     def close_issue(self, repository: str, number: int, *, completed: bool = False) -> None:
         """Close an issue with the reason that matches the report outcome. Raises on failure."""
@@ -446,13 +483,18 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
 
-    def get_collaborator_permission(self, repository: str, username: str) -> str:
+    def get_collaborator_permission(
+        self, repository: str, username: str, *, expected_user_id: int | None = None
+    ) -> str:
         """The user's effective permission on the repo: ``admin``, ``write``, ``read`` or ``none``.
 
         GitHub's legacy ``permission`` field folds ``maintain`` into ``write`` and ``triage`` into
         ``read``, which is the granularity a "can this person change the repo" gate needs. A 404
         means no access at all. Every other non-200 raises, so a caller can fail closed rather than
         read a blank response as a denial.
+
+        A login can change hands after a rename, so a caller that knows the numeric account id
+        passes ``expected_user_id``. A response for another account then counts as ``none``.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         if not _is_safe_github_repo_path(repo_path) or not _GITHUB_LOGIN_RE.fullmatch(username):
@@ -470,7 +512,12 @@ class GitHubIntegration(GitHubIntegrationBase):
                 f"GitHubIntegration: failed to read {username} permission on {repo_path}: {response.text[:300]}",
                 status_code=response.status_code,
             )
-        return response.json().get("permission") or "none"
+        body = response.json()
+        if expected_user_id is not None:
+            user = body.get("user")
+            if not isinstance(user, dict) or user.get("id") != expected_user_id:
+                return "none"
+        return body.get("permission") or "none"
 
     def _get_issue_by_number(self, repo_path: str, repository_name: str, issue_number: int) -> dict[str, Any] | None:
         response = self.api_request(

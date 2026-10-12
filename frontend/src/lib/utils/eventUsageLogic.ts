@@ -32,6 +32,7 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { isBIVisualizationNode } from '~/queries/utils'
 import {
     getBreakdown,
     getCompareFilter,
@@ -45,6 +46,7 @@ import {
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
+    isMetricsQuery,
     isNodeWithSource,
     isStickinessQuery,
     isTrendsQuery,
@@ -72,7 +74,9 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import type { ExperimentViewedHealthProperties } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -98,7 +102,15 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
-export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'interval' | 'test_accounts'
+export type DashboardFilterChangeType =
+    | 'date'
+    | 'properties'
+    | 'breakdown'
+    | 'variable'
+    | 'interval'
+    | 'test_accounts'
+    | 'compare'
+    | 'metric_labels'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -775,6 +787,16 @@ export function sanitizeQuery(query: Node | null): SanitizedQuery {
         uses_data_warehouse_source: queryUsesDataWarehouse(query),
     }
 
+    if (isMetricsQuery(query)) {
+        Object.assign(payload, {
+            metrics_query_mode: 'builder',
+            metrics_clause_count: query.clauses.length,
+            metrics_has_formula: !!query.formula,
+            metrics_interval: query.interval ?? 'auto',
+            metrics_display_type: query.display?.type ?? 'line',
+        })
+    }
+
     const querySource = insightQuerySource(query)
     if (querySource) {
         Object.assign(
@@ -1231,10 +1253,12 @@ export interface eventUsageLogicActions {
     }
     reportExperimentViewed: (
         experiment: Experiment,
-        duration: number | null
+        duration: number | null,
+        healthProperties: ExperimentViewedHealthProperties
     ) => {
         duration: number | null
         experiment: Experiment
+        healthProperties: ExperimentViewedHealthProperties
     }
     reportExperimentWatchCardSelected: (
         experimentId: ExperimentIdType,
@@ -1939,7 +1963,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             hasSearch: boolean
             archived: boolean
         }) => listView,
-        reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
+        reportExperimentViewed: (
+            experiment: Experiment,
+            duration: number | null,
+            healthProperties: ExperimentViewedHealthProperties
+        ) => ({ experiment, duration, healthProperties }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
             metricUuid: string,
@@ -2010,9 +2038,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             queryId,
             context,
         }),
-        // Single event for the whole recalc lifecycle — see docs/superpowers/specs/2026-06-04-experiment-metric-
-        // recalculation-events.md. status discriminates the moment ('triggered' / 'completed' / 'failed' —
-        // 'polled' is deliberately not emitted); the property bag carries the fields relevant to that moment.
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
             experimentId,
@@ -2524,6 +2549,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
+            if (isBIVisualizationNode(insight?.query)) {
+                captureBIWorksheetAction('added_to_dashboard', insight.query.config, { insight_id: insight.id })
+            }
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
                 dashboard_id: dashboardId,
@@ -2589,12 +2617,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 archived,
             })
         },
-        reportExperimentViewed: ({ experiment, duration }) => {
+        reportExperimentViewed: ({ experiment, duration, healthProperties }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 experiment_id: experiment.id,
                 experiment_status: getExperimentStatus(experiment),
                 duration,
+                ...healthProperties,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {

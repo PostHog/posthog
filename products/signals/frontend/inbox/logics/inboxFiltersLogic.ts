@@ -41,7 +41,7 @@ export interface InboxReviewerOption {
     email: string
 }
 
-export type InboxRankingSortField = 'ranking_pr_merged' | 'ranking_pr_created' | 'ranking_action' | 'ranking_open'
+export type InboxRankingSortField = 'ranking_open' | 'ranking_action' | 'ranking_fixed'
 export type InboxSortField = 'priority' | 'created_at' | 'updated_at' | InboxRankingSortField
 export type InboxSortDirection = 'asc' | 'desc'
 /** Preset for the created-in window filter. Null means any time. */
@@ -82,6 +82,14 @@ const VALID_STATE_VALUES = new Set<string>(INBOX_REPORT_SECTION_KEYS)
 const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 const VALID_MODEL_SORT_KEYS = new Set(INBOX_MODEL_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 const VALID_CREATED_WINDOWS = new Set<string>(INBOX_CREATED_WINDOW_OPTIONS.map((o) => o.value))
+
+function isOfferedSortKey(key: string, modelSortAvailable: boolean): boolean {
+    return VALID_SORT_KEYS.has(key) || (modelSortAvailable && VALID_MODEL_SORT_KEYS.has(key))
+}
+
+function isOfferedSort(field: InboxSortField, direction: InboxSortDirection, modelSortAvailable: boolean): boolean {
+    return isOfferedSortKey(`${field}:${direction}`, modelSortAvailable)
+}
 
 export interface InboxFilterState {
     scope: InboxScope
@@ -151,10 +159,7 @@ export function parseFilterSearchParams(
 ): InboxFilterState {
     let sortField = DEFAULT_SORT_FIELD
     let sortDirection = DEFAULT_SORT_DIRECTION
-    if (
-        typeof searchParams.sort === 'string' &&
-        (VALID_SORT_KEYS.has(searchParams.sort) || (modelSortAvailable && VALID_MODEL_SORT_KEYS.has(searchParams.sort)))
-    ) {
+    if (typeof searchParams.sort === 'string' && isOfferedSortKey(searchParams.sort, modelSortAvailable)) {
         const [field, direction] = searchParams.sort.split(':')
         sortField = field as InboxSortField
         sortDirection = direction as InboxSortDirection
@@ -278,6 +283,7 @@ export interface inboxFiltersLogicValues {
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
     isRedesign: boolean
+    isScopedToMe: boolean
     knownTeammate: {
         label: string
         uuid: string
@@ -290,7 +296,7 @@ export interface inboxFiltersLogicValues {
     sortDirection: InboxSortDirection
     sortField: InboxSortField
     sourceProductFilter: string[]
-    stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
+    stateFilter: ('dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -380,7 +386,7 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     }
 }
 
@@ -394,8 +400,13 @@ export interface inboxFiltersLogicMeta {
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
+        isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
         modelSortAvailable: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
-        activeSortField: (sortField: InboxSortField, modelSortAvailable: boolean) => InboxSortField
+        activeSortField: (
+            sortField: InboxSortField,
+            sortDirection: InboxSortDirection,
+            modelSortAvailable: boolean
+        ) => InboxSortField
         activeSortDirection: (
             sortField: InboxSortField,
             sortDirection: InboxSortDirection,
@@ -408,7 +419,14 @@ export interface inboxFiltersLogicMeta {
         ) => InboxCreatedWindow | null
         isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         visibleStateFilter: (
-            stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[],
+            stateFilter: (
+                | 'dismissed'
+                | 'held-back'
+                | 'monitoring'
+                | 'needs-decision'
+                | 'not-actionable'
+                | 'resolved'
+            )[],
             user: UserType | null
         ) => InboxReportSectionKey[]
     }
@@ -684,18 +702,27 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 priorityFilter.length > 0 ||
                 activeCreatedWindow !== null,
         ],
+        isScopedToMe: [
+            (s) => [s.scope, s.user],
+            (scope: InboxScope, user: UserType | null): boolean =>
+                !!user?.uuid && (scope === INBOX_SCOPE_FOR_YOU || parseTeammateInboxScope(scope) === user.uuid),
+        ],
         // Staff only, the same rule as the `ranking` field the backend returns.
         modelSortAvailable: [
             (s) => [s.featureFlags, s.user],
             (featureFlags: FeatureFlagsSet, user: UserType | null): boolean =>
                 !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT] && !!user?.is_staff,
         ],
-        // The sort the list requests and renders with. A model sort persisted while it was available
-        // falls back to the default once it is not, because the backend rejects it for non-staff.
+        // The sort the list requests and renders with. A persisted sort the menu no longer offers, or a
+        // model sort persisted while it was available, falls back to the default.
         activeSortField: [
-            (s) => [s.sortField, s.modelSortAvailable],
-            (sortField: InboxSortField, modelSortAvailable: boolean): InboxSortField =>
-                isRankingSortField(sortField) && !modelSortAvailable ? DEFAULT_SORT_FIELD : sortField,
+            (s) => [s.sortField, s.sortDirection, s.modelSortAvailable],
+            (
+                sortField: InboxSortField,
+                sortDirection: InboxSortDirection,
+                modelSortAvailable: boolean
+            ): InboxSortField =>
+                isOfferedSort(sortField, sortDirection, modelSortAvailable) ? sortField : DEFAULT_SORT_FIELD,
         ],
         activeSortDirection: [
             (s) => [s.sortField, s.sortDirection, s.modelSortAvailable],
@@ -704,7 +731,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 sortDirection: InboxSortDirection,
                 modelSortAvailable: boolean
             ): InboxSortDirection =>
-                isRankingSortField(sortField) && !modelSortAvailable ? DEFAULT_SORT_DIRECTION : sortDirection,
+                isOfferedSort(sortField, sortDirection, modelSortAvailable) ? sortDirection : DEFAULT_SORT_DIRECTION,
         ],
         timeWindowAvailable: [
             (s) => [s.featureFlags],
@@ -795,7 +822,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
         return {
             [urls.inbox()]: applyFromUrl,
-            [urls.inbox(':tab')]: applyFromUrl,
+            [urls.inbox(':tab')]: ({ tab }, searchParams) => {
+                if (tab !== 'scout-trials') {
+                    applyFromUrl({ tab }, searchParams)
+                }
+            },
             [urls.inboxScratchpad()]: applyFromUrl,
             [urls.inboxFindings()]: applyFromUrl,
             [urls.inboxRuns()]: applyFromUrl,

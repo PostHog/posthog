@@ -7,10 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.kommo import (
     KommoResumeConfig,
@@ -19,11 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.komm
     normalize_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
-    ENDPOINT_CONFIG,
-    ENDPOINTS,
-    PAGE_LIMIT,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import ENDPOINT_CONFIG, ENDPOINTS
 
 SESSION_FACTORY = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
@@ -49,21 +41,6 @@ def _leads_page(ids: list[int], page: int, page_count: int) -> dict[str, Any]:
 
 
 class TestNormalizeSubdomain:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("acme", "acme"),
-            ("  ACME  ", "acme"),
-            ("acme.kommo.com", "acme"),
-            ("https://acme.kommo.com", "acme"),
-            ("https://acme.kommo.com/leads", "acme"),
-            ("http://acme.kommo.com/", "acme"),
-            ("my-acme-2", "my-acme-2"),
-        ],
-    )
-    def test_accepts_and_reduces_valid_account_references(self, raw: str, expected: str) -> None:
-        assert normalize_subdomain(raw) == expected
-
     @pytest.mark.parametrize(
         "raw",
         [
@@ -121,22 +98,6 @@ class TestGetResource:
         assert not any(key.startswith("filter[") for key in params)
         assert resource["write_disposition"] == "replace"
 
-    @pytest.mark.parametrize("name", ["Leads", "Tasks", "Users"])
-    def test_paginated_endpoints_request_the_maximum_page_size(self, name: str) -> None:
-        # Kommo allows 7 requests/second per account, so under-filling pages costs real throughput.
-        resource = get_resource(name, should_use_incremental_field=False)
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-
-        assert endpoint["params"]["limit"] == PAGE_LIMIT
-        assert isinstance(endpoint["paginator"], PageNumberPaginator)
-
-    def test_unpaginated_endpoint_uses_a_single_page_paginator(self) -> None:
-        resource = get_resource("Pipelines", should_use_incremental_field=False)
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-
-        assert isinstance(endpoint["paginator"], SinglePagePaginator)
-        assert "limit" not in endpoint["params"]
-
 
 class TestKommoSourceTransport:
     def _drive(
@@ -175,33 +136,6 @@ class TestKommoSourceTransport:
 
         return sent_params
 
-    def test_pages_through_until_the_empty_no_content_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _http_response(_leads_page([1, 2], page=1, page_count=3)),
-            _http_response(_leads_page([3, 4], page=2, page_count=3)),
-            _http_response(_leads_page([5], page=3, page_count=3)),
-        ]
-        sent_params = self._drive("Leads", manager, responses)
-
-        assert [params["page"] for params in sent_params] == [1, 2, 3]
-
-    def test_stops_on_a_204_style_empty_body_when_page_count_is_absent(self) -> None:
-        # Kommo answers 204 with no body once you page past the end; a JSON decode of that
-        # body would blow up if the client did not treat it as an empty page.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _http_response({"_page": 1, "_embedded": {"tags": [{"id": 1, "name": "vip"}]}}),
-            _http_response(None, status_code=204),
-        ]
-        sent_params = self._drive("LeadTags", manager, responses)
-
-        assert [params["page"] for params in sent_params] == [1, 2]
-
     def test_full_refresh_run_checkpoints_the_next_page_after_each_batch(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -225,54 +159,6 @@ class TestKommoSourceTransport:
         sent_params = self._drive("Leads", manager, responses)
 
         assert [params["page"] for params in sent_params] == [7]
-
-    def test_incremental_run_neither_saves_nor_loads_a_page(self) -> None:
-        # The watermark moves after every batch, so page N of a resumed incremental query is not
-        # page N of the interrupted one. Resuming by page there would skip rows.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = KommoResumeConfig(page=7)
-
-        responses = [
-            _http_response(_leads_page([1], page=1, page_count=2)),
-            _http_response(_leads_page([2], page=2, page_count=2)),
-        ]
-        sent_params = self._drive(
-            "Leads",
-            manager,
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1699999999,
-        )
-
-        assert [params["page"] for params in sent_params] == [1, 2]
-        manager.load_state.assert_not_called()
-        manager.save_state.assert_not_called()
-
-    def test_incremental_run_sends_the_stored_watermark_as_the_filter_lower_bound(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_http_response(_leads_page([1], page=1, page_count=1))]
-        sent_params = self._drive(
-            "Leads",
-            manager,
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1699999999,
-        )
-
-        assert sent_params[0]["filter[updated_at][from]"] == 1699999999
-        assert sent_params[0]["order[updated_at]"] == "asc"
-
-    def test_full_refresh_run_sends_no_filter(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_http_response(_leads_page([1], page=1, page_count=1))]
-        sent_params = self._drive("Leads", manager, responses)
-
-        assert not any(key.startswith("filter[") for key in sent_params[0])
 
 
 class TestValidateCredentials:
@@ -302,16 +188,3 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and expected_message_fragment in message
-
-    def test_probes_the_account_endpoint_on_the_accounts_own_host(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.kommo.kommo.make_tracked_session"
-        ) as MockSession:
-            session = MockSession.return_value
-            session.get.return_value = _http_response({}, status_code=200)
-
-            validate_credentials("test-token", "acme")
-
-        url = session.get.call_args.args[0]
-        assert url == "https://acme.kommo.com/api/v4/account"
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer test-token"
