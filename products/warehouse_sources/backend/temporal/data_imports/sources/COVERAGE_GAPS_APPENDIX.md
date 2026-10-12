@@ -5653,11 +5653,11 @@ Today (4): `annotations`, `cohorts`, `engage`, `export`
 
 Diffed against: <https://developer.mixpanel.com/reference/query-api>
 
-- [ ] `funnels query (GET /api/query/funnels — reference/funnels-query)` — funnel conversion is Mixpanel's headline metric and is entirely absent (high)
-- [ ] `saved funnels list (reference/funnels-list-saved)` — lookup table of saved funnel definitions and their IDs, required to drive the funnels query (high)
-- [ ] `retention query (reference/retention-query)` — cohort retention, a core Mixpanel report with no equivalent today (high)
+- [x] `funnels query (GET /api/query/funnels — reference/funnels-query)` — funnel conversion is Mixpanel's headline metric and is entirely absent (high) — added as `funnel_steps`, fanned out over every saved funnel
+- [x] `saved funnels list (reference/funnels-list-saved)` — lookup table of saved funnel definitions and their IDs, required to drive the funnels query (high) — added as `funnels`
+- [x] `retention query (reference/retention-query)` — cohort retention, a core Mixpanel report with no equivalent today (high) — added as `retention` (compounded retention across all events, because birth retention needs a user-chosen `born_event`)
 - [ ] `segmentation query (reference/segmentation-query, plus numeric/sum/average variants)` — event counts broken down by property — the main breakdown dimension API (high)
-- [ ] `insights query (reference/insights-query)` — returns the data behind saved Insights reports (high)
+- [ ] `insights query (reference/insights-query)` — returns the data behind saved Insights reports (high). Not added: each call needs a report `bookmark_id`, no Query API endpoint lists saved reports, and the `series` shape varies per report.
 - [ ] `Lexicon schemas (reference/list-all-schemas-for-project, list-schemas-for-entity)` — lookup table of event and property definitions that names and types everything in the export table (high)
 - [ ] `lookup tables (reference/list-lookup-tables)` — literally the project's lookup tables, used to resolve IDs on synced events and profiles (high)
 - [ ] `activity stream (reference/activity-stream-query)` — per-user chronological event feed joining engage profiles to their activity (medium)
@@ -5757,10 +5757,10 @@ Today (4): `clients`, `projects`, `tags`, `users`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/8879268/TVmV4YYU>
 
-- [ ] `GET /api/Logs?date=&step=` — time logs are the entire point of a time tracker — the central fact table is missing, so hours cannot be queried at all (high)
-- [ ] `PUT /api/Reports/activitydx` — bulk time-log report over a date range with client/project/user filters — the practical backfill path for logs (high)
-- [ ] `GET /api/Projects/{projectId}/tasklist` — project task lookup resolving the task each time log is booked against (high)
-- [ ] `GET /api/Projects/{projectId}/userlist` — project-to-team-member assignment join table (medium)
+- ~~`GET /api/Logs?date=&step=`~~ — not added: it returns only the API key owner's recent time logs, not the account's. The account-wide time logs come from `PUT /api/Reports/activitydx` (the `time_logs` table).
+- [x] `PUT /api/Reports/activitydx` — bulk time-log report over a date range with client/project/user filters — the practical backfill path for logs (high). Added as `time_logs` (31-day date windows, incremental on `date`).
+- [x] `GET /api/Projects/{projectId}/tasklist` — project task lookup resolving the task each time log is booked against (high). Added as `project_tasks` (fan-out over `projects`, one row per task across every task list).
+- [x] `GET /api/Projects/{projectId}/userlist` — project-to-team-member assignment join table (medium). Added as `project_members` (fan-out over `projects`).
 - [ ] `GET /api/Teams/{teamId}/teammembers` — team membership for grouping users in reporting (medium)
 - [ ] `GET /api/Projects/{projectId}/overview` — project detail including budget/rate fields not on the list response (low)
 - [ ] `GET /api/Reports/dashboardOptimized` — pre-aggregated dashboard totals by client/project/user (low)
