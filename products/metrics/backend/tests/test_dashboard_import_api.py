@@ -178,6 +178,7 @@ class TestDashboardImportAPI(APIBaseTest):
         assert "refunds_total" in first["panels"][3]["reason"]
         assert second["dashboard_id"] == first["dashboard_id"]
         assert Dashboard.objects.filter(team=self.team).count() == 1
+        assert "Uses orders_total because" in Dashboard.objects.get(id=first["dashboard_id"]).description
         assert DashboardTile.objects.filter(dashboard_id=first["dashboard_id"]).count() == 3
         self.storage.delete.assert_called()
 

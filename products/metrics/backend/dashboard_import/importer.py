@@ -220,7 +220,7 @@ class PanelResolver:
                     reason=" ".join([*panel.notes, *check.notes]),
                     tile=insight_tile(
                         name=panel.title,
-                        description=_insight_description(panel.description, panel.notes),
+                        description=panel.description,
                         query=insight_query(
                             queries[key],
                             panel.display,
@@ -257,13 +257,6 @@ def _query_metric_names(queries: Iterable[PanelQuery]) -> list[str]:
         if query.histogram_metric:
             names.append(query.histogram_metric)
     return names
-
-
-def _insight_description(description: str, notes: list[str]) -> str:
-    parts = [description] if description else []
-    if notes:
-        parts.append("Import notes: " + " ".join(notes))
-    return "\n\n".join(parts)
 
 
 class DashboardImporter:
@@ -541,7 +534,7 @@ class DashboardImporter:
                 user_id=self._user.id,
                 dashboard=NewDashboard(
                     name=state.dashboard_name,
-                    description=_dashboard_description(state),
+                    description=_dashboard_description(state, verdicts),
                     tiles=tuple(_new_tile(tile) for tile in tiles),
                     idempotency_key=idempotency_key,
                     date_from=state.date_from,
@@ -653,7 +646,7 @@ class DashboardImporter:
             reason=" ".join([*notes, *check.notes]),
             tile=insight_tile(
                 name=title,
-                description=_insight_description(spec_panel.description if spec_panel else "", notes),
+                description=spec_panel.description if spec_panel else "",
                 query=insight_query(answer.query, display, catalog=catalog, validator=validator, date_from=date_from),
                 layout=layout,
             ),
@@ -720,15 +713,20 @@ class DashboardImporter:
             )
 
 
-def _dashboard_description(state: ImportState) -> str:
+def _dashboard_description(state: ImportState, verdicts: list[PanelVerdict]) -> str:
+    """The import notes go here and not on the tiles, where a long note hides a small chart."""
     if state.source == "screenshot":
-        return "Imported from a screenshot."
-    description = state.spec.description if state.spec else ""
-    variables = ", ".join(
-        f"{name} = {value or 'none'}" for name, value in (state.spec.variables if state.spec else {}).items()
-    )
-    parts = [description] if description else []
-    parts.append("Imported from Grafana." + (f" Variables: {variables}." if variables else ""))
+        parts = ["Imported from a screenshot."]
+    else:
+        description = state.spec.description if state.spec else ""
+        variables = ", ".join(
+            f"{name} = {value or 'none'}" for name, value in (state.spec.variables if state.spec else {}).items()
+        )
+        parts = [description] if description else []
+        parts.append("Imported from Grafana." + (f" Variables: {variables}." if variables else ""))
+    changed = [f"{verdict.title}: {verdict.reason}" for verdict in verdicts if verdict.outcome == "approximated"]
+    if changed:
+        parts.append("Changed panels: " + " ".join(note if note.endswith(".") else f"{note}." for note in changed))
     return " ".join(parts)
 
 
