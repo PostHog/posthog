@@ -104,8 +104,8 @@ export interface teamsLogicActions {
         sourceId: string | null,
         scopeRepo: string | null
     ) => {
-        sourceId: string | null
         scopeRepo: string | null
+        sourceId: string | null
     } // engineeringAnalyticsLogic
     setSourceId: (sourceId: string | null) => {
         sourceId: string | null

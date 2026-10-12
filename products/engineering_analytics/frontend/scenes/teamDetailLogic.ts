@@ -156,8 +156,8 @@ export interface teamDetailLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         ownerTeam: (ownerTeam: string) => string
-        repo: (repo: string | null) => string | null
         sourceId: (sourceId: string | null) => string | null
+        repo: (repo: string | null) => string | null
         deliveryScope: (ownerTeam: string) => DeliveryScope | null
         quarantinedTests: (
             trunkQuarantineTestsByTeam: Record<string, TrunkQuarantinedTestRow[]>,
