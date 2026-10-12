@@ -38,21 +38,16 @@ def create_default_modifiers_for_user(
 ) -> "HogQLQueryModifiers":
     from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
-    from posthog.models.event.new_events_schema import (
-        use_new_events_schema,
-        user_uses_new_events_schema,  # noqa: PLC0415 - Team imports this module before its model registry is ready
-    )
-
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
     else:
         modifiers = modifiers.model_copy()
 
+    from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
+
     modifiers = create_default_modifiers_for_team(team, modifiers)
     if modifiers.useNewEventsSchema is None:
-        modifiers.useNewEventsSchema = user_uses_new_events_schema(team.pk, user) or use_new_events_schema(
-            team.pk, modifiers
-        )
+        modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
     return modifiers
 
 
@@ -68,11 +63,23 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
+    from posthog.models.event.new_events_schema import use_new_events_cluster  # noqa: PLC0415
+
+    if use_new_events_cluster(team.pk, modifiers):
+        if modifiers.useNewEventsSchema is False:
+            from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
+
+            raise ExposedHogQLError("Native events cluster queries require the native events schema.")
+        modifiers.useNewEventsSchema = True
+
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
+            # Cluster routing requires a query opt-in, even if a project stores the modifier.
+            if key == "useNewEventsCluster":
+                continue
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid

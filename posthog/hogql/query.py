@@ -2,8 +2,6 @@ import dataclasses
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
-from django.conf import settings as django_settings
-
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -165,6 +163,8 @@ class HogQLQueryExecutor:
             if self.user is not None
             else create_default_modifiers_for_team(self.team, self.modifiers)
         )
+        if self.connection_id and self.query_modifiers.useNewEventsCluster:
+            raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
         self.debug = self.modifiers is not None and self.modifiers.debug
         self.error: Optional[str] = None
         self.explain: Optional[list[str]] = None
@@ -934,11 +934,13 @@ class HogQLQueryExecutor:
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
-            if (
-                workload != Workload.LOGS
-                and django_settings.CLICKHOUSE_NATIVE_EVENTS_HOST
-                and clickhouse_context.uses_new_events_schema()
-            ):
+            from posthog.models.event.new_events_schema import use_new_events_cluster  # noqa: PLC0415
+
+            if use_new_events_cluster(self.team.pk, self.query_modifiers):
+                if workload == Workload.LOGS or not clickhouse_context.uses_new_events_schema():
+                    raise ExposedHogQLError(
+                        "Native events cluster queries require the native events workload and schema."
+                    )
                 workload = Workload.NATIVE_EVENTS
 
             def run_clickhouse_query() -> Any:

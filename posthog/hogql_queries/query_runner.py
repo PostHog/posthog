@@ -1842,19 +1842,21 @@ def query_node_modifiers_path(query: BaseModel) -> tuple[str, ...]:
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
-    explicit_schema_choice = None
+    choices: dict[str, bool] = {}
     sources = [query]
     for field in query_node_modifiers_path(query):
         query = getattr(query, field)
         sources.append(query)
     for source in sources:
         source_modifiers = getattr(source, "modifiers", None)
-        if source_modifiers is not None and source_modifiers.useNewEventsSchema is not None:
-            explicit_schema_choice = source_modifiers.useNewEventsSchema
-            break
+        if source_modifiers is not None:
+            for key in ("useNewEventsSchema", "useNewEventsCluster"):
+                value = getattr(source_modifiers, key)
+                if key not in choices and value is not None:
+                    choices[key] = value
     modifiers = getattr(query, "modifiers", None)
-    if explicit_schema_choice is not None:
-        return (modifiers or HogQLQueryModifiers()).model_copy(update={"useNewEventsSchema": explicit_schema_choice})
+    if choices:
+        return (modifiers or HogQLQueryModifiers()).model_copy(update=choices)
     return modifiers
 
 
@@ -2105,9 +2107,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_json = self.query.model_dump()
         modifier_sources = self._serialized_modifier_sources(query_json)
         modifier_source = modifier_sources[-1]
-        explicit_schema_choice = self._use_new_events_schema_without_user is not None or any(
-            isinstance(source.get("modifiers"), dict) and source["modifiers"].get("useNewEventsSchema") is not None
-            for source in modifier_sources
+        explicit_schema_choice = (
+            self._use_new_events_schema_without_user is not None
+            or self.modifiers.useNewEventsCluster is not None
+            or any(
+                isinstance(source.get("modifiers"), dict)
+                and any(
+                    source["modifiers"].get(key) is not None for key in ("useNewEventsSchema", "useNewEventsCluster")
+                )
+                for source in modifier_sources
+            )
         )
         if (
             "modifiers" in modifier_source
@@ -2118,9 +2127,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             for source in modifier_sources:
                 if isinstance(source.get("modifiers"), dict):
                     source["modifiers"].pop("useNewEventsSchema", None)
+                    source["modifiers"].pop("useNewEventsCluster", None)
             modifier_source["modifiers"] = {
                 **(modifier_source["modifiers"] or {}),
                 "useNewEventsSchema": self.modifiers.useNewEventsSchema,
+                **(
+                    {"useNewEventsCluster": self.modifiers.useNewEventsCluster}
+                    if self.modifiers.useNewEventsCluster is not None
+                    else {}
+                ),
             }
 
         return enqueue_process_query_task(
@@ -3170,12 +3185,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         for modifier_source in self._serialized_modifier_sources(query):
             if isinstance(modifier_source.get("modifiers"), dict):
                 modifier_source["modifiers"].pop("useNewEventsSchema", None)
+                modifier_source["modifiers"].pop("useNewEventsCluster", None)
                 if not modifier_source["modifiers"]:
                     modifier_source.pop("modifiers")
 
         cache_modifiers = to_dict(self.modifiers)
         if cache_modifiers.get("useNewEventsSchema") is False:
             cache_modifiers.pop("useNewEventsSchema")
+        if not cache_modifiers.get("useNewEventsCluster"):
+            cache_modifiers.pop("useNewEventsCluster", None)
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
@@ -3187,7 +3205,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
-        if self.modifiers.useNewEventsSchema and settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+        if self.modifiers.useNewEventsCluster and settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
             payload["native_events_host"] = settings.CLICKHOUSE_NATIVE_EVENTS_HOST
 
         # Include property-level access control restrictions in the cache key so that

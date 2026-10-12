@@ -6275,6 +6275,15 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsCluster: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this query into the native events cluster and schema. Requires a"
+            " configured host and server-side project eligibility. Unset or false"
+            " preserves the existing connection. This option is never inherited from"
+            " project defaults."
+        ),
+    )
     useNewEventsSchema: bool | None = Field(
         default=None,
         description=(
