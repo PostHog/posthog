@@ -34,6 +34,15 @@ pub struct SentRun {
     pub messages: Vec<SentMessage>,
 }
 
+/// One run's share of a partial ack.
+pub struct RunSplit {
+    pub routing_key: Arc<str>,
+    pub accepted: Vec<SentMessage>,
+    /// How many of `accepted` come before the run's first timed-out message.
+    pub accepted_prefix: usize,
+    pub timed_out: Vec<SerializedKafkaMessage>,
+}
+
 pub struct InFlightRequest {
     pub worker: WorkerId,
     pub class: RequestClass,
@@ -118,10 +127,64 @@ impl InFlightRequest {
             })
             .collect())
     }
+
+    /// The transport hands back the timed-out messages in send order. They
+    /// need not be the last messages of a run, because a worker may process
+    /// one key's messages in independent groups.
+    pub fn split(
+        self,
+        accepted: u32,
+        timed_out: Vec<SerializedKafkaMessage>,
+    ) -> Result<Vec<RunSplit>, String> {
+        if timed_out.is_empty() || accepted as usize + timed_out.len() != self.message_count {
+            return Err(format!(
+                "partial ack accepted {accepted} and timed out {} of {} messages",
+                timed_out.len(),
+                self.message_count
+            ));
+        }
+        let mut timed_out = timed_out.into_iter().peekable();
+        let splits = self
+            .runs
+            .into_iter()
+            .map(|run| {
+                let mut split = RunSplit {
+                    routing_key: run.routing_key,
+                    accepted: Vec::new(),
+                    accepted_prefix: 0,
+                    timed_out: Vec::new(),
+                };
+                for sent in run.messages {
+                    let next = timed_out.next_if(|message| {
+                        message.partition == sent.partition && message.offset == sent.offset
+                    });
+                    match next {
+                        Some(message) => split.timed_out.push(message),
+                        None => {
+                            if split.timed_out.is_empty() {
+                                split.accepted_prefix += 1;
+                            }
+                            split.accepted.push(sent);
+                        }
+                    }
+                }
+                split
+            })
+            .collect();
+        if let Some(message) = timed_out.next() {
+            return Err(format!(
+                "partial ack timed out {}:{}, which the request does not carry at that point",
+                message.partition, message.offset
+            ));
+        }
+        Ok(splits)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::batcher::test_support::{message, offsets};
 
@@ -170,5 +233,44 @@ mod tests {
     #[test]
     fn a_hand_back_missing_messages_is_an_error() {
         assert!(request().hand_back(vec![message("a", 0, 1)]).is_err());
+    }
+
+    #[test]
+    fn a_partial_splits_each_run_into_accepted_and_timed_out_in_send_order() {
+        let splits = request()
+            .split(2, vec![message("a", 0, 2), message("b", 0, 10)])
+            .expect("matches the request");
+        let shapes: Vec<_> = splits
+            .iter()
+            .map(|split| {
+                (
+                    &*split.routing_key,
+                    split
+                        .accepted
+                        .iter()
+                        .map(|sent| sent.offset)
+                        .collect::<Vec<i64>>(),
+                    split.accepted_prefix,
+                    offsets(&split.timed_out),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shapes,
+            vec![("a", vec![1, 3], 1, vec![2]), ("b", vec![], 0, vec![10])]
+        );
+    }
+
+    #[rstest]
+    #[case::empty(4, vec![])]
+    #[case::not_in_the_request(3, vec![message("a", 0, 7)])]
+    #[case::duplicate(2, vec![message("a", 0, 2), message("a", 0, 2)])]
+    #[case::out_of_send_order(2, vec![message("a", 0, 3), message("a", 0, 2)])]
+    #[case::count_mismatch(1, vec![message("a", 0, 2)])]
+    fn a_partial_that_does_not_match_the_request_is_an_error(
+        #[case] accepted: u32,
+        #[case] timed_out: Vec<SerializedKafkaMessage>,
+    ) {
+        assert!(request().split(accepted, timed_out).is_err());
     }
 }
