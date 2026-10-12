@@ -458,7 +458,14 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     when publishing is on); the eval CLI defaults it off, the label trigger sets it on. Both publish-idempotency
     marker scans (`_review_already_posted` here, `_find_marker_comment` on the status comment) trust the marker
     only in **app-bot** comments/reviews — on a public repo anyone can paste it, and a spoofed match would
-    suppress the publish or clobber a stranger's comment. On the publish path a live **status comment**
+    suppress the publish or clobber a stranger's comment.
+    **Reactions:** once a publishing turn passes every gate, the workflow puts a 👀 on the PR (`add_review_reaction_activity`) and removes it by the returned reaction id when the turn ends, on success, failure, or cancellation (the `finally` around the review stages).
+    Both calls are fail-open and gated by the `reviewhog-pr-reactions-2026-10` patch.
+    Stamphog lists `posthog[bot]` in its trusted reviewer bots, so it waits while that 👀 is fresh.
+    **Standard turns post no status comment** (the same patch): the 👀 shows the turn runs, and the outcome is the review, a 👍 on the PR when nothing is publishable, or one failure comment per head (`post_failure_comment`, hidden `reviewhog:failed` marker) posted by `fail_status_comment_activity`.
+    A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`).
+    Status comments that earlier turns left on the PR stay as they are, and a Standard turn never refreshes them.
+    On the publish path of a **Deep** turn a live **status comment**
     (`reviewer/status_comment.py`) is posted at kickoff as one table with a row per step of the turn's review design,
     edited as the steps fill in, and rewritten with the
     outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
@@ -476,7 +483,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
     A reply or reaction counts as engagement unless ReviewHog's own app left it (`engagement_method`), so the resolution stage's 👀 queue marker never marks a finding `reacted`.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
-    When every publishable finding posts inline, the review body is only the hidden publish marker, because the tally repeats the comments.
+    When every publishable finding posts inline, a Deep review body is only the hidden publish marker, because the tally repeats the comments.
+    A Standard review body then carries one summary line instead (`render_review_summary`, "PostHog Review · Standard · reviewed `abc1234`: 1 Must fix."), because Standard has no status comment.
     The body-only fallback always posts the full body.
     The workflow captures one **`reviewhog_review_started`** product-analytics event per turn that passed every
     gate (`track_review_started_activity`) and, after the publish stage, one **`reviewhog_review_completed`** per
