@@ -4,10 +4,10 @@ import re
 import json
 import asyncio
 import logging
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
@@ -21,7 +21,8 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.facade.contracts import AgentTaskRunDTO
+from products.tasks.backend.facade.api import upload_task_run_artifacts
+from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
@@ -258,6 +259,42 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
+SESSION_FILE_ARTIFACT_TYPE = "context"
+
+
+def _with_session_files(
+    files: Sequence[SessionFile],
+    description: str,
+    team_id: int,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None,
+) -> Callable[[UUID], dict[str, JsonValue] | None]:
+    """Wrap `before_task_dispatch` so the run has its files before the workflow starts."""
+
+    def attach(run_id: UUID) -> dict[str, JsonValue] | None:
+        state = before_task_dispatch(run_id) if before_task_dispatch is not None else None
+        task_id = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).get()
+        artifacts = [
+            {
+                "id": uuid4().hex,
+                "name": file.name,
+                "type": SESSION_FILE_ARTIFACT_TYPE,
+                "content_bytes": file.content.encode("utf-8"),
+                "content_type": "text/plain; charset=utf-8",
+            }
+            for file in files
+        ]
+        if upload_task_run_artifacts(run_id, task_id, team_id, artifacts=artifacts) is None:
+            raise RuntimeError(f"Could not attach session files to run {run_id}")
+        # The prompt goes as the pending message, because only that path sends the files with it.
+        return {
+            **(state or {}),
+            "pending_user_message": description,
+            "pending_user_artifact_ids": [artifact["id"] for artifact in artifacts],
+        }
+
+    return attach
+
+
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -276,6 +313,7 @@ async def _create_task_and_trigger(
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
+    files: Sequence[SessionFile] = (),
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -293,6 +331,8 @@ async def _create_task_and_trigger(
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
             extra_run_state["analytics_query_context"] = queries
+    if files:
+        before_task_dispatch = _with_session_files(files, description, context.team_id, before_task_dispatch)
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
