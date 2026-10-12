@@ -18,6 +18,7 @@ import {
     DataWarehouseSavedQueryIncremental,
 } from '~/types'
 
+import { dataModelingNodesLineageRetrieve } from 'products/data_modeling/frontend/generated/api'
 import {
     warehouseSavedQueriesList,
     warehouseSavedQueriesMaterializeCreate,
@@ -242,6 +243,9 @@ export interface dataWarehouseViewsLogicActions {
             viewId: string
         }
     }
+    openViewPage: (viewId: string) => {
+        viewId: string
+    }
     revertMaterialization: (viewId: string) => {
         viewId: string
     }
@@ -411,6 +415,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             incremental,
         }),
         revertMaterialization: (viewId: string) => ({ viewId }),
+        openViewPage: (viewId: string) => ({ viewId }),
         addMaterializingViews: (viewIds: string[]) => ({ viewIds }),
         clearMaterializingView: (viewId: string) => ({ viewId }),
     }),
@@ -500,7 +505,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
-                    lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+                    lemonToast.success(`${newView.name ?? 'View'} successfully created`, {
+                        button: {
+                            label: 'Go to view',
+                            action: () => actions.openViewPage(newView.id),
+                        },
+                    })
+                    posthog.capture('view created')
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSavedView)
 
                     return [...values.dataWarehouseSavedQueries, newView]
@@ -607,6 +618,20 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             // without an extra reload. A reload here would also race the materialize reload below
             // (create-with-materialize) and could revert is_materialized back to false.
             actions.refreshDatabaseSchema()
+        },
+        openViewPage: async ({ viewId }) => {
+            // The view page is keyed by the data modeling node, and the saved query response carries no node id.
+            let nodeId: string | undefined
+            try {
+                const lineage = await dataModelingNodesLineageRetrieve(String(ApiConfig.getCurrentTeamId()), {
+                    saved_query_id: viewId,
+                })
+                nodeId = lineage.nodes.find((node) => node.saved_query_id === viewId)?.id
+            } catch {
+                // A view with no node still opens in the SQL editor.
+            }
+            posthog.capture('view page opened from created toast', { destination: nodeId ? 'model' : 'sql_editor' })
+            router.actions.push(nodeId ? urls.nodeDetail(nodeId) : urls.sqlEditor({ view_id: viewId }))
         },
         createDataWarehouseSavedQueryFolderSuccess: () => {
             actions.loadDataWarehouseSavedQueries()
