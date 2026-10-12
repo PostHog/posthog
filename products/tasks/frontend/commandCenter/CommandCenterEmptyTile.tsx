@@ -28,7 +28,7 @@ export function CommandCenterEmptyTile({ index }: CommandCenterEmptyTileProps): 
     const resolving = recentTasksLoading && pickableSessionIds.length === 0
 
     return (
-        <Empty className="h-full">
+        <Empty className="h-full border-0">
             <EmptyHeader>
                 <EmptyTitle>Empty tile</EmptyTitle>
                 <EmptyDescription>Open a recent chat here, or start a new one.</EmptyDescription>
