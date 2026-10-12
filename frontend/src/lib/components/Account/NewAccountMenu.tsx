@@ -72,7 +72,7 @@ export function NewAccountMenu({
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isHobby } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -155,7 +155,7 @@ export function NewAccountMenu({
                             >
                                 <Label intent="menu" className="pl-2 relative">
                                     Project
-                                    {preflight?.can_create_org && (
+                                    {preflight?.can_create_org && !isHobby && (
                                         <ButtonPrimitive
                                             iconOnly
                                             tooltip="Create a new project"
