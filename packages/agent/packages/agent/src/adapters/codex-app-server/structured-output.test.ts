@@ -173,9 +173,34 @@ describe("toStrictOutputSchema", () => {
       "patternProperties",
       { type: "object", patternProperties: { "^x-": { type: "string" } } },
     ],
-  ])("returns null for %s, which strict mode cannot represent", (_, schema) => {
-    expect(toStrictOutputSchema(schema)).toBeNull();
-  });
+    [
+      "a free-form object with no declared properties",
+      {
+        type: "object",
+        properties: { meta: { type: "object" } },
+        required: ["meta"],
+      },
+    ],
+    [
+      "a union of two object shapes",
+      {
+        type: "object",
+        properties: {
+          item: { anyOf: [{ $ref: "#/$defs/a" }, { $ref: "#/$defs/b" }] },
+        },
+        required: ["item"],
+        $defs: {
+          a: { type: "object", properties: { x: { type: "string" } } },
+          b: { type: "object", properties: { y: { type: "string" } } },
+        },
+      },
+    ],
+  ])(
+    "returns null for %s, which cannot round-trip through strict mode",
+    (_, schema) => {
+      expect(toStrictOutputSchema(schema)).toBeNull();
+    },
+  );
 
   it("still converts a schema that already sets additionalProperties: false", () => {
     expect(

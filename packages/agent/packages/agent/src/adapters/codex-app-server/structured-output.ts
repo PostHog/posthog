@@ -66,12 +66,17 @@ function findBalancedObjectEnd(text: string, start: number): number {
 export function toStrictOutputSchema(
   schema: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  if (!isStrictRepresentable(schema)) return null;
+  if (!isStrictRepresentable(schema, schema)) return null;
   return toStrictSchemaNode(schema) as Record<string, unknown>;
 }
 
-function isStrictRepresentable(node: unknown): boolean {
-  if (Array.isArray(node)) return node.every(isStrictRepresentable);
+function isStrictRepresentable(
+  node: unknown,
+  root: Record<string, unknown>,
+): boolean {
+  if (Array.isArray(node)) {
+    return node.every((item) => isStrictRepresentable(item, root));
+  }
   if (!isPlainObject(node)) return true;
   if (
     node.additionalProperties === true ||
@@ -81,14 +86,29 @@ function isStrictRepresentable(node: unknown): boolean {
   ) {
     return false;
   }
+  if (
+    isObjectSchema(node) &&
+    !isPlainObject(node.properties) &&
+    node.additionalProperties !== false
+  ) {
+    return false;
+  }
+  for (const key of ["anyOf", "oneOf"]) {
+    const options = node[key];
+    if (Array.isArray(options) && objectBranches(options, root).length > 1) {
+      return false;
+    }
+  }
   for (const key of ["items", "anyOf", "oneOf", "allOf"]) {
-    if (key in node && !isStrictRepresentable(node[key])) return false;
+    if (key in node && !isStrictRepresentable(node[key], root)) return false;
   }
   for (const key of ["$defs", "definitions", "properties"]) {
     const children = node[key];
     if (
       isPlainObject(children) &&
-      !Object.values(children).every(isStrictRepresentable)
+      !Object.values(children).every((child) =>
+        isStrictRepresentable(child, root),
+      )
     ) {
       return false;
     }
@@ -115,9 +135,7 @@ function toStrictSchemaNode(node: unknown): unknown {
     }
   }
   const properties = isPlainObject(node.properties) ? node.properties : null;
-  const isObjectType =
-    node.type === "object" ||
-    (Array.isArray(node.type) && node.type.includes("object"));
+  const isObjectType = isObjectSchema(node);
   if (properties && !isObjectType) {
     result.properties = Object.fromEntries(
       Object.entries(properties).map(([name, property]) => [
@@ -167,10 +185,9 @@ function stripSyntheticNullsNode(
   if (!isPlainObject(value)) return value;
   const objectBranch = singleObjectBranch(schema, root);
   if (objectBranch) return stripSyntheticNullsNode(value, objectBranch, root);
-  const isObjectType =
-    schema.type === "object" ||
-    (Array.isArray(schema.type) && schema.type.includes("object"));
-  if (!isObjectType || !isPlainObject(schema.properties)) return value;
+  if (!isObjectSchema(schema) || !isPlainObject(schema.properties)) {
+    return value;
+  }
   const properties = schema.properties;
   const required = new Set(
     Array.isArray(schema.required) ? schema.required : [],
@@ -200,17 +217,19 @@ function singleObjectBranch(
   for (const key of ["anyOf", "oneOf"]) {
     const options = schema[key];
     if (!Array.isArray(options)) continue;
-    const objectOptions = options.filter((option) => {
-      const resolved = resolveLocalRef(option, root);
-      return (
-        isPlainObject(resolved) &&
-        (resolved.type === "object" ||
-          (Array.isArray(resolved.type) && resolved.type.includes("object")))
-      );
-    });
-    if (objectOptions.length === 1) return objectOptions[0];
+    const branches = objectBranches(options, root);
+    if (branches.length === 1) return branches[0];
   }
   return null;
+}
+
+function objectBranches(
+  options: unknown[],
+  root: Record<string, unknown>,
+): unknown[] {
+  return options.filter((option) =>
+    isObjectSchema(resolveLocalRef(option, root)),
+  );
 }
 
 function acceptsNull(node: unknown, root: Record<string, unknown>): boolean {
@@ -268,6 +287,14 @@ function toNullableSchema(node: unknown): unknown {
     result.enum = [...node.enum, null];
   }
   return result;
+}
+
+function isObjectSchema(node: unknown): node is Record<string, unknown> {
+  return (
+    isPlainObject(node) &&
+    (node.type === "object" ||
+      (Array.isArray(node.type) && node.type.includes("object")))
+  );
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
