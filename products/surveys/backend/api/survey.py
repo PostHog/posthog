@@ -80,7 +80,11 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
-from products.surveys.backend.global_cooldown import build_user_interacted_filters, get_effective_wait_period_days
+from products.surveys.backend.global_cooldown import (
+    WAIT_PERIOD_KEY,
+    build_user_interacted_filters,
+    get_effective_wait_period_days,
+)
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
@@ -3523,7 +3527,16 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_conditions(self, survey: Survey):
-        return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+        conditions = get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+        # Only the SDK payload passes the survey configs. SDKs enforce the wait period on the device too,
+        # so that payload sends the effective value. Each survey uses its own environment, like its targeting flag.
+        survey_configs_by_team_id = self.context.get("survey_configs_by_team_id")
+        if survey_configs_by_team_id is None:
+            return conditions
+        wait_period_days = get_effective_wait_period_days(conditions, survey_configs_by_team_id.get(survey.team_id))
+        if wait_period_days is None:
+            return conditions
+        return {**(conditions or {}), WAIT_PERIOD_KEY: wait_period_days}
 
     @extend_schema_field(
         serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)
@@ -3590,6 +3603,11 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
     # stopped surveys are payload every client downloads and throws away. The nullness check mirrors
     # the SDKs' own `isSurveyRunning`; keeping it time-independent matters because this response is
     # cached and only rebuilt when a survey is saved, so a comparison against `now` would go stale.
+    survey_configs_by_team_id = dict(
+        Team.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(project_id=team.project_id)
+        .values_list("id", "survey_config")
+    )
     surveys = SurveyAPISerializer(
         Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
         .filter(team__project_id=team.project_id)
@@ -3606,6 +3624,7 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # Launch order (oldest first) keeps that winner deterministic across cache rebuilds.
         .order_by("start_date", "created_at", "id"),
         many=True,
+        context={"survey_configs_by_team_id": survey_configs_by_team_id},
     ).data
 
     return {"surveys": surveys}
