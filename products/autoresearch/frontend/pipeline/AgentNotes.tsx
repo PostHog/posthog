@@ -11,7 +11,7 @@ export function AgentNotes(): JSX.Element | null {
         return null
     }
     const { readerSummary, nextSteps, distillation, recommendedNext, runNumber } = agentNotes
-    // The agent writes its own notes for the next run to read, so show them only when nothing plainer exists.
+    // The agent writes its own notes for its next run, so they go behind a toggle when plainer notes exist.
     const hasReaderNotes = !!readerSummary || nextSteps.length > 0
     const hasWorkingNotes = !!distillation || !!recommendedNext
     return (
