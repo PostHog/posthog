@@ -10986,6 +10986,7 @@ export namespace Schemas {
 
     export interface BIConfig {
       chartType: ChartDisplayType;
+      colorBy?: string | null;
       columns: BIField[];
       compareFilter?: CompareFilter | null;
       /** Explore only the comparison window, using dateRange as its reference window. */

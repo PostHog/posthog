@@ -131,6 +131,7 @@ export function BIToolbar(): JSX.Element {
                 onChange={setLimit}
                 renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
                 aria-label="Query row limit"
+                tooltip="Maximum aggregated result rows, after grouping and calculations. This does not limit the source rows read."
                 size="xsmall"
                 type="tertiary"
                 dropdownMatchSelectWidth={false}

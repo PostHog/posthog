@@ -362,6 +362,27 @@ describe('BI editor query generation', () => {
         expect(result.node.display).toBe(chartType)
     })
 
+    it('changes color grouping without changing aggregation, and persists single-color mode', () => {
+        const config: BIConfig = {
+            ...DEFAULT_BI_CONFIG,
+            source: eventField.source,
+            rows: [eventField],
+            columns: [browserField],
+        }
+        const automatic = buildBIQuery(config)!
+        const colorByColumn = buildBIQuery({ ...config, colorBy: browserField.id })!
+        expect(colorByColumn.query).toBe(automatic.query)
+        expect(colorByColumn.node.chartSettings?.seriesBreakdownColumn).toBe('bi_column_browser')
+        expect(colorByColumn.node.chartSettings?.xAxis?.column).toBe('bi_row_event')
+        const single = buildBIQuery({ ...config, colorBy: null })!
+        expect(single.query).toBe(automatic.query)
+        expect(single.node.chartSettings?.seriesBreakdownColumn).toBe(
+            automatic.node.chartSettings?.seriesBreakdownColumn
+        )
+        expect(parseBIEditorState(BIEditorView.BI, { ...config, colorBy: null })?.config.colorBy).toBeNull()
+        expect(parseBIEditorState(BIEditorView.BI, { ...config, colorBy: 'removed' })?.config.colorBy).toBeUndefined()
+    })
+
     it('keeps a numeric column dimension on the x-axis instead of treating it as a measure', () => {
         const result = buildBIQuery({
             ...DEFAULT_BI_CONFIG,

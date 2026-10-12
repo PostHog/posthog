@@ -134,6 +134,7 @@ export interface BIConfig {
     source: BIDataSource | null
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIField[]
+    colorBy?: string | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
     dateRange?: DateRange

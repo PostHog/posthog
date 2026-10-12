@@ -8536,6 +8536,7 @@ export interface BIValueApi {
 
 export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
+    colorBy?: string | null
     columns: BIFieldApi[]
     compareFilter?: CompareFilterApi | null
     /** Explore only the comparison window, using dateRange as its reference window. */

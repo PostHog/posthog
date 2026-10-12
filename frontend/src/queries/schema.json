@@ -6147,6 +6147,9 @@
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
+                "colorBy": {
+                    "type": ["string", "null"]
+                },
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/BIField"

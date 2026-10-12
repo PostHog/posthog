@@ -86,6 +86,12 @@ With `SQL_EDITOR_BI_MODE` enabled, choose **Add calculated field** in the data p
 
 Calculated fields appear in Dimensions or Measures with a ƒ indicator. Drag or double-click them to reuse the definition. Editing a definition updates its name and expression on every shelf, including duplicated uses; date granularities and measure display settings remain independent. A field's role cannot change after creation. **Delete field and all uses** removes the local definition and its shelf/filter uses; Undo restores them. Clear sheet retains the definitions. Save, reload, and Save a copy preserve them inside the worksheet, without creating source-table or project-wide fields.
 
+The result footer reports distinct dimension groups and non-empty measure values (marks), rather than source-row counts. It excludes total rows and marks truncated results as limited. The grouping labels describe the executed query while edits await Run.
+
+Date and timestamp drops start with daily buckets. A date pill offers **Timeline (keeps the year)** buckets and **Date part (combines years)** choices: month of year, quarter of year, and day of week. **Duplicate** creates an independently configurable shelf field, so the same date can appear at two granularities.
+
+**Marks → Color** separates series coloring from shelf grouping. **Single color** preserves every group and series while using one color; switching back restores automatic or customized colors. With two categorical dimensions, select either field to define the colored series and use the other on the axis. Date dimensions remain on the timeline. Automatic uses lines for dates, grouped bars for one or two categorical dimensions, and a number for a single total. Explicit chart choices remain selected. **New worksheet** is available directly in the worksheet header.
+
 ## Filters in BI mode
 
 Drop a field onto the compact Filters shelf beside or below the data pane. Quick filters on the right
@@ -311,7 +317,3 @@ inside expanded connections, and a failed field load has a Retry button.
 Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
 Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
 not include their field types or nested link definitions, so these connections do not infer measures or further links.
-
-The result footer reports distinct dimension groups and non-empty measure values (marks), rather than source-row counts. It excludes total rows and marks truncated results as limited. The grouping labels describe the executed query while edits await Run.
-
-Date and timestamp drops start with daily buckets. A date pill offers **Timeline (keeps the year)** buckets and **Date part (combines years)** choices: month of year, quarter of year, and day of week. **Duplicate** creates an independently configurable shelf field, so the same date can appear at two granularities.

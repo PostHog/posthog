@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconShare } from '@posthog/icons'
+import { IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -89,6 +89,9 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                 <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
                     <LemonButton size="small" to={urls.businessIntelligence()}>
                         Worksheets
+                    </LemonButton>
+                    <LemonButton size="small" icon={<IconPlus />} to={`${urls.businessIntelligenceNew()}#q=`}>
+                        New worksheet
                     </LemonButton>
                     <LemonInput
                         aria-label="Worksheet name"
@@ -183,7 +186,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                       worksheet.config.columns.length ||
                                       worksheet.config.values.length
                                         ? 'Press Run to see the results of this worksheet.'
-                                        : 'Drag a field to rows or columns to build your worksheet.'
+                                        : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
                                     : 'Select a table and add fields to build your worksheet.'}
                             </div>
                         )}
