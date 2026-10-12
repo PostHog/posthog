@@ -13,6 +13,7 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     EventsNode,
     FunnelAggregateByHogQL,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     FunnelStepReference,
@@ -273,6 +274,28 @@ class TestFunnelResultsFormatter(BaseTest):
         output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
         self.assertIn(f"\n{count_label}|5|2\n", output)
         self.assertIn(f"means that 9% of {unit} from the first step completed the funnel.", output)
+
+    def test_funnel_steps_count_label_for_custom_data_warehouse_target(self):
+        warehouse_step = {
+            "table_name": "opportunities",
+            "id_field": "id",
+            "timestamp_field": "created_at",
+            "aggregation_target_field": "account_id",
+        }
+        query = FunnelsQuery(
+            series=[
+                FunnelsDataWarehouseNode(id="opportunities", name="created", **warehouse_step),
+                FunnelsDataWarehouseNode(id="opportunities", name="won", **warehouse_step),
+            ],
+            funnelsFilter=FunnelsFilter(customAggregationTarget=True),
+        )
+        results = [
+            {"name": "created", "count": 5, "average_conversion_time": None, "median_conversion_time": None},
+            {"name": "won", "count": 2, "average_conversion_time": 10, "median_conversion_time": 11},
+        ]
+        output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
+        self.assertIn("\nTotal entity count|5|2\n", output)
+        self.assertIn("means that 9% of entities from the first step completed the funnel.", output)
 
     def test_assistant_funnel_session_aggregation(self):
         query = AssistantFunnelsQuery(

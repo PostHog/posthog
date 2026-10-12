@@ -11,6 +11,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     FunnelsDataWarehouseNode,
+    FunnelsFilter,
     FunnelsQuery,
     FunnelStepReference,
     FunnelVizType,
@@ -163,6 +164,12 @@ class FunnelResultsFormatter:
 
     @property
     def _aggregation(self) -> FunnelAggregation:
+        funnels_filter = self._query.funnelsFilter
+        if isinstance(funnels_filter, FunnelsFilter) and funnels_filter.customAggregationTarget:
+            # Data warehouse steps count rows by each node's aggregation_target_field, not by person.
+            return FunnelAggregation(
+                count_label="Total entity count", distribution_label="Entity distribution", unit="entities"
+            )
         # Group aggregation takes precedence over a HogQL expression, the same as in the funnel query runner.
         if self._query.aggregation_group_type_index is not None:
             return FunnelAggregation(
