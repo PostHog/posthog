@@ -560,8 +560,8 @@ def _finalize_under_lock(
     recommended_next: str,
     distillation: str,
     report_notebook_short_id: str,
-    reader_summary: str | None = None,
-    next_steps: list[str] | None = None,
+    reader_summary: str | None,
+    next_steps: list[str] | None,
 ) -> dict[str, Any]:
     # Re-fetch under lock and re-check status inside the transaction. Both callers (the
     # complete API action and the TaskRun post_save safety net) guard on status outside
