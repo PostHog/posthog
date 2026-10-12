@@ -257,6 +257,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
+#   ticket:write           Every support ticket in the scout's project: status, priority,
+#                          assignee, SLA, escalation, and tags, plus every saved ticket view. It also
+#                          sends CUSTOMER-FACING messages: a reply and a composed ticket both go
+#                          out as email, and an email that is sent cannot be recalled. Note edit
+#                          and delete reach only notes the caller wrote, and note delete is a
+#                          recoverable soft-delete. Ticket delete is not one of the scope's write
+#                          actions, so a scout cannot remove a ticket.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -264,6 +271,10 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+# `ticket:write` misses the bar in a different direction: a reply leaves PostHog and reaches a
+# customer, so it is neither recoverable nor project-scoped in effect. It is grantable on the same
+# terms as the others. A person grants it to one scout on purpose, and the picker row says the
+# scope sends customer-facing replies.
 # Grantable although INTERNAL, which normally means "never on a token a person can obtain". A scout
 # token is minted server-side from this allowlist and never through the consent flow, and the MCP
 # server gates each tool on the token's own scopes rather than on what OAuth advertises, so the grant
@@ -283,6 +294,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "ticket:write",
     }
 )
 

@@ -986,6 +986,10 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        # The ticket grant is the only one that reaches a customer, so the run has to learn the
+        # private-note default before it posts, not after an email has gone out.
+        assert "cannot be taken back" not in granted
+        assert "cannot be taken back" in _prompt(write_scopes=["ticket:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
