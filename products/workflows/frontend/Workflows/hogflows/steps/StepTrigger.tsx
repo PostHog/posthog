@@ -869,13 +869,13 @@ function StepTriggerConfigurationTrackingPixel({
 const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
 const CALENDAR_DAY_TTL = 24 * 60 * 60
 
-const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
+export const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
     { value: null, label: 'Every time the trigger fires' },
     { value: '{person.id}', label: 'One time' },
     { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
 ]
 
-const TTL_OPTIONS = [
+export const TTL_OPTIONS = [
     { value: null, label: 'indefinitely' },
     { value: 5 * 60, label: '5 minutes' },
     { value: 15 * 60, label: '15 minutes' },

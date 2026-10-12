@@ -1,0 +1,183 @@
+import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
+import { getColorVar } from 'lib/colors'
+import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
+import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { percentage } from 'lib/utils/numbers'
+
+import { WorkflowMetricCard } from '../WorkflowMetricCard'
+import { METRIC_COLORS, withDisplayName, workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
+import { WorkflowMessageLeaderboard } from './WorkflowMessageLeaderboard'
+import { WorkflowOverviewDetails } from './WorkflowOverviewDetails'
+
+function total(series: AppMetricsTimeSeriesResponse | null): number {
+    return series?.series.reduce((acc, s) => acc + s.values.reduce((a, v) => a + v, 0), 0) ?? 0
+}
+
+// One response with a line per channel, so the tile totals both and the sparkline splits them.
+function byChannel(
+    email: AppMetricsTimeSeriesResponse | null,
+    push: AppMetricsTimeSeriesResponse | null,
+    labels: { email: string; push: string }
+): AppMetricsTimeSeriesResponse | null {
+    const source = email ?? push
+    if (!source) {
+        return null
+    }
+    return {
+        ...source,
+        series: [
+            { name: labels.email, values: email?.series[0]?.values ?? [] },
+            { name: labels.push, values: push?.series[0]?.values ?? [] },
+        ],
+    }
+}
+
+const OPENED_SERIES_COLORS: Record<string, string> = {
+    'Emails opened': METRIC_COLORS['Opened'],
+    'Push notifications opened': METRIC_COLORS['Push notifications sent'],
+}
+
+function shareOf(part: number, whole: number, noun: string): JSX.Element | null {
+    return whole > 0 ? <span className="text-muted">{`${percentage(part / whole, 1)} of ${noun}`}</span> : null
+}
+
+export function WorkflowOverview({ id }: { id: string }): JSX.Element {
+    const logicKey = `hog-flow-overview-${id}`
+    const { getSingleTrendSeries, appMetricsTrendsLoading } = useValues(
+        appMetricsLogic({
+            logicKey,
+            loadOnChanges: true,
+            loadOnMount: true,
+            defaultParams: { dateFrom: '-30d', interval: 'day' },
+            forceParams: { appSource: 'hog_flow', appSourceId: id, breakdownBy: 'metric_name' },
+        })
+    )
+    const { messagingChannels, sentSummaryLabel, hasConversionGoal, convertedUsersUrl, conversionStats } = useValues(
+        workflowMetricsSummaryLogic({ logicKey, id })
+    )
+    const { hasEmail, hasPush } = messagingChannels
+
+    const sentFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
+        hasEmail && hasPush
+            ? byChannel(getSingleTrendSeries('email_sent', previous), getSingleTrendSeries('push_sent', previous), {
+                  email: 'Emails sent',
+                  push: 'Push notifications sent',
+              })
+            : withDisplayName(getSingleTrendSeries(hasPush ? 'push_sent' : 'email_sent', previous), sentSummaryLabel)
+    const openedFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
+        hasEmail && hasPush
+            ? byChannel(getSingleTrendSeries('email_opened', previous), getSingleTrendSeries('push_opened', previous), {
+                  email: 'Emails opened',
+                  push: 'Push notifications opened',
+              })
+            : withDisplayName(getSingleTrendSeries(hasPush ? 'push_opened' : 'email_opened', previous), 'Opened')
+
+    const started = withDisplayName(getSingleTrendSeries('triggered'), 'Workflows started')
+    const sent = sentFor()
+    const opened = openedFor()
+    const clicked = withDisplayName(getSingleTrendSeries('email_link_clicked'), 'Link clicked')
+    const converted = withDisplayName(getSingleTrendSeries('conversion'), 'Workflows converted')
+    const sentTotal = total(sent)
+
+    return (
+        <div className="@container flex flex-col gap-4" data-attr="workflow-overview">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+                <AppMetricsFilters logicKey={logicKey} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-5">
+                <WorkflowMetricCard
+                    name="Started"
+                    description="Workflow runs that started in this date range."
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={started}
+                    previousPeriodTimeSeries={withDisplayName(
+                        getSingleTrendSeries('triggered', true),
+                        'Workflows started'
+                    )}
+                    color={METRIC_COLORS['Workflows started']}
+                    colorIfZero={getColorVar('muted')}
+                    compact
+                    className="min-w-0"
+                />
+                {hasEmail || hasPush ? (
+                    <WorkflowMetricCard
+                        name="Sent"
+                        description={`${sentSummaryLabel} by this workflow in this date range.`}
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={sent}
+                        previousPeriodTimeSeries={sentFor(true)}
+                        color={METRIC_COLORS[sentSummaryLabel]}
+                        seriesColors={METRIC_COLORS}
+                        colorIfZero={getColorVar('muted')}
+                        compact
+                        className="min-w-0"
+                    />
+                ) : null}
+                {hasEmail || hasPush ? (
+                    <WorkflowMetricCard
+                        name="Opened"
+                        description="Opens recorded in this date range. Only tracked emails can record opens."
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={opened}
+                        previousPeriodTimeSeries={openedFor(true)}
+                        color={METRIC_COLORS['Opened']}
+                        seriesColors={OPENED_SERIES_COLORS}
+                        colorIfZero={getColorVar('muted')}
+                        footer={shareOf(total(opened), sentTotal, 'sent')}
+                        compact
+                        className="min-w-0"
+                    />
+                ) : null}
+                {hasEmail ? (
+                    <WorkflowMetricCard
+                        name="Clicked"
+                        description="Email link clicks recorded in this date range."
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={clicked}
+                        previousPeriodTimeSeries={withDisplayName(
+                            getSingleTrendSeries('email_link_clicked', true),
+                            'Link clicked'
+                        )}
+                        color={METRIC_COLORS['Link clicked']}
+                        colorIfZero={getColorVar('muted')}
+                        footer={shareOf(total(clicked), sentTotal, 'sent')}
+                        compact
+                        className="min-w-0"
+                    />
+                ) : null}
+                {hasConversionGoal ? (
+                    <WorkflowMetricCard
+                        name="Converted"
+                        description="Conversions recorded in this date range against the workflow's goal."
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={converted}
+                        previousPeriodTimeSeries={withDisplayName(
+                            getSingleTrendSeries('conversion', true),
+                            'Workflows converted'
+                        )}
+                        color={METRIC_COLORS['Workflows converted']}
+                        colorIfZero={getColorVar('muted')}
+                        footer={
+                            conversionStats.conversions > 0 ? (
+                                <Link to={convertedUsersUrl}>View converted people</Link>
+                            ) : (
+                                shareOf(total(converted), total(started), 'started')
+                            )
+                        }
+                        compact
+                        className="min-w-0"
+                    />
+                ) : null}
+            </div>
+
+            <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-2">
+                <WorkflowOverviewDetails id={id} />
+                <WorkflowMessageLeaderboard id={id} logicKey={logicKey} />
+            </div>
+        </div>
+    )
+}

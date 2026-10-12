@@ -27,6 +27,7 @@ import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowOverview } from './overview/WorkflowOverview'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
 import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
 import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
@@ -107,6 +108,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
@@ -166,6 +168,14 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
 
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
+        // Batch workflows report per run, so a rolling overview does not fit them.
+        overviewTabEnabled && originalWorkflow.trigger?.type !== 'batch'
+            ? {
+                  label: 'Overview',
+                  key: 'overview',
+                  content: <WorkflowOverview id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Workflow',
             key: 'workflow',
