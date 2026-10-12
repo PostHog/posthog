@@ -44,9 +44,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
     codebase_detection = detect(
         env=("^MIXPANEL_",),
+        script_hosts=("mxpnl.com",),
         npm=("mixpanel", "mixpanel-browser"),
         pypi=("mixpanel",),
+        cocoapods=("Mixpanel-swift", "Mixpanel"),
+        composer=("mixpanel/mixpanel-php",),
+        go=("github.com/mixpanel/mixpanel-go",),
+        maven=("com.mixpanel.android:mixpanel-android",),
+        pub=("mixpanel_flutter",),
         rubygems=("mixpanel-ruby",),
+        swiftpm=("github.com/mixpanel/mixpanel-swift", "github.com/mixpanel/mixpanel-iphone"),
         competes_with=(ProductKey.PRODUCT_ANALYTICS,),
     )
 

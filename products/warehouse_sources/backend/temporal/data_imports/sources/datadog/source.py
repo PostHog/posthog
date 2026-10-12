@@ -48,9 +48,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     codebase_detection = detect(
         env=("^DATADOG_", "^DD_API_KEY$", "^DD_APP_KEY$"),
+        script_hosts=("datadoghq-browser-agent.com",),
         npm=("@datadog/datadog-api-client", "dd-trace"),
         pypi=("datadog", "datadog-api-client"),
+        cocoapods=("DatadogCore", "DatadogRUM"),
+        composer=("datadog/dd-trace",),
+        go=("gopkg.in/DataDog/dd-trace-go.v1", "github.com/DataDog/dd-trace-go"),
+        maven=("com.datadoghq:dd-sdk-android-rum", "com.datadoghq:dd-sdk-android-logs"),
+        pub=("datadog_flutter_plugin",),
         rubygems=("dogapi",),
+        swiftpm=("github.com/datadog/dd-sdk-ios",),
         competes_with=(ProductKey.LOGS, ProductKey.TRACING, ProductKey.ERROR_TRACKING),
     )
 

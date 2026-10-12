@@ -156,7 +156,16 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
     # Matches both MONGO_* and MONGODB_* prefixes (e.g. MONGO_HOST,
     # MONGODB_URI) in one pattern.
     codebase_detection = detect(
-        env=("^MONGO(DB)?_",), npm=("mongodb", "mongoose"), pypi=("pymongo", "motor"), rubygems=("mongo", "mongoid")
+        env=("^MONGO(DB)?_",),
+        npm=("mongodb", "mongoose"),
+        pypi=("pymongo", "motor"),
+        cargo=("mongodb",),
+        composer=("mongodb/mongodb",),
+        go=("go.mongodb.org/mongo-driver",),
+        hex=("mongodb_driver",),
+        maven=("org.mongodb:mongodb-driver-sync",),
+        pub=("mongo_dart",),
+        rubygems=("mongo", "mongoid"),
     )
 
     @property

@@ -50,7 +50,11 @@ class GrowthBookSource(ResumableSource[GrowthBookSourceConfig, GrowthBookResumeC
         env=("^GROWTHBOOK_",),
         npm=("@growthbook/growthbook", "@growthbook/growthbook-react"),
         pypi=("growthbook",),
+        composer=("growthbook/growthbook",),
+        go=("github.com/growthbook/growthbook-golang",),
+        pub=("growthbook_sdk_flutter",),
         rubygems=("growthbook",),
+        swiftpm=("github.com/growthbook/growthbook-swift",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

@@ -44,8 +44,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
     codebase_detection = detect(
         env=("^SEGMENT_",),
+        script_hosts=("cdn.segment.com",),
         npm=("@segment/analytics-node", "analytics-node"),
         pypi=("segment-analytics-python", "analytics-python"),
+        composer=("segmentio/analytics-php",),
+        go=("github.com/segmentio/analytics-go",),
+        maven=("com.segment.analytics.kotlin:android", "com.segment.analytics.android:analytics"),
+        swiftpm=("github.com/segmentio/analytics-swift",),
         competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 

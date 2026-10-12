@@ -50,6 +50,20 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
         npm=("@sentry/node", "@sentry/browser", "@sentry/react", "@sentry/nextjs"),
         pypi=("sentry-sdk",),
         rubygems=("sentry-ruby",),
+        composer=("sentry/sentry", "sentry/sentry-laravel", "sentry/sentry-symfony"),
+        hex=("sentry",),
+        go=("github.com/getsentry/sentry-go",),
+        cargo=("sentry",),
+        maven=(
+            "io.sentry:sentry",
+            "io.sentry:sentry-android",
+            "io.sentry:sentry-spring-boot-starter",
+            "io.sentry:sentry-kotlin-multiplatform",
+        ),
+        swiftpm=("github.com/getsentry/sentry-cocoa",),
+        cocoapods=("Sentry",),
+        pub=("sentry", "sentry_flutter"),
+        script_hosts=("browser.sentry-cdn.com", "js.sentry-cdn.com"),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

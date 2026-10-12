@@ -65,6 +65,8 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         env=("^SLACK_(BOT|APP|SIGNING|CLIENT)_",),
         npm=("@slack/web-api", "@slack/bolt"),
         pypi=("slack-sdk", "slack-bolt"),
+        go=("github.com/slack-go/slack",),
+        maven=("com.slack.api:slack-api-client",),
         setup_requires_ui=True,
     )
 

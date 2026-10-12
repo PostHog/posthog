@@ -40,8 +40,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
     codebase_detection = detect(
         env=("^ROLLBAR_",),
+        script_hosts=("cdn.rollbar.com",),
         npm=("rollbar",),
         pypi=("rollbar", "pyrollbar"),
+        cocoapods=("RollbarNotifier",),
+        composer=("rollbar/rollbar", "rollbar/rollbar-laravel"),
+        go=("github.com/rollbar/rollbar-go",),
+        maven=("com.rollbar:rollbar-java", "com.rollbar:rollbar-android"),
+        pub=("rollbar_flutter",),
         rubygems=("rollbar",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )

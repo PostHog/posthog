@@ -42,6 +42,10 @@ class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]
         env=("^SNOWPLOW_",),
         npm=("@snowplow/node-tracker",),
         pypi=("snowplow-tracker",),
+        go=("github.com/snowplow/snowplow-golang-tracker",),
+        maven=("com.snowplowanalytics:snowplow-android-tracker",),
+        pub=("snowplow_tracker",),
+        swiftpm=("github.com/snowplow/snowplow-ios-tracker",),
         competes_with=(ProductKey.PRODUCT_ANALYTICS,),
     )
 

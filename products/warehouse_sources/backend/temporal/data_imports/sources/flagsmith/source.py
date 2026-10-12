@@ -57,6 +57,11 @@ class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConf
         env=("^FLAGSMITH_",),
         npm=("flagsmith-nodejs", "flagsmith"),
         pypi=("flagsmith",),
+        cargo=("flagsmith",),
+        composer=("flagsmith/flagsmith-php-client",),
+        maven=("com.flagsmith:flagsmith-java-client",),
+        pub=("flagsmith",),
+        swiftpm=("github.com/flagsmith/flagsmith-ios-client",),
         competes_with=(ProductKey.FEATURE_FLAGS,),
     )
 

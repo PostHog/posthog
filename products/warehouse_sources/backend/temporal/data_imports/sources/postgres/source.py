@@ -473,6 +473,11 @@ class PostgresSource(
         env=("^DATABASE_URL$", "^POSTGRES_", "^PG(HOST|DATABASE|USER|PORT)$"),
         npm=("pg", "postgres", "postgres.js", "knex", "sequelize"),
         pypi=("psycopg", "psycopg2", "psycopg2-binary", "asyncpg"),
+        cargo=("tokio-postgres", "postgres"),
+        go=("github.com/jackc/pgx", "github.com/lib/pq"),
+        hex=("postgrex",),
+        maven=("org.postgresql:postgresql",),
+        pub=("postgres",),
         rubygems=("pg",),
         superseded_by=("Neon", "Supabase"),
     )

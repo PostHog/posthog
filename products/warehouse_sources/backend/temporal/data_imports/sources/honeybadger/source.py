@@ -40,6 +40,10 @@ class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResu
         env=("^HONEYBADGER_",),
         npm=("@honeybadger-io/js",),
         pypi=("honeybadger",),
+        composer=("honeybadger-io/honeybadger-php", "honeybadger-io/honeybadger-laravel"),
+        go=("github.com/honeybadger-io/honeybadger-go",),
+        hex=("honeybadger",),
+        maven=("io.honeybadger:honeybadger-java",),
         rubygems=("honeybadger",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )

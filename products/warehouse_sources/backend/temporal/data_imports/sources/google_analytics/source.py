@@ -73,8 +73,10 @@ _MISSING_SCOPE_ERROR = (
 
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
+    # gtag.js loads from googletagmanager.com, so a Tag Manager container also matches. It nearly always carries GA.
     codebase_detection = detect(
         env=("^GOOGLE_ANALYTICS_", "^GA4_"),
+        script_hosts=("google-analytics.com", "googletagmanager.com"),
         npm=("react-ga4",),
         pypi=("google-analytics-data",),
         competes_with=(ProductKey.WEB_ANALYTICS,),

@@ -40,8 +40,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class NewRelicSource(ResumableSource[NewRelicSourceConfig, NewRelicResumeConfig]):
     codebase_detection = detect(
         env=("^NEW_RELIC_", "^NEWRELIC_"),
+        script_hosts=("js-agent.newrelic.com",),
         npm=("newrelic",),
         pypi=("newrelic",),
+        cocoapods=("NewRelicAgent",),
+        go=("github.com/newrelic/go-agent",),
+        hex=("new_relic_agent",),
+        maven=("com.newrelic.agent.java:newrelic-api", "com.newrelic.agent.android:android-agent"),
+        pub=("newrelic_mobile",),
         rubygems=("newrelic_rpm",),
         competes_with=(ProductKey.LOGS, ProductKey.TRACING),
     )

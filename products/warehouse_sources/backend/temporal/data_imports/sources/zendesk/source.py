@@ -44,8 +44,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
     codebase_detection = detect(
         env=("^ZENDESK_",),
+        script_hosts=("static.zdassets.com",),
         npm=("node-zendesk",),
         pypi=("zenpy",),
+        composer=("zendesk/zendesk_api_client_php",),
         competes_with=(ProductKey.CONVERSATIONS,),
         setup_requires_ui=True,
     )

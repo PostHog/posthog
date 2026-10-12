@@ -41,6 +41,8 @@ class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
         env=("^STATSIG_",),
         npm=("statsig-js", "statsig-node", "@statsig/js-client", "@statsig/react-bindings"),
         pypi=("statsig",),
+        go=("github.com/statsig-io/go-sdk",),
+        pub=("statsig",),
         rubygems=("statsig",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )

@@ -51,6 +51,7 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         env=("^RAYGUN_",),
         npm=("raygun",),
         pypi=("raygun4py",),
+        composer=("mindscape/raygun4php",),
         rubygems=("raygun4ruby",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )

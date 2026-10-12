@@ -45,7 +45,15 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
             "launchdarkly-react-client-sdk",
         ),
         pypi=("launchdarkly-server-sdk",),
+        cargo=("launchdarkly-server-sdk",),
+        cocoapods=("LaunchDarkly",),
+        composer=("launchdarkly/server-sdk",),
+        go=("github.com/launchdarkly/go-server-sdk",),
+        hex=("launchdarkly_server_sdk",),
+        maven=("com.launchdarkly:launchdarkly-java-server-sdk", "com.launchdarkly:launchdarkly-android-client-sdk"),
+        pub=("launchdarkly_flutter_client_sdk",),
         rubygems=("launchdarkly-server-sdk",),
+        swiftpm=("github.com/launchdarkly/ios-client-sdk",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

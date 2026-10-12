@@ -85,7 +85,14 @@ class CustomerIOSource(
     WebhookSource[CustomerIOSourceConfig],
 ):
     codebase_detection = detect(
-        env=("^CUSTOMER_?IO_",), npm=("customerio-node",), pypi=("customerio",), competes_with=(ProductKey.WORKFLOWS,)
+        env=("^CUSTOMER_?IO_",),
+        script_hosts=("assets.customer.io",),
+        npm=("customerio-node",),
+        pypi=("customerio",),
+        go=("github.com/customerio/go-customerio",),
+        pub=("customer_io",),
+        swiftpm=("github.com/customerio/customerio-ios",),
+        competes_with=(ProductKey.WORKFLOWS,),
     )
 
     supported_versions = ("v1",)

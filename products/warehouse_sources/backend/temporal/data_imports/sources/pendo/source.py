@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
     codebase_detection = detect(
         env=("^PENDO_",),
+        script_hosts=("cdn.pendo.io",),
         npm=("@pendo/agent",),
         competes_with=(ProductKey.PRODUCT_ANALYTICS, ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
     )

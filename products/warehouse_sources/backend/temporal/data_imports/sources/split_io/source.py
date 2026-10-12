@@ -42,6 +42,11 @@ class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
         env=("^SPLITIO_", "^SPLIT_IO_"),
         npm=("@splitsoftware/splitio",),
         pypi=("splitio-client",),
+        composer=("splitsoftware/split-sdk-php",),
+        go=("github.com/splitio/go-client",),
+        maven=("io.split.client:java-client", "io.split.client:android-client"),
+        pub=("splitio",),
+        swiftpm=("github.com/splitio/ios-client",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

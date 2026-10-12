@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConfig]):
     codebase_detection = detect(
         env=("^FULLSTORY_",),
+        script_hosts=("edge.fullstory.com",),
         npm=("@fullstory/browser", "@fullstory/react-native"),
         competes_with=(ProductKey.SESSION_REPLAY,),
     )

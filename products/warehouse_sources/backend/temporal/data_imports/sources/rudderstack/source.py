@@ -45,8 +45,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResumeConfig]):
     codebase_detection = detect(
         env=("^RUDDERSTACK_",),
+        script_hosts=("cdn.rudderlabs.com",),
         npm=("@rudderstack/analytics-js", "@rudderstack/rudder-sdk-node", "rudder-sdk-js"),
         pypi=("rudder-sdk-python",),
+        go=("github.com/rudderlabs/analytics-go",),
+        maven=("com.rudderstack.android.sdk:core",),
+        pub=("rudder_sdk_flutter",),
         competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 

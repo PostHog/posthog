@@ -45,6 +45,7 @@ class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResu
     codebase_detection = detect(
         env=("^BETTERSTACK_", "^BETTER_STACK_", "^LOGTAIL_"),
         npm=("@logtail/node", "@logtail/js"),
+        composer=("logtail/monolog-logtail",),
         competes_with=(ProductKey.LOGS,),
     )
 

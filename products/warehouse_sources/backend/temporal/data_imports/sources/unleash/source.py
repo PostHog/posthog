@@ -37,7 +37,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
     codebase_detection = detect(
-        env=("^UNLEASH_",), npm=("unleash-client",), pypi=("unleashclient",), competes_with=(ProductKey.FEATURE_FLAGS,)
+        env=("^UNLEASH_",),
+        npm=("unleash-client",),
+        pypi=("unleashclient",),
+        cargo=("unleash-api-client",),
+        composer=("unleash/client",),
+        go=("github.com/Unleash/unleash-client-go",),
+        hex=("unleash",),
+        maven=("io.getunleash:unleash-client-java",),
+        pub=("unleash_proxy_client_flutter",),
+        competes_with=(ProductKey.FEATURE_FLAGS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

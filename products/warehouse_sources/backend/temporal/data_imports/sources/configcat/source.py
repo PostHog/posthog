@@ -41,6 +41,13 @@ class ConfigCatSource(SimpleSource[ConfigCatSourceConfig]):
         env=("^CONFIGCAT_",),
         npm=("configcat-node", "configcat-js"),
         pypi=("configcat-client",),
+        cargo=("configcat",),
+        composer=("configcat/configcat-client",),
+        go=("github.com/configcat/go-sdk",),
+        hex=("configcat",),
+        maven=("com.configcat:configcat-java-client", "com.configcat:configcat-android-client"),
+        pub=("configcat_client",),
+        swiftpm=("github.com/configcat/swift-sdk",),
         competes_with=(ProductKey.FEATURE_FLAGS,),
     )
 

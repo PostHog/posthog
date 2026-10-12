@@ -40,7 +40,13 @@ class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
         env=("^BUGSNAG_",),
         npm=("@bugsnag/js",),
         pypi=("bugsnag",),
+        cocoapods=("Bugsnag",),
+        composer=("bugsnag/bugsnag", "bugsnag/bugsnag-laravel"),
+        go=("github.com/bugsnag/bugsnag-go",),
+        maven=("com.bugsnag:bugsnag-android",),
+        pub=("bugsnag_flutter",),
         rubygems=("bugsnag",),
+        swiftpm=("github.com/bugsnag/bugsnag-cocoa",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

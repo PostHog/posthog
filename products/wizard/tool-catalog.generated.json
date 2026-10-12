@@ -350,7 +350,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^AMPLITUDE_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.amplitude.com"],
                 "packages": {
                     "npm": [
                         "@amplitude/analytics-browser",
@@ -358,7 +358,12 @@
                         "@amplitude/analytics-react-native",
                         "amplitude-js"
                     ],
-                    "pypi": ["amplitude-analytics"]
+                    "pypi": ["amplitude-analytics"],
+                    "cocoapods": ["AmplitudeSwift", "Amplitude"],
+                    "go": ["github.com/amplitude/analytics-go"],
+                    "maven": ["com.amplitude:analytics-android", "com.amplitude:android-sdk"],
+                    "pub": ["amplitude_flutter"],
+                    "swiftpm": ["github.com/amplitude/amplitude-swift", "github.com/amplitude/amplitude-ios"]
                 }
             }
         },
@@ -374,7 +379,9 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@anthropic-ai/sdk"],
-                    "pypi": ["anthropic"]
+                    "pypi": ["anthropic"],
+                    "go": ["github.com/anthropics/anthropic-sdk-go"],
+                    "maven": ["com.anthropic:anthropic-java"]
                 }
             }
         },
@@ -1079,7 +1086,8 @@
                 "env_key_patterns": ["^BETTERSTACK_", "^BETTER_STACK_", "^LOGTAIL_"],
                 "script_hosts": [],
                 "packages": {
-                    "npm": ["@logtail/node", "@logtail/js"]
+                    "npm": ["@logtail/node", "@logtail/js"],
+                    "composer": ["logtail/monolog-logtail"]
                 }
             }
         },
@@ -1136,7 +1144,10 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@google-cloud/bigquery"],
-                    "pypi": ["google-cloud-bigquery"]
+                    "pypi": ["google-cloud-bigquery"],
+                    "composer": ["google/cloud-bigquery"],
+                    "go": ["cloud.google.com/go/bigquery"],
+                    "maven": ["com.google.cloud:google-cloud-bigquery"]
                 }
             }
         },
@@ -1352,10 +1363,13 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^BRAZE_"],
-                "script_hosts": [],
+                "script_hosts": ["js.appboycdn.com"],
                 "packages": {
                     "npm": ["@braze/web-sdk", "@braze/react-native-sdk"],
-                    "pypi": ["braze-client"]
+                    "pypi": ["braze-client"],
+                    "maven": ["com.braze:android-sdk-ui"],
+                    "pub": ["braze_plugin"],
+                    "swiftpm": ["github.com/braze-inc/braze-swift-sdk"]
                 }
             }
         },
@@ -1469,7 +1483,13 @@
                 "packages": {
                     "npm": ["@bugsnag/js"],
                     "pypi": ["bugsnag"],
-                    "rubygems": ["bugsnag"]
+                    "cocoapods": ["Bugsnag"],
+                    "composer": ["bugsnag/bugsnag", "bugsnag/bugsnag-laravel"],
+                    "go": ["github.com/bugsnag/bugsnag-go"],
+                    "maven": ["com.bugsnag:bugsnag-android"],
+                    "pub": ["bugsnag_flutter"],
+                    "rubygems": ["bugsnag"],
+                    "swiftpm": ["github.com/bugsnag/bugsnag-cocoa"]
                 }
             }
         },
@@ -2025,7 +2045,10 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@clickhouse/client"],
-                    "pypi": ["clickhouse-connect", "clickhouse-driver"]
+                    "pypi": ["clickhouse-connect", "clickhouse-driver"],
+                    "cargo": ["clickhouse"],
+                    "go": ["github.com/ClickHouse/clickhouse-go"],
+                    "maven": ["com.clickhouse:clickhouse-jdbc"]
                 }
             }
         },
@@ -2405,7 +2428,14 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["configcat-node", "configcat-js"],
-                    "pypi": ["configcat-client"]
+                    "pypi": ["configcat-client"],
+                    "cargo": ["configcat"],
+                    "composer": ["configcat/configcat-client"],
+                    "go": ["github.com/configcat/go-sdk"],
+                    "hex": ["configcat"],
+                    "maven": ["com.configcat:configcat-java-client", "com.configcat:configcat-android-client"],
+                    "pub": ["configcat_client"],
+                    "swiftpm": ["github.com/configcat/swift-sdk"]
                 }
             }
         },
@@ -2632,10 +2662,13 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^CUSTOMER_?IO_"],
-                "script_hosts": [],
+                "script_hosts": ["assets.customer.io"],
                 "packages": {
                     "npm": ["customerio-node"],
-                    "pypi": ["customerio"]
+                    "pypi": ["customerio"],
+                    "go": ["github.com/customerio/go-customerio"],
+                    "pub": ["customer_io"],
+                    "swiftpm": ["github.com/customerio/customerio-ios"]
                 }
             }
         },
@@ -2703,11 +2736,17 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^DATADOG_", "^DD_API_KEY$", "^DD_APP_KEY$"],
-                "script_hosts": [],
+                "script_hosts": ["datadoghq-browser-agent.com"],
                 "packages": {
                     "npm": ["@datadog/datadog-api-client", "dd-trace"],
                     "pypi": ["datadog", "datadog-api-client"],
-                    "rubygems": ["dogapi"]
+                    "cocoapods": ["DatadogCore", "DatadogRUM"],
+                    "composer": ["datadog/dd-trace"],
+                    "go": ["gopkg.in/DataDog/dd-trace-go.v1", "github.com/DataDog/dd-trace-go"],
+                    "maven": ["com.datadoghq:dd-sdk-android-rum", "com.datadoghq:dd-sdk-android-logs"],
+                    "pub": ["datadog_flutter_plugin"],
+                    "rubygems": ["dogapi"],
+                    "swiftpm": ["github.com/datadog/dd-sdk-ios"]
                 }
             }
         },
@@ -3591,7 +3630,13 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["firebase-admin", "firebase"],
-                    "pypi": ["firebase-admin"]
+                    "pypi": ["firebase-admin"],
+                    "cocoapods": ["FirebaseFirestore"],
+                    "composer": ["kreait/firebase-php"],
+                    "go": ["firebase.google.com/go"],
+                    "maven": ["com.google.firebase:firebase-firestore"],
+                    "pub": ["cloud_firestore"],
+                    "swiftpm": ["github.com/firebase/firebase-ios-sdk"]
                 }
             }
         },
@@ -3651,7 +3696,12 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["flagsmith-nodejs", "flagsmith"],
-                    "pypi": ["flagsmith"]
+                    "pypi": ["flagsmith"],
+                    "cargo": ["flagsmith"],
+                    "composer": ["flagsmith/flagsmith-php-client"],
+                    "maven": ["com.flagsmith:flagsmith-java-client"],
+                    "pub": ["flagsmith"],
+                    "swiftpm": ["github.com/flagsmith/flagsmith-ios-client"]
                 }
             }
         },
@@ -3866,7 +3916,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^FULLSTORY_"],
-                "script_hosts": [],
+                "script_hosts": ["edge.fullstory.com"],
                 "packages": {
                     "npm": ["@fullstory/browser", "@fullstory/react-native"]
                 }
@@ -4078,6 +4128,7 @@
                 "packages": {
                     "npm": ["@octokit/rest", "@octokit/core", "@octokit/graphql", "octokit"],
                     "pypi": ["pygithub"],
+                    "go": ["github.com/google/go-github"],
                     "rubygems": ["octokit"]
                 }
             }
@@ -4215,7 +4266,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^GOOGLE_ANALYTICS_", "^GA4_"],
-                "script_hosts": [],
+                "script_hosts": ["google-analytics.com", "googletagmanager.com"],
                 "packages": {
                     "npm": ["react-ga4"],
                     "pypi": ["google-analytics-data"]
@@ -4399,7 +4450,11 @@
                 "packages": {
                     "npm": ["@growthbook/growthbook", "@growthbook/growthbook-react"],
                     "pypi": ["growthbook"],
-                    "rubygems": ["growthbook"]
+                    "composer": ["growthbook/growthbook"],
+                    "go": ["github.com/growthbook/growthbook-golang"],
+                    "pub": ["growthbook_sdk_flutter"],
+                    "rubygems": ["growthbook"],
+                    "swiftpm": ["github.com/growthbook/growthbook-swift"]
                 }
             }
         },
@@ -4480,7 +4535,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^HEAP_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.heapanalytics.com"],
                 "packages": {}
             }
         },
@@ -4642,6 +4697,10 @@
                 "packages": {
                     "npm": ["@honeybadger-io/js"],
                     "pypi": ["honeybadger"],
+                    "composer": ["honeybadger-io/honeybadger-php", "honeybadger-io/honeybadger-laravel"],
+                    "go": ["github.com/honeybadger-io/honeybadger-go"],
+                    "hex": ["honeybadger"],
+                    "maven": ["io.honeybadger:honeybadger-java"],
                     "rubygems": ["honeybadger"]
                 }
             }
@@ -4699,7 +4758,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^HOTJAR_"],
-                "script_hosts": [],
+                "script_hosts": ["static.hotjar.com", "script.hotjar.com"],
                 "packages": {
                     "npm": ["@hotjar/browser", "react-hotjar"]
                 }
@@ -4743,7 +4802,8 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@hubspot/api-client"],
-                    "pypi": ["hubspot-api-client"]
+                    "pypi": ["hubspot-api-client"],
+                    "composer": ["hubspot/api-client"]
                 }
             }
         },
@@ -4986,10 +5046,15 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^INTERCOM_"],
-                "script_hosts": [],
+                "script_hosts": ["widget.intercom.io", "js.intercomcdn.com"],
                 "packages": {
                     "npm": ["intercom-client", "@intercom/messenger-js-sdk"],
-                    "pypi": ["python-intercom"]
+                    "pypi": ["python-intercom"],
+                    "cocoapods": ["Intercom"],
+                    "composer": ["intercom/intercom-php"],
+                    "maven": ["io.intercom.android:intercom-sdk"],
+                    "pub": ["intercom_flutter"],
+                    "swiftpm": ["github.com/intercom/intercom-ios-sp"]
                 }
             }
         },
@@ -5296,10 +5361,12 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^KLAVIYO_"],
-                "script_hosts": [],
+                "script_hosts": ["static.klaviyo.com"],
                 "packages": {
                     "npm": ["klaviyo-api"],
-                    "pypi": ["klaviyo-api"]
+                    "pypi": ["klaviyo-api"],
+                    "composer": ["klaviyo/api"],
+                    "swiftpm": ["github.com/klaviyo/klaviyo-swift-sdk"]
                 }
             }
         },
@@ -5502,7 +5569,18 @@
                         "launchdarkly-react-client-sdk"
                     ],
                     "pypi": ["launchdarkly-server-sdk"],
-                    "rubygems": ["launchdarkly-server-sdk"]
+                    "cargo": ["launchdarkly-server-sdk"],
+                    "cocoapods": ["LaunchDarkly"],
+                    "composer": ["launchdarkly/server-sdk"],
+                    "go": ["github.com/launchdarkly/go-server-sdk"],
+                    "hex": ["launchdarkly_server_sdk"],
+                    "maven": [
+                        "com.launchdarkly:launchdarkly-java-server-sdk",
+                        "com.launchdarkly:launchdarkly-android-client-sdk"
+                    ],
+                    "pub": ["launchdarkly_flutter_client_sdk"],
+                    "rubygems": ["launchdarkly-server-sdk"],
+                    "swiftpm": ["github.com/launchdarkly/ios-client-sdk"]
                 }
             }
         },
@@ -5772,9 +5850,11 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^LOGROCKET_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.logrocket.io", "cdn.lr-ingest.io"],
                 "packages": {
-                    "npm": ["logrocket", "logrocket-react", "@logrocket/react-native"]
+                    "npm": ["logrocket", "logrocket-react", "@logrocket/react-native"],
+                    "cocoapods": ["LogRocket"],
+                    "maven": ["com.logrocket:logrocket"]
                 }
             }
         },
@@ -6021,9 +6101,10 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^MATOMO_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.matomo.cloud"],
                 "packages": {
-                    "npm": ["matomo-tracker"]
+                    "npm": ["matomo-tracker"],
+                    "composer": ["matomo/matomo-php-tracker"]
                 }
             }
         },
@@ -6266,11 +6347,17 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^MIXPANEL_"],
-                "script_hosts": [],
+                "script_hosts": ["mxpnl.com"],
                 "packages": {
                     "npm": ["mixpanel", "mixpanel-browser"],
                     "pypi": ["mixpanel"],
-                    "rubygems": ["mixpanel-ruby"]
+                    "cocoapods": ["Mixpanel-swift", "Mixpanel"],
+                    "composer": ["mixpanel/mixpanel-php"],
+                    "go": ["github.com/mixpanel/mixpanel-go"],
+                    "maven": ["com.mixpanel.android:mixpanel-android"],
+                    "pub": ["mixpanel_flutter"],
+                    "rubygems": ["mixpanel-ruby"],
+                    "swiftpm": ["github.com/mixpanel/mixpanel-swift", "github.com/mixpanel/mixpanel-iphone"]
                 }
             }
         },
@@ -6344,6 +6431,12 @@
                 "packages": {
                     "npm": ["mongodb", "mongoose"],
                     "pypi": ["pymongo", "motor"],
+                    "cargo": ["mongodb"],
+                    "composer": ["mongodb/mongodb"],
+                    "go": ["go.mongodb.org/mongo-driver"],
+                    "hex": ["mongodb_driver"],
+                    "maven": ["org.mongodb:mongodb-driver-sync"],
+                    "pub": ["mongo_dart"],
                     "rubygems": ["mongo", "mongoid"]
                 }
             }
@@ -6431,6 +6524,10 @@
                 "packages": {
                     "npm": ["mysql", "mysql2"],
                     "pypi": ["pymysql", "mysqlclient", "mysql-connector-python"],
+                    "cargo": ["mysql", "mysql_async"],
+                    "go": ["github.com/go-sql-driver/mysql"],
+                    "hex": ["myxql"],
+                    "maven": ["com.mysql:mysql-connector-j", "mysql:mysql-connector-java"],
                     "rubygems": ["mysql2"]
                 }
             }
@@ -6528,10 +6625,15 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^NEW_RELIC_", "^NEWRELIC_"],
-                "script_hosts": [],
+                "script_hosts": ["js-agent.newrelic.com"],
                 "packages": {
                     "npm": ["newrelic"],
                     "pypi": ["newrelic"],
+                    "cocoapods": ["NewRelicAgent"],
+                    "go": ["github.com/newrelic/go-agent"],
+                    "hex": ["new_relic_agent"],
+                    "maven": ["com.newrelic.agent.java:newrelic-api", "com.newrelic.agent.android:android-agent"],
+                    "pub": ["newrelic_mobile"],
                     "rubygems": ["newrelic_rpm"]
                 }
             }
@@ -6856,7 +6958,11 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["openai"],
-                    "pypi": ["openai"]
+                    "pypi": ["openai"],
+                    "cargo": ["async-openai"],
+                    "composer": ["openai-php/client", "openai-php/laravel"],
+                    "go": ["github.com/openai/openai-go", "github.com/sashabaranov/go-openai"],
+                    "maven": ["com.openai:openai-java"]
                 }
             }
         },
@@ -7027,10 +7133,15 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^OPTIMIZELY_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.optimizely.com"],
                 "packages": {
                     "npm": ["@optimizely/optimizely-sdk"],
-                    "pypi": ["optimizely-sdk"]
+                    "pypi": ["optimizely-sdk"],
+                    "composer": ["optimizely/optimizely-sdk"],
+                    "go": ["github.com/optimizely/go-sdk"],
+                    "maven": ["com.optimizely.ab:core-api", "com.optimizely.ab:android-sdk"],
+                    "pub": ["optimizely_flutter_sdk"],
+                    "swiftpm": ["github.com/optimizely/swift-sdk"]
                 }
             }
         },
@@ -7313,7 +7424,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^PENDO_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.pendo.io"],
                 "packages": {
                     "npm": ["@pendo/agent"]
                 }
@@ -7572,7 +7683,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^PLAUSIBLE_"],
-                "script_hosts": [],
+                "script_hosts": ["plausible.io"],
                 "packages": {
                     "npm": ["plausible-tracker"]
                 }
@@ -7663,6 +7774,11 @@
                 "packages": {
                     "npm": ["pg", "postgres", "postgres.js", "knex", "sequelize"],
                     "pypi": ["psycopg", "psycopg2", "psycopg2-binary", "asyncpg"],
+                    "cargo": ["tokio-postgres", "postgres"],
+                    "go": ["github.com/jackc/pgx", "github.com/lib/pq"],
+                    "hex": ["postgrex"],
+                    "maven": ["org.postgresql:postgresql"],
+                    "pub": ["postgres"],
                     "rubygems": ["pg"]
                 }
             }
@@ -7983,6 +8099,7 @@
                 "packages": {
                     "npm": ["raygun"],
                     "pypi": ["raygun4py"],
+                    "composer": ["mindscape/raygun4php"],
                     "rubygems": ["raygun4ruby"]
                 }
             }
@@ -8288,10 +8405,15 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^ROLLBAR_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.rollbar.com"],
                 "packages": {
                     "npm": ["rollbar"],
                     "pypi": ["rollbar", "pyrollbar"],
+                    "cocoapods": ["RollbarNotifier"],
+                    "composer": ["rollbar/rollbar", "rollbar/rollbar-laravel"],
+                    "go": ["github.com/rollbar/rollbar-go"],
+                    "maven": ["com.rollbar:rollbar-java", "com.rollbar:rollbar-android"],
+                    "pub": ["rollbar_flutter"],
                     "rubygems": ["rollbar"]
                 }
             }
@@ -8331,10 +8453,13 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^RUDDERSTACK_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.rudderlabs.com"],
                 "packages": {
                     "npm": ["@rudderstack/analytics-js", "@rudderstack/rudder-sdk-node", "rudder-sdk-js"],
-                    "pypi": ["rudder-sdk-python"]
+                    "pypi": ["rudder-sdk-python"],
+                    "go": ["github.com/rudderlabs/analytics-go"],
+                    "maven": ["com.rudderstack.android.sdk:core"],
+                    "pub": ["rudder_sdk_flutter"]
                 }
             }
         },
@@ -8545,10 +8670,14 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^SEGMENT_"],
-                "script_hosts": [],
+                "script_hosts": ["cdn.segment.com"],
                 "packages": {
                     "npm": ["@segment/analytics-node", "analytics-node"],
-                    "pypi": ["segment-analytics-python", "analytics-python"]
+                    "pypi": ["segment-analytics-python", "analytics-python"],
+                    "composer": ["segmentio/analytics-php"],
+                    "go": ["github.com/segmentio/analytics-go"],
+                    "maven": ["com.segment.analytics.kotlin:android", "com.segment.analytics.android:analytics"],
+                    "swiftpm": ["github.com/segmentio/analytics-swift"]
                 }
             }
         },
@@ -8630,6 +8759,9 @@
                 "packages": {
                     "npm": ["@sendgrid/mail", "@sendgrid/client"],
                     "pypi": ["sendgrid"],
+                    "composer": ["sendgrid/sendgrid"],
+                    "go": ["github.com/sendgrid/sendgrid-go"],
+                    "maven": ["com.sendgrid:sendgrid-java"],
                     "rubygems": ["sendgrid-ruby"]
                 }
             }
@@ -8669,11 +8801,24 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": [],
-                "script_hosts": [],
+                "script_hosts": ["browser.sentry-cdn.com", "js.sentry-cdn.com"],
                 "packages": {
                     "npm": ["@sentry/node", "@sentry/browser", "@sentry/react", "@sentry/nextjs"],
                     "pypi": ["sentry-sdk"],
-                    "rubygems": ["sentry-ruby"]
+                    "cargo": ["sentry"],
+                    "cocoapods": ["Sentry"],
+                    "composer": ["sentry/sentry", "sentry/sentry-laravel", "sentry/sentry-symfony"],
+                    "go": ["github.com/getsentry/sentry-go"],
+                    "hex": ["sentry"],
+                    "maven": [
+                        "io.sentry:sentry",
+                        "io.sentry:sentry-android",
+                        "io.sentry:sentry-spring-boot-starter",
+                        "io.sentry:sentry-kotlin-multiplatform"
+                    ],
+                    "pub": ["sentry", "sentry_flutter"],
+                    "rubygems": ["sentry-ruby"],
+                    "swiftpm": ["github.com/getsentry/sentry-cocoa"]
                 }
             }
         },
@@ -8835,7 +8980,8 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@shopify/shopify-api", "shopify-api-node"],
-                    "pypi": ["shopifyapi"]
+                    "pypi": ["shopifyapi"],
+                    "composer": ["shopify/shopify-api"]
                 }
             }
         },
@@ -9011,7 +9157,9 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@slack/web-api", "@slack/bolt"],
-                    "pypi": ["slack-sdk", "slack-bolt"]
+                    "pypi": ["slack-sdk", "slack-bolt"],
+                    "go": ["github.com/slack-go/slack"],
+                    "maven": ["com.slack.api:slack-api-client"]
                 }
             }
         },
@@ -9147,7 +9295,9 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["snowflake-sdk"],
-                    "pypi": ["snowflake-connector-python", "snowflake-sqlalchemy"]
+                    "pypi": ["snowflake-connector-python", "snowflake-sqlalchemy"],
+                    "go": ["github.com/snowflakedb/gosnowflake"],
+                    "maven": ["net.snowflake:snowflake-jdbc"]
                 }
             }
         },
@@ -9163,7 +9313,11 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@snowplow/node-tracker"],
-                    "pypi": ["snowplow-tracker"]
+                    "pypi": ["snowplow-tracker"],
+                    "go": ["github.com/snowplow/snowplow-golang-tracker"],
+                    "maven": ["com.snowplowanalytics:snowplow-android-tracker"],
+                    "pub": ["snowplow_tracker"],
+                    "swiftpm": ["github.com/snowplow/snowplow-ios-tracker"]
                 }
             }
         },
@@ -9315,7 +9469,12 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@splitsoftware/splitio"],
-                    "pypi": ["splitio-client"]
+                    "pypi": ["splitio-client"],
+                    "composer": ["splitsoftware/split-sdk-php"],
+                    "go": ["github.com/splitio/go-client"],
+                    "maven": ["io.split.client:java-client", "io.split.client:android-client"],
+                    "pub": ["splitio"],
+                    "swiftpm": ["github.com/splitio/ios-client"]
                 }
             }
         },
@@ -9427,6 +9586,8 @@
                 "packages": {
                     "npm": ["statsig-js", "statsig-node", "@statsig/js-client", "@statsig/react-bindings"],
                     "pypi": ["statsig"],
+                    "go": ["github.com/statsig-io/go-sdk"],
+                    "pub": ["statsig"],
                     "rubygems": ["statsig"]
                 }
             }
@@ -9533,11 +9694,19 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^STRIPE_(SECRET|API)_KEY$"],
-                "script_hosts": [],
+                "script_hosts": ["js.stripe.com"],
                 "packages": {
                     "npm": ["stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"],
                     "pypi": ["stripe"],
-                    "rubygems": ["stripe"]
+                    "cargo": ["async-stripe"],
+                    "cocoapods": ["Stripe", "StripePaymentSheet"],
+                    "composer": ["stripe/stripe-php"],
+                    "go": ["github.com/stripe/stripe-go"],
+                    "hex": ["stripity_stripe"],
+                    "maven": ["com.stripe:stripe-java", "com.stripe:stripe-android"],
+                    "pub": ["flutter_stripe"],
+                    "rubygems": ["stripe"],
+                    "swiftpm": ["github.com/stripe/stripe-ios"]
                 }
             }
         },
@@ -9582,7 +9751,10 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@supabase/supabase-js"],
-                    "pypi": ["supabase"]
+                    "pypi": ["supabase"],
+                    "go": ["github.com/supabase-community/supabase-go"],
+                    "pub": ["supabase_flutter"],
+                    "swiftpm": ["github.com/supabase/supabase-swift"]
                 }
             }
         },
@@ -10229,6 +10401,9 @@
                 "packages": {
                     "npm": ["twilio"],
                     "pypi": ["twilio"],
+                    "composer": ["twilio/sdk"],
+                    "go": ["github.com/twilio/twilio-go"],
+                    "maven": ["com.twilio.sdk:twilio"],
                     "rubygems": ["twilio-ruby"]
                 }
             }
@@ -10281,7 +10456,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^TYPEFORM_"],
-                "script_hosts": [],
+                "script_hosts": ["embed.typeform.com"],
                 "packages": {
                     "npm": ["@typeform/api-client"]
                 }
@@ -10338,7 +10513,13 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["unleash-client"],
-                    "pypi": ["unleashclient"]
+                    "pypi": ["unleashclient"],
+                    "cargo": ["unleash-api-client"],
+                    "composer": ["unleash/client"],
+                    "go": ["github.com/Unleash/unleash-client-go"],
+                    "hex": ["unleash"],
+                    "maven": ["io.getunleash:unleash-client-java"],
+                    "pub": ["unleash_proxy_client_flutter"]
                 }
             }
         },
@@ -10724,7 +10905,8 @@
                 "env_key_patterns": ["^WORDPRESS_"],
                 "script_hosts": [],
                 "packages": {
-                    "npm": ["wpapi"]
+                    "npm": ["wpapi"],
+                    "composer": ["johnpbloch/wordpress", "roots/wordpress"]
                 }
             }
         },
@@ -10961,10 +11143,11 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": ["^ZENDESK_"],
-                "script_hosts": [],
+                "script_hosts": ["static.zdassets.com"],
                 "packages": {
                     "npm": ["node-zendesk"],
-                    "pypi": ["zenpy"]
+                    "pypi": ["zenpy"],
+                    "composer": ["zendesk/zendesk_api_client_php"]
                 }
             }
         },

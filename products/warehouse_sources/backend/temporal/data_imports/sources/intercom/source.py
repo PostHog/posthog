@@ -37,8 +37,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig], OAuthMixin):
     codebase_detection = detect(
         env=("^INTERCOM_",),
+        script_hosts=("widget.intercom.io", "js.intercomcdn.com"),
         npm=("intercom-client", "@intercom/messenger-js-sdk"),
         pypi=("python-intercom",),
+        cocoapods=("Intercom",),
+        composer=("intercom/intercom-php",),
+        maven=("io.intercom.android:intercom-sdk",),
+        pub=("intercom_flutter",),
+        swiftpm=("github.com/intercom/intercom-ios-sp",),
         competes_with=(ProductKey.CONVERSATIONS,),
     )
 
