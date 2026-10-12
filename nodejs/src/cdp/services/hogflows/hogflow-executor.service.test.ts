@@ -7,15 +7,18 @@ import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
+import { template as getFeatureFlagsTemplate } from '~/cdp/templates/_destinations/posthog_feature_flags/posthog-get-feature-flags.template'
+import { template as slackTemplate } from '~/cdp/templates/_destinations/slack/slack.template'
 import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
-import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
+import { createTestTeamFixture, getTeamMemberUserId, insertRow, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
@@ -3148,6 +3151,146 @@ describe('Hogflow Executor', () => {
             // Verify email_sent metric was emitted
             const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
             expect(emailSentMetrics).toHaveLength(1)
+        })
+    })
+    describe('feature flag owner digest workflow', () => {
+        const insertFlag = async (key: string, createdAt: string, projectIds: string[], createdById: number | null) => {
+            await insertRow(hub.postgres, 'posthog_featureflag', {
+                key,
+                name: key,
+                filters: {
+                    groups: [
+                        {
+                            properties: [{ key: 'project_id', type: 'person', value: projectIds, operator: 'exact' }],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                created_by_id: createdById,
+                created_at: createdAt,
+                updated_at: createdAt,
+            })
+        }
+
+        const buildDigestFlow = async (): Promise<HogFlow> =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        get_flags: {
+                            type: 'function',
+                            config: {
+                                template_id: getFeatureFlagsTemplate.id,
+                                inputs: {
+                                    status: { value: 'enabled' },
+                                    targeting_property: { value: 'project_id' },
+                                    targeting_value: { value: '2' },
+                                    targeting_match: { value: 'only' },
+                                    created_more_than_days_ago: { value: 14 },
+                                },
+                            },
+                            output_variable: { key: 'feature_flags', result_path: null },
+                        },
+                        has_flags: {
+                            type: 'conditional_branch',
+                            config: {
+                                conditions: [
+                                    {
+                                        filters: {
+                                            properties: [{ type: 'hogql', key: 'variables.feature_flags.count > 0' }],
+                                            bytecode: await compileHog('return variables.feature_flags.count > 0'),
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        notify_owners: {
+                            type: 'function',
+                            config: {
+                                template_id: slackTemplate.id,
+                                inputs: {
+                                    slack_workspace: { value: integrationId },
+                                    channel: { value: 'C0FLAGS' },
+                                    text: {
+                                        value: 'Flags rolled out only to team 2 for over 2 weeks: ...',
+                                        bytecode: await compileHog(
+                                            "return f'Flags rolled out only to team 2 for over 2 weeks: {arrayStringConcat(arrayMap(flag -> concat(flag.key, \' (owner: \', flag.created_by_email, \')\'), variables.feature_flags.flags), \', \')}'"
+                                        ),
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'get_flags', type: 'continue' },
+                        { from: 'get_flags', to: 'has_flags', type: 'continue' },
+                        { from: 'has_flags', to: 'notify_owners', type: 'branch', index: 0 },
+                        { from: 'has_flags', to: 'exit', type: 'continue' },
+                        { from: 'notify_owners', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, getFeatureFlagsTemplate)
+            await insertHogFunctionTemplate(hub.postgres, slackTemplate)
+            await insertIntegration(hub.postgres, team.id, {
+                id: integrationId,
+                kind: 'slack',
+                config: { team: 'example' },
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('xoxb-test-token') },
+            })
+            mockFetch.mockImplementation((): any => ({
+                status: 200,
+                text: () => Promise.resolve(JSON.stringify({ ok: true })),
+            }))
+        })
+
+        it('messages the owners of flags rolled out only to team 2 for more than two weeks', async () => {
+            const ownerId = await getTeamMemberUserId(hub.postgres, team.id)
+            const ownerEmail = (
+                await hub.postgres.query(
+                    PostgresUse.COMMON_READ,
+                    'SELECT email FROM posthog_user WHERE id = $1',
+                    [ownerId],
+                    'getOwnerEmail'
+                )
+            ).rows[0].email
+            // The clock is pinned to 2025-01-01.
+            await insertFlag('team-2-old', '2024-12-01T00:00:00Z', ['2'], ownerId)
+            await insertFlag('team-2-new', '2024-12-28T00:00:00Z', ['2'], ownerId)
+            await insertFlag('team-2-and-3-old', '2024-11-01T00:00:00Z', ['2', '3'], ownerId)
+
+            const result = await executor.execute(createExampleHogFlowInvocation(await buildDigestFlow()))
+
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(true)
+            expect(result.invocation.state.currentAction?.id).toBe('exit')
+            const slackCalls = mockFetch.mock.calls.filter(([url]) => url === 'https://slack.com/api/chat.postMessage')
+            expect(slackCalls).toHaveLength(1)
+            expect(parseJSON(slackCalls[0][1]!.body as string)).toMatchObject({
+                channel: 'C0FLAGS',
+                text: `Flags rolled out only to team 2 for over 2 weeks: team-2-old (owner: ${ownerEmail})`,
+            })
+        })
+
+        it('skips the Slack message when no flag matches', async () => {
+            await insertFlag('team-2-new', '2024-12-28T00:00:00Z', ['2'], null)
+
+            const result = await executor.execute(createExampleHogFlowInvocation(await buildDigestFlow()))
+
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(true)
+            expect(result.invocation.state.variables?.feature_flags).toMatchObject({ count: 0, keys: [] })
+            expect(mockFetch).not.toHaveBeenCalled()
         })
     })
 })

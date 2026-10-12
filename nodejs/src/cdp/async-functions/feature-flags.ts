@@ -112,6 +112,7 @@ registerAsyncFunction('postHogGetFeatureFlags', {
                     active: true,
                     created_at: now.minus({ days: 30 }).toISO()!,
                     updated_at: now.minus({ days: 10 }).toISO(),
+                    created_by_email: 'owner@example.com',
                 },
             ],
         }

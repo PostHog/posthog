@@ -30,6 +30,7 @@ export type FeatureFlagSummary = {
     active: boolean
     created_at: string
     updated_at: string | null
+    created_by_email: string | null
 }
 
 export type FeatureFlagListResult = {
@@ -62,6 +63,7 @@ type FeatureFlagRow = {
     // The Postgres type parser in common/utils/db/postgres.ts returns timestamps as ISO strings.
     created_at: string
     updated_at: string | null
+    created_by_email: string | null
 }
 
 // Release-condition matching runs in Node after the query, so the query reads more rows than it returns.
@@ -126,16 +128,18 @@ export class FeatureFlagRepository {
 
         const { rows } = await this.postgres.query<FeatureFlagRow>(
             PostgresUse.COMMON_READ,
-            `SELECT id, key, name, filters, active, created_at, updated_at
-             FROM posthog_featureflag
-             WHERE team_id = $1
-               AND deleted = FALSE
-               AND archived = FALSE
-               AND ($2::boolean IS NULL OR active = $2)
-               AND ($3::text IS NULL OR key ILIKE $3 OR name ILIKE $3)
-               AND ($4::timestamptz IS NULL OR created_at < $4)
-               AND ($5::timestamptz IS NULL OR COALESCE(updated_at, created_at) < $5)
-             ORDER BY created_at DESC, id DESC
+            `SELECT flag.id, flag.key, flag.name, flag.filters, flag.active, flag.created_at, flag.updated_at,
+                    creator.email AS created_by_email
+             FROM posthog_featureflag flag
+             LEFT JOIN posthog_user creator ON creator.id = flag.created_by_id
+             WHERE flag.team_id = $1
+               AND flag.deleted = FALSE
+               AND flag.archived = FALSE
+               AND ($2::boolean IS NULL OR flag.active = $2)
+               AND ($3::text IS NULL OR flag.key ILIKE $3 OR flag.name ILIKE $3)
+               AND ($4::timestamptz IS NULL OR flag.created_at < $4)
+               AND ($5::timestamptz IS NULL OR COALESCE(flag.updated_at, flag.created_at) < $5)
+             ORDER BY flag.created_at DESC, flag.id DESC
              LIMIT $6`,
             [teamId, active, search, query.createdBefore, query.updatedBefore, scanLimit],
             'listFeatureFlagsForWorkflow'
@@ -151,6 +155,7 @@ export class FeatureFlagRepository {
                 active: row.active,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
+                created_by_email: row.created_by_email,
             })
         )
 

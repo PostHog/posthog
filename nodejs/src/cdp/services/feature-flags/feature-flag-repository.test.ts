@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { createTestTeamFixture, insertRow } from '~/tests/helpers/sql'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { createTestTeamFixture, getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import {
@@ -76,6 +77,7 @@ describe('FeatureFlagRepository', () => {
         let hub: Hub
         let repository: FeatureFlagRepository
         let teamId: number
+        let ownerId: number | null
 
         const baseQuery: FeatureFlagListQuery = {
             status: 'enabled',
@@ -115,10 +117,13 @@ describe('FeatureFlagRepository', () => {
             teamId = (await createTestTeamFixture(hub.postgres)).team.id
             const otherTeamId = (await createTestTeamFixture(hub.postgres)).team.id
 
+            ownerId = await getTeamMemberUserId(hub.postgres, teamId)
+
             await insertFlag(teamId, 'old-project-two', {
                 createdDaysAgo: 30,
                 updatedDaysAgo: 20,
                 filters: projectTwoOnly,
+                created_by_id: ownerId,
             })
             await insertFlag(teamId, 'old-recently-changed', { createdDaysAgo: 20, updatedDaysAgo: 1 })
             await insertFlag(teamId, 'new-for-everyone', { filters: { groups: [{ rollout_percentage: 100 }] } })
@@ -163,6 +168,24 @@ describe('FeatureFlagRepository', () => {
 
             expect(result.keys).toEqual(expectedKeys)
             expect(result.count).toBe(expectedKeys.length)
+        })
+
+        it('returns the flag creator email', async () => {
+            const ownerEmail = (
+                await hub.postgres.query(
+                    PostgresUse.COMMON_READ,
+                    'SELECT email FROM posthog_user WHERE id = $1',
+                    [ownerId],
+                    'getOwnerEmail'
+                )
+            ).rows[0].email
+
+            const result = await repository.list(teamId, { ...baseQuery, search: 'old' })
+
+            expect(result.flags.map((flag) => [flag.key, flag.created_by_email])).toEqual([
+                ['old-recently-changed', null],
+                ['old-project-two', ownerEmail],
+            ])
         })
     })
 })
