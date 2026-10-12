@@ -11,6 +11,7 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
 import { WizardSyncFab } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
@@ -45,6 +46,9 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
     useMountedLogic(webmcpLogic)
+    // paymentEntryLogic reads billingLogic.values without a connect, so billingLogic must stay mounted.
+    // A mount for the whole session also keeps billing data and alerts when the scene changes.
+    useMountedLogic(billingLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
