@@ -99,28 +99,33 @@ def create_ideas(
 
 def notify_new_ideas(*, team_id: int, idea_ids: Iterable[UUID]) -> bool:
     """Tells the project once about ideas it has not heard about yet."""
-    pending = list(
-        WorkflowIdea.objects.for_team(team_id)
-        .filter(id__in=list(idea_ids), notified_at__isnull=True, status=WorkflowIdea.Status.SUGGESTED)
-        .order_by("created_at")
-    )
-    if not pending:
-        return False
-    count = len(pending)
-    event = create_notification(
-        NotificationData(
-            team_id=team_id,
-            notification_type=NotificationType.WORKFLOW_IDEAS,
-            title=f"PostHog drafted {count} email workflow{'s' if count != 1 else ''} from your events",
-            body="; ".join(row.title for row in pending) + ". Review the emails and turn on the ones you want.",
-            target_type=TargetType.TEAM,
-            target_id=str(team_id),
-            source_url="/workflows",
+    with transaction.atomic():
+        # A second caller for the same ideas waits here, then finds them already notified.
+        pending = list(
+            WorkflowIdea.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id__in=list(idea_ids), notified_at__isnull=True, status=WorkflowIdea.Status.SUGGESTED)
+            .order_by("created_at")
         )
-    )
-    if event is None:
-        return False
-    WorkflowIdea.objects.for_team(team_id).filter(id__in=[row.id for row in pending]).update(notified_at=timezone.now())
+        if not pending:
+            return False
+        count = len(pending)
+        event = create_notification(
+            NotificationData(
+                team_id=team_id,
+                notification_type=NotificationType.WORKFLOW_IDEAS,
+                title=f"PostHog drafted {count} email workflow{'s' if count != 1 else ''} from your events",
+                body="; ".join(row.title for row in pending) + ". Review the emails and turn on the ones you want.",
+                target_type=TargetType.TEAM,
+                target_id=str(team_id),
+                source_url="/workflows",
+            )
+        )
+        if event is None:
+            return False
+        WorkflowIdea.objects.for_team(team_id).filter(id__in=[row.id for row in pending]).update(
+            notified_at=timezone.now()
+        )
     return True
 
 
