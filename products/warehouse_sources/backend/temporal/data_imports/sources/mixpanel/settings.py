@@ -58,7 +58,7 @@ REPORT_LOOKBACK_DAYS = 90
 RETENTION_INTERVAL_COUNT = 30
 
 
-@dataclass
+@dataclass(frozen=True)
 class MixpanelEndpointConfig:
     name: str
     primary_keys: list[str]

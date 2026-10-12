@@ -92,7 +92,7 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return _EXPONENTIAL_JITTER(retry_state)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MixpanelResumeConfig:
     # Raw export resumes at the day window we have not yet completed.
     from_date: Optional[str] = None
@@ -468,11 +468,6 @@ def _fetch_funnels(
         yield rows
 
 
-def _report_window() -> tuple[date, date]:
-    end_date = datetime.now(UTC).date()
-    return end_date - timedelta(days=REPORT_LOOKBACK_DAYS), end_date
-
-
 def _flatten_funnel_steps(funnel: dict[str, Any], data: dict[str, Any]) -> list[dict[str, Any]]:
     """Unnest the `{date: {"steps": [...]}}` funnel response into one row per day and step."""
     rows: list[dict[str, Any]] = []
@@ -625,16 +620,17 @@ def get_rows(
         yield from _fetch_annotations(region, username, secret, project_id, logger)
     elif endpoint == "funnels":
         yield from _fetch_funnels(region, username, secret, project_id, logger)
-    elif endpoint == "funnel_steps":
-        start_date, end_date = _report_window()
-        yield from _iter_funnel_steps(
-            region, username, secret, project_id, logger, manager, start_date=start_date, end_date=end_date
-        )
-    elif endpoint == "retention":
-        start_date, end_date = _report_window()
-        yield from _fetch_retention(
-            region, username, secret, project_id, logger, start_date=start_date, end_date=end_date
-        )
+    elif endpoint in ("funnel_steps", "retention"):
+        report_end = datetime.now(UTC).date()
+        report_start = report_end - timedelta(days=REPORT_LOOKBACK_DAYS)
+        if endpoint == "funnel_steps":
+            yield from _iter_funnel_steps(
+                region, username, secret, project_id, logger, manager, start_date=report_start, end_date=report_end
+            )
+        else:
+            yield from _fetch_retention(
+                region, username, secret, project_id, logger, start_date=report_start, end_date=report_end
+            )
     else:
         raise ValueError(f"Unknown Mixpanel endpoint: {endpoint}")
 
