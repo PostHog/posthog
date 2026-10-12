@@ -46,7 +46,7 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     # opt-in flow; ALL reviews every relevant PR event.
     review_mode = models.CharField(
         max_length=16,
-        choices=[(m.value, m.value) for m in ReviewMode],
+        choices=ReviewMode.choices,
         default=ReviewMode.LABEL.value,
     )
     trigger_label = models.CharField(max_length=100, default="stamphog")
