@@ -19,7 +19,9 @@ pub fn code(passthrough: Vec<String>) -> Result<Option<i32>> {
     let status = Command::new("npx")
         .args(npx_args(&passthrough))
         .status()
-        .context("Failed to execute `npx`. The `code` command needs Node.js 22.19 or newer on PATH.")?;
+        .context(
+            "Failed to execute `npx`. The `code` command needs Node.js 22.19 or newer on PATH.",
+        )?;
     Ok(if status.success() {
         None
     } else {
