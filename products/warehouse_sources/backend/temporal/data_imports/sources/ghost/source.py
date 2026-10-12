@@ -142,4 +142,12 @@ class GhostSource(ResumableSource[GhostSourceConfig, GhostResumeConfig], Validat
         resumable_source_manager: ResumableSourceManager[GhostResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        # Re-check at sync time: validate_credentials only runs on create/update, so a host that
+        # resolved publicly then may resolve to an internal address later (DNS rebinding).
+        hostname = urlsplit(ghost_base_url(config.admin_domain)).hostname
+        assert hostname is not None
+        host_valid, host_error = self.is_database_host_valid(hostname, inputs.team_id)
+        if not host_valid:
+            raise ValueError(host_error or DOMAIN_ERROR)
+
         return ghost_source(config, inputs, resumable_source_manager, self.resolve_api_version(inputs.api_version))

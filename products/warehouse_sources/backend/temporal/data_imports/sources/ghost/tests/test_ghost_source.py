@@ -1,4 +1,5 @@
 import pytest
+from unittest import mock
 
 from requests.exceptions import HTTPError
 
@@ -73,3 +74,28 @@ def test_unexpected_probe_error_is_not_reported_as_invalid_credentials() -> None
     with scripted_network([ScriptedResponse(status=404, json={"errors": [{"type": "NotFoundError"}]})]):
         with pytest.raises(HTTPError):
             GhostSource().validate_credentials(config, 1)
+
+
+@pytest.mark.parametrize(
+    ("host_valid", "expect_sync"),
+    [(True, True), (False, False)],
+)
+def test_source_for_pipeline_rechecks_the_host_at_sync_time(host_valid: bool, expect_sync: bool) -> None:
+    source = GhostSource()
+    config = GhostSourceConfig(admin_domain="publication.example.com", admin_api_key=API_KEY)
+    inputs = mock.MagicMock(team_id=1)
+    module = "products.warehouse_sources.backend.temporal.data_imports.sources.ghost.source"
+    with (
+        mock.patch.object(
+            source, "is_database_host_valid", return_value=(host_valid, None if host_valid else "Host not allowed")
+        ) as check,
+        mock.patch(f"{module}.ghost_source") as ghost_source,
+    ):
+        if expect_sync:
+            source.source_for_pipeline(config, mock.MagicMock(), inputs)
+            ghost_source.assert_called_once()
+        else:
+            with pytest.raises(ValueError, match="Host not allowed"):
+                source.source_for_pipeline(config, mock.MagicMock(), inputs)
+            ghost_source.assert_not_called()
+    check.assert_called_once_with("publication.example.com", 1)
