@@ -21917,10 +21917,15 @@ export namespace Schemas {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
       /**
-         * Next entry offset, or null when complete.
+         * Next entry offset, or null when complete. Null when the request used a cursor.
          * @nullable
          */
       next_offset: number | null;
+      /**
+         * Cursor for the next page, or null when complete. Pass it as cursor.
+         * @nullable
+         */
+      next_cursor: string | null;
       /** True when no further entries remain for this selection. */
       complete: boolean;
     }
@@ -82088,6 +82093,20 @@ export namespace Schemas {
          * @nullable
          */
       default_email_integration_id?: number | null;
+      /**
+         * Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      marketing_frequency_cap_max_messages?: number | null;
+      /**
+         * Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      marketing_frequency_cap_window_days?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -118856,6 +118875,12 @@ export namespace Schemas {
 
     export type CanvasesStateRetrieveParams = {
     /**
+     * Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
      * Only read this exact key.
      * @minLength 1
      * @maxLength 200
@@ -118877,7 +118902,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.
      * @minimum 0
      */
     offset?: number;
