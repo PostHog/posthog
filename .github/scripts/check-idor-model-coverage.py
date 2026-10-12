@@ -310,6 +310,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "AsyncMigration",
         "AsyncMigrationError",
         "InstanceSetting",
+        "DevStackImageTarget",
+        "DevStackImageAttempt",
         "License",
         # --- Deprecated ---
         "Prompt",
