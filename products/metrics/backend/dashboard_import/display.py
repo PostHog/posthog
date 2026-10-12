@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import math
 import colorsys
 from typing import Any
 
@@ -131,13 +132,13 @@ def map_color(color: Any) -> str:
 def _number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
-    if isinstance(value, int | float):
-        return float(value)
-    if isinstance(value, str):
+    if isinstance(value, int | float | str):
         try:
-            return float(value)
-        except ValueError:
+            number = float(value)
+        except (ValueError, OverflowError):
             return None
+        # JSON cannot hold NaN or infinity, and Grafana uses neither as a real bound.
+        return number if math.isfinite(number) else None
     return None
 
 

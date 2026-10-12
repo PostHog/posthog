@@ -11,6 +11,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 GRID_COLUMNS = 12
+# Far taller than any real panel. It keeps a malformed height from making a huge tile.
+MAX_TILE_HEIGHT = 100
 
 ImportSource = Literal["grafana", "screenshot"]
 PanelKind = Literal[
@@ -40,7 +42,7 @@ class GridLayout(_Model):
     def clamped(self, *, min_w: int = 1, min_h: int = 1) -> GridLayout:
         w = min(max(self.w, min_w), GRID_COLUMNS)
         x = min(max(self.x, 0), GRID_COLUMNS - w)
-        return GridLayout(x=x, y=max(self.y, 0), w=w, h=max(self.h, min_h))
+        return GridLayout(x=x, y=max(self.y, 0), w=w, h=min(max(self.h, min_h), MAX_TILE_HEIGHT))
 
 
 class Threshold(_Model):
@@ -215,6 +217,8 @@ class LayoutCheck(_Model):
     round: int = 0
     # The agent answer that the latest round used, so that a repeated save of the same answer starts no round.
     answer_digest: str = ""
+    # When PostHog sent the latest picture. An answer saved after it is a reply to that picture.
+    picture_sent_at: str | None = None
     done: bool = False
 
 
