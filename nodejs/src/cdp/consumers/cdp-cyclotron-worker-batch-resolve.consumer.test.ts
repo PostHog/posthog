@@ -214,6 +214,35 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             }
         })
 
+        it("gives each run its person's row from an uploaded recipient list as variables", async () => {
+            ;(consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons.mockResolvedValue({
+                users_affected: ['person-1', 'person-2'],
+                cursor: null,
+                has_more: false,
+                variables_by_person: { 'person-1': { email: 'ada@example.com', plan: 'Pro' } },
+                skipped_without_row: 1,
+            })
+
+            await processPage()
+
+            const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
+            const variablesByPerson = Object.fromEntries(
+                newJobs.map((job: any) => {
+                    const { state } = parseJSON(job.state.toString())
+                    return [state.personId, state.variables]
+                })
+            )
+            expect(variablesByPerson).toEqual({
+                'person-1': { email: 'ada@example.com', plan: 'Pro' },
+                'person-2': {},
+            })
+            // The broadcast report shows this count, keyed on the batch job like the run metrics.
+            const notInList = queueAppMetrics.mock.calls
+                .flatMap(([metrics]) => metrics)
+                .filter((m) => m.metric_name === 'not_in_list')
+            expect(notInList).toEqual([expect.objectContaining({ app_source_id: BATCH_JOB_ID, count: 1 })])
+        })
+
         it('leaves masked runs out of both the triggered count and the invocations list', async () => {
             // A masked run is never enqueued, so counting it as started would strand it in the
             // in-progress figure forever, and its running row would never get a terminal row.

@@ -16,6 +16,9 @@ export interface BlastRadiusPersonsResponse {
     users_affected: Array<string>
     cursor: string | null
     has_more: boolean
+    // Set when the audience sends to an uploaded recipient list: each person's row, for that run's variables.
+    variables_by_person?: Record<string, Record<string, string>>
+    skipped_without_row?: number
 }
 
 export interface AccountAudienceResponse {

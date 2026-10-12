@@ -209,6 +209,12 @@ from products.workflows.backend.facade.proposals import (
     target_metric_in,
     version_outcome,
 )
+from products.workflows.backend.facade.recipient_lists import (
+    RecipientListInvalid,
+    check_recipient_list_audience,
+    recipient_list_in_audience,
+    recipient_variables_for_people,
+)
 from products.workflows.backend.facade.revisions import count_revisions, get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
@@ -933,6 +939,16 @@ class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
         help_text="Cursor for the next call, or null when this page is the last.",
     )
     has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+    variables_by_person = serializers.DictField(
+        child=serializers.DictField(child=serializers.CharField()),
+        help_text=(
+            "For an audience that sends to an uploaded recipient list: each person's row, which becomes that run's "
+            "variables. People in the page with no row are left out of users_affected."
+        ),
+    )
+    skipped_without_row = serializers.IntegerField(
+        help_text="People in this page left out because the uploaded recipient list has no row for them."
+    )
 
 
 class InternalProcessedSchedulesSerializer(serializers.Serializer):
@@ -2996,6 +3012,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
 
         data["trigger"] = trigger_actions[0]["config"]
+
+        get_team = self.context.get("get_team")
+        if get_team is not None and data["trigger"].get("type") in ("batch", "schedule"):
+            variables = data.get("variables", instance.variables if instance else None) or []
+            try:
+                check_recipient_list_audience(
+                    get_team().id,
+                    data["trigger"].get("filters"),
+                    [variable["key"] for variable in variables if isinstance(variable, dict) and "key" in variable],
+                )
+            except RecipientListInvalid as invalid:
+                raise serializers.ValidationError({"actions": str(invalid)})
 
         # Some triggers are person-less ("row-scoped"): a synced warehouse row, a materialized view row,
         # and a Slack poster are all things no PostHog person is attached to. Person-dependent steps and
@@ -6513,6 +6541,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
+            recipient_list_id = recipient_list_in_audience(team.id, filters) if group_type_index is None else None
             page = get_audience_person_page(
                 team_id=team.id,
                 filters=filters,
@@ -6520,15 +6549,26 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 cursor=cursor,
                 dedupe_key=dedupe_key,
             )
+            ids = page.ids
+            variables_by_person: dict[str, dict[str, str]] = {}
+            if recipient_list_id is not None:
+                variables_by_person = recipient_variables_for_people(team.id, recipient_list_id, page.ids)
+                # An email with blank variables looks broken, so a person the list has no row for gets none.
+                ids = [person_id for person_id in page.ids if person_id in variables_by_person]
             return Response(
                 InternalBlastRadiusPersonsSerializer(
                     {
-                        "users_affected": page.ids,
+                        "users_affected": ids,
+                        # The cursor follows the whole page, so skipped people don't stall pagination.
                         "cursor": page.ids[-1] if page.ids else None,
                         "has_more": page.has_more,
+                        "variables_by_person": variables_by_person,
+                        "skipped_without_row": len(page.ids) - len(ids),
                     }
                 ).data
             )
+        except RecipientListInvalid as e:
+            return Response({"error": str(e)}, status=400)
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:

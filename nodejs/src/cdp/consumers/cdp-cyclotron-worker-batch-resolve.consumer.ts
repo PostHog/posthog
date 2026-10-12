@@ -275,7 +275,14 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const isAccountAudience = state.filters.audience_type === 'accounts'
 
         // Normalized page shape so budget/truncation/state logic below stays single-path.
-        let page: { ids: string[]; cursor: string | null; has_more: boolean; accountGroupType?: string }
+        let page: {
+            ids: string[]
+            cursor: string | null
+            has_more: boolean
+            accountGroupType?: string
+            variablesById?: Record<string, Record<string, string>>
+            skippedWithoutRow?: number
+        }
         try {
             if (isAccountAudience) {
                 const accountPage = await instrumentFn('cdpBatchResolve.getAccountAudiencePage', () =>
@@ -297,7 +304,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         state.dedupeKey
                     )
                 )
-                page = { ids: personsPage.users_affected, cursor: personsPage.cursor, has_more: personsPage.has_more }
+                page = {
+                    ids: personsPage.users_affected,
+                    cursor: personsPage.cursor,
+                    has_more: personsPage.has_more,
+                    variablesById: personsPage.variables_by_person,
+                    skippedWithoutRow: personsPage.skipped_without_row,
+                }
             }
         } catch (err) {
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()
@@ -357,7 +370,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                       team,
                       hogFlow,
                       personId: id,
-                      defaultVariables,
+                      defaultVariables: page.variablesById?.[id]
+                          ? { ...defaultVariables, ...page.variablesById[id] }
+                          : defaultVariables,
                   })
         )
 
@@ -442,6 +457,22 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             )
         }
 
+        if (page.skippedWithoutRow) {
+            this.hogFunctionMonitoringService.queueAppMetrics(
+                [
+                    {
+                        team_id: team.id,
+                        app_source_id: state.batchJobId,
+                        metric_kind: 'other',
+                        metric_name: 'not_in_list',
+                        count: page.skippedWithoutRow,
+                        app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                    },
+                ],
+                'hog_flow'
+            )
+        }
+
         // Mirrors the `triggered` metric the realtime trigger path emits per invocation, so
         // batch runs count towards "workflows started" (and the derived in-progress count).
         // Masked runs are excluded: counting one as started would leave it in progress forever,
@@ -468,7 +499,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
         logger.info(
             '📝',
-            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
+            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked, ${page.skippedWithoutRow ?? 0} not in the uploaded list (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
         )
     }
 

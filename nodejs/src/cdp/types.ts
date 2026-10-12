@@ -240,6 +240,8 @@ export type MinimalAppMetric = {
         | 'disabled_permanently'
         | 'rate_limited'
         | 'masked'
+        // A batch audience member the uploaded recipient list has no row for, so the run never started.
+        | 'not_in_list'
         | 'filtering_failed'
         | 'inputs_failed'
         | 'missing_credential'

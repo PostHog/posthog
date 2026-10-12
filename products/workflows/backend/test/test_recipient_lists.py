@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from celery.exceptions import Retry
@@ -16,6 +17,7 @@ from posthog.api.capture import CaptureInternalResult
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, PropertyDefinition
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
@@ -390,6 +392,82 @@ class TestRecipientListBroadcasts(APIBaseTest):
                 team=self.team, recipient_list=recipient_list, distinct_id=distinct_id, data=data
             )
         return cohort.pk
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_audience_page_gives_each_person_their_row_and_skips_people_without_one(self) -> None:
+        merged = create_person(team=self.team, distinct_ids=["user-1", "alice@example.com"])
+        unlisted = create_person(team=self.team, distinct_ids=["user-2"])
+        cohort_id = self._list(
+            "Spring sale",
+            {
+                "alice@example.com": {"email": "alice@example.com", "plan": "Pro"},
+                "user-1": {"email": "alice@example.com", "plan": "Free"},
+            },
+        )
+
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
+            return_value=[str(merged.uuid), str(unlisted.uuid)],
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {
+            "users_affected": [str(merged.uuid)],
+            "cursor": str(unlisted.uuid),
+            "has_more": False,
+            "variables_by_person": {str(merged.uuid): {"email": "alice@example.com", "plan": "Pro"}},
+            "skipped_without_row": 1,
+        }
+
+    @parameterized.expand(
+        [
+            ("one_list", ["Spring sale"], [], 201, None),
+            ("two_lists", ["Spring sale", "Summer sale"], [], 400, "one uploaded list"),
+            (
+                "column_named_like_a_variable",
+                ["Spring sale"],
+                [{"key": "plan", "type": "string", "default": ""}],
+                400,
+                "same names as workflow variables: plan",
+            ),
+        ]
+    )
+    def test_broadcast_reads_one_list_whose_columns_dont_clash_with_variables(
+        self,
+        _name: str,
+        list_names: list[str],
+        variables: list[dict[str, str]],
+        expected_status: int,
+        message: str | None,
+    ) -> None:
+        cohort_ids = [self._list(name, {}) for name in list_names]
+        trigger = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort_id} for cohort_id in cohort_ids]
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Broadcast", "actions": [trigger], "variables": variables},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if message:
+            assert message in str(response.json())
 
     @parameterized.expand(
         [

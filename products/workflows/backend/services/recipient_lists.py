@@ -25,7 +25,9 @@ from posthog.models.person.util import (
     get_distinct_ids_for_persons,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_and_matched_distinct_ids,
+    get_persons_by_uuids,
 )
+from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -244,6 +246,68 @@ def existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
         )
         found.update(matched)
     return found
+
+
+def recipient_list_in_audience(team_id: int, filters: dict | None) -> UUID | None:
+    """The uploaded list whose cohort the audience sends to. A broadcast reads one list, so two is an error."""
+    recipient_list = _recipient_list_in_audience(team_id, filters)
+    return recipient_list.id if recipient_list else None
+
+
+def _recipient_list_in_audience(team_id: int, filters: dict | None) -> RecipientList | None:
+    properties = parse_property_group_data((filters or {}).get("properties")).flat
+    cohort_ids = {
+        int(str(prop.value))
+        for prop in properties
+        if prop.type == "cohort" and not prop.negation and str(prop.value).isdigit()
+    }
+    if not cohort_ids:
+        return None
+    recipient_lists = list(RecipientList.objects.for_team(team_id).filter(cohort_id__in=cohort_ids)[:2])
+    if len(recipient_lists) > 1:
+        raise RecipientListInvalid(
+            "A broadcast can send to one uploaded list. Remove the other list from the recipients."
+        )
+    return recipient_lists[0] if recipient_lists else None
+
+
+def check_recipient_list_audience(team_id: int, filters: dict | None, variable_keys: list[str]) -> None:
+    recipient_list = _recipient_list_in_audience(team_id, filters)
+    if recipient_list is None:
+        return
+    clashes = sorted(set(recipient_list.columns) & set(variable_keys))
+    if clashes:
+        raise RecipientListInvalid(
+            f"The uploaded list has columns with the same names as workflow variables: {', '.join(clashes)}. "
+            "Rename the columns or the variables."
+        )
+
+
+def recipient_variables_for_people(
+    team_id: int, recipient_list_id: UUID, person_uuids: list[str]
+) -> dict[str, dict[str, str]]:
+    """Each person's row in the list, matched by any of their distinct IDs. People with no row are left out."""
+    if not person_uuids:
+        return {}
+    # A merge moves distinct IDs to the surviving person, so every distinct ID is read, not a capped few.
+    persons = get_persons_by_uuids(team_id, person_uuids)
+    person_by_distinct_id = {distinct_id: str(person.uuid) for person in persons for distinct_id in person.distinct_ids}
+    distinct_ids = list(person_by_distinct_id)
+    rows: list[tuple[int, str, dict[str, str]]] = []
+    for start in range(0, len(distinct_ids), PERSON_LOOKUP_CHUNK_SIZE):
+        rows.extend(
+            RecipientListRow.objects.for_team(team_id)
+            .filter(
+                recipient_list_id=recipient_list_id,
+                distinct_id__in=distinct_ids[start : start + PERSON_LOOKUP_CHUNK_SIZE],
+            )
+            .values_list("id", "distinct_id", "data")
+        )
+    variables: dict[str, dict[str, str]] = {}
+    # When a merge leaves two rows on one person, the row that comes first in the file wins.
+    for _, distinct_id, data in sorted(rows, key=lambda row: row[0]):
+        variables.setdefault(person_by_distinct_id[distinct_id], data)
+    return variables
 
 
 def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
