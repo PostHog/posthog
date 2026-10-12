@@ -400,6 +400,17 @@ class TestMuxDataFanOut:
             {"value": "fastly", "total_count": 4, "dimension": "video_cdn_trace"},
         ]
 
+    def test_dimension_parent_rows_percent_encode_names_from_the_response(self) -> None:
+        rows = mux._dimension_parent_rows(
+            {"basic": ["https://attacker.example/x", "//attacker.example/x"], "advanced": ["video_cdn_trace"]}
+        )
+
+        assert [row["values_path"] for row in rows] == [
+            "https%3A%2F%2Fattacker.example%2Fx",
+            "%2F%2Fattacker.example%2Fx",
+            "video_cdn_trace/elements",
+        ]
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_dimension_values_stop_at_page_cap(self, MockSession) -> None:
         session = MockSession.return_value

@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from dateutil import parser
@@ -51,7 +51,7 @@ DEFAULT_VALIDATION_PATH = "/video/v1/assets"
 INCREMENTAL_OVERLAP = timedelta(hours=1)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MuxResumeConfig:
     # Next offset page to fetch (offset/limit pagination). None for cursor-paginated endpoints.
     page: int | None = None
@@ -219,10 +219,12 @@ def _dimension_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
 def _dimension_parent_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
     # Trace dimensions (e.g. `video_cdn_trace`) hold an array of values per view, and Mux lists their
     # values through `/elements` instead of the plain dimension values endpoint.
+    # The name comes from the API response and is bound into the request path, so it is percent-encoded
+    # to keep a hostile value from rewriting the URL (and the host the credentials go to).
     return [
         {
             "dimension": row["name"],
-            "values_path": f"{row['name']}/elements" if row["name"].endswith("_trace") else row["name"],
+            "values_path": quote(row["name"], safe="") + ("/elements" if row["name"].endswith("_trace") else ""),
         }
         for row in _dimension_rows(data)
     ]
@@ -370,6 +372,8 @@ def mux_source(
 
     client: ClientConfig = {
         "base_url": MUX_BASE_URL,
+        # Pin every request to api.mux.com so the Basic credentials never go to another host.
+        "allowed_hosts": [],
         # Basic auth via the framework so the secret is redacted from logs and raised errors.
         "auth": {"type": "http_basic", "username": access_token_id, "password": secret_key},
         "paginator": paginator,

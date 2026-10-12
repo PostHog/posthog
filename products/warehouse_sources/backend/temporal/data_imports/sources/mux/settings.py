@@ -84,7 +84,7 @@ BREAKDOWN_DIMENSIONS: tuple[str, ...] = (
 DIMENSION_VALUES_MAX_PAGES = 50
 
 
-@dataclass
+@dataclass(frozen=True)
 class MuxEndpointConfig:
     name: str
     path: str
