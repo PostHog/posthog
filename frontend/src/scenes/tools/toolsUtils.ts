@@ -1,4 +1,4 @@
-import { libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
+import { VIEW_FILE_SYSTEM_TYPES, libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
 import { urls } from 'scenes/urls'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -44,8 +44,9 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
     return !query || `${toolLabel(tool)} ${toolCategory(tool)}`.toLowerCase().includes(query)
 }
 
+/** Whether a page gets its own row in the Products list. Library rows and the Views pane open the other pages. */
 export function isToolItem(item: FileSystemImport): boolean {
-    return !!item.href && !libraryRowOpensProduct(item)
+    return !!item.href && !libraryRowOpensProduct(item) && !VIEW_FILE_SYSTEM_TYPES.has(productObjectType(item))
 }
 
 let productLabelsByLibraryType: Map<string, string[]> | null = null

@@ -765,9 +765,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linode/linode.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/lob.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/logz_io.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loop_returns/loop_returns.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/loops.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/mailchimp.py
@@ -781,8 +779,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/mailosaur.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailtrap/mailtrap.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailtrap/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketo/marketo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketstack/marketstack.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketstack/settings.py
@@ -800,10 +796,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metaplane/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/metorial.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/mistral_ai.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/mixmax.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/mixpanel.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/mollie.py

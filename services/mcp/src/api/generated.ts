@@ -16033,7 +16033,7 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
-      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
@@ -16882,7 +16882,7 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
-      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
@@ -21917,10 +21917,15 @@ export namespace Schemas {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
       /**
-         * Next entry offset, or null when complete.
+         * Next entry offset, or null when complete. Null when the request used a cursor.
          * @nullable
          */
       next_offset: number | null;
+      /**
+         * Cursor for the next page, or null when complete. Pass it as cursor.
+         * @nullable
+         */
+      next_cursor: string | null;
       /** True when no further entries remain for this selection. */
       complete: boolean;
     }
@@ -26129,7 +26134,7 @@ export namespace Schemas {
       model: FileDownloadHogQLRequestModel;
       /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
-      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers;
       /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
@@ -31885,6 +31890,7 @@ export namespace Schemas {
      * * `ChessCom` - ChessCom
      * * `Userback` - Userback
      * * `Rewardful` - Rewardful
+     * * `Tracklution` - Tracklution
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33265,6 +33271,7 @@ export namespace Schemas {
       ChessCom: 'ChessCom',
       Userback: 'Userback',
       Rewardful: 'Rewardful',
+      Tracklution: 'Tracklution',
     } as const;
 
     /**
@@ -34658,7 +34665,8 @@ export namespace Schemas {
        * * `TestDino` - TestDino
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
-       * * `Rewardful` - Rewardful */
+       * * `Rewardful` - Rewardful
+       * * `Tracklution` - Tracklution */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37296,7 +37304,8 @@ export namespace Schemas {
        * * `TestDino` - TestDino
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
-       * * `Rewardful` - Rewardful */
+       * * `Rewardful` - Rewardful
+       * * `Tracklution` - Tracklution */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -38586,6 +38595,100 @@ export namespace Schemas {
     export interface ElementValue {
       /** A distinct value of the requested element property */
       name: string;
+    }
+
+    /**
+     * * `ai` - AI
+     * * `template` - Template
+     */
+    export type EmailDraftOriginEnum = typeof EmailDraftOriginEnum[keyof typeof EmailDraftOriginEnum];
+
+
+    export const EmailDraftOriginEnum = {
+      Ai: 'ai',
+      Template: 'template',
+    } as const;
+
+    /**
+     * * `flag_off` - AI drafts are not enabled for this project
+     * * `ai_not_approved` - The organization has not approved AI data processing
+     * * `gateway_unconfigured` - The AI gateway is not configured
+     * * `rate_limited` - The project used its hourly AI drafts
+     * * `timeout` - The model took too long
+     * * `model_error` - The model call failed
+     * * `invalid_output` - The model returned an unusable draft
+     */
+    export type EmailDraftFallbackReasonEnum = typeof EmailDraftFallbackReasonEnum[keyof typeof EmailDraftFallbackReasonEnum];
+
+
+    export const EmailDraftFallbackReasonEnum = {
+      FlagOff: 'flag_off',
+      AiNotApproved: 'ai_not_approved',
+      GatewayUnconfigured: 'gateway_unconfigured',
+      RateLimited: 'rate_limited',
+      Timeout: 'timeout',
+      ModelError: 'model_error',
+      InvalidOutput: 'invalid_output',
+    } as const;
+
+    export interface EmailDraft {
+      /** Email subject line. Empty when there is nothing to draft from. */
+      subject: string;
+      /** Preview text shown after the subject in most inboxes. */
+      preheader: string;
+      /** Email body as HTML paragraphs. */
+      html: string;
+      /** Plain-text version of the body. */
+      text: string;
+      /** Whether a model wrote the draft or it came from the fixed template for this source.
+       *
+       * * `ai` - AI
+       * * `template` - Template */
+      generated_by: EmailDraftOriginEnum;
+      /** Why the template was used instead of a model draft. Null for a model draft.
+       *
+       * * `flag_off` - AI drafts are not enabled for this project
+       * * `ai_not_approved` - The organization has not approved AI data processing
+       * * `gateway_unconfigured` - The AI gateway is not configured
+       * * `rate_limited` - The project used its hourly AI drafts
+       * * `timeout` - The model took too long
+       * * `model_error` - The model call failed
+       * * `invalid_output` - The model returned an unusable draft */
+      template_reason: EmailDraftFallbackReasonEnum | null;
+    }
+
+    /**
+     * * `error_tracking` - Error tracking issue
+     * * `early_access` - Early access feature
+     * * `survey` - Survey
+     * * `feature_flag` - Feature flag
+     * * `cohort` - Cohort
+     */
+    export type EmailDraftSourceEnum = typeof EmailDraftSourceEnum[keyof typeof EmailDraftSourceEnum];
+
+
+    export const EmailDraftSourceEnum = {
+      ErrorTracking: 'error_tracking',
+      EarlyAccess: 'early_access',
+      Survey: 'survey',
+      FeatureFlag: 'feature_flag',
+      Cohort: 'cohort',
+    } as const;
+
+    export interface EmailDraftRequest {
+      /** The kind of entity the email is about.
+       *
+       * * `error_tracking` - Error tracking issue
+       * * `early_access` - Early access feature
+       * * `survey` - Survey
+       * * `feature_flag` - Feature flag
+       * * `cohort` - Cohort */
+      source: EmailDraftSourceEnum;
+      /**
+         * ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.
+         * @maxLength 200
+         */
+      source_id: string;
     }
 
     /**
@@ -48873,7 +48976,8 @@ export namespace Schemas {
        * * `TestDino` - TestDino
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
-       * * `Rewardful` - Rewardful */
+       * * `Rewardful` - Rewardful
+       * * `Tracklution` - Tracklution */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -50287,7 +50391,8 @@ export namespace Schemas {
        * * `TestDino` - TestDino
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
-       * * `Rewardful` - Rewardful */
+       * * `Rewardful` - Rewardful
+       * * `Tracklution` - Tracklution */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -51909,7 +52014,7 @@ export namespace Schemas {
       model: FileDownloadHogQLModelEnum;
       /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
-      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers;
       /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
@@ -67116,7 +67221,7 @@ export namespace Schemas {
     export interface ObservationRequestSession {
       /** The session recording this outcome is for. */
       session_id: string;
-      /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
+      /** How the session's scan started, with the same values as a bulk scan trigger. Null while the request still waits for the session to end, or before its scan has started.
        *
        * * `started` - Started
        * * `already_running` - Already running
@@ -67125,7 +67230,7 @@ export namespace Schemas {
        * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
        * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
        * * `failed` - Failed to start */
-      scan_outcome: ScanOutcomeEnum;
+      scan_outcome: ScanOutcomeEnum | null;
       /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
        *
        * * `pending` - Pending
@@ -77272,7 +77377,7 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
-      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
       hogql_modifiers?: HogQLQueryModifiers | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
@@ -82088,6 +82193,20 @@ export namespace Schemas {
          * @nullable
          */
       default_email_integration_id?: number | null;
+      /**
+         * Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 1000
+         * @nullable
+         */
+      marketing_frequency_cap_max_messages?: number | null;
+      /**
+         * Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      marketing_frequency_cap_window_days?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -102993,7 +103112,8 @@ export namespace Schemas {
        * * `TestDino` - TestDino
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
-       * * `Rewardful` - Rewardful */
+       * * `Rewardful` - Rewardful
+       * * `Tracklution` - Tracklution */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -104438,7 +104558,8 @@ export namespace Schemas {
        * * `TestDino` - TestDino
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
-       * * `Rewardful` - Rewardful */
+       * * `Rewardful` - Rewardful
+       * * `Tracklution` - Tracklution */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -105850,7 +105971,8 @@ export namespace Schemas {
        * * `TestDino` - TestDino
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
-       * * `Rewardful` - Rewardful */
+       * * `Rewardful` - Rewardful
+       * * `Tracklution` - Tracklution */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -118856,6 +118978,12 @@ export namespace Schemas {
 
     export type CanvasesStateRetrieveParams = {
     /**
+     * Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string;
+    /**
      * Only read this exact key.
      * @minLength 1
      * @maxLength 200
@@ -118877,7 +119005,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.
      * @minimum 0
      */
     offset?: number;

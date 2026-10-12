@@ -78,12 +78,11 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
         return 'spaces'
     }
-    // Each notebook and dashboard is a view, but their list pages are rows in the Products list.
     if (
         isUnder(path, urls.views()) ||
         isUnder(path, '/canvases') ||
-        path.startsWith(`${urls.notebooks()}/`) ||
-        path.startsWith(`${urls.dashboards()}/`)
+        isUnder(path, urls.notebooks()) ||
+        isUnder(path, urls.dashboards())
     ) {
         return 'views'
     }
