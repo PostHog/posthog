@@ -5529,14 +5529,14 @@ Note: The reference is a static HTML tree; the full endpoint list is readable fr
 
 ## Mercury — gaps
 
-Today (11): `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Recipients`, `Transactions`, `TreasuryAccounts`, `Users`
+Today (15): `AccountStatements`, `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Merchants`, `Recipients`, `Transactions`, `TreasuryAccounts`, `TreasuryStatements`, `TreasuryTransactions`, `Users`
 
 Diffed against: <https://docs.mercury.com/reference/getaccounts>
 
-- [ ] `merchants (GET /api/v1/merchants)` — lookup table that resolves the merchant IDs already carried on synced Transactions (high)
-- [ ] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high)
-- [ ] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high)
-- [ ] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium)
+- [x] `merchants (GET /api/v1/merchants)` — lookup table that resolves the merchant IDs already carried on synced Transactions (high). Added as `Merchants`. The endpoint lists priority merchants for card spend controls, so its IDs resolve `merchantLock` on Cards rather than Transactions.
+- [x] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high). Added as `AccountStatements` (fan-out over `Accounts`). The API returns only the ending balance per period.
+- [x] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high). Added as `TreasuryTransactions` (fan-out over `TreasuryAccounts`).
+- [x] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium). Added as `TreasuryStatements` (fan-out over `TreasuryAccounts`). Rows are statement documents (monthly statements, trade confirmations, tax forms) with no balance fields.
 - [ ] `send money approval requests (GET /api/v1/request-send-money)` — approval state/transition history for outbound payments (medium)
 - [ ] `recipient invites (GET /api/v1/recipient-invites)` — pending recipient onboarding state alongside synced Recipients (low)
 - [ ] `SAFE requests (GET /api/v1/safes)` — fundraising SAFE request records (low)
@@ -5611,10 +5611,10 @@ Today (7): `agents`, `batch_jobs`, `conversations`, `files`, `fine_tuning_jobs`,
 
 Diffed against: <https://docs.mistral.ai/openapi.yaml>
 
-- [ ] `conversation messages / history (GET /v1/conversations/{conversation_id}/messages, /history)` — the actual turns inside the conversations we already sync — without them the conversations table has no content (high)
+- [x] `conversation messages / history (GET /v1/conversations/{conversation_id}/messages, /history)` — the actual turns inside the conversations we already sync — without them the conversations table has no content (high)
 - [ ] `organization usage (GET /v1/admin/usage)` — token spend and consumption, the headline metric for an LLM vendor (high)
-- [ ] `observability traces and spans (POST /v1/observability/traces/search, /spans/search, GET /v1/observability/traces/{trace_id}/spans)` — per-request latency/cost/error telemetry for agent and workflow runs (high)
-- [ ] `library documents (GET /v1/libraries/{library_id}/documents)` — the contents of the libraries we already sync, including processing status (high)
+- [x] `observability traces and spans (POST /v1/observability/traces/search, /spans/search, GET /v1/observability/traces/{trace_id}/spans)` — per-request latency/cost/error telemetry for agent and workflow runs (high)
+- [x] `library documents (GET /v1/libraries/{library_id}/documents)` — the contents of the libraries we already sync, including processing status (high)
 - [ ] `admin users and workspaces (GET /v1/admin/users, /v1/admin/workspaces, /v1/admin/workspaces/{uuid}/users)` — lookup and membership tables resolving the user/workspace IDs stamped on jobs and conversations (high)
 - [ ] `observability chat completion events (POST /v1/observability/chat-completion-events/search)` — per-completion event log for quality and cost analysis (medium)
 - [ ] `agent versions (GET /v1/agents/{agent_id}/versions)` — version history for the agents we sync, needed to attribute runs to a config (medium)
