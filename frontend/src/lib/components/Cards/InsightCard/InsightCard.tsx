@@ -166,6 +166,7 @@ export interface InsightCardProps extends Resizeable {
     loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
+    waitingForCapacity?: boolean
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
     /** Might contain more information on the error that occurred on the server. */
@@ -242,6 +243,7 @@ function InsightCardInternal(
         ribbonColor,
         loadingQueued,
         loading,
+        waitingForCapacity,
         apiError,
         apiErrored,
         queryId,
@@ -515,6 +517,7 @@ function InsightCardInternal(
                         refreshDisabledReason={refreshDisabledReason}
                         loadingQueued={loadingQueued}
                         loading={loading}
+                        waitingForCapacity={waitingForCapacity}
                         rename={rename}
                         duplicate={duplicate}
                         setOverride={setOverride}

@@ -1,6 +1,6 @@
 jest.unmock('lib/utils/concurrencyController')
 
-import { delay } from 'lib/utils/async'
+import { delay, promiseResolveReject } from 'lib/utils/async'
 
 import { ConcurrencyController } from './concurrencyController'
 
@@ -97,18 +97,53 @@ describe('concurrencyController', () => {
         await expect(promise).rejects.toThrow('test')
     })
 
-    it('should reject when aborting an in-progress task', async () => {
+    it.each([false, true])('removes the abort listener when cancelling a task (queued=%s)', async (queued) => {
         const concurrencyController = new ConcurrencyController(1)
         const abortController = new AbortController()
+        const addListener = jest.spyOn(abortController.signal, 'addEventListener')
+        const removeListener = jest.spyOn(abortController.signal, 'removeEventListener')
+        const task = promiseResolveReject<void>()
+        const blocker = queued ? concurrencyController.run({ fn: () => task.promise }) : undefined
+        const fn = jest.fn(() => task.promise)
         const promise = concurrencyController.run({
-            fn: async () => {
-                await delay(200)
-            },
+            fn,
             abortController,
         })
         abortController.abort()
 
         await expect(promise).rejects.toEqual(expect.objectContaining({ name: 'AbortError' }))
+        expect(removeListener).toHaveBeenCalledWith('abort', addListener.mock.calls[0][1])
+        expect(fn).toHaveBeenCalledTimes(queued ? 0 : 1)
+        task.resolve()
+        await blocker
+        await expect(concurrencyController.run({ fn: async () => 'next' })).resolves.toBe('next')
+    })
+
+    it.each(['success', 'failure'])('removes completed polls from a reused abort signal after %s', async (outcome) => {
+        const concurrencyController = new ConcurrencyController(1)
+        const abortController = new AbortController()
+        const addListener = jest.spyOn(abortController.signal, 'addEventListener')
+        const removeListener = jest.spyOn(abortController.signal, 'removeEventListener')
+
+        for (let poll = 0; poll < 200; poll++) {
+            const result = concurrencyController.run({
+                fn: async () => {
+                    if (outcome === 'failure') {
+                        throw new Error('poll failed')
+                    }
+                    return { poll }
+                },
+                abortController,
+            })
+            if (outcome === 'failure') {
+                await expect(result).rejects.toThrow('poll failed')
+            } else {
+                await expect(result).resolves.toEqual({ poll })
+            }
+        }
+
+        expect(addListener).toHaveBeenCalledTimes(200)
+        expect(removeListener.mock.calls).toEqual(addListener.mock.calls)
     })
 
     it('should not deadlock when given already-resolved promises', async () => {

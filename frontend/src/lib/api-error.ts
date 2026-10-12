@@ -246,9 +246,9 @@ export function readableErrorMessage(error: unknown): string | undefined {
 }
 
 export class ApiError extends Error {
-    /** Numeric capacity hints can be used for automatic retries without relying on server or device clocks. */
+    /** Numeric 429 and 503 hints can be used for automatic retries without relying on server or device clocks. */
     readonly retryAfterSeconds: number | null
-    /** An absolute deadline keeps rerenders and remounts from restarting a capacity cooldown. */
+    /** Only a 503 capacity hint sets this. An absolute deadline keeps rerenders and remounts from restarting a cooldown. */
     readonly retryAfterTimestamp: number | null
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -275,10 +275,11 @@ export class ApiError extends Error {
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
-        const retryAfter = status === 503 ? headers?.get('Retry-After') : null
+        const retryAfter = status === 429 || status === 503 ? headers?.get('Retry-After') : null
         const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : NaN
         this.retryAfterSeconds = Number.isSafeInteger(seconds) ? seconds : null
-        const retryAfterTimestamp = this.retryAfterSeconds !== null ? Date.now() + this.retryAfterSeconds * 1000 : NaN
+        const retryAfterTimestamp =
+            status === 503 && this.retryAfterSeconds !== null ? Date.now() + this.retryAfterSeconds * 1000 : NaN
         this.retryAfterTimestamp = Number.isSafeInteger(retryAfterTimestamp) ? retryAfterTimestamp : null
     }
 

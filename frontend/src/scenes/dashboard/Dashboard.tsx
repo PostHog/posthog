@@ -127,7 +127,7 @@ function DashboardScene({
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, retryDashboardLoad, setLayoutZoom } =
+    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
         useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
@@ -151,8 +151,8 @@ function DashboardScene({
     useOnMountEffect(() => {
         reportDashboardViewed()
 
-        // request cancellation of any running queries when this component is no longer in the dom
-        return () => abortAnyRunningQuery()
+        // Another consumer can keep the logic mounted after the dashboard leaves the DOM.
+        return () => cancelDashboardRefresh()
     })
 
     // `error404` only becomes true once a load has settled as a 404, so pending loads fall through to the empty/loading state

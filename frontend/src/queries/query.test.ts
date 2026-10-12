@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
@@ -9,6 +10,8 @@ import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { setLatestVersionsOnQuery } from './utils'
+
+jest.unmock('lib/utils/concurrencyController')
 
 describe('query', () => {
     beforeEach(() => {
@@ -264,6 +267,67 @@ describe('query', () => {
         afterEach(() => {
             Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
             jest.restoreAllMocks()
+        })
+
+        it('aborts an active status GET before a queued poll takes its slot', async () => {
+            jest.useFakeTimers()
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+            const concurrency = new ConcurrencyController(4)
+            const controllers = Array.from({ length: 5 }, () => new AbortController())
+            const releaseRequests: (() => void)[] = []
+            let activeRequests = 0
+            let peakRequests = 0
+            let priority = 0
+            const get = jest.spyOn(api, 'get').mockImplementation(
+                (_url, options) =>
+                    new Promise((resolve, reject) => {
+                        activeRequests++
+                        peakRequests = Math.max(peakRequests, activeRequests)
+                        let settled = false
+                        const finish = (error?: Error): void => {
+                            if (settled) {
+                                return
+                            }
+                            settled = true
+                            activeRequests--
+                            if (error) {
+                                reject(error)
+                            } else {
+                                resolve({ query_status: { complete: true, results: ['ok'] } })
+                            }
+                        }
+                        options?.signal?.addEventListener('abort', () =>
+                            finish(new DOMException('Aborted', 'AbortError'))
+                        )
+                        releaseRequests.push(() => finish())
+                    })
+            )
+            const results = Promise.allSettled(
+                controllers.map((controller, index) =>
+                    pollForResults(`query-${index}`, { signal: controller.signal }, undefined, (fn) =>
+                        concurrency.run({ fn, priority: priority++, abortController: controller })
+                    )
+                )
+            )
+
+            try {
+                await jest.advanceTimersByTimeAsync(300)
+                expect(get).toHaveBeenCalledTimes(4)
+                expect(activeRequests).toBe(4)
+
+                controllers[0].abort()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(get).toHaveBeenCalledTimes(5)
+                expect(activeRequests).toBe(4)
+                expect(peakRequests).toBe(4)
+            } finally {
+                releaseRequests.forEach((release) => release())
+                await jest.runAllTimersAsync()
+                const outcomes = await results
+                expect(outcomes[0]).toMatchObject({ status: 'rejected', reason: { name: 'AbortError' } })
+                expect(outcomes.slice(1).map((outcome) => outcome.status)).toEqual(Array(4).fill('fulfilled'))
+                jest.useRealTimers()
+            }
         })
 
         it('does not count time spent hidden against the poll deadline', async () => {
@@ -685,6 +749,13 @@ describe('query', () => {
     })
 
     describe('pollForResults error message parsing', () => {
+        it('preserves an aborted status request as cancellation', async () => {
+            const error = new DOMException('Aborted', 'AbortError')
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(error)
+
+            await expect(pollForResults('test-query-id')).rejects.toBe(error)
+        })
+
         it('prefers the structured error_code from the query status over one parsed from the message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
                 data: {

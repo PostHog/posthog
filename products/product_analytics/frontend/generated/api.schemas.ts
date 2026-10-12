@@ -1071,6 +1071,8 @@ export interface QueryStatusApi {
     query_progress?: ClickhouseQueryProgressApi | null
     query_scan?: QueryScanSummaryApi | null
     results?: unknown
+    /** Minimum seconds to wait before retrying a failed query. */
+    retry_after?: number | null
     /** When was query execution task enqueued. */
     start_time?: string | null
     task_id?: string | null

@@ -1431,14 +1431,16 @@ class InsightSerializer(InsightBasicSerializer):
             except Exception as e:
                 is_rate_limited = classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
                 error_message = str(e)
+                retry_after: int | None = None
                 if is_rate_limited:
-                    # Older dashboard clients retry on this marker. Other capacity messages can
-                    # contain internal Redis keys, task IDs or raw ClickHouse details.
-                    error_message = (
-                        "concurrency_limit_exceeded"
-                        if isinstance(e, ConcurrencyLimitExceeded)
-                        else ClickHouseAtCapacity.default_detail
-                    )
+                    if isinstance(e, ConcurrencyLimitExceeded):
+                        # Older dashboard clients retry on this marker. There is no cooldown hint, because
+                        # a slot frees when another query under the same limit ends, often within seconds.
+                        error_message = "concurrency_limit_exceeded"
+                    else:
+                        # Other capacity messages can contain internal Redis keys, task IDs or raw ClickHouse details.
+                        error_message = ClickHouseAtCapacity.default_detail
+                        retry_after = (e if isinstance(e, ClickHouseAtCapacity) else ClickHouseAtCapacity()).wait
                     logger.warn(
                         "insight_calculation_rate_limited",
                         exception=e,
@@ -1455,6 +1457,7 @@ class InsightSerializer(InsightBasicSerializer):
                     error_message=error_message,
                     error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
                     last_refresh=now() if is_rate_limited else None,
+                    retry_after=retry_after,
                 )
 
     def _degraded_insight_result(
@@ -1466,6 +1469,7 @@ class InsightSerializer(InsightBasicSerializer):
         error_message: str,
         error_code: str | None,
         last_refresh: datetime | None,
+        retry_after: int | None = None,
     ) -> InsightResult:
         """A 200 response carrying the failure on query_status, so a failing insight degrades in
         place rather than failing the whole request. `error_code` lets the client tell a
@@ -1490,6 +1494,7 @@ class InsightSerializer(InsightBasicSerializer):
                     error_message=error_message,
                     error_code=error_code,
                     error=True,
+                    retry_after=retry_after,
                 )
             ),
             cache_key=getattr(error, "cache_key", None),

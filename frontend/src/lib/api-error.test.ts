@@ -14,13 +14,14 @@ describe('api-error', () => {
         })
 
         it.each([
-            { status: 503, seconds: 0, expected: 0 },
-            { status: 503, seconds: 5, expected: 5 },
-            { status: 503, seconds: 45, expected: 45 },
-            { status: 500, seconds: 45, expected: null },
+            { status: 503, seconds: 0, expected: 0, cooldown: true },
+            { status: 503, seconds: 5, expected: 5, cooldown: true },
+            { status: 503, seconds: 45, expected: 45, cooldown: true },
+            { status: 429, seconds: 45, expected: 45, cooldown: false },
+            { status: 500, seconds: 45, expected: null, cooldown: false },
         ])(
-            'anchors a numeric capacity hint to receipt time only for 503 (status=$status, seconds=$seconds)',
-            ({ status, seconds, expected }) => {
+            'reads a numeric hint and anchors a cooldown only for 503 (status=$status, seconds=$seconds)',
+            ({ status, seconds, expected, cooldown }) => {
                 jest.useFakeTimers()
                 const receivedAt = Date.now()
                 const error = new ApiError('', status, new Headers({ 'Retry-After': String(seconds) }))
@@ -28,7 +29,7 @@ describe('api-error', () => {
                 jest.advanceTimersByTime(1000)
 
                 expect(error.retryAfterSeconds).toBe(expected)
-                expect(error.retryAfterTimestamp).toBe(expected === null ? null : receivedAt + expected * 1000)
+                expect(error.retryAfterTimestamp).toBe(cooldown ? receivedAt + seconds * 1000 : null)
             }
         )
 

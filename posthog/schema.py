@@ -7500,6 +7500,10 @@ class QueryStatus(BaseModel):
     query_progress: ClickhouseQueryProgress | None = None
     query_scan: QueryScanSummary | None = None
     results: Any | None = None
+    retry_after: int | None = Field(
+        default=None,
+        description="Minimum seconds to wait before retrying a failed query.",
+    )
     start_time: AwareDatetime | None = Field(default=None, description="When was query execution task enqueued.")
     task_id: str | None = None
     team_id: int
