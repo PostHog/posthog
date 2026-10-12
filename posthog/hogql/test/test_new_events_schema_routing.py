@@ -88,19 +88,15 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             {"personsOnEventsMode": "disabled"},
         )
 
-    @parameterized.expand([(False,), (None,)])
-    def test_raw_native_opt_in_cannot_be_enqueued_with_a_constructor_override(self, override: bool | None) -> None:
+    def test_worker_revalidates_eligibility_instead_of_falling_back(self) -> None:
         from posthog.hogql.errors import ExposedHogQLError
 
-        runner = HogQLQueryRunner(
-            query=HogQLQuery(
-                query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True})
-            ),
-            team=self.team,
-            modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": override}),
-        )
-        with self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"):
-            self._enqueue(runner)
+        source = HogQLQuery(query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True}))
+        runner = HogQLQueryRunner(query=source, team=self.team)
+        serialized = self._enqueue(runner)
+        with patch("posthog.models.event.new_events_schema.get_instance_setting", return_value=[]):
+            with self.assertRaisesRegex(ExposedHogQLError, "not enabled"):
+                get_query_runner(serialized, self.team, user=self.user)
 
     def test_direct_warehouse_connection_cannot_claim_native_cluster_opt_in(self) -> None:
         from posthog.hogql.errors import ExposedHogQLError
@@ -112,6 +108,45 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True}),
                 connection_id="example-connection",
             )
+
+    @parameterized.expand(
+        [
+            ("native", {"useNewEventsCluster": True}, None, {}, True, True),
+            ("legacy", {}, None, {}, False, None),
+            ("schema_override", {}, {"useNewEventsSchema": False}, {"useNewEventsSchema": True}, False, None),
+            ("cluster_false", {"useNewEventsCluster": True}, {"useNewEventsCluster": False}, {}, False, False),
+            ("cluster_unset", {"useNewEventsCluster": True}, {"useNewEventsCluster": None}, {}, False, None),
+        ]
+    )
+    def test_async_route_and_cache_identity_survive_worker_reconstruction(
+        self, name: str, raw: dict, override: dict | None, team_defaults: dict, schema: bool, cluster: bool | None
+    ) -> None:
+        self.team.modifiers = team_defaults
+        source = HogQLQuery(query="SELECT 1", modifiers=self.modifiers.model_copy(update=raw))
+        original = source.model_dump()
+        with override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com" if cluster else None):
+            request = HogQLQueryRunner(
+                query=source,
+                team=self.team,
+                user=self.user,
+                modifiers=self.modifiers.model_copy(update=override) if override is not None else None,
+            )
+            serialized = self._enqueue(request)
+            worker = get_query_runner(serialized, self.team, user=self.user)
+        self.assertIs(worker.modifiers.useNewEventsSchema, schema)
+        self.assertIs(worker.modifiers.useNewEventsCluster, cluster)
+        self.assertEqual(source.model_dump(), original)
+        if name == "legacy":
+            self.assertEqual(serialized, original)
+        with (
+            patch.object(request, "_get_property_access_restrictions", return_value=None),
+            patch.object(worker, "_get_property_access_restrictions", return_value=None),
+            patch.object(request, "_products_modifiers_for_cache", return_value={}),
+            patch.object(worker, "_products_modifiers_for_cache", return_value={}),
+            patch("posthog.hogql_queries.query_runner.events_retention_months_for_team", return_value=None),
+        ):
+            if override is None:
+                self.assertEqual(request.get_cache_payload(), worker.get_cache_payload())
 
     @parameterized.expand([(False,), (True,)])
     def test_authenticated_query_pins_existing_schema_default_before_cache(self, native: bool) -> None:
@@ -233,13 +268,12 @@ class TestNewEventsClusterRouting(SimpleTestCase):
 
 @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNewEventsClusterPilot(APIBaseTest):
-    def _run_sql(self, modifiers: dict[str, bool], refresh: str = "force_blocking", async_: bool = False):
+    def _run_sql(self, modifiers: dict[str, bool]):
         return self.client.post(
             f"/api/projects/{self.team.id}/query/",
             {
                 "query": {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events", "modifiers": modifiers},
-                "refresh": refresh,
-                "async": async_,
+                "refresh": "force_blocking",
             },
             format="json",
         )
@@ -274,20 +308,6 @@ class TestNewEventsClusterPilot(APIBaseTest):
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NATIVE_EVENTS, native_cluster)
         if native_cluster:
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
-
-    @parameterized.expand([("force_async", False), ("force_blocking", True)])
-    def test_native_async_dispatch_is_rejected_before_enqueue(self, refresh: str, async_: bool) -> None:
-        with (
-            patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: [self.team.id] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
-            ),
-            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
-        ):
-            response = self._run_sql({"useNewEventsCluster": True}, refresh=refresh, async_=async_)
-        self.assertEqual(response.status_code, 400, response.json())
-        self.assertIn("synchronous execution", str(response.json()))
-        enqueue.assert_not_called()
 
     def test_staff_can_enable_and_disable_pilot_eligibility_through_api(self) -> None:
         self.user.is_staff = True

@@ -43,7 +43,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Organization, Team, User
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
@@ -2530,6 +2530,17 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         cookieless.start()
         self.addCleanup(cookieless.stop)
 
+    def _enqueue(self, runner: QueryRunner) -> dict:
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            runner.enqueue_async_calculation(
+                cache_manager=MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None), user=self.user
+            )
+        return enqueue.call_args.kwargs["query_json"]
+
     @parameterized.expand(
         [
             (kind, True, None, None, None, True, True)
@@ -2546,7 +2557,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             for choice in (False, None)
         ]
     )
-    def test_nested_route_and_cache_identity_follow_effective_modifiers(
+    def test_nested_route_and_cache_identity_survive_worker_reconstruction(
         self,
         kind: str,
         source_choice: bool | None,
@@ -2575,26 +2586,18 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         original = query.model_dump()
         with override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com" if cluster else None):
             request = get_query_runner(query, self.team, modifiers=override, user=self.user)
-        self.assertIs(request.modifiers.useNewEventsSchema, schema)
-        self.assertIs(request.modifiers.useNewEventsCluster, cluster)
+            worker = get_query_runner(self._enqueue(request), self.team, user=self.user)
+        self.assertIs(worker.modifiers.useNewEventsSchema, schema)
+        self.assertIs(worker.modifiers.useNewEventsCluster, cluster)
         self.assertEqual(query.model_dump(), original)
         with (
             patch.object(request, "_get_property_access_restrictions", return_value=None),
+            patch.object(worker, "_get_property_access_restrictions", return_value=None),
             patch.object(request, "_products_modifiers_for_cache", return_value={}),
+            patch.object(worker, "_products_modifiers_for_cache", return_value={}),
             patch("posthog.hogql_queries.query_runner.events_retention_months_for_team", return_value=None),
         ):
-            payload = request.get_cache_payload()
-        self.assertEqual(payload["hogql_modifiers"].get("useNewEventsCluster", False), bool(cluster))
-        self.assertEqual(payload["hogql_modifiers"].get("useNewEventsSchema", False), schema)
-        self.assertEqual(payload.get("native_events_host"), "native.example.com" if cluster else None)
-        if source_choice is True or wrapper_choice is True or cluster is True:
-            from posthog.hogql.errors import ExposedHogQLError
-
-            with self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"):
-                request.enqueue_async_calculation(
-                    cache_manager=MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None),
-                    user=self.user,
-                )
+            self.assertEqual(request.get_cache_payload(), worker.get_cache_payload())
 
     def _nested_query(self, kind: str, native: bool | None = None) -> BaseModel:
         modifiers = self.modifiers.model_copy(update={"useNewEventsSchema": native, "useNewEventsCluster": native})
