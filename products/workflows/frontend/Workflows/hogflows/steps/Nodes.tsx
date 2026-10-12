@@ -57,11 +57,14 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
                 }}
                 data-attr="workflow-dropzone-blocked"
             >
-                <IconCancel className={clsx('shrink-0 text-base', isHighlighted ? 'text-danger' : 'text-muted')} />
+                {/* Blocked spots stay empty until the drag reaches them, so the canvas only shows valid spots. */}
                 {isHighlighted && (
-                    <span className="text-[9px] leading-tight text-danger">
-                        {EARLY_EXIT_BLOCKED_REASONS[blockedReason].label}
-                    </span>
+                    <>
+                        <IconCancel className="shrink-0 text-base text-danger" />
+                        <span className="text-[9px] leading-tight text-danger">
+                            {EARLY_EXIT_BLOCKED_REASONS[blockedReason].label}
+                        </span>
+                    </>
                 )}
             </div>
         )
