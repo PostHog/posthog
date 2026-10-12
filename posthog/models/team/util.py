@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.apps import apps
-from django.db import connections
+from django.db import connections, transaction
 
 import structlog
 
@@ -66,6 +66,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Each phase is its own batched helper so the Temporal deletion workflow can run them
     # as separate, individually-retryable activities while Celery keeps calling them in sequence.
     _delete_misc_small_tables_for_teams(team_ids)
+    _delete_event_properties_for_teams(team_ids)
     _delete_cohort_members_for_all_teams(team_ids)
     _delete_groups_for_teams(team_ids)
     _delete_group_type_mappings_for_teams(team_ids)
@@ -147,6 +148,40 @@ def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size:
                 if cursor.rowcount < batch_size:
                     break
                 time.sleep(0.1)
+
+
+def _delete_event_properties_for_teams(
+    team_ids: list[int], should_stop: Callable[[], bool] | None = None, batch_size: int = 10000
+) -> None:
+    """Batch-delete the teams' event properties before the Team cascade, which would delete them in one statement.
+
+    Each batch resumes the (team_id, property) index walk after the last (property, id) it deleted, so no batch
+    reads the index entries of rows that earlier batches deleted. ``should_stop`` is checked before each batch.
+    """
+    table = apps.get_model("event_definitions", "EventProperty")._meta.db_table
+    # The table name comes from the model, never from input, so interpolating it is safe.
+    select_batch = (
+        f'SELECT id, property, ctid::text FROM "{table}" WHERE team_id = %s AND (property, id) > (%s, %s) '
+        "ORDER BY property, id LIMIT %s"
+    )
+    # The ctid finds each row without a primary key lookup. The id and team_id checks skip a row that an update
+    # moved after the select, and the Team cascade deletes such a row later.
+    delete_batch = f'DELETE FROM "{table}" WHERE ctid = ANY(%s::tid[]) AND id = ANY(%s) AND team_id = %s'
+
+    for team_id in team_ids:
+        last_property, last_id = "", 0
+        while True:
+            if should_stop is not None and should_stop():
+                raise TeamPurgeStopped(f"The event property purge of team {team_id} stopped before it finished")
+            with transaction.atomic(using="default"), connections["default"].cursor() as cursor:
+                cursor.execute(select_batch, [team_id, last_property, last_id, batch_size])
+                rows = cursor.fetchall()
+                if rows:
+                    cursor.execute(delete_batch, [[row[2] for row in rows], [row[0] for row in rows], team_id])
+            if len(rows) < batch_size:
+                break
+            last_id, last_property = rows[-1][0], rows[-1][1]
+            time.sleep(0.1)
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
