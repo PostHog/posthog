@@ -236,17 +236,22 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team, self.user)
+        for entity in ("session", "sessions"):
+            self.assertEqual(
+                toolkit.retrieve_entity_property_values(entity, "$session_duration"),
+                "The taxonomy does not store observed values for the session property $session_duration. "
+                "These are documentation examples, not values from this project: 30, 146, 2. "
+                "To get observed values, query the sessions table with a short, explicit date range, for example: "
+                "SELECT `$session_duration`, count() FROM sessions "
+                "WHERE `$start_timestamp` >= now() - INTERVAL 7 DAY GROUP BY 1 ORDER BY 2 DESC LIMIT 20",
+            )
         self.assertEqual(
-            toolkit.retrieve_entity_property_values("session", "$session_duration"),
-            "30, 146, 2 and many more distinct values.",
-        )
-        self.assertEqual(
-            toolkit.retrieve_entity_property_values("sessions", "$session_duration"),
-            "30, 146, 2 and many more distinct values.",
-        )
-        self.assertEqual(
-            toolkit.retrieve_entity_property_values("session", "$entry_utm_source"),
-            '"Google", "Bing", "Twitter", "Facebook" and many more distinct values.',
+            toolkit.retrieve_entity_property_values("session", "$entry_hostname"),
+            "The taxonomy does not store observed values for the session property $entry_hostname. "
+            'These are documentation examples, not values from this project: "example.com". '
+            "To get observed values, query the sessions table with a short, explicit date range, for example: "
+            "SELECT `$entry_hostname`, count() FROM sessions "
+            "WHERE `$start_timestamp` >= now() - INTERVAL 7 DAY GROUP BY 1 ORDER BY 2 DESC LIMIT 20",
         )
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "nonsense"),
