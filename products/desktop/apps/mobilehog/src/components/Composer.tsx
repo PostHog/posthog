@@ -167,6 +167,7 @@ export function Composer({
     setText("");
     setPhotos([]);
     latest.current = { text: "", photos: [] };
+    const identity = sessionIdentity();
     try {
       await onSend(value, attached);
     } catch {
@@ -175,6 +176,7 @@ export function Composer({
       setPhotos((current) => (current.length ? current : attached));
       return;
     }
+    if (sessionIdentity() !== identity) return;
     const { text: typed, photos: staged } = latest.current;
     if (draftKey && !typed.trim() && !staged.length) clearDraft(draftKey);
   };
