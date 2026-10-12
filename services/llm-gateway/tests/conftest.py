@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -18,6 +19,7 @@ from llm_gateway.rate_limiting.cost_throttles import (
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
 from llm_gateway.request_context import request_context_var
+from llm_gateway.services.account_trust import AccountTrustResolver
 from llm_gateway.services.desktop_access_resolver import DesktopAccessDecision
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
@@ -38,11 +40,21 @@ def _make_fake_quota_resolver() -> AsyncMock:
 def create_test_app(
     mock_db_pool: MagicMock,
     throttles: list[Throttle] | None = None,
+    account_trust_db_pool: MagicMock | None = None,
 ) -> FastAPI:
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
 
     quota_resolver = _make_fake_quota_resolver()
+    if account_trust_db_pool is None:
+        account_trust_db_pool = MagicMock()
+        trust_conn = AsyncMock()
+        trust_conn.fetchrow.return_value = {
+            "created_at": datetime.now(UTC) - timedelta(days=31),
+            "customer_trust_scores": {},
+        }
+        account_trust_db_pool.acquire = AsyncMock(return_value=trust_conn)
+        account_trust_db_pool.release = AsyncMock()
     default_throttles: list[Throttle] = [
         BillableCreditThrottle(),
         ProductCostThrottle(redis=None),
@@ -53,6 +65,7 @@ def create_test_app(
     @asynccontextmanager
     async def test_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.db_pool = mock_db_pool
+        app.state.account_trust_resolver = AccountTrustResolver(account_trust_db_pool)
         app.state.redis = None
         app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
         app.state.http_client = MagicMock()

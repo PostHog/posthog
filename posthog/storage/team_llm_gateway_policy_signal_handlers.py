@@ -19,8 +19,10 @@ from django.db.models.signals import post_init, post_save, pre_delete, pre_save
 
 import structlog
 
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
+from posthog.storage.team_llm_gateway_account_trust_cache import clear_team_account_trust, invalidate_team_account_trust
 from posthog.storage.team_llm_gateway_policy_cache import clear_team_llm_gateway_policy_cache
 
 logger = structlog.get_logger(__name__)
@@ -164,6 +166,35 @@ def _clear_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) ->
 
     kinds = ["redis"] if settings.TEST else None
     clear_team_llm_gateway_policy_cache(instance, kinds=kinds)
+    clear_team_account_trust(instance)
+
+
+def _update_account_trust_on_org_save(
+    sender: type[Organization], instance: Organization, created: bool, **kwargs: Any
+) -> None:
+    if created or not settings.AI_GATEWAY_REDIS_URL:
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"created_at", "customer_trust_scores"}.intersection(update_fields):
+        return
+    organization_id = instance.pk
+
+    def enqueue_updates() -> None:
+        from posthog.tasks.team_llm_gateway_policy import (  # noqa: PLC0415 - avoids importing Celery tasks at startup
+            update_team_llm_gateway_policy_cache_task,
+        )
+
+        for team in Team.objects.filter(organization_id=organization_id).only("id").iterator():
+            try:
+                invalidate_team_account_trust(team)
+            except Exception:
+                logger.exception("Failed to invalidate gateway account trust", team_id=team.id)
+            try:
+                update_team_llm_gateway_policy_cache_task.delay(team.id)
+            except Exception:
+                logger.exception("Failed to enqueue gateway account trust refresh", team_id=team.id)
+
+    transaction.on_commit(enqueue_updates)
 
 
 def connect_signal_handlers() -> None:
@@ -171,3 +202,4 @@ def connect_signal_handlers() -> None:
     pre_save.connect(_capture_old_state_if_deferred, sender=Team)
     post_save.connect(_update_cache_on_save, sender=Team)
     pre_delete.connect(_clear_cache_on_delete, sender=Team)
+    post_save.connect(_update_account_trust_on_org_save, sender=Organization)
