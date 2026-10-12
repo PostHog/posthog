@@ -365,7 +365,9 @@ def get_rows(
             headers = _get_headers(api_key)
             raise HubspotRetryableError(f"Hubspot API 401 - refreshed token, retrying: url={page_url}")
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on HubSpot's side; retry it like 429/5xx rather
+        # than failing the whole sync.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise HubspotRetryableError(f"Hubspot API error (retryable): status={response.status_code}, url={page_url}")
 
         if not response.ok:
@@ -470,7 +472,9 @@ def _batch_read_associations(
             headers.update(_get_headers(new_api_key))
             raise HubspotRetryableError(f"Hubspot v4 associations 401 - refreshed token, retrying: url={url}")
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on HubSpot's side; retry it like 429/5xx rather
+        # than failing the whole sync.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise HubspotRetryableError(
                 f"Hubspot v4 associations error (retryable): status={response.status_code}, url={url}"
             )
@@ -645,7 +649,9 @@ def get_rows_via_search(
             headers.update(_get_headers(api_key))
             raise HubspotRetryableError(f"Hubspot search 401 - refreshed token, retrying: url={search_url}")
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on HubSpot's side; retry it like 429/5xx rather
+        # than failing the whole sync.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise HubspotRetryableError(
                 f"Hubspot search error (retryable): status={response.status_code}, url={search_url}"
             )
