@@ -20,26 +20,34 @@ import piLogo from '../harness-logos/pi.svg'
 import replitLogo from '../harness-logos/replit.svg'
 import vscodeLogo from '../harness-logos/vscode.svg'
 import windsurfLogo from '../harness-logos/windsurf.svg'
-import { MCP_ANALYTICS_COLORS } from './mcpAnalyticsColors'
+import { AI_LAB_COLORS } from './modelColors'
 
 export interface HarnessLogo {
     src: string
     alt: string
 }
 
+const HARNESS_LAB_COLORS = {
+    claude: AI_LAB_COLORS.Anthropic,
+    openai: AI_LAB_COLORS.OpenAI,
+    cursor: AI_LAB_COLORS.Cursor,
+    grok: AI_LAB_COLORS.xAI,
+} as const
+
 const HARNESS_BRAND_COLORS = {
-    claude: MCP_ANALYTICS_COLORS.anthropic,
-    openai: MCP_ANALYTICS_COLORS.openai,
-    cursor: MCP_ANALYTICS_COLORS.cursor,
-    grok: MCP_ANALYTICS_COLORS.xai,
-    vscode: MCP_ANALYTICS_COLORS.vscode,
-    coderabbit: MCP_ANALYTICS_COLORS.coderabbit,
-    kimchi: MCP_ANALYTICS_COLORS.kimchi,
+    vscode: '#007acc',
+    coderabbit: '#ff570a',
+    kimchi: '#ff521d',
+} as const
+
+const HARNESS_COLORS = {
+    ...HARNESS_LAB_COLORS,
+    ...HARNESS_BRAND_COLORS,
 } as const
 
 interface HarnessDescriptor {
     logo?: HarnessLogo
-    color?: keyof typeof HARNESS_BRAND_COLORS | 'monochrome'
+    color?: keyof typeof HARNESS_COLORS | 'monochrome'
     // Index into the data-viz palette for harnesses without a brand color.
     colorIndex?: number
     shade?: number
@@ -98,7 +106,7 @@ export function harnessColor(theme: ChartTheme, label: string): string | undefin
         return theme.axisColor
     }
     const index = descriptor?.colorIndex ?? hashCodeForString(label)
-    const base = descriptor?.color ? HARNESS_BRAND_COLORS[descriptor.color] : theme.colors[index % theme.colors.length]
+    const base = descriptor?.color ? HARNESS_COLORS[descriptor.color] : theme.colors[index % theme.colors.length]
     if (!base) {
         return theme.axisColor
     }

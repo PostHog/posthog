@@ -4,15 +4,14 @@ import { lightenDarkenColor, toOpaqueHex } from 'lib/utils/colors'
 import { hashCodeForString } from 'lib/utils/strings'
 
 import { type ModelLab, modelLab } from '../leaderboardHome/leaderboardShares'
-import { MCP_ANALYTICS_COLORS } from './mcpAnalyticsColors'
 
 export const AI_LAB_COLORS: Record<Exclude<ModelLab, 'Other'>, string> = {
-    Anthropic: MCP_ANALYTICS_COLORS.anthropic,
-    OpenAI: MCP_ANALYTICS_COLORS.openai,
-    Google: MCP_ANALYTICS_COLORS.google,
-    xAI: MCP_ANALYTICS_COLORS.xai,
-    Cursor: MCP_ANALYTICS_COLORS.cursor,
-    'Open weights': MCP_ANALYTICS_COLORS.openWeights,
+    Anthropic: '#d97757',
+    OpenAI: '#74aa9c',
+    Google: '#4285f4',
+    xAI: '#e4a604',
+    Cursor: '#a56eff',
+    'Open weights': '#fe729e',
 }
 
 const MODEL_FAMILY_PATTERN =
