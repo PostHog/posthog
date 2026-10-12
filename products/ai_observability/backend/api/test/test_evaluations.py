@@ -1617,6 +1617,47 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertNotIn("sampling_rate", get_response.data["conditions"][0])
         self.assertEqual(get_response.data["conditions"][0]["rollout_percentage"], 100)
 
+    def test_patch_condition_without_id_stores_a_complete_set(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Patched conditions",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
+        )
+        url = f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/"
+
+        response = self.client.patch(url, {"conditions": [{"properties": []}]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        condition_id = response.data["conditions"][0]["id"]
+        self.assertTrue(condition_id)
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.conditions[0]["id"], condition_id)
+        self.assertEqual(evaluation.conditions[0]["rollout_percentage"], 100)
+
+        get_response = self.client.get(url)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.data["conditions"][0]["id"], condition_id)
+
+    def test_stored_condition_without_id_stays_readable(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Legacy conditions",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            conditions=[{"rollout_percentage": 100, "properties": []}],
+        )
+
+        detail_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/")
+        list_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
+
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(detail_response.data["conditions"][0]["id"])
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+
     @parameterized.expand([(-1,), (101,), (150,)])
     def test_rollout_percentage_out_of_range_rejected(self, rollout_percentage):
         response = self.client.post(

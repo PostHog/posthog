@@ -410,6 +410,29 @@ class TestTaggersApi(APIBaseTest):
         tagger = Tagger.objects.get(id=response.data["id"])
         assert tagger.conditions[0]["rollout_percentage"] == rollout_percentage
 
+    def test_patch_condition_without_id_stores_a_complete_set(self):
+        tagger = Tagger.objects.create(
+            name="Feature Tagger",
+            tagger_config=_make_tagger_config(),
+            conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
+            team=self.team,
+            created_by=self.user,
+        )
+        url = f"/api/environments/{self.team.id}/taggers/{tagger.id}/"
+
+        response = self.client.patch(url, {"conditions": [{"properties": []}]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        condition_id = response.data["conditions"][0]["id"]
+        assert condition_id
+        tagger.refresh_from_db()
+        assert tagger.conditions[0]["id"] == condition_id
+        assert tagger.conditions[0]["rollout_percentage"] == 100
+
+        get_response = self.client.get(url)
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.data["conditions"][0]["id"] == condition_id
+
     def test_patch_tagger_type_without_fresh_config_is_rejected(self):
         tagger = Tagger.objects.create(
             name="LLM tagger",
