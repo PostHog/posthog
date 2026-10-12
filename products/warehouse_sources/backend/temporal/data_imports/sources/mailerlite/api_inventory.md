@@ -29,6 +29,7 @@ conservative (follow `links.next`, yield rows verbatim, merge on `id`).
 | forms_embedded  | /forms/embedded  | page number | id          | created_at    |
 | forms_promotion | /forms/promotion | page number | id          | created_at    |
 | webhooks        | /webhooks        | page number | id          | created_at    |
+| ecommerce_shops | /ecommerce/shops | page number | id          | created_at    |
 
 ### Fan-out endpoints
 
@@ -41,9 +42,15 @@ primary key. A 404 on a child (parent deleted mid-sync) is skipped.
 | group_subscribers            | /groups/{group_id}/subscribers                       | groups                    | cursor      | group_id, id      | created_at    |
 | segment_subscribers          | /segments/{segment_id}/subscribers                   | segments                  | cursor      | segment_id, id    | created_at    |
 | automation_activity          | /automations/{automation_id}/activity                | automations × status      | page number | automation_id, id | (none)        |
+| ecommerce_orders             | /ecommerce/shops/{shop_id}/orders                    | ecommerce_shops           | page number | shop_id, id       | created_at    |
+| ecommerce_products           | /ecommerce/shops/{shop_id}/products                  | ecommerce_shops           | page number | shop_id, id       | (none)        |
+| ecommerce_categories         | /ecommerce/shops/{shop_id}/categories                | ecommerce_shops           | page number | shop_id, id       | created_at    |
 
 - `campaign_subscriber_activity` sends `include=subscriber`; without it a row carries only its
   counts. Reports exist only for sent campaigns, so the parent list is filtered to `sent`.
+- The e-commerce children fan out over every connected shop. Shop-scoped ids aren't documented as
+  globally unique, so the shop id is part of each key. Products carry no creation timestamp, so
+  that table is not partitioned. An account with no connected shop syncs empty tables.
 - The membership endpoints default `filter[status]` to `active`, so they hold active members only.
 - `automation_activity` requires `filter[status]` and takes one value per request, so each
   automation is fetched four times (`active`, `completed`, `canceled`, `failed`). Its `date`
@@ -56,7 +63,8 @@ primary key. A 404 on a child (parent deleted mid-sync) is skipped.
 All list endpoints wrap rows in `{"data": [...], "links": {...}, "meta": {...}}`. Both the
 cursor-based `subscribers` endpoint and the page-number endpoints expose an absolute next-page URL
 at `links.next` (or `null` on the last page), so a single "follow `links.next`" loop covers both.
-Page size capped at 100 (default 25); we request `limit=100`.
+Page size capped at 100 (default 25); we request `limit=100`. The e-commerce shops list defaults
+to 50 and documents no higher cap, so it requests `limit=50`.
 
 ## Incremental sync
 

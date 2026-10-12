@@ -109,7 +109,11 @@ export interface sidePanelLogicMeta {
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
             isAccessControlSettings: boolean
         ) => SidePanelTab[]
-        visibleTabs: (enabledTabs: SidePanelTab[], sceneSidePanelContext: SidePanelSceneContext) => SidePanelTab[]
+        visibleTabs: (
+            enabledTabs: SidePanelTab[],
+            sceneSidePanelContext: SidePanelSceneContext,
+            featureFlags: FeatureFlagsSet
+        ) => SidePanelTab[]
     }
 }
 
@@ -232,12 +236,20 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs, s.sceneSidePanelContext],
-            (enabledTabs: SidePanelTab[], sceneSidePanelContext: SidePanelSceneContext): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.sceneSidePanelContext, s.featureFlags],
+            (
+                enabledTabs: SidePanelTab[],
+                sceneSidePanelContext: SidePanelSceneContext,
+                featureFlags: FeatureFlagsSet
+            ): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
                 const hiddenTabs: SidePanelTab[] = sceneSidePanelContext.canvas_id
                     ? [SidePanelTab.Exports, SidePanelTab.Support]
                     : [SidePanelTab.Exports]
+                // The Today layout has no home for these tabs yet. They stay openable from their entry points.
+                if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                    hiddenTabs.push(SidePanelTab.Discussion, SidePanelTab.Notebooks)
+                }
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],

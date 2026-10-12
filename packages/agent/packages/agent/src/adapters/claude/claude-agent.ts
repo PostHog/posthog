@@ -3063,6 +3063,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         await new PostHogAPIClient(config).updateTaskRun(taskId, taskRunId, {
           status,
           ...(status === "failed" && message ? { error_message: message } : {}),
+          ...(status === "failed" ? { error_type: "agent_declined" } : {}),
         });
       } catch (error) {
         this.logger.error("finish tool failed to mark run terminal", error);
@@ -3546,11 +3547,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     try {
       if (isResume || resolvedModelId !== options.model) {
         startupStep = "model switch";
-        await this.awaitStartupControl(
-          startupStep,
-          this.session.query.setModel(resolvedModelId),
-          startupErrorData,
-        );
+        try {
+          await this.awaitStartupControl(
+            startupStep,
+            this.session.query.setModel(resolvedModelId),
+            startupErrorData,
+          );
+        } catch (modelSwitchError) {
+          startupLogger.warn("Session model switch failed; retrying once", {
+            ...startupErrorData,
+            modelId: resolvedModelId,
+            errorDetail: serializeError(modelSwitchError),
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+          await this.awaitStartupControl(
+            startupStep,
+            this.session.query.setModel(resolvedModelId),
+            startupErrorData,
+          );
+        }
       }
 
       // Keep thinking enabled by default for effort-capable models (see
