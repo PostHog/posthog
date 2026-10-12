@@ -59,7 +59,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
+        return mock.MagicMock(url=request.url)
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
@@ -214,7 +214,7 @@ class TestRetryableErrors:
     def test_retryable_status_eventually_raises(self, MockSession, _sleep) -> None:
         session = MockSession.return_value
         session.headers = {}
-        session.prepare_request.side_effect = lambda request: mock.MagicMock()
+        session.prepare_request.side_effect = lambda request: mock.MagicMock(url=request.url)
         session.send.return_value = _response(None, status=500, reason="err")
 
         with pytest.raises(Exception):
@@ -289,7 +289,7 @@ def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[tuple
 
     def _prepare(request: Any) -> mock.MagicMock:
         requests_sent.append((request.url, dict(request.params or {})))
-        return mock.MagicMock()
+        return mock.MagicMock(url=request.url)
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
