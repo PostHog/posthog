@@ -15,8 +15,8 @@ export interface visualReviewPreferencesLogicActions {
         teamId: number,
         repoFullName: string
     ) => {
-        teamId: number
         repoFullName: string
+        teamId: number
     }
     setAddImagesToComment: (enabled: boolean) => {
         enabled: boolean

@@ -109,8 +109,8 @@ export interface visualReviewRunSceneLogicActions {
         teamId: number,
         repoFullName: string
     ) => {
-        teamId: number
         repoFullName: string
+        teamId: number
     } // visualReviewPreferencesLogic
     setAddImagesToComment: (enabled: boolean) => {
         enabled: boolean

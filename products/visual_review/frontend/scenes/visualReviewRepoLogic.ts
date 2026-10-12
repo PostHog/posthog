@@ -29,8 +29,8 @@ export interface visualReviewRepoLogicActions {
         teamId: number,
         repoFullName: string
     ) => {
-        teamId: number
         repoFullName: string
+        teamId: number
     } // visualReviewPreferencesLogic
     loadAllRepos: () => any
     loadAllReposFailure: (
