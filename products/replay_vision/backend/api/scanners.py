@@ -1316,6 +1316,17 @@ class BulkObserveRequestSerializer(serializers.Serializer):
     )
 
 
+SCAN_OUTCOME_CHOICES = [
+    ("started", "Started"),
+    ("already_running", "Already running"),
+    ("already_scanned", "Already scanned"),
+    ("skipped_limit", "Skipped, in-flight limit reached"),
+    ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
+    ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
+    ("failed", "Failed to start"),
+]
+
+
 class BulkObserveResultSerializer(serializers.Serializer):
     """Per-session outcome of a bulk scan trigger."""
 
@@ -1323,15 +1334,7 @@ class BulkObserveResultSerializer(serializers.Serializer):
     # Named scan_outcome (not outcome) so its generated enum doesn't collide with other products'
     # `outcome` enums — a bare `outcome` ChoiceField forces the shared OutcomeEnum to be renamed.
     scan_outcome = serializers.ChoiceField(
-        choices=[
-            ("started", "Started"),
-            ("already_running", "Already running"),
-            ("already_scanned", "Already scanned"),
-            ("skipped_limit", "Skipped, in-flight limit reached"),
-            ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
-            ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
-            ("failed", "Failed to start"),
-        ],
+        choices=SCAN_OUTCOME_CHOICES,
         help_text=(
             "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is "
             "already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a "

@@ -67116,7 +67116,7 @@ export namespace Schemas {
     export interface ObservationRequestSession {
       /** The session recording this outcome is for. */
       session_id: string;
-      /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
+      /** How the session's scan started, with the same values as a bulk scan trigger. Null while the request still waits for the session to end, or before its scan has started.
        *
        * * `started` - Started
        * * `already_running` - Already running
@@ -67125,7 +67125,7 @@ export namespace Schemas {
        * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
        * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
        * * `failed` - Failed to start */
-      scan_outcome: ScanOutcomeEnum;
+      scan_outcome: ScanOutcomeEnum | null;
       /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
        *
        * * `pending` - Pending
