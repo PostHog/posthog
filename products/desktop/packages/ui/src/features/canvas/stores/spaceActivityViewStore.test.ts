@@ -1,6 +1,6 @@
 import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
-  DESKTOP_SOURCE,
+  FIRST_PARTY_CLIENT_SOURCES,
   WEB_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import { describe, expect, it } from "vitest";
@@ -16,7 +16,7 @@ describe("spaceActivityViewStore", () => {
         ...filtersWithoutSources,
         sources: ["user_created", "posthog_ai", "slack"],
       },
-      expected: [DESKTOP_SOURCE, WEB_SOURCE, "slack"],
+      expected: [...FIRST_PARTY_CLIENT_SOURCES, "slack"],
     },
     {
       label: "a legacy single source",
