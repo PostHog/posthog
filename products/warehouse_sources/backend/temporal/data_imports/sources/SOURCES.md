@@ -209,6 +209,7 @@ the row lists both.
 | cloudability                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudinary                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudzero                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clover                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coassemble                       | HTTP                        | requests                                                        | ✅                          |
 | coda                             | HTTP                        | requests                                                        | ✅                          |
 | codacy                           | HTTP                        | requests                                                        | ✅                          |
@@ -255,6 +256,7 @@ the row lists both.
 | courier                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
+| criteo                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cronitor                         | HTTP                        | requests                                                        | ✅                          |
 | crossref                         | HTTP                        | requests                                                        | ✅                          |
 | crunchbase                       | HTTP                        | requests                                                        | ✅                          |
@@ -1064,7 +1066,6 @@ doesn't conflict with concurrent PRs.
 - clevertap
 - clio
 - cloudbeds
-- clover
 - coassemble
 - cockroachdb
 - codacy
@@ -1080,7 +1081,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - couchbase
 - crisp
-- criteo
 - crowdstrike_falcon
 - cube_cloud
 - curve
