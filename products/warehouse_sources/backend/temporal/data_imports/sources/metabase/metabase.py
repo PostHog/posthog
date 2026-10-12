@@ -305,9 +305,8 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
-    index = year * 12 + (month - 1) + delta
-    return index // 12, index % 12 + 1
+def _month_index(year: int, month: int) -> int:
+    return year * 12 + (month - 1)
 
 
 def query_execution_months(now: datetime, last_value: Any) -> list[str]:
@@ -318,15 +317,11 @@ def query_execution_months(now: datetime, last_value: Any) -> list[str]:
     """
     watermark = _parse_timestamp(last_value)
     if watermark is None:
-        year, month = _shift_month(now.year, now.month, -QUERY_EXECUTION_LOOKBACK_MONTHS)
+        start = _month_index(now.year, now.month) - QUERY_EXECUTION_LOOKBACK_MONTHS
     else:
-        year, month = _shift_month(watermark.year, watermark.month, -1)
+        start = _month_index(watermark.year, watermark.month) - 1
 
-    months: list[str] = []
-    while (year, month) <= (now.year, now.month):
-        months.append(f"{year:04d}-{month:02d}")
-        year, month = _shift_month(year, month, 1)
-    return months
+    return [f"{index // 12:04d}-{index % 12 + 1:02d}" for index in range(start, _month_index(now.year, now.month) + 1)]
 
 
 def _started_at_sort_key(row: dict[str, Any]) -> datetime:
