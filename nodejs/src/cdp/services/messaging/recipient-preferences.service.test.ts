@@ -661,7 +661,7 @@ describe('RecipientPreferencesService', () => {
     })
 
     describe('isFrequencyCapped', () => {
-        let redis: RedisV2
+        let valkey: RedisV2
         let frequencyCap: { max_messages: number | null; window_days: number | null }
         let teamWorkflowsConfig: TeamWorkflowsConfigService
         let cappedService: RecipientPreferencesService
@@ -685,26 +685,24 @@ describe('RecipientPreferencesService', () => {
 
         beforeAll(() => {
             // One pool for the block: RedisV2 has no close, so a pool per test would leave its connections open.
-            redis = createRedisV2PoolFromConfig({
-                connection: defaultConfig.CDP_REDIS_HOST
-                    ? {
-                          url: defaultConfig.CDP_REDIS_HOST,
-                          options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
-                      }
-                    : { url: defaultConfig.REDIS_URL },
+            valkey = createRedisV2PoolFromConfig({
+                connection: {
+                    url: defaultConfig.CDP_VALKEY_HOST,
+                    options: { port: defaultConfig.CDP_VALKEY_PORT, password: defaultConfig.CDP_VALKEY_PASSWORD },
+                },
                 poolMinSize: defaultConfig.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: defaultConfig.REDIS_POOL_MAX_SIZE,
             })
         })
 
         beforeEach(async () => {
-            await deleteKeysWithPrefix(redis, `@posthog/workflows-frequency-cap/${team.id}/`)
+            await deleteKeysWithPrefix(valkey, `@posthog/workflows-frequency-cap/${team.id}/`)
             frequencyCap = { max_messages: 2, window_days: 7 }
             teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
             jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
             cappedService = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService, {
                 teamWorkflowsConfig,
-                redis,
+                valkey,
             })
         })
 
@@ -749,7 +747,7 @@ describe('RecipientPreferencesService', () => {
                 'the config lookup',
                 () => jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockRejectedValue(new Error('unavailable')),
             ],
-            ['the Redis pool', () => jest.spyOn(redis, 'useClient').mockRejectedValue(new Error('unavailable'))],
+            ['the Valkey pool', () => jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('unavailable'))],
         ])('lets the send through when %s fails', async (_, fail) => {
             fail()
             expect(await sendAt(emailAction(), 1_800_000_000_000)).toBe(false)
