@@ -5515,14 +5515,14 @@ Note: Mem0 publishes a real OpenAPI spec (33 paths, linked from https://docs.mem
 
 ## Mention — gaps
 
-Today (4): `accounts`, `alert_tags`, `alerts`, `mentions`
+Today (7): `accounts`, `alert_authors`, `alert_daily_stats`, `alert_tags`, `alert_tasks`, `alerts`, `mentions`
 
 Diffed against: <https://dev.mention.com/current/>
 
-- [ ] `GET /accounts/{account_id}/stats` — Per-alert statistics with country, tone, weekday and influencer breakdowns - the product's headline metric (high)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/authors` — Author/influencer breakdown per alert, with scores; a key analytical dimension over mentions (high)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/tasks` — Task assignments on mentions - the workflow state layered over the mentions we already sync (medium)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium)
+- [x] `GET /accounts/{account_id}/stats` — Per-alert statistics with country, tone, weekday and influencer breakdowns - the product's headline metric (high)
+- [x] `GET /accounts/{account_id}/alerts/{alert_id}/authors` — Author/influencer breakdown per alert, with scores; a key analytical dimension over mentions (high)
+- [x] `GET /accounts/{account_id}/alerts/{alert_id}/tasks` — Task assignments on mentions - the workflow state layered over the mentions we already sync (medium)
+- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium) — not built: it needs one request per mention on top of the full mentions walk, and each `mentions` row already carries its first page of children plus the `total` count
 - [ ] `GET /accounts/{account_id}/alerts/{alert_id}/shares` — Alert share membership, showing who has access to each alert (low)
 
 Note: The reference is a static HTML tree; the full endpoint list is readable from the index page's link set. MENTION_ENDPOINTS is a static dict with no dynamic discovery, and all four tables are full-refresh.
