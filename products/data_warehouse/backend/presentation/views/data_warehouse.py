@@ -58,6 +58,7 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
 from products.data_warehouse.backend.presentation.managed_warehouse_trino_monitoring import (
     ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
     ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+    WarehouseTrinoStatusState,
     serialize_trino_monitoring_series,
     serialize_trino_monitoring_snapshot,
 )
@@ -1350,7 +1351,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "WarehouseTrinoStatus",
                         fields={
                             "state": serializers.ChoiceField(
-                                choices=["not_enabled", "pending", "provisioning", "ready", "failed", "unavailable"],
+                                choices=WarehouseTrinoStatusState.choices,
                                 help_text="Trino lifecycle state for the organization. `unavailable` means the "
                                 "state could not be read.",
                             ),

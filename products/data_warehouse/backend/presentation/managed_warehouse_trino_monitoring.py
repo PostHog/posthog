@@ -1,6 +1,8 @@
 from collections.abc import Mapping
 from typing import cast
 
+from django.db import models
+
 from rest_framework import serializers
 
 from products.data_warehouse.backend.presentation.managed_warehouse_monitoring import (
@@ -10,17 +12,28 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
     serialize_monitoring_response,
 )
 
-MANAGED_WAREHOUSE_TRINO_MONITORING_METRICS = (
-    "queries_in_flight",
-    "query_rate",
-    "error_ratio",
-    "duration_p50",
-    "duration_p95",
-    "queue_time_p95",
-    "scanned_bytes_rate",
-    "cpu_seconds_rate",
-    "storage_bytes",
-)
+
+class ManagedWarehouseTrinoMonitoringMetric(models.TextChoices):
+    QUERIES_IN_FLIGHT = "queries_in_flight", "queries_in_flight"
+    QUERY_RATE = "query_rate", "query_rate"
+    ERROR_RATIO = "error_ratio", "error_ratio"
+    DURATION_P50 = "duration_p50", "duration_p50"
+    DURATION_P95 = "duration_p95", "duration_p95"
+    QUEUE_TIME_P95 = "queue_time_p95", "queue_time_p95"
+    SCANNED_BYTES_RATE = "scanned_bytes_rate", "scanned_bytes_rate"
+    CPU_SECONDS_RATE = "cpu_seconds_rate", "cpu_seconds_rate"
+    STORAGE_BYTES = "storage_bytes", "storage_bytes"
+
+
+class WarehouseTrinoStatusState(models.TextChoices):
+    NOT_ENABLED = "not_enabled", "not_enabled"
+    PENDING = "pending", "pending"
+    PROVISIONING = "provisioning", "provisioning"
+    READY = "ready", "ready"
+    FAILED = "failed", "failed"
+    UNAVAILABLE = "unavailable", "unavailable"
+
+
 MANAGED_WAREHOUSE_TRINO_MONITORING_LABELS = {
     "queries_in_flight": frozenset({"state"}),
     "query_rate": frozenset({"status", "error_type"}),
@@ -132,7 +145,7 @@ class ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer(serializers.Seri
 
 class ManagedWarehouseTrinoMonitoringSeriesQuerySerializer(serializers.Serializer):
     metric = serializers.ChoiceField(
-        choices=MANAGED_WAREHOUSE_TRINO_MONITORING_METRICS,
+        choices=ManagedWarehouseTrinoMonitoringMetric.choices,
         help_text="Allow-listed Trino metric to retrieve.",
     )
     window = serializers.ChoiceField(
