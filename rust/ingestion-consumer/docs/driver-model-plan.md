@@ -18,7 +18,7 @@ Master already contains two parts of the design:
 An assignment epoch also exists.
 A rebalance increments it, and every sub-batch carries it.
 
-These components stay as they are: the stream runners, the P2C (power-of-two-choices) router, the aperture, the worker registry, the commit sentinel, the commit monitor, and the key-order sentinel.
+These components stay as they are: the stream runners, the P2C (power-of-two-choices) router, the aperture, the worker registry, and the key-order sentinel.
 
 ## Initial PR stacks
 
@@ -56,7 +56,7 @@ Rules:
 - A cycle's cleanup lands only after its switchover is stable on all lanes.
 - Swap the smallest piece that removes the most complexity. Components that already match the target design are not rebuilt.
 - A change must not alter the meaning of an existing metric. Metrics of deleted machinery are deleted with it.
-- The commit sentinel and the key-order sentinel stay enabled through every cycle.
+- The key-order sentinel stays enabled through every cycle.
 
 Cycle 1 lands first: one fast change that removes complexity, preserves behavior, and depends on nothing else.
 After that, the cycles run in order, with two exceptions.
@@ -153,7 +153,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - The frontier is in Kafka's committed-offset representation: the next offset to read, not the last offset processed. The current commit path already commits in this representation (the poll's max offset plus one), so the frontier is commit-ready as returned — no call site adds or subtracts one.
 - The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
 - Completions can arrive in any order. The frontier moves only over completed slots.
-- Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, and the commit sentinel treats a gap as a real skip (see the caveat on `CommitSentinel`).
+- Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, so a gap the frontier walks over (`kafka_consumer_ledger_gap_offsets_total`) is a real skip.
 - The ledger still defines contiguity over delivered offsets, not offset arithmetic. A legitimate gap can then never block the frontier.
 - The sentinel's gap alert and the ledger's gap handling cannot both stand. Once the frontier owns commits (change 4), a commit that walks over a legitimate gap is correct, and the sentinel would report it as a skip. The ledger therefore counts each gap it walked over (`kafka_consumer_ledger_gaps_total`), and the sentinel's gap alert retires in change 5. Until then the alert stays, because the ingestion topics have no legitimate gaps today and a gap is still a real skip.
 - Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, the ring drains after `take_frontier`, offset gaps, ring capacity.
@@ -569,7 +569,7 @@ This is a deliberate structural outcome, not routine cleanup: it is the largest 
 Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 
 **Verify:** `kafka_consumer_ledger_errors_total` and `kafka_consumer_ledger_gap_offsets_total` stay flat, and `kafka_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
-Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
+Exit criterion at the canary: zero ledger errors and gap walks, and a stalled partition no longer moves the commit rate of other partitions.
 
 ### 21. Switch completion to group granularity (switchover)
 
@@ -584,13 +584,14 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 - Keep `max_in_flight_batches` as the bound on outstanding work. A poll's slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and polls. Replay exposure stays inside the admission cap.
 - Rollback is the switch back to `poll`.
-- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle gives the pacer an interval: it keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`, and a zero interval is today's immediate pacer. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. The commit sentinel must record a partition's attempted offset when the pacer hands it out, not when the frontier is handed over, or `ingestion_consumer_commit_confirmation_lag` reports pending frontiers as commits that never landed. On revoke the pacer forgets the partition; the drain in change 27 commits what the pacer still holds at shutdown. One `CommitPacer` with an interval covers both granularities; `poll` runs it at zero. The sentinel's contiguity check compared the span a poll delivered against the previous commit; at `group` granularity a take no longer maps to one poll's slice, and the ledger already rejects a redelivered offset at charge (`kafka_consumer_ledger_errors_total`) and counts the offsets a frontier walks over (`kafka_consumer_ledger_gap_offsets_total`), so the check retires here at both granularities. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
+- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle gives the pacer an interval: it keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`, and a zero interval is today's immediate pacer. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. `ingestion_consumer_committed_offset` is set when a commit is submitted to the client, so a frontier the pacer still holds is not reported as committed. On revoke the pacer forgets the partition; the drain in change 27 commits what the pacer still holds at shutdown. One `CommitPacer` with an interval covers both granularities; `poll` runs it at zero. The commit sentinel and the commit monitor retire here. The sentinel's contiguity check compared the span a poll delivered against the previous commit; at `group` granularity a take no longer maps to one poll's slice, and the ledger already rejects a redelivered offset at charge (`kafka_consumer_ledger_errors_total`) and counts the offsets a frontier walks over (`kafka_consumer_ledger_gap_offsets_total`). The monitor's broker comparison duplicated kminion's per-partition consumer group lag. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
 
 **Interfaces:**
 
 - Modify `Config`: add the completion granularity and `CONSUMER_COMMIT_INTERVAL_MS`.
 - Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
 - Replace `ImmediateCommitPacer` with `CommitPacer::every(interval)`; `poll` granularity uses the zero interval.
+- Delete `commit_sentinel.rs` and `commit_monitor.rs`, with `ingestion_consumer_commit_violations_total{kind=gap|out_of_order|overlap}`, `ingestion_consumer_commits_checked_total`, `ingestion_consumer_broker_committed_offset`, `ingestion_consumer_commit_confirmation_lag`, `ingestion_consumer_last_successful_commit_timestamp_seconds` and `ingestion_consumer_commit_monitor_errors_total`. `SentinelContext` forgets partitions on the pacer.
 
 ### 22. Delete the per-poll completion path (cleanup)
 

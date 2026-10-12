@@ -1,8 +1,6 @@
 pub mod aperture;
 pub mod batcher;
-pub mod commit_monitor;
 pub mod commit_pacer;
-pub mod commit_sentinel;
 pub mod config;
 pub mod consumer;
 pub mod debug_recorder;

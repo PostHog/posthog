@@ -6,20 +6,18 @@ Worker health combines active `/_ready` probes with passive send outcomes; worke
 
 ## Ordering sentinels
 
-`order_sentinel.rs`, `commit_sentinel.rs` and the offset ledger turn the consumer's core guarantees into always-on, alertable metrics (see the module docs for semantics).
+`order_sentinel.rs` and the offset ledger turn the consumer's core guarantees into always-on, alertable metrics (see the module docs for semantics).
 Each guarantee has a violation counter that must stay flat and a denominator that must grow:
 
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
 | Commits are contiguous and monotonic per partition, each the ledger frontier one past the accepted prefix, and cover only completed offsets | `kafka_consumer_ledger_errors_total{stage,kind}` (a redelivered or out-of-window offset), `kafka_consumer_ledger_gap_offsets_total{topic,partition}` (offsets a frontier walked over without delivery), `ingestion_consumer_commit_violations_total{kind=empty\|uncredited}` | `ingestion_consumer_committed_offset{topic,partition}`, `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` |
-| Async commits actually succeed | `ingestion_consumer_commit_confirmation_lag{topic,partition}` persistently > 0 | `ingestion_consumer_broker_committed_offset{topic,partition}`, `ingestion_consumer_last_successful_commit_timestamp_seconds`, `ingestion_consumer_commit_monitor_errors_total` |
+| Async commits land on the broker | `kminion_kafka_consumer_group_topic_partition_lag{group_id}` growing while `ingestion_consumer_messages_processed_total` holds its rate | `ingestion_consumer_committed_offset{topic,partition}` (the offset last handed to the client), `ingestion_consumer_offset_commits_total` |
 | Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
 
 Commit success can't be observed via rdkafka's `commit_callback` — librdkafka drops the result of manual async commits (no conf-level `offset_commit_cb` is ever registered by rust-rdkafka, and only sync commits attach a reply queue).
-Instead a background commit monitor fetches the group's broker-committed offsets every 30s (one OffsetFetch) and compares them to what was attempted: `commit_confirmation_lag` is transiently positive while async commits are in flight, and persistently positive when commits are submitted but not landing (e.g. a stuck coordinator).
-A frontier the pacer still holds is not an attempt; the sentinel records the attempted offset when the pacer hands it out.
-Alerts should gate on `ingestion_consumer_offset_commits_total > 0` — an idle consumer that never committed has nothing to confirm.
+The broker's view comes from kminion, which exports every group's lag per partition; commits that stop landing show as lag that grows while the consumer's processed rate holds.
 
 Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
 The rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
@@ -34,8 +32,8 @@ Null-key messages (e.g. overflow rerouting) are excluded from both checks: the p
 The consumer holds the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
 Every delivered message is charged to its partition's ledger during collection, and accepted work completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
 A partition that settles without a frontier is not committed and stays on its last commit: an earlier group on that partition is still out.
-Each frontier the consumer takes goes to the commit sentinel (`commit_sentinel.rs`), which passes it to the commit pacer (`commit_pacer.rs`); the consumer commits what the pacer hands back.
-The pacer holds no I/O: the consumer commits what it is given, and the commit monitor (`commit_monitor.rs`) reports the broker's committed offsets to the sentinel.
+Each frontier the consumer takes goes to the commit pacer (`commit_pacer.rs`), and the consumer commits what the pacer hands back.
+The pacer holds no I/O: the consumer commits what it is given.
 A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
 
 `CONSUMER_COMPLETION_GRANULARITY` selects the unit that settles against the ledger.
@@ -115,9 +113,9 @@ Sub-batches are split at `INGESTION_TRANSPORT_MAX_BODY_BYTES` (default 10 MiB) i
 
 ### 2. Commit-error observability — done
 
-Addressed by the commit monitor plus `SentinelContext` (`order_sentinel.rs`): broker-committed offsets are polled and compared against attempted commits (see "Ordering sentinels" above), and rebalance callbacks log assignment changes and reset the ordering sentinels.
-The originally envisioned offset-commit callback turned out to be unreachable for manual async commits (librdkafka drops their results unless a conf-level `offset_commit_cb` is registered, which rust-rdkafka never does) — hence the polling design.
-Remaining: alert rules on the new metrics.
+Addressed by `SentinelContext` (`order_sentinel.rs`) and kminion: the consumer reports the offset it last handed to the client, kminion reports the group's lag per partition (see "Ordering sentinels" above), and rebalance callbacks log assignment changes and reset the ordering sentinels.
+The originally envisioned offset-commit callback turned out to be unreachable for manual async commits (librdkafka drops their results unless a conf-level `offset_commit_cb` is registered, which rust-rdkafka never does).
+Remaining: alert rules on the ledger counters and on kminion lag.
 
 ### 3. DLQ for poison messages
 
