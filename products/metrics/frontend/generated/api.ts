@@ -164,6 +164,23 @@ export const metricsCharacterizeCreate = async (
     })
 }
 
+export const getMetricsDashboardImportsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/`
+}
+
+/**
+ * The user's dashboard imports of the last 7 days that used the agent, with the progress of the ones that run.
+ */
+export const metricsDashboardImportsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DashboardImportApi[]> => {
+    return apiMutator<DashboardImportApi[]>(getMetricsDashboardImportsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMetricsDashboardImportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/dashboard_imports/`
 }

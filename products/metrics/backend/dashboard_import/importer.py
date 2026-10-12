@@ -139,6 +139,9 @@ DEFAULT_SCREENSHOT_LAYOUT = GridLayout(x=0, y=0, w=6, h=4)
 _QUERY_KINDS = frozenset({"timeseries", "stat", "gauge", "bargauge", "table", "heatmap"})
 _AGENT_FAILED_MESSAGE = "The import agent stopped before it finished. Try again."
 _RUNNING_PROGRESS = "Starting the import agent."
+MAX_RUNNING_IMPORTS = 3
+RECENT_IMPORTS_WINDOW = dt.timedelta(days=7)
+MAX_RECENT_IMPORTS = 20
 _FINALIZING_PROGRESS = "Building the dashboard."
 
 
@@ -361,6 +364,17 @@ class DashboardImporter:
             else (progress if isinstance(progress, str) and progress else _RUNNING_PROGRESS),
         )
 
+    def recent(self) -> list[DashboardImportStatus]:
+        """The user's imports of the last days that used an agent, newest first."""
+        task_ids = tasks_facade.owner_origin_recent_task_ids(
+            team_id=self._team.id,
+            created_by_id=self._user.id,
+            origin_product=tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+            since=timezone.now() - RECENT_IMPORTS_WINDOW,
+            limit=MAX_RECENT_IMPORTS,
+        )
+        return [status for task_id in task_ids if (status := self.status(str(task_id))) is not None]
+
     def _check_allowed(self) -> None:
         if self._team.organization.is_ai_data_processing_approved is not True:
             raise DashboardImportNotAllowed(
@@ -510,12 +524,15 @@ class DashboardImporter:
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 [f"metrics_dashboard_import:{self._team.id}:{self._user.id}"],
             )
-        if tasks_facade.owner_origin_has_non_terminal_run(
+        running = tasks_facade.owner_origin_open_task_ids(
             team_id=self._team.id,
             created_by_id=self._user.id,
             origin_product=tasks_facade.TaskOriginProduct.METRICS_IMPORT,
-        ):
-            raise DashboardImportInProgress("You already have an import that is running. Wait for it to finish.")
+        )
+        if len(running) >= MAX_RUNNING_IMPORTS:
+            raise DashboardImportInProgress(
+                f"You have {MAX_RUNNING_IMPORTS} imports that are running. Wait for one of them to finish."
+            )
 
     def _build(self, state: ImportState, verdicts: list[PanelVerdict], *, idempotency_key: str) -> ImportResult:
         """Create the dashboard from the verdicts. A dashboard without an insight tile is not created."""
@@ -534,7 +551,7 @@ class DashboardImporter:
                 user_id=self._user.id,
                 dashboard=NewDashboard(
                     name=state.dashboard_name,
-                    description=_dashboard_description(state, verdicts),
+                    description=_dashboard_description(state),
                     tiles=tuple(_new_tile(tile) for tile in tiles),
                     idempotency_key=idempotency_key,
                     date_from=state.date_from,
@@ -713,21 +730,9 @@ class DashboardImporter:
             )
 
 
-def _dashboard_description(state: ImportState, verdicts: list[PanelVerdict]) -> str:
-    """The import notes go here and not on the tiles, where a long note hides a small chart."""
-    if state.source == "screenshot":
-        parts = ["Imported from a screenshot."]
-    else:
-        description = state.spec.description if state.spec else ""
-        variables = ", ".join(
-            f"{name} = {value or 'none'}" for name, value in (state.spec.variables if state.spec else {}).items()
-        )
-        parts = [description] if description else []
-        parts.append("Imported from Grafana." + (f" Variables: {variables}." if variables else ""))
-    changed = [f"{verdict.title}: {verdict.reason}" for verdict in verdicts if verdict.outcome == "approximated"]
-    if changed:
-        parts.append("Changed panels: " + " ".join(note if note.endswith(".") else f"{note}." for note in changed))
-    return " ".join(parts)
+def _dashboard_description(state: ImportState) -> str:
+    # Only the source dashboard's own text. The import summary carries the notes about each panel.
+    return state.spec.description if state.spec else ""
 
 
 def _new_tile(tile: TileDraft) -> NewInsightTile | NewTextTile:

@@ -178,7 +178,7 @@ class TestDashboardImportAPI(APIBaseTest):
         assert "refunds_total" in first["panels"][3]["reason"]
         assert second["dashboard_id"] == first["dashboard_id"]
         assert Dashboard.objects.filter(team=self.team).count() == 1
-        assert "Uses orders_total because" in Dashboard.objects.get(id=first["dashboard_id"]).description
+        assert Dashboard.objects.get(id=first["dashboard_id"]).description == ""
         assert DashboardTile.objects.filter(dashboard_id=first["dashboard_id"]).count() == 3
         self.storage.delete.assert_called()
 
@@ -285,15 +285,16 @@ class TestDashboardImportAPI(APIBaseTest):
         assert not Dashboard.objects.filter(team=self.team).exists()
         assert not Task.objects.filter(team=self.team).exists()
 
-    def test_one_running_import_per_user(self) -> None:
-        self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+    def test_three_running_imports_per_user(self) -> None:
+        for _ in range(3):
+            self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
 
         response = self.client.post(
             self.url, {"source": "grafana", "grafana_json": _grafana("rate(refunds_total[5m])")}, format="json"
         )
 
         assert response.status_code == status.HTTP_409_CONFLICT
-        assert Task.objects.filter(team=self.team).count() == 1
+        assert Task.objects.filter(team=self.team).count() == 3
         self.storage.delete.assert_called()
 
     def test_validate_reports_what_to_fix_for_each_panel(self) -> None:
@@ -331,11 +332,16 @@ class TestDashboardImportAPI(APIBaseTest):
         assert "quantile" in results["histogram"]["error"]
         assert results["p95"]["valid"] is True
 
-    def test_status_of_another_users_import_is_not_found(self) -> None:
-        started = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+    def test_another_users_import_is_not_visible(self) -> None:
+        own = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+        started = self._start(source="grafana", grafana_json=_grafana("rate(refunds_total[5m])"))
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
         Task.objects.filter(id=started["id"]).update(created_by=other)
 
         response = self.client.get(f"{self.url}{started['id']}/")
+        listed = self.client.get(self.url).json()
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert [(item["id"], item["status"], item["progress"]) for item in listed] == [
+            (own["id"], "running", "Starting the import agent.")
+        ]
