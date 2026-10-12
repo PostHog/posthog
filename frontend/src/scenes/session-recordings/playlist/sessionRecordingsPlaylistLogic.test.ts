@@ -2112,6 +2112,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
             }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
         })
+
+        it.each([
+            ['$ip', '192.0.2.1', PropertyFilterType.Event],
+            ['$browser', 'Chrome', PropertyFilterType.Event],
+            ['$geoip_country_code', 'AU', PropertyFilterType.Person],
+            ['$entry_current_url', 'https://example.com', PropertyFilterType.Session],
+        ])('toggles a %s overview filter with the matching filter type', async (key, value, type) => {
+            await expectLogic(logic, () => {
+                logic.actions.togglePropertyFilter(key, value)
+            }).toDispatchActions(['setFilters'])
+
+            expect(logic.values.filters.filter_group.values[0]).toMatchObject({
+                values: expect.arrayContaining([{ type, key, value, operator: PropertyOperator.Exact }]),
+            })
+        })
     })
 
     describe('failed list loads', () => {

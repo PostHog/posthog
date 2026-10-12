@@ -1639,7 +1639,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const filterType =
                     propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
                         ? PropertyFilterType.Person
-                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name', '$ip'].includes(
+                                propertyKey
+                            )
                           ? PropertyFilterType.Event
                           : PropertyFilterType.Session
 
@@ -1692,7 +1694,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const filterType =
                     propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
                         ? PropertyFilterType.Person
-                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name', '$ip'].includes(
+                                propertyKey
+                            )
                           ? PropertyFilterType.Event
                           : PropertyFilterType.Session
 
@@ -1785,6 +1789,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
 
                 actions.setFilters({ filter_group: newGroup })
+                // capture the key only, because values such as $ip can be personal data
+                posthog.capture('recording overview property filter toggled', {
+                    property_key: propertyKey,
+                    action: exactMatchIndex !== -1 ? 'removed' : 'applied',
+                })
 
                 // Show toast notification
                 const filterLabel = formatPropertyLabel(

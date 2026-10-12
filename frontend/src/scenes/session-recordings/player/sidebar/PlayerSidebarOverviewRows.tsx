@@ -110,6 +110,7 @@ export function PlayerSidebarOverviewRows({
                                     onFilterClick={
                                         isFilterable ? () => togglePropertyFilter(item.property, item.value) : undefined
                                     }
+                                    copyValue={isFilterable ? item.value : undefined}
                                 >
                                     <div className="flex flex-row items-center gap-2 justify-start font-medium min-w-0">
                                         {item.type === 'property' && (
