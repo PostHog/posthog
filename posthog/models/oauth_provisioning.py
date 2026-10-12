@@ -68,10 +68,6 @@ class ProvisioningConfig(BaseModel):
 
     can_create_accounts: bool = False
     can_provision_resources: bool = False
-    # Exchanging GitHub OAuth codes and starting cloud wizard runs both act well beyond ordinary
-    # provisioning, so neither follows from being a partner - each is granted on its own.
-    can_use_github_grants: bool = False
-    can_start_wizard_runs: bool = False
 
     # Only for partners trusted enough that the blast radius of the app being compromised is
     # understood: a deep link mints a full web session, and skipping consent links an existing

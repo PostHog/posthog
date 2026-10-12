@@ -24,7 +24,6 @@ from ee.api.agentic_provisioning.test.base import (
     provisioning_config,
 )
 from ee.api.agentic_provisioning.views.resources import RotateCredentialsView
-from ee.api.agentic_provisioning.wizard import create_wizard_run
 
 PARTNER_CLIENT_ID = "partner_rate_limit_test"
 
@@ -270,31 +269,3 @@ class TestPartnerRateLimits(ProvisioningTestBase):
 
         # The JWKS tiers keep their budget.
         charge_partner_by_name("deep_links", self._partner_at_tier(PartnerTier.JWKS))
-
-    def test_failed_repository_probe_keeps_the_charge(self):
-        # The repository check is an authenticated GitHub call, so a rejected run has
-        # already done outbound work. With a budget of 1, a second attempt must be
-        # rate limited rather than probing GitHub again for free.
-        self.partner_app.update_provisioning(can_start_wizard_runs=True)
-        self.partner_app.update_provisioning_rate_limits(wizard_runs=1)
-
-        with self.settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client"):
-            with self.assertRaises(ProvisioningError) as ctx:
-                create_wizard_run(
-                    partner=self.partner_app,
-                    user_id=self.user.id,
-                    team=self.team,
-                    repository="acme/widgets",
-                    branch=None,
-                )
-            assert ctx.exception.code == "github_integration_required"
-
-            with self.assertRaises(ProvisioningError) as ctx:
-                create_wizard_run(
-                    partner=self.partner_app,
-                    user_id=self.user.id,
-                    team=self.team,
-                    repository="acme/other",
-                    branch=None,
-                )
-            assert ctx.exception.code == "rate_limited"
