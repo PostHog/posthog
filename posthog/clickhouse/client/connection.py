@@ -533,10 +533,6 @@ def default_client(
     *,
     database: str = "system",
     send_receive_timeout: int | None = None,
-    connect_timeout: int | None = None,
-    workload: Workload | None = None,
-    team_id: int | None = None,
-    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
@@ -545,33 +541,22 @@ def default_client(
     password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
-    kwargs = {
-        "host": host,
+    return ClickHouseClient(
+        host=host,
+        **({"send_receive_timeout": send_receive_timeout} if send_receive_timeout is not None else {}),
         # We set "system" here as we don't necessarily have a "default" database,
         # which is what the clickhouse_driver would use by default. We are
         # assuming that this exists and we have permissions to access it. This
         # feels like a reasonably safe assumption as e.g. we already reference
         # `system.numbers` in multiple places within queries. We also assume
         # access to various other tables e.g. to handle async migrations.
-        "database": database,
-        "secure": settings.CLICKHOUSE_SECURE,
-        "user": settings.CLICKHOUSE_USER,
-        "password": settings.CLICKHOUSE_PASSWORD,
-        "ca_certs": settings.CLICKHOUSE_CA,
-        "verify": settings.CLICKHOUSE_VERIFY,
-    }
-    if workload is not None:
-        kwargs.update(get_kwargs_for_client(workload, team_id, ch_user=ch_user))
-        creds = connection_creds(workload, ch_user)
-        if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
-            kwargs["password"] = creds.read_password()
-    if password is not None:
-        kwargs["password"] = password
-    if send_receive_timeout is not None:
-        kwargs["send_receive_timeout"] = send_receive_timeout
-    if connect_timeout is not None:
-        kwargs["connect_timeout"] = connect_timeout
-    return ClickHouseClient(**kwargs)
+        database=database,
+        secure=settings.CLICKHOUSE_SECURE,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD if password is None else password,
+        ca_certs=settings.CLICKHOUSE_CA,
+        verify=settings.CLICKHOUSE_VERIFY,
+    )
 
 
 class ClickHouseChPool(ChPool):

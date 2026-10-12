@@ -131,6 +131,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -1835,6 +1836,7 @@ def query_node_modifiers_path(query: BaseModel) -> tuple[str, ...]:
             StickinessActorsQuery,
             ExperimentActorsQuery,
             PathsV2ActorsQuery,
+            WebVitalsQuery,
         ),
     ) and isinstance(source := getattr(query, "source", None), BaseModel):
         return ("source", *query_node_modifiers_path(source))
@@ -1960,9 +1962,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sources.append(query_json)
         return sources
 
-    def _should_pin_events_schema_for_async(self) -> bool:
-        return True
-
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
@@ -2084,6 +2083,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
+        # WebVitals workers initialize from the source, regardless of wrapper modifiers.
+        query = self.query.source if isinstance(self.query, WebVitalsQuery) else self.query
+        query_modifiers = query_node_modifiers(query)
+        if self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster):
+            raise ExposedHogQLError(
+                "Native events cluster queries require synchronous execution; use refresh=force_blocking"
+            )
+
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
             event="query async recalculation initiated",
@@ -2104,39 +2111,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
-        query_json = self.query.model_dump()
-        modifier_sources = self._serialized_modifier_sources(query_json)
-        modifier_source = modifier_sources[-1]
-        explicit_schema_choice = (
-            self._use_new_events_schema_without_user is not None
-            or self.modifiers.useNewEventsCluster is not None
-            or any(
-                isinstance(source.get("modifiers"), dict)
-                and any(
-                    source["modifiers"].get(key) is not None for key in ("useNewEventsSchema", "useNewEventsCluster")
-                )
-                for source in modifier_sources
-            )
-        )
-        if (
-            "modifiers" in modifier_source
-            and self.modifiers.useNewEventsSchema is not None
-            and (self.modifiers.useNewEventsSchema or settings.CLICKHOUSE_NATIVE_EVENTS_HOST or explicit_schema_choice)
-            and self._should_pin_events_schema_for_async()
-        ):
-            for source in modifier_sources:
-                if isinstance(source.get("modifiers"), dict):
-                    source["modifiers"].pop("useNewEventsSchema", None)
-                    source["modifiers"].pop("useNewEventsCluster", None)
-            modifier_source["modifiers"] = {
-                **(modifier_source["modifiers"] or {}),
-                "useNewEventsSchema": self.modifiers.useNewEventsSchema,
-                **(
-                    {"useNewEventsCluster": self.modifiers.useNewEventsCluster}
-                    if self.modifiers.useNewEventsCluster is not None
-                    else {}
-                ),
-            }
 
         return enqueue_process_query_task(
             team=self.team,
@@ -2144,7 +2118,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=query_json,
+            query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),

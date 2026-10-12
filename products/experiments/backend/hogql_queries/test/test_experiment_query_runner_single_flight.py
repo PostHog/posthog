@@ -19,6 +19,7 @@ from posthog.schema import (
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.workload import Workload
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -112,13 +113,15 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
         with (
             patch.object(runner, builder, return_value=parse_select("SELECT count() FROM events")),
             patch("posthog.hogql.query.sync_execute", return_value=([], [("count()", "UInt64")])) as execute,
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
         ):
             if kind == "metric":
                 assert isinstance(runner, ExperimentQueryRunner)
                 runner._evaluate_experiment_query()
             else:
                 assert isinstance(runner, ExperimentExposuresQueryRunner)
-                runner._calculate()
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            enqueue.assert_not_called()
         self.assertEqual("events_json" in execute.call_args.args[0], native)
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NATIVE_EVENTS, native)
         self.assertEqual(runner.get_cache_key(), cache_key)
