@@ -30,6 +30,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
+from rest_framework.utils.urls import replace_query_param
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
@@ -2020,8 +2021,11 @@ class InsightViewSet(
         try:
             days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
+            offset = int(request.GET.get("offset", "0"))
         except (ValueError, TypeError):
-            raise ValidationError("days and limit must be valid integers")
+            raise ValidationError("days, limit and offset must be valid integers")
+        if limit < 0 or offset < 0:
+            raise ValidationError("limit and offset must not be negative")
 
         cutoff_date = now() - timedelta(days=days)
 
@@ -2035,13 +2039,16 @@ class InsightViewSet(
                 )
             )
             .filter(view_count__gt=0)
-            .order_by("-view_count", "-last_modified_at")
+            .order_by("-view_count", "-last_modified_at", "-id")
         )
 
         queryset = self._filter_queryset_by_access_level(queryset)
-        queryset = queryset[:limit]
+        # Fetch one extra row to know if a next page exists without a separate count query.
+        queryset = queryset[offset : offset + limit + 1]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
         insights = list(queryset)
+        has_next = len(insights) > limit
+        insights = insights[:limit]
 
         # Batch fetch viewers once to avoid N+1 queries
         viewers_by_insight = recent_viewers_by_insight(
@@ -2058,8 +2065,19 @@ class InsightViewSet(
         # Wrap in the standard paginated envelope so the response shape matches the auto-generated
         # OpenAPI schema (drf-spectacular wraps `many=True` responses as `Paginated*List` when the
         # viewset has a paginator). This keeps the MCP-generated client and any other typed consumer
-        # happy. There's no real pagination — `limit` already caps the result set.
-        return Response({"count": len(data), "next": None, "previous": None, "results": data})
+        # happy. `count` is the size of this page, not the total.
+        page_url = request.build_absolute_uri()
+        next_url = (
+            replace_query_param(replace_query_param(page_url, "offset", offset + limit), "limit", limit)
+            if has_next
+            else None
+        )
+        previous_url = (
+            replace_query_param(replace_query_param(page_url, "offset", max(offset - limit, 0)), "limit", limit)
+            if offset > 0
+            else None
+        )
+        return Response({"count": len(data), "next": next_url, "previous": previous_url, "results": data})
 
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
