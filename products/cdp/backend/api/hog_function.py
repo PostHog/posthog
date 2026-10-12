@@ -550,15 +550,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
 
     def _validate_system_email_template(self, attrs: dict) -> None:
-        # The worker sends this template's mail from a PostHog-owned address and takes the
-        # recipients from the triggering event. Only internal events carry recipients that PostHog
-        # set, so any other type must not use the template. The inputs stay fixed so nobody adds a
-        # recipient-like field that looks like it works. The code stays the template's too, because
-        # the reserved-function check allows any call that the template's own code makes.
+        # Mail from this template is sent from a PostHog-owned address to recipients taken from the
+        # triggering event, which only internal events set. So the type, the inputs and the code all
+        # stay the template's: the reserved-function check allows whatever the template's own code calls.
         instance = self.instance if isinstance(self.instance, HogFunction) else None
         template_id = attrs.get("template_id") or (instance.template_id if instance else None)
-        # Deleting an existing function stays possible so it can be cleaned up. A create that is
-        # marked deleted is still checked, and so is the undelete, because both end in a live function.
+        # Only deleting an existing function skips the checks. A create marked deleted and an undelete both end live.
         if template_id != SYSTEM_EMAIL_TEMPLATE_ID or (instance is not None and attrs.get("deleted") is True):
             return
 
@@ -582,7 +579,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         proposed_hog = attrs.get("hog")
         if instance is not None and instance.deleted and attrs.get("deleted") is False:
-            # An unchanged saved `hog` is normally accepted, but a restore must not bring back custom code.
+            # A restore must not bring back custom code, even when the saved `hog` is unchanged.
             proposed_hog = proposed_hog if proposed_hog is not None else instance.hog
             allowed_hog: tuple = (template.code,)
         else:
