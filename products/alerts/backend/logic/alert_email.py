@@ -10,8 +10,6 @@ from collections.abc import Collection
 from typing import Final
 from uuid import UUID
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
-
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.logic.destinations import list_alert_destination_groups
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -20,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationGroup,
     DestinationType,
 )
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # A failed check has no internal event of its own, because production emails it directly. The
 # platform routes errored transitions to email by this id, which no HogFunction can subscribe to.

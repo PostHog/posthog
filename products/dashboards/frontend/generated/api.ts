@@ -17,7 +17,6 @@ import type {
     CopyDashboardTileRequestApi,
     CreateTextTileRequestApi,
     DashboardApi,
-    DashboardCollaboratorApi,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
@@ -282,55 +281,6 @@ export const dashboardsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dashboardWriteOpenApiApi),
-    })
-}
-
-export const getDashboardsCollaboratorsListUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/collaborators/`
-}
-
-export const dashboardsCollaboratorsList = async (
-    projectId: string,
-    dashboardId: number,
-    options?: RequestInit
-): Promise<DashboardCollaboratorApi[]> => {
-    return apiMutator<DashboardCollaboratorApi[]>(getDashboardsCollaboratorsListUrl(projectId, dashboardId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardsCollaboratorsCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/collaborators/`
-}
-
-export const dashboardsCollaboratorsCreate = async (
-    projectId: string,
-    dashboardId: number,
-    dashboardCollaboratorApi: NonReadonly<DashboardCollaboratorApi>,
-    options?: RequestInit
-): Promise<DashboardCollaboratorApi> => {
-    return apiMutator<DashboardCollaboratorApi>(getDashboardsCollaboratorsCreateUrl(projectId, dashboardId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardCollaboratorApi),
-    })
-}
-
-export const getDashboardsCollaboratorsDestroyUrl = (projectId: string, dashboardId: number, userUuid: string) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/collaborators/${userUuid}/`
-}
-
-export const dashboardsCollaboratorsDestroy = async (
-    projectId: string,
-    dashboardId: number,
-    userUuid: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsCollaboratorsDestroyUrl(projectId, dashboardId, userUuid), {
-        ...options,
-        method: 'DELETE',
     })
 }
 

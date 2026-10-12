@@ -20,6 +20,10 @@ MENTION_ENDPOINTS: dict[str, MentionEndpointConfig] = {
     # Mentions fan out per alert and each row natively carries `alert_id`; the composite key keeps
     # the same content matched by two alerts as two distinct rows.
     "mentions": MentionEndpointConfig(name="mentions", primary_keys=["alert_id", "id"]),
+    "alert_authors": MentionEndpointConfig(name="alert_authors", primary_keys=["alert_id", "id"]),
+    "alert_tasks": MentionEndpointConfig(name="alert_tasks", primary_keys=["alert_id", "id"]),
+    # One row per alert per day of the trailing stats window.
+    "alert_daily_stats": MentionEndpointConfig(name="alert_daily_stats", primary_keys=["alert_id", "date"]),
 }
 
 ENDPOINTS = tuple(MENTION_ENDPOINTS.keys())

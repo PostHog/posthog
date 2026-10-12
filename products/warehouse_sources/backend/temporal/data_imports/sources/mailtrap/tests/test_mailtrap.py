@@ -2,6 +2,7 @@ import json
 from typing import Any, Optional
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.mailtrap import (
     MAILTRAP_BASE_URL,
+    STATS_START_DATE,
     MailtrapResumeConfig,
     mailtrap_source,
     validate_credentials,
@@ -154,6 +156,49 @@ class TestPagination:
 
     @parameterized.expand(
         [
+            ("contacts", "018dd5e3-a", 50),
+            ("email_campaigns", 2, 100),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pagination_token_endpoints_follow_next_token(
+        self, endpoint: str, next_token: Any, per_page: int, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response({"data": [{"id": "a"}], "pagination": {"next_token": next_token}}),
+                _response({"data": [{"id": "b"}], "pagination": {"next_token": None}}),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source(endpoint, manager))
+
+        assert rows == [{"id": "a"}, {"id": "b"}]
+        assert "token" not in params[0]
+        assert params[1]["token"] == next_token
+        assert all(p["per_page"] == per_page for p in params)
+        manager.save_state.assert_called_once_with(MailtrapResumeConfig(cursor=str(next_token)))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sending_stats_by_date_sends_required_window_and_flattens_stats(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [_response([{"date": "2026-01-01", "stats": {"delivery_count": 190, "open_rate": 0.9}}])],
+        )
+
+        with time_machine.travel("2026-03-15T12:00:00Z", tick=False):
+            rows = _rows(_source("sending_stats_by_date", _make_manager()))
+
+        # start_date and end_date are required: omitting either returns a 400.
+        assert params == [{"start_date": STATS_START_DATE, "end_date": "2026-03-15"}]
+        assert rows == [{"date": "2026-01-01", "delivery_count": 190, "open_rate": 0.9}]
+
+    @parameterized.expand(
+        [
             ("email_templates", [{"id": 1}]),
             ("contact_lists", [{"id": 2, "name": "list"}]),
             ("accounts", [{"id": 3, "name": "acct"}]),
@@ -224,7 +269,7 @@ class TestSourceResponseShape:
             assert response.partition_mode == "datetime"
         else:
             assert response.sort_mode == "asc"
-            assert response.partition_mode is None
+            assert response.partition_mode == ("datetime" if config.partition_key else None)
 
 
 class TestValidateCredentials:

@@ -1,26 +1,32 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import (
-    DEFAULT_PAGE_SIZE,
     MERCURY_BASE_URL,
     MERCURY_ENDPOINTS,
+    MercuryEndpointConfig,
 )
 
 
@@ -50,12 +56,31 @@ def format_incremental_value(value: Any) -> str | None:
     return str(value)[:10]
 
 
+def _paginator(config: MercuryEndpointConfig) -> BasePaginator:
+    if not config.paginated:
+        return SinglePagePaginator()
+    return JSONResponseCursorPaginator(cursor_path=config.cursor_path, cursor_param=config.cursor_param)
+
+
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": MERCURY_BASE_URL,
+        "auth": {
+            "type": "bearer",
+            "token": api_key,
+        },
+        "headers": {
+            "Accept": "application/json",
+        },
+    }
+
+
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     config = MERCURY_ENDPOINTS[name]
 
     params: dict[str, Any] = {}
     if config.paginated:
-        params["limit"] = DEFAULT_PAGE_SIZE
+        params["limit"] = config.page_size
         # Explicit ascending order so cursor pages arrive oldest-first and the incremental
         # watermark only ever advances.
         params["order"] = "asc"
@@ -72,9 +97,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "path": config.path,
         "data_selector": config.data_selector,
         "params": params,
-        "paginator": JSONResponseCursorPaginator(cursor_path="page.nextPage", cursor_param="start_after")
-        if config.paginated
-        else SinglePagePaginator(),
+        "paginator": _paginator(config),
     }
 
     resource: EndpointResource = {
@@ -105,17 +128,12 @@ def mercury_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ) -> Resource:
+    endpoint_config = MERCURY_ENDPOINTS[endpoint]
+    if endpoint_config.fanout is not None:
+        return _dependent_resource(api_key, endpoint_config, endpoint_config.fanout, team_id, job_id)
+
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": MERCURY_BASE_URL,
-            "auth": {
-                "type": "bearer",
-                "token": api_key,
-            },
-            "headers": {
-                "Accept": "application/json",
-            },
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
@@ -139,6 +157,36 @@ def mercury_source(
         db_incremental_field_last_value,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _dependent_resource(
+    api_key: str, config: MercuryEndpointConfig, fanout: DependentEndpointConfig, team_id: int, job_id: str
+) -> Resource:
+    parent_config = MERCURY_ENDPOINTS[fanout.parent_name]
+    # The per-account children have no server-side time filter, so they are always full refresh.
+    # They carry no resume state: one saved cursor cannot address both the parent and child pages.
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=MERCURY_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            child_params_extra={"order": "asc"},
+            parent_endpoint_extra={
+                "paginator": _paginator(parent_config),
+                "data_selector": parent_config.data_selector,
+            },
+            child_endpoint_extra={
+                "paginator": _paginator(config),
+                "data_selector": config.data_selector,
+            },
+        ),
     )
 
 
