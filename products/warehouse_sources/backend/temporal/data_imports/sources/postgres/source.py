@@ -470,10 +470,10 @@ class PostgresSource(
     # names its connection with the generic signals below. Two sources over
     # one database import the same tables twice.
     codebase_detection = detect(
+        env=("^DATABASE_URL$", "^POSTGRES_", "^PG(HOST|DATABASE|USER|PORT)$"),
         npm=("pg", "postgres", "postgres.js", "knex", "sequelize"),
         pypi=("psycopg", "psycopg2", "psycopg2-binary", "asyncpg"),
         rubygems=("pg",),
-        env=("^DATABASE_URL$", "^POSTGRES_", "^PG(HOST|DATABASE|USER|PORT)$"),
         superseded_by=("Neon", "Supabase"),
     )
 

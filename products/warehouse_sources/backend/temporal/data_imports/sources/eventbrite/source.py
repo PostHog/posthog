@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EventbriteSource(ResumableSource[EventbriteSourceConfig, EventbriteResumeConfig]):
-    codebase_detection = detect(pypi=("eventbrite",), env=("^EVENTBRITE_",))
+    codebase_detection = detect(env=("^EVENTBRITE_",), pypi=("eventbrite",))
 
     supported_versions = ("v3",)
     default_version = "v3"

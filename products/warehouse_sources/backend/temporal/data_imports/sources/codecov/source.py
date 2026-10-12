@@ -48,7 +48,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
-    codebase_detection = detect(npm=("codecov",), env=("^CODECOV_",))
+    codebase_detection = detect(env=("^CODECOV_",), npm=("codecov",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

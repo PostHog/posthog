@@ -59,7 +59,7 @@ class MailerLiteSource(
     ResumableSource[MailerLiteSourceConfig, MailerLiteResumeConfig],
     WebhookSource[MailerLiteSourceConfig],
 ):
-    codebase_detection = detect(npm=("@mailerlite/mailerlite-nodejs",), pypi=("mailerlite",), env=("^MAILERLITE_",))
+    codebase_detection = detect(env=("^MAILERLITE_",), npm=("@mailerlite/mailerlite-nodejs",), pypi=("mailerlite",))
 
     api_docs_url = "https://developers.mailerlite.com"
 

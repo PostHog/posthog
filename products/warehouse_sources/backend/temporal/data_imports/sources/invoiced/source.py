@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InvoicedSource(ResumableSource[InvoicedSourceConfig, InvoicedResumeConfig]):
-    codebase_detection = detect(npm=("invoiced",), pypi=("invoiced",), env=("^INVOICED_",))
+    codebase_detection = detect(env=("^INVOICED_",), npm=("invoiced",), pypi=("invoiced",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -43,10 +43,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
     codebase_detection = detect(
+        env=("^MIXPANEL_",),
         npm=("mixpanel", "mixpanel-browser"),
         pypi=("mixpanel",),
         rubygems=("mixpanel-ruby",),
-        env=("^MIXPANEL_",),
         competes_with=(ProductKey.PRODUCT_ANALYTICS,),
     )
 

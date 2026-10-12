@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TodoistSource(ResumableSource[TodoistSourceConfig, TodoistResumeConfig]):
     codebase_detection = detect(
-        npm=("@doist/todoist-api-typescript",), pypi=("todoist-api-python",), env=("^TODOIST_",)
+        env=("^TODOIST_",), npm=("@doist/todoist-api-typescript",), pypi=("todoist-api-python",)
     )
 
     supported_versions = ("v1",)

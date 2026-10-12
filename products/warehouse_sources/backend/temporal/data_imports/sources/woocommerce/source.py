@@ -71,7 +71,7 @@ class WooCommerceSource(
     WebhookSource[WooCommerceSourceConfig],
 ):
     codebase_detection = detect(
-        npm=("@woocommerce/woocommerce-rest-api",), pypi=("woocommerce",), env=("^WOOCOMMERCE_",)
+        env=("^WOOCOMMERCE_",), npm=("@woocommerce/woocommerce-rest-api",), pypi=("woocommerce",)
     )
 
     supported_versions = ("v3",)

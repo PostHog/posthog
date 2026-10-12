@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
-    codebase_detection = detect(npm=("@notionhq/client",), pypi=("notion-client",), env=("^NOTION_",))
+    codebase_detection = detect(env=("^NOTION_",), npm=("@notionhq/client",), pypi=("notion-client",))
 
     supported_versions = (NOTION_VERSION_2025_09_03, NOTION_VERSION_2026_03_11)
     default_version = NOTION_VERSION_2026_03_11

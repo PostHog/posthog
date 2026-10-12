@@ -39,10 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
     codebase_detection = detect(
+        env=("^ROLLBAR_",),
         npm=("rollbar",),
         pypi=("rollbar", "pyrollbar"),
         rubygems=("rollbar",),
-        env=("^ROLLBAR_",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

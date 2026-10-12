@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
-    codebase_detection = detect(npm=("recurly",), pypi=("recurly",), rubygems=("recurly",), env=("^RECURLY_",))
+    codebase_detection = detect(env=("^RECURLY_",), npm=("recurly",), pypi=("recurly",), rubygems=("recurly",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2021-02-25",)

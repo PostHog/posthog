@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
-    codebase_detection = detect(npm=("dub",), pypi=("dub",), env=("^DUB_API_KEY$",))
+    codebase_detection = detect(env=("^DUB_API_KEY$",), npm=("dub",), pypi=("dub",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://dub.co/docs/api-reference/introduction"

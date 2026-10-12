@@ -38,10 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
     codebase_detection = detect(
+        env=("^STATSIG_",),
         npm=("statsig-js", "statsig-node", "@statsig/js-client", "@statsig/react-bindings"),
         pypi=("statsig",),
         rubygems=("statsig",),
-        env=("^STATSIG_",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

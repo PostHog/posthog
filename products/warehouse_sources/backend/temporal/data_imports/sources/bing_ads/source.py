@@ -61,7 +61,7 @@ BING_ADS_LISTING_MESSAGE_OVERRIDES: dict[str, str] = {
 
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
-    codebase_detection = detect(pypi=("bingads",), env=("^BING_ADS_", "^MICROSOFT_ADS_"))
+    codebase_detection = detect(env=("^BING_ADS_", "^MICROSOFT_ADS_"), pypi=("bingads",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v13",)

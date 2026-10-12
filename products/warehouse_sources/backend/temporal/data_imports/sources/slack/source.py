@@ -62,10 +62,10 @@ class SlackAccess:
 class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
     # OAuth-only in PostHog (Slack app integration), so deep-link.
     codebase_detection = detect(
-        setup_requires_ui=True,
+        env=("^SLACK_(BOT|APP|SIGNING|CLIENT)_",),
         npm=("@slack/web-api", "@slack/bolt"),
         pypi=("slack-sdk", "slack-bolt"),
-        env=("^SLACK_(BOT|APP|SIGNING|CLIENT)_",),
+        setup_requires_ui=True,
     )
 
     api_docs_url = "https://api.slack.com/web"

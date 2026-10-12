@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAuthMixin):
-    codebase_detection = detect(npm=("resend",), pypi=("resend",), env=("^RESEND_API_KEY$",))
+    codebase_detection = detect(env=("^RESEND_API_KEY$",), npm=("resend",), pypi=("resend",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://resend.com/docs/api-reference/introduction"

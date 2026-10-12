@@ -37,10 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResumeConfig]):
     codebase_detection = detect(
+        env=("^HONEYBADGER_",),
         npm=("@honeybadger-io/js",),
         pypi=("honeybadger",),
         rubygems=("honeybadger",),
-        env=("^HONEYBADGER_",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

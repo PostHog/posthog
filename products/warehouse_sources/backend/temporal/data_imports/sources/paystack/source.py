@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]):
-    codebase_detection = detect(pypi=("paystackapi",), env=("^PAYSTACK_",))
+    codebase_detection = detect(env=("^PAYSTACK_",), pypi=("paystackapi",))
 
     api_docs_url = "https://paystack.com/docs/api/"
 

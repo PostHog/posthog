@@ -56,7 +56,7 @@ class MailJetSource(
     WebhookSource[MailjetSourceConfig],
 ):
     # Mailjet's documented env convention is MJ_APIKEY_PUBLIC / *_PRIVATE.
-    codebase_detection = detect(npm=("node-mailjet",), pypi=("mailjet-rest",), env=("^MAILJET_", "^MJ_APIKEY_"))
+    codebase_detection = detect(env=("^MAILJET_", "^MJ_APIKEY_"), npm=("node-mailjet",), pypi=("mailjet-rest",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

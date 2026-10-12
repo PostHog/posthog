@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
-    codebase_detection = detect(npm=("orb-billing",), pypi=("orb-billing",), env=("^ORB_",))
+    codebase_detection = detect(env=("^ORB_",), npm=("orb-billing",), pypi=("orb-billing",))
 
     api_docs_url = "https://docs.withorb.com/"
 

@@ -96,7 +96,7 @@ _SCOPE_INSUFFICIENT_ERROR = (
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
-    codebase_detection = detect(npm=("google-ads-api",), pypi=("google-ads",), env=("^GOOGLE_ADS_",))
+    codebase_detection = detect(env=("^GOOGLE_ADS_",), npm=("google-ads-api",), pypi=("google-ads",))
 
     supported_versions = ("v23", "v24", "v25")
     default_version = "v25"

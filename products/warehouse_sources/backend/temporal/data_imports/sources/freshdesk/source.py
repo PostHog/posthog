@@ -38,7 +38,7 @@ _SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class FreshdeskSource(ResumableSource[FreshdeskSourceConfig, FreshdeskResumeConfig]):
-    codebase_detection = detect(pypi=("python-freshdesk",), env=("^FRESHDESK_",))
+    codebase_detection = detect(env=("^FRESHDESK_",), pypi=("python-freshdesk",))
 
     supported_versions = ("v2",)
     default_version = "v2"

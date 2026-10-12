@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DocusignSource(ResumableSource[DocusignSourceConfig, DocusignResumeConfig]):
-    codebase_detection = detect(npm=("docusign-esign",), pypi=("docusign-esign",), env=("^DOCUSIGN_",))
+    codebase_detection = detect(env=("^DOCUSIGN_",), npm=("docusign-esign",), pypi=("docusign-esign",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

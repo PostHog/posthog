@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeConfig]):
-    codebase_detection = detect(npm=("mailersend",), pypi=("mailersend",), env=("^MAILERSEND_",))
+    codebase_detection = detect(env=("^MAILERSEND_",), npm=("mailersend",), pypi=("mailersend",))
 
     api_docs_url = "https://developers.mailersend.com/api/v1/"
 

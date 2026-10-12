@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
-    codebase_detection = detect(npm=("@mollie/api-client",), pypi=("mollie-api-python",), env=("^MOLLIE_",))
+    codebase_detection = detect(env=("^MOLLIE_",), npm=("@mollie/api-client",), pypi=("mollie-api-python",))
 
     supported_versions = ("v2",)
     default_version = "v2"

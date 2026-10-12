@@ -26,35 +26,35 @@ class Ecosystem(StrEnum):
     NPM = "npm"
     # Lowercase, with `_` replaced by `-`, the way the wizard normalizes Python dependency names.
     PYPI = "pypi"
-    RUBYGEMS = "rubygems"
+    CARGO = "cargo"
+    COCOAPODS = "cocoapods"
     COMPOSER = "composer"
-    HEX = "hex"
     # Module path without a trailing `/vN` major-version element.
     GO = "go"
-    CARGO = "cargo"
+    HEX = "hex"
     # `group:artifact` coordinates.
     MAVEN = "maven"
+    PUB = "pub"
+    RUBYGEMS = "rubygems"
     # Package URL without scheme or `.git`, lowercase, e.g. `github.com/getsentry/sentry-cocoa`.
     SWIFTPM = "swiftpm"
-    COCOAPODS = "cocoapods"
-    PUB = "pub"
 
 
 @frozen
 class Detection:
-    # Sends the user to the app's new-source form instead of collecting credentials in the terminal.
-    # Only needed where the source's fields allow terminal setup; see `fields_require_ui`.
-    setup_requires_ui: bool
-    packages: Mapping[Ecosystem, tuple[str, ...]]
     # Anchored regexes matched against `.env` key names. The wizard compiles them as JavaScript
     # regexes, so they must stay in the subset both engines read the same way.
     env_key_patterns: tuple[str, ...]
     # A host matches itself and its subdomains.
     script_hosts: tuple[str, ...]
+    packages: Mapping[Ecosystem, tuple[str, ...]]
     competes_with: tuple[ProductKey, ...]
     # Kinds that reach the same data through a more specific connector. When one of them also
     # matches, the wizard drops this one so the data is not imported twice.
     superseded_by: tuple[str, ...]
+    # Sends the user to the app's new-source form instead of collecting credentials in the terminal.
+    # Only needed where the source's fields allow terminal setup; see `fields_require_ui`.
+    setup_requires_ui: bool
 
 
 @frozen
@@ -63,34 +63,34 @@ class NotDetectable:
 
 
 class _Signals(TypedDict, total=False):
-    setup_requires_ui: bool
-    npm: tuple[str, ...]
-    pypi: tuple[str, ...]
-    rubygems: tuple[str, ...]
-    composer: tuple[str, ...]
-    hex: tuple[str, ...]
-    go: tuple[str, ...]
-    cargo: tuple[str, ...]
-    maven: tuple[str, ...]
-    swiftpm: tuple[str, ...]
-    cocoapods: tuple[str, ...]
-    pub: tuple[str, ...]
     env: tuple[str, ...]
     script_hosts: tuple[str, ...]
+    npm: tuple[str, ...]
+    pypi: tuple[str, ...]
+    cargo: tuple[str, ...]
+    cocoapods: tuple[str, ...]
+    composer: tuple[str, ...]
+    go: tuple[str, ...]
+    hex: tuple[str, ...]
+    maven: tuple[str, ...]
+    pub: tuple[str, ...]
+    rubygems: tuple[str, ...]
+    swiftpm: tuple[str, ...]
     competes_with: tuple[ProductKey, ...]
     superseded_by: tuple[str, ...]
+    setup_requires_ui: bool
 
 
 def detect(**signals: Unpack[_Signals]) -> Detection:
     # The package keyword names match the Ecosystem values, so a lookup by value finds them.
     by_name = cast(Mapping[str, tuple[str, ...]], signals)
     return Detection(
-        setup_requires_ui=signals.get("setup_requires_ui", False),
-        packages={ecosystem: by_name[ecosystem.value] for ecosystem in Ecosystem if by_name.get(ecosystem.value)},
         env_key_patterns=signals.get("env", ()),
         script_hosts=signals.get("script_hosts", ()),
+        packages={ecosystem: by_name[ecosystem.value] for ecosystem in Ecosystem if by_name.get(ecosystem.value)},
         competes_with=signals.get("competes_with", ()),
         superseded_by=signals.get("superseded_by", ()),
+        setup_requires_ui=signals.get("setup_requires_ui", False),
     )
 
 

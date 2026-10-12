@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TrelloSource(ResumableSource[TrelloSourceConfig, TrelloResumeConfig]):
-    codebase_detection = detect(npm=("trello",), env=("^TRELLO_",))
+    codebase_detection = detect(env=("^TRELLO_",), npm=("trello",))
 
     supported_versions = ("1",)
     default_version = "1"

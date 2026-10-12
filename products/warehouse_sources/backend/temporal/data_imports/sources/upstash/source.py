@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UpstashSource(SimpleSource[UpstashSourceConfig]):
-    codebase_detection = detect(npm=("@upstash/redis",), pypi=("upstash-redis",), env=("^UPSTASH_",))
+    codebase_detection = detect(env=("^UPSTASH_",), npm=("@upstash/redis",), pypi=("upstash-redis",))
 
     supported_versions = ("v2",)
     default_version = "v2"

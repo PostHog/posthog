@@ -7,8 +7,8 @@ from products.warehouse_sources.backend.facade.codebase_detection import Detecti
 COMPETITORS_WITHOUT_SOURCE: dict[str, Detection] = {
     "Heap": detect(env=("^HEAP_",), competes_with=(ProductKey.PRODUCT_ANALYTICS,)),
     "Hotjar": detect(
-        npm=("@hotjar/browser", "react-hotjar"),
         env=("^HOTJAR_",),
+        npm=("@hotjar/browser", "react-hotjar"),
         competes_with=(ProductKey.SESSION_REPLAY, ProductKey.HEATMAPS, ProductKey.SURVEYS),
     ),
 }

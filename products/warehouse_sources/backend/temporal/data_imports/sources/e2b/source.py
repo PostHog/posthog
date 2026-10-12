@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class E2BSource(ResumableSource[E2BSourceConfig, E2BResumeConfig]):
     codebase_detection = detect(
-        npm=("e2b", "@e2b/code-interpreter"), pypi=("e2b", "e2b-code-interpreter"), env=("^E2B_",)
+        env=("^E2B_",), npm=("e2b", "@e2b/code-interpreter"), pypi=("e2b", "e2b-code-interpreter")
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

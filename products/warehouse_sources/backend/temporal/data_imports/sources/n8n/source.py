@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class N8nSource(ResumableSource[N8nSourceConfig, N8nResumeConfig], ValidateDatabaseHostMixin):
-    codebase_detection = detect(npm=("n8n",), env=("^N8N_",))
+    codebase_detection = detect(env=("^N8N_",), npm=("n8n",))
 
     supported_versions = ("v1",)
     default_version = "v1"

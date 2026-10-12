@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StiggSource(ResumableSource[StiggSourceConfig, StiggResumeConfig]):
-    codebase_detection = detect(npm=("@stigg/node-server-sdk",), env=("^STIGG_",))
+    codebase_detection = detect(env=("^STIGG_",), npm=("@stigg/node-server-sdk",))
 
     supported_versions = ("v1",)
     default_version = "v1"

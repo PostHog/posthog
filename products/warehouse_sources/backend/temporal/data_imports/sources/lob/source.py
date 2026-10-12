@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
-    codebase_detection = detect(npm=("lob",), pypi=("lob",), env=("^LOB_API_KEY$",))
+    codebase_detection = detect(env=("^LOB_API_KEY$",), npm=("lob",), pypi=("lob",))
 
     api_docs_url = "https://docs.lob.com/"
 

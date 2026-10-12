@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FireworksAISource(ResumableSource[FireworksAISourceConfig, FireworksAIResumeConfig]):
-    codebase_detection = detect(pypi=("fireworks-ai",), env=("^FIREWORKS_",))
+    codebase_detection = detect(env=("^FIREWORKS_",), pypi=("fireworks-ai",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.fireworks.ai/api-reference/introduction"

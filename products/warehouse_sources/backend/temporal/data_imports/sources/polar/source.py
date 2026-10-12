@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
-    codebase_detection = detect(npm=("@polar-sh/sdk", "@polar-sh/nextjs"), env=("^POLAR_",))
+    codebase_detection = detect(env=("^POLAR_",), npm=("@polar-sh/sdk", "@polar-sh/nextjs"))
 
     supported_versions = ("v1",)
     default_version = "v1"

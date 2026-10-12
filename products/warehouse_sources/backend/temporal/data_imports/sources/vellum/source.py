@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VellumSource(ResumableSource[VellumSourceConfig, VellumResumeConfig]):
-    codebase_detection = detect(npm=("vellum-ai",), pypi=("vellum-ai",), env=("^VELLUM_",))
+    codebase_detection = detect(env=("^VELLUM_",), npm=("vellum-ai",), pypi=("vellum-ai",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)

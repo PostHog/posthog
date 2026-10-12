@@ -45,9 +45,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConfig]):
     codebase_detection = detect(
+        env=("^LANGSMITH_", "^LANGCHAIN_API_KEY$"),
         npm=("langsmith",),
         pypi=("langsmith",),
-        env=("^LANGSMITH_", "^LANGCHAIN_API_KEY$"),
         competes_with=(ProductKey.LLM_ANALYTICS,),
     )
 

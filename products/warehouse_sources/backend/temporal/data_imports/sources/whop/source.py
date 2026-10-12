@@ -51,7 +51,7 @@ class WhopSource(
     ResumableSource[WhopSourceConfig, WhopResumeConfig],
     WebhookSource[WhopSourceConfig],
 ):
-    codebase_detection = detect(npm=("@whop/api", "@whop-apps/sdk"), env=("^WHOP_",))
+    codebase_detection = detect(env=("^WHOP_",), npm=("@whop/api", "@whop-apps/sdk"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Whop's dated `Api-Version-Date` header pins the Experimental API. The stable `/api/v1`

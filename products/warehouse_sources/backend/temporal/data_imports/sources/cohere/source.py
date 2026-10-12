@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CohereSource(SimpleSource[CohereSourceConfig]):
-    codebase_detection = detect(npm=("cohere-ai",), pypi=("cohere",), env=("^COHERE_",))
+    codebase_detection = detect(env=("^COHERE_",), npm=("cohere-ai",), pypi=("cohere",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Cohere's v2 generation adds no route for anything this source reads: its own v2 reference

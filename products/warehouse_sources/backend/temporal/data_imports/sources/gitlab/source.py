@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
     codebase_detection = detect(
-        npm=("@gitbeaker/rest",), pypi=("python-gitlab",), rubygems=("gitlab",), env=("^GITLAB_",)
+        env=("^GITLAB_",), npm=("@gitbeaker/rest",), pypi=("python-gitlab",), rubygems=("gitlab",)
     )
 
     supported_versions = ("v4",)

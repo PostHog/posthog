@@ -47,10 +47,10 @@ MISSING_PERMISSIONS = "Your GrowthBook API key lacks read access to this table. 
 @SourceRegistry.register
 class GrowthBookSource(ResumableSource[GrowthBookSourceConfig, GrowthBookResumeConfig]):
     codebase_detection = detect(
+        env=("^GROWTHBOOK_",),
         npm=("@growthbook/growthbook", "@growthbook/growthbook-react"),
         pypi=("growthbook",),
         rubygems=("growthbook",),
-        env=("^GROWTHBOOK_",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

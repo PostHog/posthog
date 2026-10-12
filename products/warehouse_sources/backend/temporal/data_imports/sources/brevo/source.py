@@ -38,7 +38,7 @@ BREVO_INVALID_API_KEY_MESSAGE = (
 
 @SourceRegistry.register
 class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
-    codebase_detection = detect(npm=("@getbrevo/brevo", "sib-api-v3-sdk"), pypi=("sib-api-v3-sdk",), env=("^BREVO_",))
+    codebase_detection = detect(env=("^BREVO_",), npm=("@getbrevo/brevo", "sib-api-v3-sdk"), pypi=("sib-api-v3-sdk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

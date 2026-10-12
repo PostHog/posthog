@@ -49,7 +49,7 @@ _NEON_HOST_CAPTION = (
 
 @SourceRegistry.register
 class NeonSource(PostgresSource):
-    codebase_detection = detect(npm=("@neondatabase/serverless",), env=("^NEON_",))
+    codebase_detection = detect(env=("^NEON_",), npm=("@neondatabase/serverless",))
 
     def __init__(self):
         super().__init__(source_name="Neon")

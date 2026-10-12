@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
-    codebase_detection = detect(npm=("plaid",), pypi=("plaid-python", "plaid"), rubygems=("plaid",), env=("^PLAID_",))
+    codebase_detection = detect(env=("^PLAID_",), npm=("plaid",), pypi=("plaid-python", "plaid"), rubygems=("plaid",))
 
     api_docs_url = "https://plaid.com/docs/api/"
 

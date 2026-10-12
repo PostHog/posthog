@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        npm=("plausible-tracker",), env=("^PLAUSIBLE_",), competes_with=(ProductKey.WEB_ANALYTICS,)
+        env=("^PLAUSIBLE_",), npm=("plausible-tracker",), competes_with=(ProductKey.WEB_ANALYTICS,)
     )
 
     supported_versions = ("v2",)

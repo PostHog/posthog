@@ -80,7 +80,7 @@ RedshiftErrors = {
 
 @SourceRegistry.register
 class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
-    codebase_detection = detect(npm=("node-redshift",), pypi=("redshift-connector",), env=("^REDSHIFT_",))
+    codebase_detection = detect(env=("^REDSHIFT_",), npm=("node-redshift",), pypi=("redshift-connector",))
 
     def __init__(self, source_name: str = "Redshift"):
         super().__init__()

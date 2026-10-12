@@ -40,7 +40,7 @@ class TemporalIOSource(ValidateDatabaseHostMixin, ResumableSource[TemporalIOSour
     # NOTE: these signals also match a self-hosted Temporal cluster, but the
     # source wants Temporal Cloud mTLS certificates.
     codebase_detection = detect(
-        npm=("@temporalio/client", "@temporalio/worker"), pypi=("temporalio",), env=("^TEMPORAL_",)
+        env=("^TEMPORAL_",), npm=("@temporalio/client", "@temporalio/worker"), pypi=("temporalio",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InfisicalSource(ResumableSource[InfisicalSourceConfig, InfisicalResumeConfig]):
-    codebase_detection = detect(npm=("@infisical/sdk",), pypi=("infisicalsdk",), env=("^INFISICAL_",))
+    codebase_detection = detect(env=("^INFISICAL_",), npm=("@infisical/sdk",), pypi=("infisicalsdk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeConfig]):
-    codebase_detection = detect(npm=("assemblyai",), pypi=("assemblyai",), env=("^ASSEMBLYAI_",))
+    codebase_detection = detect(env=("^ASSEMBLYAI_",), npm=("assemblyai",), pypi=("assemblyai",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

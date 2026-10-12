@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MondaySource(SimpleSource[MondaySourceConfig]):
-    codebase_detection = detect(npm=("@mondaydotcomorg/api",), env=("^MONDAY_",))
+    codebase_detection = detect(env=("^MONDAY_",), npm=("@mondaydotcomorg/api",))
 
     supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07)
     default_version = MONDAY_VERSION_2026_07

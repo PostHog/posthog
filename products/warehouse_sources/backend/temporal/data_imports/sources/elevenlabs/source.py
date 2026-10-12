@@ -35,9 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeConfig]):
     codebase_detection = detect(
-        npm=("@elevenlabs/elevenlabs-js", "elevenlabs"),
-        pypi=("elevenlabs",),
-        env=("^ELEVENLABS_", "^ELEVEN_LABS_"),
+        env=("^ELEVENLABS_", "^ELEVEN_LABS_"), npm=("@elevenlabs/elevenlabs-js", "elevenlabs"), pypi=("elevenlabs",)
     )
 
     api_docs_url = "https://elevenlabs.io/docs/api-reference/introduction"

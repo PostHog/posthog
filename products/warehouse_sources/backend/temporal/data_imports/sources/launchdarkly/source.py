@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyResumeConfig]):
     codebase_detection = detect(
+        env=("^LAUNCHDARKLY_", "^LD_SDK_KEY$"),
         npm=(
             "launchdarkly-node-server-sdk",
             "@launchdarkly/node-server-sdk",
@@ -45,7 +46,6 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
         ),
         pypi=("launchdarkly-server-sdk",),
         rubygems=("launchdarkly-server-sdk",),
-        env=("^LAUNCHDARKLY_", "^LD_SDK_KEY$"),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class TriggerDevSource(ResumableSource[TriggerDevSourceConfig, TriggerDevResumeConfig]):
     # TRIGGER_ alone is a common app-domain prefix, so we match only the
     # three keys Trigger.dev actually documents.
-    codebase_detection = detect(npm=("@trigger.dev/sdk",), env=("^TRIGGER_(SECRET_KEY|API_KEY|PROJECT_ID)$",))
+    codebase_detection = detect(env=("^TRIGGER_(SECRET_KEY|API_KEY|PROJECT_ID)$",), npm=("@trigger.dev/sdk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://trigger.dev/docs/management/overview"

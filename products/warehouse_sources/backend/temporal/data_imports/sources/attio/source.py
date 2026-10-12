@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
-    codebase_detection = detect(npm=("attio",), env=("^ATTIO_",))
+    codebase_detection = detect(env=("^ATTIO_",), npm=("attio",))
 
     supported_versions = ("v2",)
     default_version = "v2"

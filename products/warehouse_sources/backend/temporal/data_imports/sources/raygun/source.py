@@ -48,10 +48,10 @@ Grant the token these read scopes for the tables you want to sync:
 @SourceRegistry.register
 class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
     codebase_detection = detect(
+        env=("^RAYGUN_",),
         npm=("raygun",),
         pypi=("raygun4py",),
         rubygems=("raygun4ruby",),
-        env=("^RAYGUN_",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

@@ -39,10 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NewRelicSource(ResumableSource[NewRelicSourceConfig, NewRelicResumeConfig]):
     codebase_detection = detect(
+        env=("^NEW_RELIC_", "^NEWRELIC_"),
         npm=("newrelic",),
         pypi=("newrelic",),
         rubygems=("newrelic_rpm",),
-        env=("^NEW_RELIC_", "^NEWRELIC_"),
         competes_with=(ProductKey.LOGS, ProductKey.TRACING),
     )
 

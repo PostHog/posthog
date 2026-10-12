@@ -135,8 +135,8 @@ class RevenueCatSource(
     WebhookSource[RevenueCatSourceConfig],
 ):
     codebase_detection = detect(
-        npm=("@revenuecat/purchases-js", "react-native-purchases", "@revenuecat/purchases-capacitor"),
         env=("^REVENUE_?CAT_",),
+        npm=("@revenuecat/purchases-js", "react-native-purchases", "@revenuecat/purchases-capacitor"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

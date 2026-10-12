@@ -42,9 +42,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
     codebase_detection = detect(
+        env=("^BRAZE_",),
         npm=("@braze/web-sdk", "@braze/react-native-sdk"),
         pypi=("braze-client",),
-        env=("^BRAZE_",),
         competes_with=(ProductKey.WORKFLOWS,),
     )
 

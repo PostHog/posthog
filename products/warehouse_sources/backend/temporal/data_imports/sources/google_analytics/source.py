@@ -74,9 +74,9 @@ _MISSING_SCOPE_ERROR = (
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
     codebase_detection = detect(
+        env=("^GOOGLE_ANALYTICS_", "^GA4_"),
         npm=("react-ga4",),
         pypi=("google-analytics-data",),
-        env=("^GOOGLE_ANALYTICS_", "^GA4_"),
         competes_with=(ProductKey.WEB_ANALYTICS,),
     )
 

@@ -40,9 +40,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConfig]):
     codebase_detection = detect(
+        env=("^HONEYCOMB_",),
         npm=("@honeycombio/opentelemetry-node", "honeycomb-beeline"),
         pypi=("honeycomb-beeline", "libhoney"),
-        env=("^HONEYCOMB_",),
         competes_with=(ProductKey.TRACING,),
     )
 

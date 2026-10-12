@@ -36,9 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig], OAuthMixin):
     codebase_detection = detect(
+        env=("^INTERCOM_",),
         npm=("intercom-client", "@intercom/messenger-js-sdk"),
         pypi=("python-intercom",),
-        env=("^INTERCOM_",),
         competes_with=(ProductKey.CONVERSATIONS,),
     )
 

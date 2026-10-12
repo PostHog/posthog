@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StytchSource(ResumableSource[StytchSourceConfig, StytchResumeConfig]):
-    codebase_detection = detect(npm=("stytch",), pypi=("stytch",), env=("^STYTCH_",))
+    codebase_detection = detect(env=("^STYTCH_",), npm=("stytch",), pypi=("stytch",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

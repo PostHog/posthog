@@ -40,8 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConfig]):
     codebase_detection = detect(
-        npm=("@fullstory/browser", "@fullstory/react-native"),
         env=("^FULLSTORY_",),
+        npm=("@fullstory/browser", "@fullstory/react-native"),
         competes_with=(ProductKey.SESSION_REPLAY,),
     )
 

@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GroqSource(SimpleSource[GroqSourceConfig]):
-    codebase_detection = detect(npm=("groq-sdk",), pypi=("groq",), env=("^GROQ_",))
+    codebase_detection = detect(env=("^GROQ_",), npm=("groq-sdk",), pypi=("groq",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

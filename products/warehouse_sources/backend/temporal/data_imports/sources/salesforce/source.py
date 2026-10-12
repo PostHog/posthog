@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeConfig], OAuthMixin):
-    codebase_detection = detect(npm=("jsforce",), pypi=("simple-salesforce",), env=("^SALESFORCE_",))
+    codebase_detection = detect(env=("^SALESFORCE_",), npm=("jsforce",), pypi=("simple-salesforce",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Salesforce moves orgs onto a new release over several weeks, and an org still on the previous

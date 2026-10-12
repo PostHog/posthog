@@ -48,7 +48,7 @@ Pick the environment that matches where you created the API key — a test key w
 
 @SourceRegistry.register
 class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
-    codebase_detection = detect(npm=("@adyen/api-library",), pypi=("adyen",), env=("^ADYEN_",))
+    codebase_detection = detect(env=("^ADYEN_",), npm=("@adyen/api-library",), pypi=("adyen",))
 
     # Adyen versions each of its APIs separately (Transfers v4, Configuration v2, Management v3),
     # so there is no single version token to pin for the source as a whole.

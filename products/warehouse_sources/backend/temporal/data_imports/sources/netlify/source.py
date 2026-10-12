@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NetlifySource(ResumableSource[NetlifySourceConfig, NetlifyResumeConfig]):
-    codebase_detection = detect(npm=("@netlify/functions",), env=("^NETLIFY_",))
+    codebase_detection = detect(env=("^NETLIFY_",), npm=("@netlify/functions",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)

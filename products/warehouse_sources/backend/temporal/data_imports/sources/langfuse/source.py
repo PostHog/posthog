@@ -50,7 +50,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
     codebase_detection = detect(
-        npm=("langfuse",), pypi=("langfuse",), env=("^LANGFUSE_",), competes_with=(ProductKey.LLM_ANALYTICS,)
+        env=("^LANGFUSE_",), npm=("langfuse",), pypi=("langfuse",), competes_with=(ProductKey.LLM_ANALYTICS,)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

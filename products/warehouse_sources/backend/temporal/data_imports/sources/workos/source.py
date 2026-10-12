@@ -52,7 +52,7 @@ class WorkOSSource(
     ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig],
     WebhookSource[WorkOSSourceConfig],
 ):
-    codebase_detection = detect(npm=("@workos-inc/node",), pypi=("workos",), env=("^WORKOS_",))
+    codebase_detection = detect(env=("^WORKOS_",), npm=("@workos-inc/node",), pypi=("workos",))
 
     api_docs_url = "https://workos.com/docs/reference"
 

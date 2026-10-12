@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeConfig]):
-    codebase_detection = detect(npm=("smartsheet",), pypi=("smartsheet-python-sdk",), env=("^SMARTSHEET_",))
+    codebase_detection = detect(env=("^SMARTSHEET_",), npm=("smartsheet",), pypi=("smartsheet-python-sdk",))
 
     supported_versions = ("2.0",)
     default_version = "2.0"

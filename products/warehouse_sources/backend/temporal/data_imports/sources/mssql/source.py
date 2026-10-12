@@ -88,7 +88,7 @@ class MSSQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
-    codebase_detection = detect(npm=("mssql", "tedious"), pypi=("pyodbc", "pymssql"), env=("^MSSQL_",))
+    codebase_detection = detect(env=("^MSSQL_",), npm=("mssql", "tedious"), pypi=("pyodbc", "pymssql"))
 
     @property
     def get_implementation(self) -> MSSQLImplementation:

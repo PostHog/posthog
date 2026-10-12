@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailtrapSource(ResumableSource[MailtrapSourceConfig, MailtrapResumeConfig]):
-    codebase_detection = detect(npm=("mailtrap",), pypi=("mailtrap",), env=("^MAILTRAP_",))
+    codebase_detection = detect(env=("^MAILTRAP_",), npm=("mailtrap",), pypi=("mailtrap",))
 
     api_docs_url = "https://docs.mailtrap.io/developers"
 

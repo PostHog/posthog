@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAuthMixin):
-    codebase_detection = detect(npm=("@linear/sdk",), env=("^LINEAR_API_KEY$",))
+    codebase_detection = detect(env=("^LINEAR_API_KEY$",), npm=("@linear/sdk",))
 
     api_docs_url = "https://developers.linear.app/docs"
 

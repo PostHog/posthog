@@ -47,10 +47,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     codebase_detection = detect(
+        env=("^DATADOG_", "^DD_API_KEY$", "^DD_APP_KEY$"),
         npm=("@datadog/datadog-api-client", "dd-trace"),
         pypi=("datadog", "datadog-api-client"),
         rubygems=("dogapi",),
-        env=("^DATADOG_", "^DD_API_KEY$", "^DD_APP_KEY$"),
         competes_with=(ProductKey.LOGS, ProductKey.TRACING, ProductKey.ERROR_TRACKING),
     )
 

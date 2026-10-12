@@ -38,10 +38,7 @@ def _auth_from_config(config: ElasticsearchSourceConfig) -> ElasticsearchAuth:
 @SourceRegistry.register
 class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        npm=("@elastic/elasticsearch",),
-        pypi=("elasticsearch",),
-        rubygems=("elasticsearch",),
-        env=("^ELASTICSEARCH_",),
+        env=("^ELASTICSEARCH_",), npm=("@elastic/elasticsearch",), pypi=("elasticsearch",), rubygems=("elasticsearch",)
     )
 
     @property

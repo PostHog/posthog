@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
-    codebase_detection = detect(pypi=("closeio",), env=("^CLOSE_API_KEY$",))
+    codebase_detection = detect(env=("^CLOSE_API_KEY$",), pypi=("closeio",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
