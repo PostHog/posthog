@@ -8,6 +8,7 @@ const MAX_PREVIEW_HEIGHT_PX = 6000
 const FRAME_LOAD_TIMEOUT_MS = 10000
 const MEASURING_HEIGHT_PX = 1
 const IMAGE_LOAD_TIMEOUT_MS = 5000
+const CAPTURE_FETCH_TIMEOUT_MS = 15000
 
 export async function renderEmailPreviewPngBase64(step: EmailStep): Promise<string> {
     const emailDocument = sanitizeEmailForPreview(step.html)
@@ -28,6 +29,7 @@ export async function renderEmailPreviewPngBase64(step: EmailStep): Promise<stri
             pixelRatio: 1,
             backgroundColor: '#ffffff',
             skipFonts: true,
+            fetchRequestInit: { credentials: 'omit', signal: AbortSignal.timeout(CAPTURE_FETCH_TIMEOUT_MS) },
         })
         return await blobToBase64(blob)
     } finally {
@@ -65,6 +67,7 @@ function mountOffscreenFrame(srcdoc: string): Promise<HTMLIFrameElement> {
 
 // The app's connect-src blocks fetching most image hosts, which html-to-image relies on. An <img> may
 // load from any https origin, so images whose host allows CORS are drawn to a canvas and inlined instead.
+// Images on our own origin are fetched without cookies, so an email cannot pull the sharer's private data.
 async function inlineImages(emailDocument: Document): Promise<void> {
     await Promise.all(
         Array.from(emailDocument.images).map(async (image) => {
@@ -79,7 +82,33 @@ async function inlineImages(emailDocument: Document): Promise<void> {
 }
 
 async function loadAsDataUrl(source: string): Promise<string | null> {
+    if (isOnAppOrigin(source)) {
+        return await fetchWithoutSession(source)
+    }
     return (await drawToDataUrl(source)) ?? (await drawToDataUrl(bypassingNonCorsCache(source)))
+}
+
+function isOnAppOrigin(source: string): boolean {
+    try {
+        return new URL(source, window.location.href).origin === window.location.origin
+    } catch {
+        return true
+    }
+}
+
+async function fetchWithoutSession(source: string): Promise<string | null> {
+    try {
+        const response = await fetch(source, {
+            credentials: 'omit',
+            signal: AbortSignal.timeout(IMAGE_LOAD_TIMEOUT_MS),
+        })
+        const blob = await response.blob()
+        return response.ok && blob.type.startsWith('image/')
+            ? `data:${blob.type};base64,${await blobToBase64(blob)}`
+            : null
+    } catch {
+        return null
+    }
 }
 
 function drawToDataUrl(source: string): Promise<string | null> {

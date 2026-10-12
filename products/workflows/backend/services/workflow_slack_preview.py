@@ -14,6 +14,13 @@ from posthog.utils import absolute_uri
 from products.workflows.backend.facade.contracts import WorkflowRef
 
 SLACK_REQUEST_TIMEOUT_SECONDS = 15
+FILE_UPLOAD_SCOPE = "files:write"
+SLACK_ERROR_MESSAGES = {
+    "not_in_channel": "PostHog is not in this Slack channel. Add it with /invite @PostHog, then share again.",
+    "channel_not_found": (
+        "PostHog cannot see this Slack channel. If it is private, add PostHog with /invite @PostHog, then share again."
+    ),
+}
 _PERMALINK_PATH = re.compile(r"/archives/(?P<channel>[A-Z0-9]+)/p(?P<ts>\d{7,})/?")
 _THREAD_TS = re.compile(r"\d+\.\d+")
 
@@ -72,16 +79,23 @@ def share_workflow_preview_to_slack(
     destination: SlackDestination,
     preview: WorkflowPreview,
 ) -> None:
-    client = SlackIntegration(integration, source="workflows_preview").client
+    slack = SlackIntegration(integration, source="workflows_preview")
+    if preview.emails and slack.missing_scopes({FILE_UPLOAD_SCOPE}):
+        raise WorkflowPreviewShareError(
+            "This Slack connection cannot upload images. Reconnect Slack to share the emails, or deselect them."
+        )
+    client = slack.client
     client.timeout = SLACK_REQUEST_TIMEOUT_SECONDS
     try:
         _ensure_sharer_may_post_to(client, integration, shared_by, destination.channel)
         _post_preview(client, destination, _preview_message(workflow, shared_by, preview), preview.emails)
     except SlackApiError as error:
         slack_error = (error.response.get("error") if error.response else None) or "unknown error"
-        raise WorkflowPreviewShareError(f"Slack did not accept the preview ({slack_error})") from error
+        raise WorkflowPreviewShareError(
+            SLACK_ERROR_MESSAGES.get(slack_error, f"Slack did not accept the preview ({slack_error}).")
+        ) from error
     except (SlackClientError, OSError) as error:
-        raise WorkflowPreviewShareError("Could not reach Slack. Check the channel before you try again.") from error
+        raise WorkflowPreviewShareError("Couldn't reach Slack. Try again in a moment.") from error
 
 
 def _ensure_sharer_may_post_to(client: WebClient, integration: Integration, user: User, channel_id: str) -> None:

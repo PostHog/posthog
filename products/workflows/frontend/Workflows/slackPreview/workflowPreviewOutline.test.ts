@@ -3,7 +3,12 @@ import { buildWorkflowOutline, listEmailSteps } from './workflowPreviewOutline'
 
 const INDENT = ' '
 
-const email = (id: string, name: string, subject: string): Record<string, unknown> => ({
+const email = (
+    id: string,
+    name: string,
+    subject: string,
+    from: Record<string, unknown> = { email: 'team@example.com', name: 'Team' }
+): Record<string, unknown> => ({
     id,
     name,
     type: 'function_email',
@@ -11,7 +16,7 @@ const email = (id: string, name: string, subject: string): Record<string, unknow
         template_id: 'template-email',
         inputs: {
             email: {
-                value: { subject, from: { email: 'team@example.com', name: 'Team' }, html: `<p>${subject}</p>` },
+                value: { subject, from, html: `<p>${subject}</p>` },
             },
         },
     },
@@ -82,5 +87,38 @@ describe('workflowPreviewOutline', () => {
             ['folders_2', 'Your files, on every device'],
             ['sharing_1', 'Share your first folder'],
         ])
+    })
+
+    it('names the trigger event by its id when the filter has no display name', () => {
+        const unnamedTrigger = {
+            ...abTestWorkflow,
+            actions: abTestWorkflow.actions.map((action) =>
+                action.type === 'trigger'
+                    ? {
+                          ...action,
+                          config: { type: 'event', filters: { events: [{ id: 'purchase', type: 'events' }] } },
+                      }
+                    : action
+            ),
+        } as HogFlow
+
+        expect(buildWorkflowOutline(unnamedTrigger)[0]).toEqual('• Trigger: purchase')
+    })
+
+    it.each([
+        ['the connected sender', { integrationId: 7 }, 'Hedgebox team <hello@example.com>'],
+        ['an overridden sender name', { integrationId: 7, name: 'Support' }, 'Support <hello@example.com>'],
+        ['a sender name without an address', { name: 'Support' }, 'Support'],
+        ['a plain template string', '{{ person.properties.owner }}', '{{ person.properties.owner }}'],
+    ])('shows %s as the email sender', (_name, from, expected) => {
+        const workflow = {
+            ...abTestWorkflow,
+            actions: [abTestWorkflow.actions[0], email('mail', 'Welcome', 'Hi', from as Record<string, unknown>)],
+            edges: [{ from: 'trigger', to: 'mail', type: 'continue' }],
+        } as unknown as HogFlow
+
+        expect(listEmailSteps(workflow, { 7: { name: 'Hedgebox team', email: 'hello@example.com' } })[0].from).toEqual(
+            expected
+        )
     })
 })

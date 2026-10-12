@@ -2,7 +2,7 @@ import base64
 from urllib.error import URLError
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import SimpleTestCase
 
@@ -10,14 +10,13 @@ from parameterized import parameterized
 from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.hog_flow_slack_preview import SharePreviewToSlackRequestSerializer
 
-SLACK_INTEGRATION_PATH = "products.workflows.backend.services.workflow_slack_preview.SlackIntegration"
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-image-data"
 PNG_BASE64 = base64.b64encode(PNG_BYTES).decode()
 
@@ -74,7 +73,7 @@ class TestHogFlowSlackPreview(APIBaseTest):
             ),
         ]
     )
-    @patch(SLACK_INTEGRATION_PATH)
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_posts_preview_with_email_images_to_destination(
         self,
         _name: str,
@@ -83,7 +82,7 @@ class TestHogFlowSlackPreview(APIBaseTest):
         expected_thread_ts: str | None,
         mock_slack: MagicMock,
     ) -> None:
-        slack_client = mock_slack.return_value.client
+        slack_client = mock_slack.return_value
         slack_client.conversations_info.return_value = {"channel": {"id": expected_channel, "is_private": False}}
 
         response = self._share(**overrides)
@@ -103,9 +102,9 @@ class TestHogFlowSlackPreview(APIBaseTest):
         assert "Send email: &lt;b&gt;Welcome&lt;/b&gt;" in message
         assert "<!channel>" not in message
 
-    @patch(SLACK_INTEGRATION_PATH)
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_posts_text_only_when_workflow_has_no_emails(self, mock_slack: MagicMock) -> None:
-        slack_client = mock_slack.return_value.client
+        slack_client = mock_slack.return_value
         slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
 
         response = self._share(emails=[])
@@ -120,11 +119,11 @@ class TestHogFlowSlackPreview(APIBaseTest):
             ("direct_message", {"is_im": True}, "direct message"),
         ]
     )
-    @patch(SLACK_INTEGRATION_PATH)
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_rejects_destinations_the_sharer_may_not_post_to(
         self, _name: str, channel_flags: dict, expected_detail: str, mock_slack: MagicMock
     ) -> None:
-        slack_client = mock_slack.return_value.client
+        slack_client = mock_slack.return_value
         slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", **channel_flags}}
 
         response = self._share()
@@ -133,7 +132,18 @@ class TestHogFlowSlackPreview(APIBaseTest):
         assert expected_detail in response.json()["detail"]
         slack_client.files_upload_v2.assert_not_called()
 
-    @patch(SLACK_INTEGRATION_PATH)
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
+    def test_asks_to_reconnect_when_slack_install_cannot_upload_files(self, mock_slack: MagicMock) -> None:
+        self.integration.config = {"scope": "chat:write"}
+        self.integration.save()
+
+        response = self._share()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Reconnect Slack" in response.json()["detail"]
+        mock_slack.return_value.files_upload_v2.assert_not_called()
+
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_rejects_slack_integration_of_another_project(self, mock_slack: MagicMock) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
         foreign = Integration.objects.create(
@@ -147,15 +157,16 @@ class TestHogFlowSlackPreview(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("slack_api_error", SlackApiError("failed", response={"error": "not_in_channel"}), "not_in_channel"),
-            ("upload_transport_error", URLError("connection reset"), "Could not reach Slack"),
+            ("app_not_in_channel", SlackApiError("failed", response={"error": "not_in_channel"}), "/invite @PostHog"),
+            ("other_slack_error", SlackApiError("failed", response={"error": "invalid_blocks"}), "invalid_blocks"),
+            ("upload_transport_error", URLError("connection reset"), "Couldn't reach Slack"),
         ]
     )
-    @patch(SLACK_INTEGRATION_PATH)
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_surfaces_slack_failures_as_bad_request(
         self, _name: str, error: Exception, expected_detail: str, mock_slack: MagicMock
     ) -> None:
-        slack_client = mock_slack.return_value.client
+        slack_client = mock_slack.return_value
         slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
         slack_client.files_upload_v2.side_effect = error
 
@@ -181,6 +192,15 @@ class TestSharePreviewToSlackRequestValidation(SimpleTestCase):
             ),
             ("image_is_not_base64", {"emails": [{"title": "Hi", "image_base64": "%%%"}]}, "emails"),
             ("too_many_emails", {"emails": [{"title": "Hi", "image_base64": PNG_BASE64}] * 11}, "emails"),
+            (
+                "image_over_one_megabyte",
+                {
+                    "emails": [
+                        {"title": "Hi", "image_base64": base64.b64encode(PNG_BYTES + b"0" * 1024 * 1024).decode()}
+                    ]
+                },
+                "emails",
+            ),
             (
                 "lookalike_host",
                 {"channel": None, "thread_link": "https://evilslack.com/archives/C0X/p1760000000123456"},

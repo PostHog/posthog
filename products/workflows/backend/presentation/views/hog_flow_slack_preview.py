@@ -22,7 +22,7 @@ from products.workflows.backend.facade.slack_preview import (
     share_workflow_preview_to_slack,
 )
 
-MAX_EMAIL_PREVIEW_BYTES = 2 * 1024 * 1024
+MAX_EMAIL_PREVIEW_BYTES = 1024 * 1024
 MAX_EMAIL_PREVIEWS = 10
 MAX_EMAIL_PREVIEW_BASE64_LENGTH = 4 * ((MAX_EMAIL_PREVIEW_BYTES + 2) // 3)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -31,19 +31,18 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 class EmailPreviewImageSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=300, help_text="Caption shown under the image in Slack.")
     image_base64 = serializers.CharField(
-        max_length=MAX_EMAIL_PREVIEW_BASE64_LENGTH,
-        help_text="The rendered email as a base64-encoded PNG, at most 2 MB once decoded.",
+        help_text="The rendered email as a base64-encoded PNG, at most 1 MB once decoded.",
     )
 
     def validate_image_base64(self, value: str) -> bytes:
+        if len(value) > MAX_EMAIL_PREVIEW_BASE64_LENGTH:
+            raise serializers.ValidationError("The image is larger than 1 MB.")
         try:
             png = base64.b64decode(value, validate=True)
         except (binascii.Error, ValueError):
             raise serializers.ValidationError("The image is not valid base64.")
         if not png.startswith(PNG_SIGNATURE):
             raise serializers.ValidationError("The image must be a PNG.")
-        if len(png) > MAX_EMAIL_PREVIEW_BYTES:
-            raise serializers.ValidationError("The image is larger than 2 MB.")
         return png
 
 

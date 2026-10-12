@@ -38452,10 +38452,7 @@ export namespace Schemas {
          * @maxLength 300
          */
       title: string;
-      /**
-         * The rendered email as a base64-encoded PNG, at most 2 MB once decoded.
-         * @maxLength 2796204
-         */
+      /** The rendered email as a base64-encoded PNG, at most 1 MB once decoded. */
       image_base64: string;
     }
 

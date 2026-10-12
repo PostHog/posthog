@@ -1,8 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonLabel,
+    LemonModal,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { SlackDestinationPicker } from 'lib/components/Comments/SlackDestinationPicker'
+import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 
 import { ShareWorkflowPreviewLogicProps, shareWorkflowPreviewLogic } from './shareWorkflowPreviewLogic'
 
@@ -18,7 +28,9 @@ export function ShareWorkflowPreviewModal(props: ShareWorkflowPreviewLogicProps)
         excludedEmailIds,
         isSubmitting,
         submitDisabledReason,
+        canUploadImages,
     } = useValues(logic)
+    const reconnectRestriction = useIntegrationManagementRestriction()
     const { closeModal, setIntegrationId, setChannel, setThreadLink, setNote, toggleEmail, submit } = useActions(logic)
 
     return (
@@ -58,20 +70,47 @@ export function ShareWorkflowPreviewModal(props: ShareWorkflowPreviewLogicProps)
                     onChannelChange={setChannel}
                 />
                 <div className="flex flex-col gap-1">
-                    <LemonLabel info="Posts in that message's thread instead of the channel above.">
-                        Reply in a thread (optional)
+                    <LemonLabel htmlFor="workflow-share-preview-thread-link" showOptional>
+                        Reply in a thread
                     </LemonLabel>
                     <LemonInput
+                        id="workflow-share-preview-thread-link"
                         value={threadLink}
                         onChange={setThreadLink}
                         placeholder="Paste a link to a Slack message"
                         data-attr="workflow-share-preview-thread-link"
                     />
+                    {threadLink.trim() ? (
+                        <p className="text-secondary text-xs m-0">
+                            The preview goes into this message's thread, not the channel above.
+                        </p>
+                    ) : null}
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Note (optional)</LemonLabel>
-                    <LemonTextArea value={note} onChange={setNote} placeholder="What should your team look at?" />
+                    <LemonLabel htmlFor="workflow-share-preview-note" showOptional>
+                        Note
+                    </LemonLabel>
+                    <LemonTextArea
+                        id="workflow-share-preview-note"
+                        value={note}
+                        onChange={setNote}
+                        placeholder="What should your team look at?"
+                    />
                 </div>
+                {!canUploadImages && emailSteps.length > 0 ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Reconnect Slack',
+                            to: api.integrations.authorizeUrl({ kind: 'slack', next: window.location.pathname }),
+                            disableClientSideRouting: true,
+                            disabledReason: reconnectRestriction ?? undefined,
+                            'data-attr': 'workflow-share-preview-slack-reconnect',
+                        }}
+                    >
+                        This Slack connection cannot upload images. Reconnect Slack to share the emails.
+                    </LemonBanner>
+                ) : null}
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Emails</LemonLabel>
                     {emailSteps.length === 0 ? (
