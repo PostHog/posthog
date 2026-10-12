@@ -16,3 +16,7 @@ def create_message_template_for_test(
     *, team_id: int, name: str, content: dict[str, Any], deleted: bool = False
 ) -> UUID:
     return MessageTemplate.objects.create(team_id=team_id, name=name, content=content, deleted=deleted).id
+
+
+def soft_delete_message_template_for_test(*, team_id: int, template_id: UUID) -> None:
+    MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(deleted=True)
