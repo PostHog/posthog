@@ -169,7 +169,7 @@ export function getFinalPostgresQuery(queryString: string, values: any[]): strin
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
 }
 
-// keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
+// keep in sync with posthog/api/utils.py::safe_clickhouse_string
 export function safeClickhouseString(str: string): string {
     // character is a surrogate
     return str.replace(/[\ud800-\udfff]/gu, (match) => {

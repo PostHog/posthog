@@ -303,7 +303,7 @@ class TestSentryTransport:
 
         assert not valid
         assert error is not None
-        assert error.startswith("Sentry token is missing required scopes")
+        assert error.startswith("Your Sentry token is missing required scopes. Create a personal token")
         for scope in REQUIRED_SENTRY_SCOPES:
             assert scope in error
 
@@ -1183,6 +1183,20 @@ class TestHelpers:
         state.outcome.result.return_value = response
 
         assert _raise_on_failed_retry(state) is response
+
+    def test_exhausted_5xx_raise_for_status_is_classified_retryable(self) -> None:
+        # Endpoints with no per-request skip handler (e.g. the projects listing _iter_projects
+        # feeds project_ownership/project_stats from) let the response above reach
+        # raise_for_status() uncaught. That HTTPError must still be classified retryable, the
+        # same as the exhausted-429 case above, rather than reported to error tracking as a bug.
+        response = Mock(status_code=502, headers={})
+        error = HTTPError(
+            "502 Server Error: Bad Gateway for url: https://de.sentry.io/api/0/organizations/acme/projects/",
+            response=response,
+        )
+
+        assert error_message_matches(str(error), SentrySource().get_retryable_errors())
+        assert not error_message_matches(str(error), SentrySource().get_non_retryable_errors())
 
 
 class TestSentryRetentionWindow:

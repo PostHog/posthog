@@ -51,7 +51,11 @@ from products.signals.backend.models import (
     SignalScoutSuggestionSet,
     SignalSourceConfig,
 )
-from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    CanonicalSkillParseError,
+    canonical_operational_scout_names,
+    discover_canonical_skills,
+)
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
@@ -298,12 +302,15 @@ def set_up_team_q() -> Q:
 
     Source configs are environment-scoped, so a project whose Signals setup lives in a child
     environment counts through that child's parent; scout configs already canonicalize.
-    A background-managed scout is not set up: nobody on the project turned it on.
+    A background-managed scout or an operational scout is not set up: nobody on the project turned
+    it on. The first inbox visit seeds the operational scouts enabled, so counting them would drop a
+    background-only project out of the background bands the night after that visit.
     """
     source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
     user_scout_teams = (
         SignalScoutConfig.all_teams.filter(enabled=True)
         .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
+        .exclude(skill_name__in=canonical_operational_scout_names())
         .values("team_id")
     )
     return (

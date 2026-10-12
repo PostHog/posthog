@@ -413,12 +413,12 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_pr_merged', '2.7x merge'],
+        ['with the impact column', true, 'ranking_fixed', '2.7x fix'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
             'ranking_action',
-            '6.2% action',
+            '6.2% engage',
         ],
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
@@ -432,9 +432,9 @@ describe('ReportCard', () => {
                 model_version: '2026-09-30',
                 manifest_version: 'manifest',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { pr_merged: 0.41, action: 0.062 },
-                lifts: { pr_merged: 2.7 },
-                readable_heads: ['action', 'pr_merged'],
+                scores: { fixed: 0.41, action: 0.062 },
+                lifts: { fixed: 2.7 },
+                readable_heads: ['action', 'fixed'],
                 stale: false,
             },
         })
@@ -450,7 +450,7 @@ describe('ReportCard', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableRedesign()
-        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_pr_merged" />)
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fixed" />)
         expect(screen.getByText('Not scored')).toBeInTheDocument()
 
         const stale = makeReport('r-2', {
@@ -460,15 +460,15 @@ describe('ReportCard', () => {
                 model_version: '2026-09-30',
                 manifest_version: 'manifest',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { pr_merged: 0.41 },
-                lifts: { pr_merged: 2.7 },
-                readable_heads: ['pr_merged'],
+                scores: { fixed: 0.41 },
+                lifts: { fixed: 2.7 },
+                readable_heads: ['fixed'],
                 stale: true,
             },
         })
-        rerender(<ReportCard report={stale} rankingSortField="ranking_pr_merged" />)
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
         expect(screen.getByText('Edited since scored')).toBeInTheDocument()
-        expect(screen.queryByText('2.7x merge')).not.toBeInTheDocument()
+        expect(screen.queryByText('2.7x fix')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored')).not.toBeInTheDocument()

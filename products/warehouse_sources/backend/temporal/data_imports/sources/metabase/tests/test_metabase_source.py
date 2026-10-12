@@ -57,7 +57,7 @@ class TestMetabaseSource:
         inputs.schema_name = "cards"
         inputs.team_id = 42
 
-        self.source.source_for_pipeline(self.config, inputs)
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         mock_metabase_source.assert_called_once()
         kwargs = mock_metabase_source.call_args.kwargs

@@ -62,6 +62,26 @@ describe('buildAgentSearch', () => {
             [2, 3, 6],
         ])
     })
+
+    it.each([
+        [
+            'the agent summary when there is one',
+            'Tried fewer features.',
+            'Dropped 12 features. AUC fell.',
+            'Tried fewer features.',
+        ],
+        [
+            'the first sentence of the description otherwise',
+            null,
+            'Dropped 12 features (v1.2). AUC fell.',
+            'Dropped 12 features (v1.2).',
+        ],
+        ['the whole description when it has no sentence end', undefined, 'Dropped 12 features', 'Dropped 12 features'],
+    ])('shows %s as the one-line summary', (_, summary, agent_description, expected) => {
+        const it = { ...iteration(0, 'kept', 0.7), summary, agent_description } as IterationTrailApi
+        const { points } = buildAgentSearch([run('run-1', '2026-01-01T00:00:00Z', [it])], null)
+        expect(points[0].summary).toEqual(expected)
+    })
 })
 
 describe('experimentLogGroups', () => {
@@ -86,8 +106,26 @@ describe('latestAgentNotes', () => {
         ]
         expect(latestAgentNotes(runs)).toEqual({
             runNumber: 1,
+            readerSummary: '',
+            nextSteps: [],
             distillation: 'Recency wins',
             recommendedNext: 'Try sessions',
+        })
+    })
+
+    it('reads the plain notes for people when a run left only those', () => {
+        const runs = [
+            run('run-1', '2026-01-01T00:00:00Z', [], {
+                reader_summary: 'Recent visits predict a purchase best.',
+                next_steps: ['Add session length', ' '],
+            } as Partial<AutoresearchTrainingRunApi>),
+        ]
+        expect(latestAgentNotes(runs)).toEqual({
+            runNumber: 1,
+            readerSummary: 'Recent visits predict a purchase best.',
+            nextSteps: ['Add session length'],
+            distillation: '',
+            recommendedNext: '',
         })
     })
 })
