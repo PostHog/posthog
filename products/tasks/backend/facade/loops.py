@@ -1,6 +1,6 @@
 """
 Facade API for Loops — the data surface DRF views for `products/tasks/backend/presentation/views/loops.py`
-call into. See `products/tasks/docs/LOOPS.md` for the full spec.
+call into.
 
 Responsibilities:
 - Accept ids / primitives as input, enforce visibility and permission rules.
@@ -8,7 +8,7 @@ Responsibilities:
   `loop_runs` (fire + trigger-context rendering).
 - Convert Django models to DTOs before returning — never return ORM instances.
 
-Permission model (see LOOPS.md "Access control"):
+Permission model:
 - Personal loops are owner-only for everything (view, edit, fire, run history).
 - Team loops are viewable/fireable by any team member. Identity-bearing config
   (visibility, instructions, runtime_adapter, model, reasoning_effort, repositories,
@@ -197,7 +197,7 @@ class LoopNotificationsDTO:
 
 @dataclass(frozen=True)
 class LoopContextOutputsDTO:
-    """What a context-attached loop maintains each run (see LOOPS.md "Contexts")."""
+    """What a context-attached loop maintains each run."""
 
     post_to_feed: bool = False
     update_context: bool = False
@@ -228,7 +228,7 @@ class LoopSkillBundleDTO:
 
 @dataclass(frozen=True)
 class LoopTriggerDTO:
-    """A single loop trigger. `config` shape depends on `type` — see LOOPS.md `LoopTrigger`."""
+    """A single loop trigger. `config` shape depends on `type`."""
 
     id: UUID
     loop_id: UUID
@@ -707,7 +707,7 @@ def visible_loop_ids(team_id: int, user: User | None) -> set[str]:
 def hidden_personal_loop_ids_for_org(organization_id: str | UUID, user: User | None) -> set[str]:
     """Ids of personal loops across an org NOT owned by `user`, as strings. The org-wide activity-log
     feed (org admins/owners) must still keep other people's personal-loop config out, since personal
-    loops are owner-only (see LOOPS.md "Access control"). Cross-team by design, hence `unscoped()`."""
+    loops are owner-only. Cross-team by design, hence `unscoped()`."""
     user_id = getattr(user, "id", None)
     hidden = Loop.objects.unscoped().filter(team__organization_id=organization_id, visibility=Loop.Visibility.PERSONAL)
     if user_id is not None:
@@ -1287,8 +1287,7 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
 
 
 def _sync_triggers(loop: Loop, trigger_payloads: list[dict]) -> None:
-    """Id-stable nested trigger sync for an existing loop (see LOOPS.md "Lifecycle and
-    reconciliation"). Loop creation handles its (necessarily all-new) triggers inline in
+    """Id-stable nested trigger sync for an existing loop. Loop creation handles its (necessarily all-new) triggers inline in
     `create_loop` instead of through here.
 
     Matches incoming trigger payloads by `id`: updates matched rows in place, creates rows with
@@ -1396,8 +1395,8 @@ def fire_loop_api(
     loop_id: str | UUID, team_id: int, payload: dict | None, idempotency_key: str | None = None
 ) -> LoopFireResult | None:
     """External fire (`loops/:id/trigger/`, PSAK auth). A PSAK is a project-scoped service
-    credential, so this is project-wide by design and bypasses the personal/team visibility split
-    (see LOOPS.md "API trigger auth"). Non-PSAK (session/PAT/OAuth) callers of the same endpoint
+    credential, so this is project-wide by design and bypasses the personal/team visibility split.
+    Non-PSAK (session/PAT/OAuth) callers of the same endpoint
     go through `fire_loop_api_for_user` instead, which re-imposes that split."""
     # `internal=False`: internal loops are driven by their backend flow, never externally
     # firable, even though a PSAK is project-wide (mirrors the read/write API surface).
