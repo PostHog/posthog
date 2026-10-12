@@ -47,7 +47,7 @@ use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
 };
 use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
-    StreamReady, SubBatchAck, SubBatchStatus,
+    MessageRef, StreamReady, SubBatchAck, SubBatchStatus,
 };
 
 const KAFKA_BROKERS: &str = "localhost:9092";
@@ -121,11 +121,30 @@ async fn produce_in_one_transaction(
     token: &str,
     records: &[(&str, usize)],
 ) {
+    let records = records
+        .iter()
+        .map(|&(distinct_id, seq)| (format!("{token}:{distinct_id}"), distinct_id, seq))
+        .collect::<Vec<_>>();
+    let records: Vec<(&str, &str, usize)> = records
+        .iter()
+        .map(|(key, distinct_id, seq)| (key.as_str(), *distinct_id, *seq))
+        .collect();
+    produce_keyed_in_one_transaction(topic, partition, token, &records).await;
+}
+
+/// Like `produce_in_one_transaction`, with each record's Kafka key given as
+/// `(key, distinct_id, seq)`.
+async fn produce_keyed_in_one_transaction(
+    topic: &str,
+    partition: i32,
+    token: &str,
+    records: &[(&str, &str, usize)],
+) {
     let topic = topic.to_string();
     let token = token.to_string();
-    let records: Vec<(String, usize)> = records
+    let records: Vec<(String, String, usize)> = records
         .iter()
-        .map(|&(distinct_id, seq)| (distinct_id.to_string(), seq))
+        .map(|&(key, distinct_id, seq)| (key.to_string(), distinct_id.to_string(), seq))
         .collect();
     // The transaction calls block, so keep them off the test's runtime thread,
     // which also serves the fake workers.
@@ -141,8 +160,7 @@ async fn produce_in_one_transaction(
             .init_transactions(timeout)
             .expect("init transactions");
         producer.begin_transaction().expect("begin transaction");
-        for (distinct_id, seq) in &records {
-            let key = format!("{token}:{distinct_id}");
+        for (key, distinct_id, seq) in &records {
             let value = format!(r#"{{"seq":{seq}}}"#);
             let headers = OwnedHeaders::new()
                 .insert(Header {
@@ -156,7 +174,7 @@ async fn produce_in_one_transaction(
             producer
                 .send(
                     BaseRecord::to(&topic)
-                        .key(&key)
+                        .key(key.as_str())
                         .payload(&value)
                         .partition(partition)
                         .headers(headers),
@@ -201,7 +219,7 @@ struct FakeWorker {
     pub url: String,
     /// (distinct_id, seq) pairs in arrival order.
     pub received: Arc<Mutex<Vec<(String, usize)>>>,
-    /// Message count of each accepted sub-batch, in arrival order. With a
+    /// Message count of each acked sub-batch, in arrival order. With a
     /// single worker and partition a sub-batch is the whole Kafka batch, which
     /// is what lets the batching-bound tests read batch sizes from here.
     pub batch_sizes: Arc<Mutex<Vec<usize>>>,
@@ -218,6 +236,12 @@ struct FakeWorker {
     /// When true, every sub-batch is nacked without
     /// ingesting anything — a poison batch this worker will never accept.
     pub reject_4xx: Arc<AtomicBool>,
+    /// When set, the first sub-batch with a soft budget that carries this
+    /// distinct_id times out all of that id's messages. They are not recorded,
+    /// and the ack is PARTIAL.
+    pub time_out_once: Arc<Mutex<Option<String>>>,
+    /// (distinct_id, seq) pairs that arrived in a sub-batch marked as replay.
+    pub replayed: Arc<Mutex<Vec<(String, usize)>>>,
     /// When set, the next sub-batch is ingested in full but reports one
     /// message fewer than sent — a partial-acceptance contract violation.
     pub underreport_once: Arc<AtomicBool>,
@@ -256,6 +280,8 @@ impl FakeWorker {
         let ack_lost_once = Arc::new(AtomicBool::new(false));
         let reject_4xx = Arc::new(AtomicBool::new(false));
         let underreport_once = Arc::new(AtomicBool::new(false));
+        let time_out_once = Arc::new(Mutex::new(None));
+        let replayed = Arc::new(Mutex::new(Vec::new()));
         let arrived = Arc::new(AtomicUsize::new(0));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
@@ -301,6 +327,8 @@ impl FakeWorker {
             ack_lost_once: Arc::clone(&ack_lost_once),
             reject_4xx: Arc::clone(&reject_4xx),
             underreport_once: Arc::clone(&underreport_once),
+            time_out_once: Arc::clone(&time_out_once),
+            replayed: Arc::clone(&replayed),
             arrived: Arc::clone(&arrived),
             gate: Arc::clone(&gate),
             delivery_log,
@@ -328,6 +356,8 @@ impl FakeWorker {
             ack_lost_once,
             reject_4xx,
             underreport_once,
+            time_out_once,
+            replayed,
             arrived,
             gate,
             _task: task,
@@ -338,7 +368,7 @@ impl FakeWorker {
         self.received.lock().unwrap().len()
     }
 
-    /// Message count of each accepted sub-batch, in arrival order.
+    /// Message count of each acked sub-batch, in arrival order.
     fn batch_sizes(&self) -> Vec<usize> {
         self.batch_sizes.lock().unwrap().clone()
     }
@@ -375,6 +405,8 @@ struct FakeWorkerGrpc {
     ack_lost_once: Arc<AtomicBool>,
     reject_4xx: Arc<AtomicBool>,
     underreport_once: Arc<AtomicBool>,
+    time_out_once: Arc<Mutex<Option<String>>>,
+    replayed: Arc<Mutex<Vec<(String, usize)>>>,
     arrived: Arc<AtomicUsize>,
     gate: Arc<tokio::sync::Mutex<()>>,
     delivery_log: Option<DeliveryLog>,
@@ -399,6 +431,8 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let ack_lost_once = Arc::clone(&self.ack_lost_once);
         let reject_4xx = Arc::clone(&self.reject_4xx);
         let underreport_once = Arc::clone(&self.underreport_once);
+        let time_out_once = Arc::clone(&self.time_out_once);
+        let replayed = Arc::clone(&self.replayed);
         let arrived = Arc::clone(&self.arrived);
         let gate = Arc::clone(&self.gate);
         let delivery_log = self.delivery_log.clone();
@@ -453,10 +487,43 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         (did, seq)
                     })
                     .collect();
-                received.lock().unwrap().extend(entries.iter().cloned());
+                let timed_out_id = if sub_batch.soft_budget_ms > 0 {
+                    time_out_once.lock().unwrap().clone()
+                } else {
+                    None
+                };
+                let mut done = Vec::new();
+                let mut timed_out = Vec::new();
+                for (message, entry) in sub_batch.messages.iter().zip(entries) {
+                    if timed_out_id.as_deref() == Some(entry.0.as_str()) {
+                        timed_out.push(MessageRef {
+                            partition: message.partition,
+                            offset: message.offset,
+                        });
+                    } else {
+                        done.push(entry);
+                    }
+                }
+                if sub_batch.replay {
+                    replayed.lock().unwrap().extend(done.iter().cloned());
+                }
+                received.lock().unwrap().extend(done.iter().cloned());
                 batch_sizes.lock().unwrap().push(sub_batch.messages.len());
                 if let Some(log) = &delivery_log {
-                    log.lock().unwrap().extend(entries);
+                    log.lock().unwrap().extend(done.iter().cloned());
+                }
+                if !timed_out.is_empty() {
+                    *time_out_once.lock().unwrap() = None;
+                    let _ = tx.send(Ok(IngestStreamResponse {
+                        msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                            seq: sub_batch.seq,
+                            status: SubBatchStatus::Partial as i32,
+                            accepted: done.len() as u32,
+                            error: String::new(),
+                            timed_out,
+                        })),
+                    }));
+                    continue;
                 }
                 // Work done and recorded, but the ACK is lost: fail the stream
                 // so the consumer fences and replays.
@@ -508,6 +575,7 @@ struct Harness {
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
     pack_targets: PackTargets,
+    soft_budget: Option<Duration>,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -607,6 +675,28 @@ impl Harness {
             0,
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
+            None,
+        )
+        .await
+    }
+
+    /// One key-table consumer with one worker and one partition, sending
+    /// `soft_budget` on every request.
+    async fn start_budgeted(topic: &str, soft_budget: Duration, pack_targets: PackTargets) -> Self {
+        Self::start_inner(
+            SchedulerKind::KeyTable,
+            topic,
+            1,
+            1,
+            // A poll can end after one message, so the next polls must reach
+            // the packer while that message waits for the rest of its run.
+            4,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            pack_targets,
+            Some(soft_budget),
         )
         .await
     }
@@ -633,6 +723,7 @@ impl Harness {
             0,
             ComponentOptions::new(),
             pack_targets,
+            None,
         )
         .await
     }
@@ -658,6 +749,7 @@ impl Harness {
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
             common::ONE_MESSAGE_PER_REQUEST,
+            None,
         )
         .await
     }
@@ -677,6 +769,7 @@ impl Harness {
             batch_size_bytes,
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
+            None,
         )
         .await
     }
@@ -693,6 +786,7 @@ impl Harness {
         batch_size_bytes: usize,
         component_options: ComponentOptions,
         pack_targets: PackTargets,
+        soft_budget: Option<Duration>,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -735,6 +829,7 @@ impl Harness {
             deferred_flush_timeout,
             Duration::from_millis(200),
             pack_targets,
+            soft_budget,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -780,6 +875,7 @@ impl Harness {
             max_in_flight,
             deferred_flush_timeout,
             pack_targets,
+            soft_budget,
         }
     }
 
@@ -824,6 +920,7 @@ impl Harness {
             self.deferred_flush_timeout,
             Duration::from_millis(200),
             self.pack_targets,
+            self.soft_budget,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -1010,6 +1107,62 @@ async fn messages_per_distinct_id_arrive_in_order(
             );
         }
     }
+
+    harness.stop().await;
+}
+
+/// A partial ack redelivers only the messages the worker timed out. One Kafka
+/// key carries two distinct ids, as a cookieless `token:ip` key does, and the
+/// worker times out one distinct id's messages while it finishes the other's,
+/// so the timed-out messages are not the last of their key.
+#[tokio::test]
+async fn a_partial_ack_redelivers_only_the_timed_out_messages() {
+    let topic = format!("e2e-partial-{}", Uuid::new_v4());
+    // The packer holds the key's run until four events are ready, so all four
+    // ride one request however the consumer's polls split them.
+    let pack_targets = PackTargets {
+        events: NonZeroUsize::new(4),
+        bytes: None,
+        latency_budget: Duration::from_secs(5),
+    };
+    let harness = Harness::start_budgeted(&topic, Duration::from_millis(500), pack_targets).await;
+    *harness.workers[0].time_out_once.lock().unwrap() = Some("visitor-a".to_string());
+
+    let key = "tok:203.0.113.7";
+    produce_keyed_in_one_transaction(
+        &topic,
+        0,
+        "tok",
+        &[
+            (key, "visitor-a", 0),
+            (key, "visitor-b", 1),
+            (key, "visitor-a", 2),
+            (key, "visitor-b", 3),
+        ],
+    )
+    .await;
+    // A commit means every resend settled, so a late duplicate is in the log.
+    wait_until(Duration::from_secs(15), "the offsets commit", || {
+        harness
+            .committed_offset(0)
+            .is_some_and(|offset| offset >= 4)
+    })
+    .await;
+
+    let worker = &harness.workers[0];
+    assert_eq!(
+        worker.batch_sizes()[0],
+        4,
+        "all four messages ride one request: sizes {:?}",
+        worker.batch_sizes()
+    );
+    assert_eq!(worker.seqs_for("visitor-a"), vec![0, 2]);
+    assert_eq!(worker.seqs_for("visitor-b"), vec![1, 3]);
+    assert_eq!(
+        *worker.replayed.lock().unwrap(),
+        vec![("visitor-a".to_string(), 0), ("visitor-a".to_string(), 2)],
+        "only the timed-out messages are redelivered, marked as replay"
+    );
 
     harness.stop().await;
 }
@@ -2849,6 +3002,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
         Duration::from_secs(60),
         Duration::from_millis(200),
         common::PRODUCTION_PACK_TARGETS,
+        None,
     );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
@@ -2972,6 +3126,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         Duration::from_secs(60),
         Duration::from_millis(200),
         common::PRODUCTION_PACK_TARGETS,
+        None,
     );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
@@ -3100,6 +3255,7 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
         Duration::from_secs(60),
         Duration::from_millis(200),
         common::PRODUCTION_PACK_TARGETS,
+        None,
     );
     let consumer = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &group, Some("pod-1")),
