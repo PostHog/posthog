@@ -768,7 +768,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailersend/mailersend.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailersend/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailgun/mailgun.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailgun/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/mailjet.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/mailosaur.py
