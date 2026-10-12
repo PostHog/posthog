@@ -1,11 +1,13 @@
 from typing import Any
 
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm import source as agilecrm_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.source import AgileCRMSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
     AgileCRMSourceConfig,
 )
@@ -59,8 +61,9 @@ class TestPipelinePlumbing:
         ]
     )
     def test_source_for_pipeline_routes_endpoint(self, _name: str, endpoint: str, expected_keys: list[str]) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        response = AgileCRMSource().source_for_pipeline(_config(), MagicMock(), inputs)
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
+        result = SourceDriver(AgileCRMSource(), _config()).run(endpoint, [ScriptedResponse(json=[])])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_keys
