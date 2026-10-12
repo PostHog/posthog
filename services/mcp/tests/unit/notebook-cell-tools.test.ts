@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildToolResultPayload } from '@/lib/build-tool-result'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
 import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
+import { findCellTag, readExpressionProp, readStringProp } from '@/tools/notebooks/cellTags'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
@@ -397,34 +398,66 @@ describe('notebook cell tools', () => {
             expect(result.visualization_warnings).toContain(warning)
         })
 
-        it('update cell with only a visualization changes the chart without re-running, and null restores the table', async () => {
-            const state = makeState(
-                '# Doc\n\n<SQLV2 nodeId="target" code="select 1 as x" returnVariable="df" runId="old" result={{"columns":["x"],"types":[["x","Int64"]],"row_count":20,"first_page":[[1]],"has_more":true,"previewOnly":true}} />\n'
-            )
+        const STORED_PREVIEW =
+            'runId="old" result={{"columns":["x"],"types":[["x","Int64"]],"row_count":20,"first_page":[[1]],"has_more":true,"previewOnly":true}}'
+        const LEGACY_PIE_QUERY =
+            'query={{"kind":"DataVisualizationNode","display":"ActionsPie","source":{"kind":"HogQLQuery","query":"select 1 as x"}}}'
+        const targetProp = (state: MockState, name: string): unknown => {
+            const source = findCellTag(state.markdown, 'target')!.source
+            return readStringProp(source, name) ?? readExpressionProp(source, name)
+        }
+
+        it.each([
+            { label: 'a cell that holds its SQL in code', sql: 'code="select 1 as x"' },
+            { label: 'a legacy cell that holds its SQL and a pie chart in query', sql: LEGACY_PIE_QUERY },
+        ])(
+            'update cell with only a visualization changes the chart of $label without re-running, and null restores the table',
+            async ({ sql }) => {
+                const state = makeState(
+                    `# Doc\n\n<SQLV2 nodeId="target" ${sql} returnVariable="df" ${STORED_PREVIEW} />\n`
+                )
+                const context = createMockContext(state)
+
+                const charted = await updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: 'target',
+                    visualization: { display: 'ActionsLineGraph', chartSettings: { yAxis: [{ column: 'y' }] } },
+                })
+
+                expect(state.runBodies).toHaveLength(0)
+                expect(targetProp(state, 'code')).toBe('select 1 as x')
+                expect(targetProp(state, 'outputTab')).toBe('visualization')
+                expect(targetProp(state, 'vizQuery')).toMatchObject({ display: 'ActionsLineGraph' })
+                expect(charted).toMatchObject({
+                    updated: true,
+                    visualization_warnings: expect.arrayContaining([
+                        "yAxis column 'y' is not in the result columns: x.",
+                    ]),
+                })
+                // The stored preview holds fewer rows than the chart restores, so it must not claim truncation.
+                expect(JSON.stringify(charted)).not.toContain('plots only')
+
+                await updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', visualization: null })
+
+                expect(state.runBodies).toHaveLength(0)
+                expect(targetProp(state, 'code')).toBe('select 1 as x')
+                expect(targetProp(state, 'outputTab')).toBe('results')
+                expect(targetProp(state, 'vizQuery')).toBeNull()
+                expect(targetProp(state, 'runId')).toBe('old')
+            }
+        )
+
+        it('update cell with new code keeps the chart a legacy cell holds in query', async () => {
+            const state = makeState(`# Doc\n\n<SQLV2 nodeId="target" ${LEGACY_PIE_QUERY} returnVariable="df" />\n`)
+            state.runStatusResponses.push(DONE_STATUS)
             const context = createMockContext(state)
 
-            const charted = await updateCellHandler(context, {
-                notebook_id: 'aBcD1234',
-                node_id: 'target',
-                visualization: { display: 'ActionsLineGraph', chartSettings: { yAxis: [{ column: 'y' }] } },
-            })
+            await updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', code: 'select 2 as x' })
 
-            expect(state.runBodies).toHaveLength(0)
-            expect(state.markdown).toContain('outputTab="visualization"')
-            expect(state.markdown).toContain('"display":"ActionsLineGraph"')
-            expect(charted).toMatchObject({
-                updated: true,
-                visualization_warnings: expect.arrayContaining(["yAxis column 'y' is not in the result columns: x."]),
-            })
-            // The stored preview holds fewer rows than the chart restores, so it must not claim truncation.
-            expect(JSON.stringify(charted)).not.toContain('plots only')
-
-            await updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', visualization: null })
-
-            expect(state.runBodies).toHaveLength(0)
-            expect(state.markdown).toContain('outputTab="results"')
-            expect(state.markdown).not.toContain('vizQuery')
-            expect(state.markdown).toContain('runId="old"')
+            expect(state.runBodies[0]).toMatchObject({ code: 'select 2 as x' })
+            expect(targetProp(state, 'code')).toBe('select 2 as x')
+            expect(targetProp(state, 'outputTab')).toBe('visualization')
+            expect(targetProp(state, 'vizQuery')).toMatchObject({ display: 'ActionsPie' })
         })
 
         it.each(['WorldMap', 'TwoDimensionalHeatmap'])(

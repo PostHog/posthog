@@ -141,6 +141,52 @@ export function removeProp(tagSource: string, name: string): string {
     return tagSource.slice(0, start) + tagSource.slice(expression.end)
 }
 
+/**
+ * The props the editor derives for a SQL cell that holds its SQL in `query` and has no `code`. Keep in
+ * sync with `getSqlV2PropsFromQueryProp` (markdownNotebookV2.ts) and `_code_from_query_prop` (sql_v2_state.py).
+ */
+export function legacySqlProps(tagSource: string): { code: string; vizQuery?: Record<string, unknown> } | null {
+    if (readStringProp(tagSource, 'code')?.trim()) {
+        return null
+    }
+    let query: unknown = readStringProp(tagSource, 'query') ?? readExpressionProp(tagSource, 'query')
+    if (typeof query === 'string') {
+        if (!query.trim().startsWith('{')) {
+            return query.trim() ? { code: query } : null
+        }
+        try {
+            query = JSON.parse(query)
+        } catch {
+            return null
+        }
+    }
+    if (!query || typeof query !== 'object' || Array.isArray(query)) {
+        return null
+    }
+    const node = query as Record<string, unknown>
+    const source = (node.kind === 'HogQLQuery' ? node : node.source) as Record<string, unknown> | null | undefined
+    const code = source?.kind === 'HogQLQuery' && typeof source.query === 'string' ? source.query : ''
+    if (!code.trim()) {
+        return null
+    }
+    return node.kind === 'DataVisualizationNode' ? { code, vizQuery: node } : { code }
+}
+
+/**
+ * While `code` is empty, a chart in `query` overrides `outputTab` and `vizQuery` in the editor. A chart
+ * edit would not show, and new `code` would drop the chart, unless the tag holds the derived props first.
+ */
+export function materializeLegacySqlProps(tagSource: string): string {
+    const legacy = legacySqlProps(tagSource)
+    if (!legacy) {
+        return tagSource
+    }
+    const source = upsertProp(tagSource, 'code', legacy.code)
+    return legacy.vizQuery
+        ? upsertProp(upsertProp(source, 'outputTab', 'visualization'), 'vizQuery', legacy.vizQuery)
+        : source
+}
+
 export function buildCellTag(tagName: string, props: Record<string, unknown>): string {
     const serialized = Object.entries(props)
         .filter(([, value]) => value !== undefined)
@@ -217,7 +263,10 @@ export function parseCellTags(markdown: string): CellTagBlock[] {
             source,
             nodeId: readStringProp(source, 'nodeId'),
             returnVariable: (readStringProp(source, 'returnVariable') ?? '').trim(),
-            code: readStringProp(source, 'code') ?? '',
+            code:
+                (tagName === 'SQLV2' ? legacySqlProps(source)?.code : undefined) ??
+                readStringProp(source, 'code') ??
+                '',
         })
         offset += blockLines.reduce((sum, blockLine) => sum + blockLine.length + 1, 0)
         index = cursor + 1

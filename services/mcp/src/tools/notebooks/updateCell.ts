@@ -14,6 +14,7 @@ import {
     collectRunRefs,
     directDependents,
     findCellTag,
+    materializeLegacySqlProps,
     parseCellTags,
     replaceCellTag,
     normalizeForTagScan,
@@ -188,7 +189,10 @@ export const updateCellHandler: ToolBase<
             if (!block) {
                 throw new Error(`No cell with node_id ${params.node_id} in notebook ${params.notebook_id}.`)
             }
-            let source = codeChanged ? upsertProp(block.source, 'code', params.code) : block.source
+            let source = block.tagName === 'SQLV2' ? materializeLegacySqlProps(block.source) : block.source
+            if (codeChanged) {
+                source = upsertProp(source, 'code', params.code)
+            }
             if (params.visualization !== undefined) {
                 source = applyVisualization(source, params.visualization)
             }
