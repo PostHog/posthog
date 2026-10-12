@@ -39,6 +39,8 @@ class TestPatternFingerprint(TestCase):
             ("different_literals", "User <*> not found", "User <*> deleted", False),
             ("literal_split_changes_content", "User <*> not found", "User <*> not <*>", False),
             ("stored_token_vs_grouped_wildcard", "job <ID> done in <N> ms", "job <*> done in <N> ms", True),
+            ("stored_klog_header_vs_grouped_wildcard", "x I<KLOGTIME> started <N>", "x <*> started <N>", True),
+            ("upper_case_log_text_stays_literal", "render <HTML> page", "render <BODY> page", False),
         ]
     )
     def test_fingerprint_matches_across_template_wobble(self, _name, a, b, expected_equal) -> None:
@@ -234,14 +236,21 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_version_compares_stored", 5, 5, "stored_patterns", (None, None)),
-            ("version_mismatch_mines_both", 6, 5, "body_mining", ("comparison", "comparison")),
-            ("stored_vs_unstamped_mines_both", 5, 0, "body_mining", ("comparison", "insufficient_version_coverage")),
+            ("same_version_compares_stored", 5, 5, "stored_patterns", 5, (None, None)),
+            ("version_mismatch_mines_both", 6, 5, "body_mining", None, ("comparison", "comparison")),
+            (
+                "stored_vs_unstamped_mines_both",
+                5,
+                0,
+                "body_mining",
+                None,
+                ("comparison", "insufficient_version_coverage"),
+            ),
         ]
     )
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_both_windows_use_one_template_source(
-        self, _name, current_version, baseline_version, expected_source, expected_reasons
+        self, _name, current_version, baseline_version, expected_source, expected_version, expected_reasons
     ) -> None:
         def stamped(day: int, version: int) -> list[dict]:
             return [
@@ -267,6 +276,8 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
 
         assert (results["current"]["source"], results["baseline"]["source"]) == (expected_source, expected_source)
         assert (results["current"]["fallback_reason"], results["baseline"]["fallback_reason"]) == expected_reasons
-        if expected_source == "stored_patterns":
-            assert results["current"]["pattern_version"] == results["baseline"]["pattern_version"] == 5
+        assert (results["current"]["pattern_version"], results["baseline"]["pattern_version"]) == (
+            expected_version,
+            expected_version,
+        )
         assert [e["classification"] for e in results["entries"]] == ["unchanged"]

@@ -31,7 +31,7 @@ Entries come sorted most-interesting-first: `new` (by volume), then `rate_shift`
 - `pattern` — full pattern stats including `match_regex` / `match_literal`, or `match_patterns` on stored-pattern windows, so you can pivot straight to the matching lines (same recipe as `logs-patterns`).
 - **Check `baseline.total_count` before trusting a wall of `new` entries** — an empty or tiny baseline (logging only started recently, service didn't exist last week) makes everything look new.
 - `current.source` and `baseline.source` are always the same. Both windows use stored patterns when each resolves to the same `pattern_version`. Otherwise both are mined from body samples, and a window that had stored patterns reports `fallback_reason: "comparison"`.
-- Mined windows are sampled (`sampled: true`), so counts are estimates and templates rarer than ~1 in 10,000 rows may be invisible in either window. Stored-pattern windows report exact counts.
+- A mined window that scanned only part of its rows reports `sampled: true`, so counts are estimates and templates rarer than ~1 in 10,000 rows may be invisible in either window. Stored-pattern windows report exact counts.
 
 Template identity across the two windows is fingerprint-based (literal content), so the miner rendering `User <*> not found` in one window and `User <num> not found` in the other still compares as one pattern rather than a false new+gone pair.
 

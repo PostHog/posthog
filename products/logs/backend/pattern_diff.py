@@ -148,7 +148,7 @@ def _entry(
 
 
 def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateRange | None) -> dict:
-    """Mine the query's window and a baseline window, and return classified diff entries.
+    """Get patterns for the query's window and a baseline window, and return classified diff entries.
 
     The baseline defaults to the same window shifted back one week — log streams have strong
     daily/weekly cycles, so last week's identical window is a fairer expectation than the
@@ -174,7 +174,7 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
 
     # Stored templates of one version only match templates of that same version, and never
     # mined ones, so a mismatched pair falls back to body mining on both sides.
-    if _template_source(current_results) != _template_source(baseline_results):
+    if _template_identity(current_results) != _template_identity(baseline_results):
         if current_results.get("source") == "stored_patterns":
             current_results = _mine_bodies(team, query, current_from, current_to)
         if baseline_results.get("source") == "stored_patterns":
@@ -193,7 +193,7 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
     }
 
 
-def _template_source(results: dict) -> tuple[str | None, int | None]:
+def _template_identity(results: dict) -> tuple[str | None, int | None]:
     return results.get("source"), results.get("pattern_version")
 
 
