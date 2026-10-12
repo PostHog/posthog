@@ -2813,10 +2813,10 @@ Today (18): `accounting_years`, `accounts`, `currencies`, `customer_groups`, `cu
 
 Diffed against: <https://restdocs.e-conomic.com/>
 
-- [ ] `GET /journals/{journalNumber}/entries` — the actual accounting entries; today only the journal headers are synced, so no transaction-level ledger exists (high)
-- [ ] `GET /accounting-years/{year}/entries` — full general-ledger entry stream for a financial year - the core fact table of the whole API (high)
-- [ ] `GET /accounts/{accountNumber}/accounting-years/{year}/entries` — per-account ledger entries, letting you reconcile the accounts table already synced (high)
-- [ ] `GET /orders, /orders/drafts, /orders/sent, /orders/archived` — sales orders with their state slices - the pre-invoice half of the revenue pipeline is entirely missing (high)
+- [x] `GET /journals/{journalNumber}/entries` — the actual accounting entries; today only the journal headers are synced, so no transaction-level ledger exists (high)
+- [x] `GET /accounting-years/{year}/entries` — full general-ledger entry stream for a financial year - the core fact table of the whole API (high)
+- [ ] `GET /accounts/{accountNumber}/accounting-years/{year}/entries` — per-account ledger entries, letting you reconcile the accounts table already synced (high). Skipped: it returns a per-account subset of `/accounting-years/{year}/entries`, which is now synced as `accounting_year_entries` and carries `account` on every row, so a second table would only duplicate it.
+- [x] `GET /orders, /orders/drafts, /orders/sent, /orders/archived` — sales orders with their state slices - the pre-invoice half of the revenue pipeline is entirely missing (high)
 - [ ] `GET /vat-types and GET /vat-accounts` — VAT code lookup resolving the vatZone/vatAccount references already carried on accounts, products and invoice lines (high)
 - [ ] `GET /accounting-years/{year}/totals and /accounting-years/{year}/periods/{p}/totals` — account balances per year and per period - the trial-balance figures, without recomputing from entries (high)
 - [ ] `GET /accounting-years/{year}/periods` — accounting-period lookup that every entry and total is bucketed by (medium)
@@ -2834,12 +2834,12 @@ Today (7): `campaigns`, `contacts`, `events`, `lists`, `segments`, `suppressions
 
 Diffed against: <https://api.elasticemail.com/public/v4/swagger>
 
-- [ ] `/statistics/campaigns (Load Campaigns Stats)` — per-campaign delivery/engagement aggregates (sent, opened, clicked, bounced, unsubscribed) — the headline metric for the campaigns we already sync (high)
-- [ ] `/lists/{listname}/contacts (Load Contacts in List)` — list membership join table linking the contacts and lists we already sync (high)
-- [ ] `/statistics (Load Statistics)` — account-level delivery stats over a date range, the top-level deliverability rollup (high)
+- [x] `/statistics/campaigns (Load Campaigns Stats)` — per-campaign delivery/engagement aggregates (sent, opened, clicked, bounced, unsubscribed) — the headline metric for the campaigns we already sync (high)
+- [x] `/lists/{listname}/contacts (Load Contacts in List)` — list membership join table linking the contacts and lists we already sync (high)
+- [x] `/statistics (Load Statistics)` — account-level delivery stats over a date range, the top-level deliverability rollup (high)
 - [ ] `/statistics/channels + /statistics/channels/{name}` — per-channel send stats for attributing volume across sending channels (medium)
 - [ ] `/subaccounts` — lookup resolving the sub-account that owns campaigns, events and statistics rows (medium)
-- [ ] `/verifications (Get Emails Verification Results)` — email verification outcomes per address, useful for list hygiene analysis (medium)
+- [x] `/verifications (Get Emails Verification Results)` — email verification outcomes per address, useful for list hygiene analysis (medium)
 - [ ] `/events/channels/{name} (Load Channel Events)` — channel-scoped event stream for splitting engagement events by sending channel (low)
 - [ ] `/suppressions/bounces, /suppressions/complaints, /suppressions/unsubscribes` — typed suppression sub-lists; only worth adding if the generic /suppressions payload does not carry the suppression type (low)
 
@@ -5096,14 +5096,14 @@ Note: Coverage is essentially complete: every list endpoint in the API nav (stor
 
 ## LessAnnoyingCRM — gaps
 
-Today (6): `contacts`, `events`, `notes`, `tasks`, `teams`, `users`
+Today (11): `contacts`, `events`, `group_memberships`, `groups`, `notes`, `pipeline_items`, `pipeline_statuses`, `pipelines`, `tasks`, `teams`, `users`
 
 Diffed against: <https://account.lessannoyingcrm.com/api_docs/v2/Core_Functions/Pipeline_Items>
 
-- [ ] `GetPipelineItems (also GetPipelineItemsAttachedToContact)` — pipeline items are the deal/opportunity records - the core revenue object and the biggest hole in coverage (high)
-- [ ] `GetPipelines` — lookup resolving the pipeline ids that pipeline items and contacts carry (high)
-- [ ] `GetPipelineStatuses` — lookup resolving stage/status ids on pipeline items; required for any funnel or stage-duration analysis (high)
-- [ ] `GetGroups + GetContactsInGroup (GetGroupsAttachedToContact)` — group definitions plus the contact-to-group membership table used for segmentation (medium)
+- [x] `GetPipelineItems (also GetPipelineItemsAttachedToContact)` — pipeline items are the deal/opportunity records - the core revenue object and the biggest hole in coverage (high)
+- [x] `GetPipelines` — lookup resolving the pipeline ids that pipeline items and contacts carry (high)
+- [x] `GetPipelineStatuses` — lookup resolving stage/status ids on pipeline items; required for any funnel or stage-duration analysis (high)
+- [x] `GetGroups + GetContactsInGroup (GetGroupsAttachedToContact)` — group definitions plus the contact-to-group membership table used for segmentation (medium)
 - [ ] `GetEmails (GetEmailsAttachedToContact)` — logged email activity per contact, the main engagement signal alongside notes and events (medium)
 - [ ] `GetCustomFields` — lookup decoding the custom field ids that appear on contacts and pipeline items (medium)
 - [ ] `GetRelationshipsAttachedToContacts` — contact-to-contact relationship graph (company/person links) used for account rollups (medium)
@@ -5113,14 +5113,14 @@ Note: LACRM's v2 API is RPC-shaped (single POST endpoint with a Function name), 
 
 ## Lever — gaps
 
-Today (8): `archive_reasons`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
+Today (12): `applications`, `archive_reasons`, `feedback`, `interviews`, `offers`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
 
 Diffed against: <https://hire.lever.co/developer/documentation>
 
-- [ ] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high)
-- [ ] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high)
-- [ ] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high)
-- [ ] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high)
+- [x] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high) — synced as `feedback`
+- [x] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high) — synced as `interviews`
+- [x] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high) — synced as `applications` through `GET /opportunities?expand=applications`, the route Lever recommends over the deprecated per-candidate endpoint; `/applications/deleted` is not synced because it requires 30-day windows with no documented start
+- [x] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high) — synced as `offers`
 - [ ] `disposition_stages` — lookup resolving the disposition/stage codes carried on archived opportunities (medium)
 - [ ] `audit_events` — state-transition history for candidates, postings and users; the only source of change-over-time in Lever (medium)
 - [ ] `opportunities/{id}/notes` — recruiter activity volume per candidate (medium)
@@ -5134,14 +5134,14 @@ Note: Most Lever gaps are sub-resources nested under /opportunities/{id}, which 
 
 ## Lightdash — gaps
 
-Today (6): `charts`, `dashboards`, `metrics_catalog`, `org_users`, `projects`, `spaces`
+Today (9): `charts`, `dashboards`, `explores`, `metrics_catalog`, `org_users`, `projects`, `scheduler_runs`, `schedulers`, `spaces`
 
 Diffed against: <https://raw.githubusercontent.com/lightdash/lightdash/main/packages/backend/src/generated/swagger.json>
 
-- [ ] `projects/{projectUuid}/explores` — lookup of every dbt model/table and its fields - resolves the field IDs embedded in the charts we already sync (high)
-- [ ] `analytics/user-activity/{projectUuid}` — Lightdash's headline adoption metric: per-user views, queries and chart creation (high)
-- [ ] `schedulers/{projectUuid}/list` — scheduled delivery definitions; the parent for run history below (high)
-- [ ] `schedulers/{projectUuid}/runs (and /logs)` — per-run state and failure history for scheduled deliveries - the reliability table (high)
+- [x] `projects/{projectUuid}/explores` — lookup of every dbt model/table and its fields - resolves the field IDs embedded in the charts we already sync (high). Added as `explores` (fan-out over `projects`). The list returns explore summaries only; per-field definitions need one `explores/{exploreId}` call per explore and were not added.
+- [ ] `analytics/user-activity/{projectUuid}` — Lightdash's headline adoption metric: per-user views, queries and chart creation (high). Skipped: it returns one object of project-level aggregates and top-N user lists, not one row per user, so it is not table material.
+- [x] `schedulers/{projectUuid}/list` — scheduled delivery definitions; the parent for run history below (high). Added as `schedulers` (fan-out over `projects`).
+- [x] `schedulers/{projectUuid}/runs (and /logs)` — per-run state and failure history for scheduled deliveries - the reliability table (high). Added as `scheduler_runs` (fan-out over `projects`, incremental merge on `runId` because the API returns only the last 7 days of runs). `/logs` skipped: its rows are per-job status transitions with no unique key, and each run row already carries its status and child job counts.
 - [ ] `projects/{projectUuid}/dataCatalog/{table}/analytics (and /{field})` — which charts and dashboards use each table/field - drives model deprecation decisions (medium)
 - [ ] `org/groups (+ groups/{groupUuid}/members)` — group membership table resolving access for the org users we already sync (medium)
 - [ ] `v2/content` — unified listing of charts, dashboards and sql charts including spaces and last-updated, useful as a single content inventory (medium)
@@ -5159,8 +5159,8 @@ Today (9): `accounts`, `contacts`, `emails`, `lists`, `meetings`, `members`, `no
 
 Diffed against: <https://docs.lightfield.app/api/resources/object/methods/list/>
 
-- [ ] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
-- [ ] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
+- [x] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
+- [x] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
 
 Note: Lightfield's full resource list is account, contact, email, file, list, meeting, member, note, object, opportunity, task (plus auth/merge helpers), so PostHog already covers 9 of 11. Custom objects are addressed dynamically by entitySlug (GET /v1/objects/{entitySlug}), so implementing them requires discovering the slugs at sync time rather than a static table list. File endpoints were excluded as uploads/plumbing.
 
@@ -5170,16 +5170,16 @@ Today (8): `customers`, `inventory`, `outlets`, `products`, `registers`, `sales`
 
 Diffed against: <https://x-series-api.lightspeedhq.com/reference/listcustomers>
 
-- [ ] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
-- [ ] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
-- [ ] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
-- [ ] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
-- [ ] `product_categories (GET /api/2.0/product_categories)` — lookup for category IDs on products - required for any category-level sales breakdown (high)
+- [x] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
+- [x] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
+- [x] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
+- [x] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
+- [x] `product_categories (GET /api/2.0/product_categories)` — lookup for category IDs on products - required for any category-level sales breakdown (high)
 - [ ] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
 - [ ] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
-- [ ] `stock_adjustments (GET /api/2.0/stock_adjustments)` — inventory movement/shrinkage records that explain changes in the inventory table we sync (medium)
-- [ ] `promotions (+ /promotions/{id}/products, promo codes)` — discount campaigns and their product scope; needed to attribute discounted revenue (medium)
-- [ ] `gift_cards (+ gift card transactions)` — outstanding liability and gift-card redemption transactions (medium)
+- [x] `stock_adjustments (GET /api/2.0/stock_adjustments)` — inventory movement/shrinkage records that explain changes in the inventory table we sync (medium)
+- [x] `promotions (+ /promotions/{id}/products, promo codes)` — discount campaigns and their product scope; needed to attribute discounted revenue (medium)
+- [x] `gift_cards (+ gift card transactions)` — outstanding liability and gift-card redemption transactions (medium)
 - [ ] `store_credits (+ transactions and balances)` — store credit liability and per-customer transaction ledger (medium)
 - [ ] `shifts (GET /api/2.0/shifts)` — register shift open/close records for labor and till-reconciliation analysis (medium)
 
@@ -5221,10 +5221,10 @@ Today (9): `domains`, `events`, `invoices`, `linodes`, `lke_clusters`, `nodebala
 
 Diffed against: <https://raw.githubusercontent.com/linode/linode-api-openapi/main/openapi.json>
 
-- [ ] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
-- [ ] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
-- [ ] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
-- [ ] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
+- [x] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
+- [x] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
+- [x] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
+- [x] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
 - [ ] `linode/instances/{linodeId}/transfer/{year}/{month}` — per-instance monthly bandwidth usage, the breakdown behind account-level transfer (medium)
 - [ ] `images` — custom and recovery images with size and expiry; a billed resource with no coverage today (medium)
 - [ ] `databases/instances (plus databases/types)` — managed database inventory, a billed service class entirely absent from the current tables (medium)
@@ -5238,14 +5238,14 @@ Note: The Akamai/Linode techdocs site serves no spec directly; the authoritative
 
 ## LlamaCloud — gaps
 
-Today (10): `batches`, `classify_jobs`, `extract_jobs`, `files`, `parse_jobs`, `pipelines`, `projects`, `sheets_jobs`, `split_jobs`, `usage_metrics`
+Today (13): `batches`, `classify_jobs`, `extract_jobs`, `extraction_agents`, `extraction_runs`, `files`, `indexes`, `parse_jobs`, `pipelines`, `projects`, `sheets_jobs`, `split_jobs`, `usage_metrics`
 
 Diffed against: <https://api.cloud.llamaindex.ai/api/openapi.json>
 
-- [ ] `GET /api/v1/extraction/extraction-agents` — lookup table resolving the extraction-agent id carried on every extract job (high)
-- [ ] `GET /api/v1/extraction/runs` — run-level history (status, timings, agent) behind extraction jobs (high)
-- [ ] `GET /api/v1/indexes` — top-level index objects; nothing in the current table set exposes them (medium)
-- [ ] `GET /api/v1/pipelines/{pipeline_id}/documents/paginated` — per-pipeline document inventory with status, the unit of indexing work (medium)
+- [x] `GET /api/v1/extraction/extraction-agents` — lookup table resolving the extraction-agent id carried on every extract job (high). Added as `extraction_agents`, read from `GET /api/v1/beta/extraction-agents`: the v1 listing is deprecated and unpaginated, and the beta listing returns the same agents with page tokens. The v2 `extract_jobs` rows carry a `configuration_id`, not an agent id, so the agents resolve `extraction_runs`, not extract jobs.
+- [x] `GET /api/v1/extraction/runs` — run-level history (status, timings, agent) behind extraction jobs (high). Added as `extraction_runs` (fan-out over `extraction_agents`, full refresh). The extracted `data` is not imported.
+- [x] `GET /api/v1/indexes` — top-level index objects; nothing in the current table set exposes them (medium). Added as `indexes`.
+- ~~`GET /api/v1/pipelines/{pipeline_id}/documents/paginated`~~ — skipped: the vendor spec marks it deprecated, and each document row carries the full document text.
 - [ ] `GET /api/v1/pipelines/{pipeline_id}/files2` — pipeline-to-file membership join for the files table we already sync (medium)
 - [ ] `GET /api/v1/beta/batch-processing/{job_id}/items` — per-item rows inside a batch; batches alone give only the job header (medium)
 - [ ] `GET /api/v1/data-sources` — lookup resolving the data-source ids attached to pipelines (medium)
@@ -5259,10 +5259,10 @@ Today (8): `addresses`, `bank_accounts`, `campaigns`, `checks`, `letters`, `post
 
 Diffed against: <https://raw.githubusercontent.com/lob/lob-openapi/main/lob-api-public.yml>
 
-- [ ] `GET /qr_code_analytics` — QR scan events — the only real engagement/response metric Lob exposes for mail (high)
-- [ ] `GET /creatives` — lookup resolving the creative id referenced by campaigns we already sync (high)
-- [ ] `GET /billing_groups` — lookup resolving billing_group_id present on every mailpiece, needed for cost attribution (high)
-- [ ] `GET /uploads and /uploads/{upl_id}/report` — campaign audience uploads plus per-upload success/failure report (high)
+- [x] `GET /qr_code_analytics` — QR scan events — the only real engagement/response metric Lob exposes for mail (high). Added as `qr_code_analytics` (full refresh: scans keep landing on old rows).
+- [ ] `GET /creatives` — lookup resolving the creative id referenced by campaigns we already sync (high). Skipped: the API has no list operation for creatives, only create and get-by-id.
+- [x] `GET /billing_groups` — lookup resolving billing_group_id present on every mailpiece, needed for cost attribution (high). Added as `billing_groups`.
+- [x] `GET /uploads and /uploads/{upl_id}/report` — campaign audience uploads plus per-upload success/failure report (high). Added `uploads`. `/uploads/{upl_id}/report` skipped: Lob gates it behind a per-account feature flag, and its rows echo the raw audience CSV.
 - [ ] `GET /snap_packs` — a first-class mailpiece type missing alongside letters/postcards/self_mailers (medium)
 - [ ] `GET /booklets` — a first-class mailpiece type missing from the current set (medium)
 - [ ] `GET /cards and /cards/{card_id}/orders` — card inventory plus order line items (spend and quantity) (medium)
@@ -5273,14 +5273,14 @@ Diffed against: <https://raw.githubusercontent.com/lob/lob-openapi/main/lob-api-
 
 ## LogzIO — **thin**
 
-Today (5): `alerts`, `drop_filters`, `notification_endpoints`, `search_logs`, `triggered_alerts`
+Today (9): `alerts`, `audit_trail`, `drop_filters`, `notification_endpoints`, `search_logs`, `security_events`, `security_rules`, `triggered_alerts`, `users`
 
 Diffed against: <https://docs.logz.io/docs/logz/logz-io-api>
 
-- [ ] `POST /v2/security/rules/events/search (Fetch security events)` — SIEM detection events — the main analytical output of the security product (high)
-- [ ] `POST /v2/security/rules/search (Retrieve security rules)` — lookup resolving the rule ids on every security event (high)
-- [ ] `GET/POST audit trail (Retrieve audit trail / List account audit trails)` — who changed what in the account, a standard warehouse audit dataset (high)
-- [ ] `GET /v1/user-management/users (Retrieve all users)` — lookup resolving user ids on alerts, audit rows and triggered alerts (high)
+- [x] `POST /v2/security/rules/events/search (Fetch security events)` — SIEM detection events — the main analytical output of the security product (`security_events`)
+- [x] `POST /v2/security/rules/search (Retrieve security rules)` — lookup resolving the rule ids on every security event (`security_rules`)
+- [x] `POST /v1/audit-trail (Retrieve a filtered list of audit trail events)` — who changed what in the account, a standard warehouse audit dataset (`audit_trail`)
+- [x] `GET /v1/user-management (Retrieve all users)` — lookup resolving user ids on alerts, audit rows and triggered alerts (`users`)
 - [ ] `POST /v1/security/rules/events/logs/search (Logs that triggered a security event)` — drills a detection down to the underlying log lines (medium)
 - [ ] `GET /v1/insights (Get the list of Insights)` — Cognitive Insights findings, an analytical product surface (medium)
 - [ ] `POST lookup lists search + lookup list elements search` — literal lookup tables used to enrich logs and alerts (medium)
@@ -5298,12 +5298,11 @@ Today (12): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaig
 
 Diffed against: <https://loops.so/docs/openapi.json>
 
-- [ ] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (high)
-- [ ] `GET /v1/contacts/suppression` — suppressed contacts, needed to reconcile deliverable audience (medium)
+- [x] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (`event_patterns`)
 - [x] `GET /v1/campaigns/{campaignId}/metrics` — all-time engagement counters per sent campaign (`campaign_metrics`)
 - [x] `GET /v1/transactional-emails/{transactionalId}/metrics` — all-time delivery counters per transactional email (`transactional_email_metrics`)
 
-Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
+Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only, and /v1/contacts/suppression only checks one contact by email or userId rather than listing suppressed contacts. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
 
 ## Luma — gaps
 
@@ -5311,10 +5310,10 @@ Today (5): `event_blasts`, `events`, `guests`, `people`, `person_tags`
 
 Diffed against: <https://docs.luma.com/llms.txt>
 
-- [ ] `GET /v1/events/ticket-types/list` — lookup resolving the ticket type ids on every guest ticket and order (high)
-- [ ] `GET /v1/calendars/event-tags/list` — event tag lookup — person_tags is synced but the event-side equivalent is not (high)
-- [ ] `GET /v1/organizations/calendars/list` — lookup resolving calendar ids that own events and contacts (high)
-- [ ] `GET /v1/events/coupons/list` — coupon dimension behind discounted ticket orders (medium)
+- [x] `GET /v1/events/ticket-types/list` — lookup resolving the ticket type ids on every guest ticket and order, synced as `ticket_types` (high)
+- [x] `GET /v1/calendars/event-tags/list` — event tag lookup — person_tags is synced but the event-side equivalent is not, synced as `event_tags` (high)
+- [x] `GET /v1/organizations/calendars/list` — lookup resolving calendar ids that own events and contacts, synced as `calendars` (organization API keys only) (high)
+- [x] `GET /v1/events/coupons/list` — coupon dimension behind discounted ticket orders, synced as `event_coupons` (medium)
 - [ ] `GET /v1/calendars/coupons/list` — calendar-wide coupons applying across events (medium)
 - [ ] `GET /v1/memberships/tiers/list` — membership tier lookup for paid community members (medium)
 - [ ] `GET /v1/calendars/admins/list` — calendar admin/host membership table (medium)
@@ -5331,16 +5330,16 @@ Today (10): `automations`, `campaigns`, `fields`, `forms_embedded`, `forms_popup
 
 Diffed against: <https://developers.mailerlite.com/llms.txt>
 
-- [ ] `GET /api/campaigns/{campaign_id}/reports/subscriber-activity` — per-subscriber opens, clicks and bounces — the core campaign analytics table (high)
-- [ ] `GET /api/groups/{group_id}/subscribers` — group membership join table for the groups and subscribers we already sync (high)
-- [ ] `GET /api/automations/{automation_id}/activity` — subscribers flowing through each automation, the automation-side event stream (high)
-- [ ] `GET /api/segments/{segment_id}/subscribers` — segment membership join table (high)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/orders` — purchase transactions — the highest-value analytical object in the e-commerce API (high)
-- [ ] `GET /api/ecommerce/shops` — lookup resolving shop ids for every e-commerce record (high)
+- [x] `GET /api/campaigns/{campaign_id}/reports/subscriber-activity` — per-subscriber opens, clicks and bounces — the core campaign analytics table (high)
+- [x] `GET /api/groups/{group_id}/subscribers` — group membership join table for the groups and subscribers we already sync (high)
+- [x] `GET /api/automations/{automation_id}/activity` — subscribers flowing through each automation, the automation-side event stream (high)
+- [x] `GET /api/segments/{segment_id}/subscribers` — segment membership join table (high)
+- [x] `GET /api/ecommerce/shops/{shop_id}/orders` — purchase transactions — the highest-value analytical object in the e-commerce API (high)
+- [x] `GET /api/ecommerce/shops` — lookup resolving shop ids for every e-commerce record (high)
 - [ ] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/products` — product catalog resolving order line items (medium)
+- [x] `GET /api/ecommerce/shops/{shop_id}/products` — product catalog resolving order line items (medium)
 - [ ] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/categories` — category dimension for product and order breakdowns (medium)
+- [x] `GET /api/ecommerce/shops/{shop_id}/categories` — category dimension for product and order breakdowns (medium)
 - [ ] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
 - [ ] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
 
@@ -5352,10 +5351,10 @@ Today (5): `activity`, `domains`, `messages`, `recipients`, `templates`
 
 Diffed against: <https://developers.mailersend.com/llms.txt>
 
-- [ ] `GET /v1/analytics/date` — opens, clicks, bounces and deliveries bucketed by date — the vendor's headline metric endpoint (high)
-- [ ] `GET /v1/suppressions/hard-bounces` — hard bounce suppression list; no suppression data is synced today (high)
-- [ ] `GET /v1/suppressions/spam-complaints` — spam complaint suppression list, a core deliverability metric (high)
-- [ ] `GET /v1/suppressions/unsubscribes` — unsubscribe suppression list needed to reconcile deliverable recipients (high)
+- [x] `GET /v1/analytics/date` — opens, clicks, bounces and deliveries bucketed by date — the vendor's headline metric endpoint (high)
+- [x] `GET /v1/suppressions/hard-bounces` — hard bounce suppression list; no suppression data is synced today (high)
+- [x] `GET /v1/suppressions/spam-complaints` — spam complaint suppression list, a core deliverability metric (high)
+- [x] `GET /v1/suppressions/unsubscribes` — unsubscribe suppression list needed to reconcile deliverable recipients (high)
 - [ ] `GET /v1/analytics/country` — geographic breakdown dimension for opens and clicks (medium)
 - [ ] `GET /v1/analytics/ua-name and /v1/analytics/ua-type` — client and device breakdown dimensions for engagement (medium)
 - [ ] `GET /v1/suppressions/blocklist` — account blocklist entries suppressing sends (medium)
@@ -5373,10 +5372,10 @@ Today (8): `bounces`, `complaints`, `domains`, `events`, `mailing_lists`, `tags`
 
 Diffed against: <https://documentation.mailgun.com/docs/mailgun/api-reference/send/mailgun/metrics/post-v1-analytics-metrics>
 
-- [ ] `POST /v1/analytics/metrics` — the modern aggregated metrics API — Mailgun's headline deliverability numbers (high)
-- [ ] `GET /v3/{domain}/stats/total and GET /v3/stats/total` — time-bucketed sent/delivered/opened/bounced counts per domain and account (high)
-- [ ] `GET /v3/{domain}/tags/{tag}/stats and /stats/aggregates` — per-tag performance; tags are synced but carry no metrics without these (high)
-- [ ] `GET /v3/{domain}/aggregates/devices, /providers, /countries` — device, mailbox provider and country breakdown dimensions for engagement (high)
+- [x] `POST /v1/analytics/metrics` — the modern aggregated metrics API — Mailgun's headline deliverability numbers (high) — synced as daily `metrics`, `domain_metrics`, `tag_metrics`, `country_metrics` and `recipient_provider_metrics`
+- [x] `GET /v3/{domain}/stats/total and GET /v3/stats/total` — time-bucketed sent/delivered/opened/bounced counts per domain and account (high) — deprecated Stats API, covered by `metrics` and `domain_metrics` from the Metrics API instead
+- [x] `GET /v3/{domain}/tags/{tag}/stats and /stats/aggregates` — per-tag performance; tags are synced but carry no metrics without these (high) — deprecated, covered by `tag_metrics` from the Metrics API instead
+- [x] `GET /v3/{domain}/aggregates/devices, /providers, /countries` — device, mailbox provider and country breakdown dimensions for engagement (high) — deprecated, covered by `recipient_provider_metrics` and `country_metrics` from the Metrics API; the Metrics API documents no device dimension, so devices stay uncovered
 - [ ] `GET /v3/lists/{list_address}/members` — mailing list membership join table; mailing_lists gives only the list headers (high)
 - [ ] `POST /v1/analytics/logs` — the v1 log query API, richer and longer-retained than the v3 events feed already synced (high)
 - [ ] `GET /v3/{domain}/whitelists (allowlist)` — allowlist entries completing the suppression picture alongside bounces/complaints/unsubscribes (medium)
@@ -5394,10 +5393,10 @@ Today (10): `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactm
 
 Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 
-- [ ] `statcounters` — Mailjet's unified stats endpoint - sent/open/click/bounce counters sliced by campaign, list or sender (high)
-- [ ] `messagesentstatistics` — Per-message delivery outcome metrics, the base fact table for deliverability analysis (high)
-- [ ] `messagehistory` — Per-message event/state transition log (sent, opened, clicked, bounced, spam) (high)
-- [ ] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
+- [x] `statcounters` — Mailjet's unified stats endpoint - sent/open/click/bounce counters sliced by campaign, list or sender (high). Added as `statcounters`: daily, event-timed counters for the whole API key.
+- [ ] `messagesentstatistics` — skipped: Mailjet lists it as a deprecated legacy statistics resource replaced by `/statcounters`.
+- [ ] `messagehistory` — skipped: only exposed as `/messagehistory/{message_ID}`, so it would take one request per message ever sent. The webhook-fed `messageevent` table already carries this event stream.
+- [x] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
 - [ ] `campaignstatistics` — Aggregate performance per campaign, resolving the campaign rows we already sync (high)
 - [ ] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high)
 - [ ] `openstatistics` — Open events aggregated per message/campaign, complementing the openinformation rows we sync (medium)
@@ -5425,9 +5424,9 @@ Today (6): `accounts`, `contact_lists`, `email_logs`, `email_templates`, `sendin
 
 Diffed against: <https://github.com/mailtrap/mailtrap-openapi/tree/main/specs>
 
-- [ ] `/api/contacts` — The core marketing audience table; contact_lists is synced but not its members (high)
-- [ ] `/api/email_campaigns` — Campaign objects - currently no campaign table at all despite contact_lists being synced (high)
-- [ ] `/api/stats/date` — Daily aggregated sending stats, the headline dashboard metric (high)
+- [x] `/api/contacts` — The core marketing audience table; contact_lists is synced but not its members (high)
+- [x] `/api/email_campaigns` — Campaign objects - currently no campaign table at all despite contact_lists being synced (high)
+- [x] `/api/stats/date` — Daily aggregated sending stats, the headline dashboard metric (high)
 - [ ] `/api/contacts/{contact_identifier}/events` — Per-contact engagement event stream (opens, clicks, unsubscribes) (high)
 - [ ] `/api/email_campaigns/{email_campaign_id}/stats` — Per-campaign performance metrics; resolves campaign rows into results (high)
 - [ ] `/api/stats/domains` — Sending stats broken down by sending domain, joining to the sending_domains table (medium)
@@ -5446,12 +5445,13 @@ Today (8): `currencies`, `dividends`, `eod`, `exchanges`, `intraday`, `splits`, 
 
 Diffed against: <https://api.swaggerhub.com/apis/apilayer-863/MarketstackAPIv2/2.0.0/swagger.json>
 
-- [ ] `/tickerinfo` — Company profile/fundamentals per symbol - the lookup table that resolves the tickers we already sync (high)
+- [x] `/tickerinfo` — Company profile/fundamentals per symbol - the lookup table that resolves the tickers we already sync (high). Added as `tickerinfo` (one request per configured symbol, v2 only).
 - [ ] `/indexlist and /indexinfo` — Market index reference and metadata; benchmarking EOD prices against indices is a core use case (medium)
-- [ ] `/etfholdings` — Constituent breakdown per ETF, a genuine breakdown dimension (medium)
+- [ ] `/etfholdings` — Constituent breakdown per ETF, a genuine breakdown dimension (medium). Skipped for now: the spec documents `limit`/`offset` and a date range on a single-filing response with no pagination block, holdings carry no documented unique identifier, and each call costs 20x quota, so the row grain can't be pinned down without a live account.
 - [ ] `/commodities and /commoditieshistory` — Commodity price time series alongside the equity EOD series (medium)
-- [ ] `/companyratings` — Analyst ratings per ticker, a common join onto price history (medium)
-- [ ] `/company_facts and /submissions` — SEC filing facts and submission history keyed by CIK, for fundamentals analysis (medium)
+- [x] `/companyratings` — Analyst ratings per ticker, a common join onto price history (medium). Added as `companyratings` (one row per analyst rating, one request per configured symbol paced to the endpoint's one-call-per-minute limit, v2 only).
+- [x] `/submissions` — SEC submission history keyed by CIK, for fundamentals analysis (medium). Added as `submissions` (one row per recent filing, one request per configured CIK code, v2 only).
+- [ ] `/company_facts` — SEC XBRL filing facts keyed by CIK, for fundamentals analysis (medium). Skipped for now: facts are nested under dynamic taxonomy/concept/unit keys with no unique fact identifier, and the documented `limit`/`offset` don't say what they page over on a single-company response.
 - [ ] `/bondlist and /bond` — Bond reference and pricing data for fixed-income coverage (low)
 - [ ] `/etflist` — Lookup table of ETFs that etfholdings rows reference (low)
 
@@ -5463,10 +5463,10 @@ Today (5): `actions_summary`, `countries`, `referrers`, `visits`, `visits_summar
 
 Diffed against: <https://demo.matomo.cloud/index.php?module=API&method=API.getReportMetadata&idSite=1&period=day&date=today&format=JSON&token_auth=anonymous>
 
-- [ ] `Actions.getPageUrls` — Page-level traffic report; actions_summary only carries site-wide totals (high)
-- [ ] `Goals.get` — Goal conversions and revenue, Matomo's headline conversion metric (high)
-- [ ] `Goals.getGoals` — Lookup table resolving the goal IDs that conversion reports key on (high)
-- [ ] `Events.getCategory / getAction / getName` — Custom event reports - the closest analogue to PostHog's own event model (high)
+- [x] `Actions.getPageUrls` — Page-level traffic report; actions_summary only carries site-wide totals (high)
+- [x] `Goals.get` — Goal conversions and revenue, Matomo's headline conversion metric (high)
+- [x] `Goals.getGoals` — Lookup table resolving the goal IDs that conversion reports key on (high)
+- [x] `Events.getCategory / getAction / getName` — Custom event reports - the closest analogue to PostHog's own event model (high)
 - [ ] `Actions.getEntryPageUrls / getExitPageUrls` — Entry and exit page breakdowns for landing-page and drop-off analysis (medium)
 - [ ] `Referrers.getReferrerType / getSearchEngines / getWebsites / getSocials` — Channel-level referrer breakdowns; referrers today is only the flat getAll roll-up (medium)
 - [ ] `DevicesDetection.getType / getBrowsers / getOsFamilies` — Device, browser and OS breakdown dimensions (medium)
@@ -5484,12 +5484,12 @@ Today (10): `components`, `coupons`, `credit_notes`, `customers`, `events`, `inv
 
 Diffed against: <https://github.com/maxio-com/ab-python-sdk/tree/main/doc/controllers>
 
-- [ ] `insights: Read Mrr / List Mrr Movements / List Mrr per Subscription` — MRR and MRR movement is Maxio's headline metric and has no equivalent in the synced tables (high)
-- [ ] `subscription-components: List Subscription Components for Site` — Per-subscription component allocations - the line items joining subscriptions to components (high)
+- [ ] `insights: Read Mrr / List Mrr Movements / List Mrr per Subscription` — MRR and MRR movement is Maxio's headline metric and has no equivalent in the synced tables (high) — all three endpoints are marked deprecated in the vendor SDK docs, so not worth building a table on
+- [x] `subscription-components: List Subscription Components for Site` — Per-subscription component allocations - the line items joining subscriptions to components (high)
 - [ ] `subscription-components: List Usages` — Metered usage records, the basis of consumption billing analysis (high)
 - [ ] `subscription-components: List Allocations` — Quantity change history per component, i.e. seat expansion/contraction over time (high)
-- [ ] `component-price-points: List All Component Price Points` — Lookup table resolving the price_point_id carried on components and subscriptions (high)
-- [ ] `product-price-points: List All Product Price Points` — Lookup table resolving the price point on every product and subscription we sync (high)
+- [x] `component-price-points: List All Component Price Points` — Lookup table resolving the price_point_id carried on components and subscriptions (high)
+- [x] `product-price-points: List All Product Price Points` — Lookup table resolving the price point on every product and subscription we sync (high)
 - [ ] `invoices: List Invoice Events` — Invoice state transition history (issued, paid, voided, refunded) (medium)
 - [ ] `reason-codes: List Reason Codes` — Lookup table resolving cancellation/churn reason codes on subscriptions (medium)
 - [ ] `subscription-groups: List Subscription Groups` — Group membership resolving parent/child subscription relationships (medium)
@@ -5501,42 +5501,42 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Mem0 — gaps
 
-Today (3): `entities`, `events`, `memories`
+Today (6): `entities`, `events`, `memories`, `memory_history`, `organizations`, `projects`
 
 Diffed against: <https://docs.mem0.ai/openapi.json>
 
-- [ ] `GET /v1/memories/{memory_id}/history/` — Per-memory state transition history - how a memory was updated over time (high)
-- [ ] `GET /v1/stats/` — Aggregate memory/search/add counts, the product's headline usage metric (medium)
-- [ ] `GET /api/v1/orgs/organizations/{org_id}/projects/` — Lookup table resolving the project scope that memories and events belong to (medium)
+- [x] `GET /v1/memories/{memory_id}/history/` — Per-memory state transition history - how a memory was updated over time (high). Added as `memory_history` (fan-out over `memories`).
+- ~~`GET /v1/stats/`~~ — skipped: it returns one unkeyed, untimestamped object of running totals, so a table of it holds a single row whose meaning depends on when the sync ran. The memory, entity and add/search counts come from queries over `memories`, `entities` and `events`.
+- [x] `GET /api/v1/orgs/organizations/{org_id}/projects/` — Lookup table resolving the project scope that memories and events belong to (medium). Added as `projects` (fan-out over `organizations`).
 - [ ] `GET /api/v1/orgs/organizations/{org_id}/members/` — Org membership rows for attributing memory activity to people (low)
-- [ ] `GET /api/v1/orgs/organizations/` — Parent lookup for the projects and members tables (low)
+- [x] `GET /api/v1/orgs/organizations/` — Parent lookup for the projects and members tables (low). Added as `organizations`.
 
 Note: Mem0 publishes a real OpenAPI spec (33 paths, linked from https://docs.mem0.ai/llms.txt). Most non-covered paths are POST-only write/search operations, so the readable surface is genuinely small and the existing 3 tables cover the bulk of it.
 
 ## Mention — gaps
 
-Today (4): `accounts`, `alert_tags`, `alerts`, `mentions`
+Today (7): `accounts`, `alert_authors`, `alert_daily_stats`, `alert_tags`, `alert_tasks`, `alerts`, `mentions`
 
 Diffed against: <https://dev.mention.com/current/>
 
-- [ ] `GET /accounts/{account_id}/stats` — Per-alert statistics with country, tone, weekday and influencer breakdowns - the product's headline metric (high)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/authors` — Author/influencer breakdown per alert, with scores; a key analytical dimension over mentions (high)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/tasks` — Task assignments on mentions - the workflow state layered over the mentions we already sync (medium)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium)
+- [x] `GET /accounts/{account_id}/stats` — Per-alert statistics with country, tone, weekday and influencer breakdowns - the product's headline metric (high)
+- [x] `GET /accounts/{account_id}/alerts/{alert_id}/authors` — Author/influencer breakdown per alert, with scores; a key analytical dimension over mentions (high)
+- [x] `GET /accounts/{account_id}/alerts/{alert_id}/tasks` — Task assignments on mentions - the workflow state layered over the mentions we already sync (medium)
+- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium) — not built: it needs one request per mention on top of the full mentions walk, and each `mentions` row already carries its first page of children plus the `total` count
 - [ ] `GET /accounts/{account_id}/alerts/{alert_id}/shares` — Alert share membership, showing who has access to each alert (low)
 
 Note: The reference is a static HTML tree; the full endpoint list is readable from the index page's link set. MENTION_ENDPOINTS is a static dict with no dynamic discovery, and all four tables are full-refresh.
 
 ## Mercury — gaps
 
-Today (11): `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Recipients`, `Transactions`, `TreasuryAccounts`, `Users`
+Today (15): `AccountStatements`, `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Merchants`, `Recipients`, `Transactions`, `TreasuryAccounts`, `TreasuryStatements`, `TreasuryTransactions`, `Users`
 
 Diffed against: <https://docs.mercury.com/reference/getaccounts>
 
-- [ ] `merchants (GET /api/v1/merchants)` — lookup table that resolves the merchant IDs already carried on synced Transactions (high)
-- [ ] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high)
-- [ ] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high)
-- [ ] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium)
+- [x] `merchants (GET /api/v1/merchants)` — lookup table that resolves the merchant IDs already carried on synced Transactions (high). Added as `Merchants`. The endpoint lists priority merchants for card spend controls, so its IDs resolve `merchantLock` on Cards rather than Transactions.
+- [x] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high). Added as `AccountStatements` (fan-out over `Accounts`). The API returns only the ending balance per period.
+- [x] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high). Added as `TreasuryTransactions` (fan-out over `TreasuryAccounts`).
+- [x] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium). Added as `TreasuryStatements` (fan-out over `TreasuryAccounts`). Rows are statement documents (monthly statements, trade confirmations, tax forms) with no balance fields.
 - [ ] `send money approval requests (GET /api/v1/request-send-money)` — approval state/transition history for outbound payments (medium)
 - [ ] `recipient invites (GET /api/v1/recipient-invites)` — pending recipient onboarding state alongside synced Recipients (low)
 - [ ] `SAFE requests (GET /api/v1/safes)` — fundraising SAFE request records (low)
@@ -5549,10 +5549,10 @@ Today (6): `cards`, `collections`, `dashboards`, `databases`, `native_query_snip
 
 Diffed against: <https://www.metabase.com/docs/latest/api.json>
 
-- [ ] `table (GET /api/table, /api/table/{id}/query_metadata)` — lookup table resolving the table IDs referenced by synced cards and databases (high)
-- [ ] `field (GET /api/database/{id}/fields, /api/field/{id})` — column-level metadata lookup for the databases we already sync (high)
-- [ ] `permissions groups and membership (GET /api/permissions/group, /api/permissions/membership)` — membership table joining synced users to permission groups (high)
-- [ ] `query execution log (GET /api/ee/logs/query_execution/{yyyy-mm})` — per-execution runtime/error history — the core usage-analytics fact table (high)
+- [x] `table (GET /api/table, /api/table/{id}/query_metadata)` — lookup table resolving the table IDs referenced by synced cards and databases (high)
+- [x] `field (GET /api/database/{id}/fields, /api/field/{id})` — column-level metadata lookup for the databases we already sync (high)
+- [x] `permissions groups and membership (GET /api/permissions/group, /api/permissions/membership)` — membership table joining synced users to permission groups (high)
+- [x] `query execution log (GET /api/ee/logs/query_execution/{yyyy-mm})` — per-execution runtime/error history — the core usage-analytics fact table (high)
 - [ ] `activity recents (GET /api/activity/recent_views, /api/activity/recents, /api/activity/popular_items)` — who viewed which card/dashboard, the main content-usage signal (medium)
 - [ ] `revision (GET /api/revision, /api/revision/{entity}/{id})` — change history for cards and dashboards (medium)
 - [ ] `task runs (GET /api/task, /api/task/runs)` — sync/scheduled job history for database health monitoring (medium)
@@ -5576,14 +5576,14 @@ Note: The public API reference lists only four read-oriented collections — con
 
 ## Metorial — **thin**
 
-Today (7): `provider_deployments`, `provider_runs`, `providers`, `session_errors`, `session_messages`, `sessions`, `tool_calls`
+Today (10): `integration_instances`, `provider_deployments`, `provider_runs`, `provider_versions`, `providers`, `session_errors`, `session_messages`, `session_providers`, `sessions`, `tool_calls`
 
 Diffed against: <https://metorial.com/api>
 
-- [ ] `provider-tools` — lookup table resolving the tool IDs on synced tool_calls (high)
-- [ ] `session-providers` — join table linking synced sessions to the providers they used (high)
-- [ ] `integration-instances` — the per-customer installed integration records that sessions run against (high)
-- [ ] `provider-versions` — lookup resolving the version IDs on provider_deployments and provider_runs (high)
+- [ ] `provider-tools` — lookup table resolving the tool IDs on synced tool_calls (high). Skipped: the list call requires `provider_version_id`, so it needs a per-version fan-out over the whole global provider catalog, and `tool_calls` rows already embed the full `tool` object.
+- [x] `session-providers` — join table linking synced sessions to the providers they used (high). Added as `session_providers`.
+- [x] `integration-instances` — the per-customer installed integration records that sessions run against (high). Added as `integration_instances`.
+- [x] `provider-versions` — lookup resolving the version IDs on provider_deployments and provider_runs (high). Added as `provider_versions` (off by default, like `providers`).
 - [ ] `integrations` — integration catalog lookup that integration-instances point at (medium)
 - [ ] `session-participants` — membership table of who/what took part in each session (medium)
 - [ ] `session-connections` — per-session connection records for connectivity and failure analysis (medium)
@@ -5611,10 +5611,10 @@ Today (7): `agents`, `batch_jobs`, `conversations`, `files`, `fine_tuning_jobs`,
 
 Diffed against: <https://docs.mistral.ai/openapi.yaml>
 
-- [ ] `conversation messages / history (GET /v1/conversations/{conversation_id}/messages, /history)` — the actual turns inside the conversations we already sync — without them the conversations table has no content (high)
+- [x] `conversation messages / history (GET /v1/conversations/{conversation_id}/messages, /history)` — the actual turns inside the conversations we already sync — without them the conversations table has no content (high)
 - [ ] `organization usage (GET /v1/admin/usage)` — token spend and consumption, the headline metric for an LLM vendor (high)
-- [ ] `observability traces and spans (POST /v1/observability/traces/search, /spans/search, GET /v1/observability/traces/{trace_id}/spans)` — per-request latency/cost/error telemetry for agent and workflow runs (high)
-- [ ] `library documents (GET /v1/libraries/{library_id}/documents)` — the contents of the libraries we already sync, including processing status (high)
+- [x] `observability traces and spans (POST /v1/observability/traces/search, /spans/search, GET /v1/observability/traces/{trace_id}/spans)` — per-request latency/cost/error telemetry for agent and workflow runs (high)
+- [x] `library documents (GET /v1/libraries/{library_id}/documents)` — the contents of the libraries we already sync, including processing status (high)
 - [ ] `admin users and workspaces (GET /v1/admin/users, /v1/admin/workspaces, /v1/admin/workspaces/{uuid}/users)` — lookup and membership tables resolving the user/workspace IDs stamped on jobs and conversations (high)
 - [ ] `observability chat completion events (POST /v1/observability/chat-completion-events/search)` — per-completion event log for quality and cost analysis (medium)
 - [ ] `agent versions (GET /v1/agents/{agent_id}/versions)` — version history for the agents we sync, needed to attribute runs to a config (medium)
@@ -5633,10 +5633,10 @@ Today (14): `appointment_links`, `code_snippets`, `file_requests`, `insights_rep
 Diffed against: <https://developer.mixmax.com/reference>
 
 - [ ] `sequence recipients (GET /v1/sequences/{id}/recipients)` — the per-recipient membership and stage state for the sequences we already sync — the core sequence fact table (high)
-- [ ] `sent sequences (GET /v1/sequences/sent)` — per-send records with delivery outcome, the transaction table behind sequence performance (high)
-- [ ] `contacts (GET /v1/contacts)` — lookup table resolving contact IDs referenced by messages, sequences, and live feed events (high)
-- [ ] `live feed events (GET /v1/livefeed/events)` — the individual open/click/reply events; the synced live_feed table is the container, not the events (high)
-- [ ] `report data table (POST /v1/reports/data/table)` — Mixmax's own aggregated reporting grid — the vendor's headline metrics (high)
+- [ ] `sent sequences (GET /v1/sequences/sent)` — per-send records with delivery outcome, the transaction table behind sequence performance (high). Skipped: the endpoint returns a single count of sequence messages sent in the past 24 hours, not per-send records.
+- [ ] `contacts (GET /v1/contacts)` — lookup table resolving contact IDs referenced by messages, sequences, and live feed events (high). Skipped: Mixmax marks `/contacts` as deprecated. Live feed events already carry the recipient email and name.
+- [x] `live feed events (GET /v1/livefeed/events)` — the individual open/click/reply events; the synced live_feed table is the container, not the events (high). Added as `live_feed_events` (fan-out over `live_feed` by `messageId`).
+- [ ] `report data table (POST /v1/reports/data/table)` — Mixmax's own aggregated reporting grid — the vendor's headline metrics (high). Skipped: an aggregate query whose rows change with the caller's `groupBy` and query string, with no documented row key. The per-message counters are already on `live_feed`.
 - [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium)
 - [ ] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium)
 - [ ] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium)
@@ -5711,14 +5711,14 @@ Note: GraphQL API pinned to version 2024-10 in monday.py. The boards query selec
 
 ## MonteCarlo — **thin**
 
-Today (5): `alerts`, `monitors`, `tables`, `users`, `warehouses`
+Today (7): `alerts`, `domains`, `events`, `monitors`, `tables`, `users`, `warehouses`
 
 Diffed against: <https://apidocs.getmontecarlo.com/>
 
-- [ ] `getIncidents` — incidents group related alerts and are the unit teams triage — the headline object above alerts (high)
-- [ ] `getEvents / getEventGroups` — raw detector events (freshness, volume, schema change) underlying alerts (high)
-- [ ] `getEventsForIncidents` — incident timeline / state-transition history (high)
-- [ ] `getDomainsV2 + getDomainsForMcons` — domain lookup and the domain-to-asset membership join for the mcons already synced (high)
+- ~~`getIncidents`~~ — deprecated in the GraphQL schema; `getAlerts` replaced it and is already synced as `alerts`
+- [x] `getEvents / getEventGroups` — raw detector events (freshness, volume, schema change) underlying alerts (high). Added as `events` (incremental on `createdTime`). `getEventGroups` skipped: it takes one required `alertId` and regroups the same events, which carry their alert id.
+- ~~`getEventsForIncidents`~~ — deprecated in the GraphQL schema; the timeline events it returned are in `events` (`INCIDENT_*` event types)
+- [x] `getDomainsV2 + getDomainsForMcons` — domain lookup and the domain-to-asset membership join for the mcons already synced (high). Added as `domains`; its `assignments` column holds the member MCONs. `getDomainsForMcons` skipped: it returns per-warehouse domain counts for a batch of at most 250 MCONs, not a per-asset membership row.
 - [ ] `getFhEvents / getFhEventsByMonitor` — field-health event series per monitor — the per-field metric history behind monitor results (medium)
 - [ ] `getDbtRuns / getDbtJobExecutions / getDbtTestResults` — dbt run and test outcomes tied to the same tables already synced (medium)
 - [ ] `getQueryLogs / getAggregatedQueries` — warehouse query logs attributed to tables — usage and cost analysis (medium)
@@ -5757,10 +5757,10 @@ Today (4): `clients`, `projects`, `tags`, `users`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/8879268/TVmV4YYU>
 
-- [ ] `GET /api/Logs?date=&step=` — time logs are the entire point of a time tracker — the central fact table is missing, so hours cannot be queried at all (high)
-- [ ] `PUT /api/Reports/activitydx` — bulk time-log report over a date range with client/project/user filters — the practical backfill path for logs (high)
-- [ ] `GET /api/Projects/{projectId}/tasklist` — project task lookup resolving the task each time log is booked against (high)
-- [ ] `GET /api/Projects/{projectId}/userlist` — project-to-team-member assignment join table (medium)
+- ~~`GET /api/Logs?date=&step=`~~ — not added: it returns only the API key owner's recent time logs, not the account's. The account-wide time logs come from `PUT /api/Reports/activitydx` (the `time_logs` table).
+- [x] `PUT /api/Reports/activitydx` — bulk time-log report over a date range with client/project/user filters — the practical backfill path for logs (high). Added as `time_logs` (31-day date windows, incremental on `date`).
+- [x] `GET /api/Projects/{projectId}/tasklist` — project task lookup resolving the task each time log is booked against (high). Added as `project_tasks` (fan-out over `projects`, one row per task across every task list).
+- [x] `GET /api/Projects/{projectId}/userlist` — project-to-team-member assignment join table (medium). Added as `project_members` (fan-out over `projects`).
 - [ ] `GET /api/Teams/{teamId}/teammembers` — team membership for grouping users in reporting (medium)
 - [ ] `GET /api/Projects/{projectId}/overview` — project detail including budget/rate fields not on the list response (low)
 - [ ] `GET /api/Reports/dashboardOptimized` — pre-aggregated dashboard totals by client/project/user (low)

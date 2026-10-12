@@ -87,6 +87,8 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.ENDPOINTS],
             category: ProductItemCategory.DATA,
             href: urls.endpoints(),
+            searchKeywords: ['rest api', 'query api'],
+            searchTabs: [{ name: 'Usage', href: urls.endpointsUsage() }],
             type: 'endpoints',
             iconType: 'endpoints',
             iconColor: [

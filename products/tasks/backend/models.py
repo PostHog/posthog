@@ -386,7 +386,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         REVIEW_HOG = "review_hog", "ReviewHog"
         IMAGE_BUILDER = "image_builder", "Image Builder"
         # Loop firings: named, cloud-executed agent automations triggered by schedule,
-        # GitHub event or API. See products/tasks/docs/LOOPS.md.
+        # GitHub event or API.
         LOOP = "loop", "Loop"
         # "Create fix task" on the MCP analytics tool-quality failure drill-down.
         MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
@@ -404,6 +404,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Business knowledge sandbox questions. Reserved: only the sandbox endpoint creates
         # these, and they stay internal so the normal task APIs never list them.
         BUSINESS_KNOWLEDGE = "business_knowledge", "Business Knowledge"
+        # Metrics dashboard imports from a Grafana export or a screenshot. Reserved: only the
+        # metrics import endpoint creates these, and they stay internal so the task APIs never list them.
+        METRICS_IMPORT = "metrics_import", "Metrics Import"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1179,14 +1182,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # A repo-less signals or autoresearch task must carry no GitHub credential at all — team
-        # or personal. Provisioning injects whatever integration is attached, and these runs read
+        # A repo-less signals, autoresearch or metrics import task must carry no GitHub credential at
+        # all, team or personal. Provisioning injects whatever integration is attached, and these runs read
         # text any member can write, so an attached token turns planted text into repository access.
         github_resolution_allowed = bool(repository) or origin_product not in (
             Task.OriginProduct.SIGNALS_CHAT,
             Task.OriginProduct.SIGNAL_REPORT,
             Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             Task.OriginProduct.AUTORESEARCH,
+            Task.OriginProduct.METRICS_IMPORT,
         )
         github_integration = None
         if github_resolution_allowed:
@@ -2136,8 +2140,7 @@ class ChannelStar(TeamScopedRootMixin):
 class Loop(ModelActivityMixin, TeamScopedRootMixin):
     """A named, cloud-executed agent automation: instructions plus model config,
     fired by schedule/GitHub/API triggers. Each firing spawns an internal Task
-    that runs on the standard tasks pipeline as the loop's owner (created_by).
-    See products/tasks/docs/LOOPS.md."""
+    that runs on the standard tasks pipeline as the loop's owner (created_by)."""
 
     class Visibility(models.TextChoices):
         PERSONAL = "personal", "Personal"
@@ -2184,7 +2187,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # Binding to a context (a "#channel" / desktop folder) this loop is attached to, or {} when
     # unattached. Shape: {folder_id, name, outputs: {post_to_feed, update_context, canvas_id}}.
     # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
-    # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
+    # injected into every run's prompt.
     context_target = models.JSONField(default=dict, blank=True)
     # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
     # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
@@ -2613,6 +2616,7 @@ class TaskRun(models.Model):
         "sandbox_jwt_kid",
         "sandbox_connect_token",
         "sandbox_backend",
+        "failure_error_type",
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
