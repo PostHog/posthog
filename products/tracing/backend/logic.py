@@ -35,6 +35,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.database.schema.spans import TraceSpansTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -157,6 +159,29 @@ def _normalise_status_code_values(values: list) -> list[str]:
     return normalised
 
 
+class UnknownSpanFilterKeyError(QueryError):
+    """A `type: "span"` filter uses a key that is not a span column."""
+
+
+# The attribute maps take their keys from `span_attribute` and `span_resource_attribute` filters,
+# and the query always sets `team_id` itself. `duration` is the alias that `translate_span_filter` rewrites.
+SPAN_FILTER_COLUMNS: frozenset[str] = frozenset(
+    name
+    for name, field in TraceSpansTable().fields.items()
+    if not getattr(field, "hidden", False) and name not in {"attributes", "resource_attributes", "team_id"}
+) | {"duration"}
+
+
+def validate_span_filter_key(span_filter: SpanPropertyFilter) -> None:
+    if span_filter.key in SPAN_FILTER_COLUMNS:
+        return
+    raise UnknownSpanFilterKeyError(
+        f"`{span_filter.key}` is not a span field. A filter of type `span` must use one of: "
+        f"{', '.join(sorted(SPAN_FILTER_COLUMNS))}. "
+        "To filter on an OpenTelemetry attribute, use type `span_attribute` or `span_resource_attribute`."
+    )
+
+
 def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     """Translate UI/API filter values into ClickHouse column representations, in place.
 
@@ -275,6 +300,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
                         self.resource_attribute_filters.append(prop)
                     if prop_type == SpanPropertyFilterType.SPAN:
+                        validate_span_filter_key(prop)
                         self.span_filters.append(prop)
                     elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
                         if isinstance(prop, SpanPropertyFilter):
