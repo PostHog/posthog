@@ -168,7 +168,7 @@ def _apply_scan(
 def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
     if not changes.sightings and not changes.removals:
         return
-    team = Team.objects.get(id=scan.team_id)
+    team = Team.objects.select_related("organization").get(id=scan.team_id)
     user = User.objects.filter(id=scan.created_by_id).first() if scan.created_by_id else None
     scan_properties = {
         "program": scan.program,
@@ -187,6 +187,8 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
             },
             user=user,
             team=team,
+            # The user's current organization can differ from the scanned project's.
+            organization=team.organization,
         )
     for removal in changes.removals:
         report_user_or_team_action(
@@ -199,4 +201,6 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
             },
             user=user,
             team=team,
+            # The user's current organization can differ from the scanned project's.
+            organization=team.organization,
         )
