@@ -159,7 +159,18 @@ def link_github_installation_for_user(
         audit.record("link_rejected", path="oauth", rejection_reason="installation_access_denied")
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
-    instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
+    try:
+        instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
+    except GitHubInstallationAccessFetchError as exc:
+        logger.warning(
+            "github_integration_create: failed to fetch installation access",
+            installation_id=installation_id,
+            user_id=user.id,
+            error_code=exc.code,
+            exc_info=True,
+        )
+        audit.record("link_rejected", path="oauth", rejection_reason=exc.code)
+        raise ValidationError("Failed to fetch installation details from GitHub", code=exc.code)
 
     instance.config["connecting_user_github_login"] = authorization.gh_login
     instance.save(update_fields=["config"])

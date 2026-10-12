@@ -58,6 +58,7 @@ from posthog.models.integration import (
     AssigneeLookupFailed,
     EmailIntegration,
     GitHubInstallationAccess,
+    GitHubInstallationAccessFetchError,
     GitHubIntegration,
     GitHubIntegrationError,
     GitHubUserAuthorization,
@@ -4157,6 +4158,43 @@ class TestGitHubTeamIntegrationComplete:
         assert "account-connected/github-integration" in location
         assert "integration_id=" in location
         assert "installation_id=12345" in location
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
+    @patch(
+        "posthog.models.integration.github.GitHubIntegration.integration_from_installation_id",
+        side_effect=GitHubInstallationAccessFetchError("installation_fetch_failed"),
+    )
+    def test_installation_fetch_failure_redirects_with_error(
+        self, _mock_from_install, mock_from_code, mock_verify, client: HttpClient
+    ):
+        client.force_login(self.user)
+        state_token = "fetch-fail-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=None,
+            ),
+        )
+        mock_from_code.return_value = self._github_user_authorization()
+        mock_verify.return_value = True
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "code": "oauth-code-abc",
+                "setup_action": "install",
+                "state": urlencode({"token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error=installation_fetch_failed" in response["Location"]
+        assert not Integration.objects.filter(team=self.team, kind="github").exists()
+
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
