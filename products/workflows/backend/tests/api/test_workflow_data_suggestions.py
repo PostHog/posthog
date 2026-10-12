@@ -23,6 +23,9 @@ from products.workflows.backend.services.data_suggestions.ranking import Lifecyc
 from products.workflows.backend.services.data_suggestions.service import (
     _FULL_SCAN_MAX_WEEKLY_EVENTS,
     FAILURE_CACHE_TTL_SECONDS,
+    DataSuggestionsResult,
+    _cache_key,
+    _generation_lock_key,
     _weekly_counts,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
@@ -336,9 +339,10 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain read", "get", {}, 200),
-            ("refresh", "get", {"refresh": "true"}, 429),
-            ("build", "post", {"suggestion_id": "missing"}, 429),
+            ("cached read", "get", {}, True, 200),
+            ("read that has to generate", "get", {}, False, 429),
+            ("refresh", "get", {"refresh": "true"}, True, 429),
+            ("build", "post", {"suggestion_id": "missing"}, True, 429),
         ]
     )
     @patch(f"{VIEW}.AIBurstRateThrottle.wait", return_value=None)
@@ -349,12 +353,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         method: str,
         params: dict,
+        cached: bool,
         status: int,
         _suggest_ideas: MagicMock,
         _allow: MagicMock,
         _wait: MagicMock,
         _flag,
     ) -> None:
+        if cached:
+            cache.set(_cache_key(self.team), DataSuggestionsResult(status="ready", suggestions=()), 60)
         url = f"/api/projects/{self.team.id}/workflow_data_suggestions/"
         if method == "get":
             response = self.client.get(f"{url}current/", params)
@@ -448,6 +455,17 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
+
+    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
+        cache.add(_generation_lock_key(self.team), True, 60)
+
+        assert self._list() == {"status": "unavailable", "suggestions": []}
+        suggest_ideas.assert_not_called()
+
+        cache.delete(_generation_lock_key(self.team))
+        self._list()
+        suggest_ideas.assert_called_once()
 
     @parameterized.expand(
         [

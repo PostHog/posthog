@@ -15,7 +15,11 @@ from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.workflows.backend.facade.contracts import DataSuggestionBuildFailed, DataSuggestionNotFound
-from products.workflows.backend.facade.data_suggestions import build_data_suggestion, get_data_suggestions
+from products.workflows.backend.facade.data_suggestions import (
+    build_data_suggestion,
+    get_data_suggestions,
+    has_cached_data_suggestions,
+)
 
 # pinned: feature flag key - the frontend gates the same surfaces on it
 FEATURE_FLAG_KEY = "workflows-data-suggestions"
@@ -100,9 +104,10 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_write_actions = ["build"]
 
     def get_throttles(self):
-        # The AI budget is per user and shared with other AI features. A plain read runs the LLM at most once per
-        # team per cache period, so only a build or a refresh counts against it.
-        if self.action == "build" or self.request.query_params.get("refresh") in ("true", "1"):
+        # The AI budget is per user and shared with other AI features, so only a call that can run the LLM counts
+        # against it. A read served from the cache does not.
+        refresh = self.request.query_params.get("refresh") in ("true", "1")
+        if self.action == "build" or refresh or not has_cached_data_suggestions(team=self.team):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
 

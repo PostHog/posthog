@@ -2,6 +2,8 @@ import re
 from collections import deque
 from typing import Any
 
+import structlog
+
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
@@ -14,6 +16,8 @@ from products.workflows.backend.services.data_suggestions.planner import (
 )
 
 # Liquid and Hog tags in model-written copy would render against the recipient's person data.
+logger = structlog.get_logger(__name__)
+
 _TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{[^{}]*\}", re.DOTALL)
 _EXIT_ID = "exit_node"
 _DEFAULT_MAX_WAIT = "3d"
@@ -60,22 +64,24 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     Settings the model cannot know, like credentials, channels and filters, stay blank for the team to fill in.
     The draft cannot be enabled until they do, because enabling validates every step in full.
     """
-    if idea.trigger_event not in context.allowed_events or not plan.steps or len(plan.steps) > MAX_PLANNED_STEPS:
-        return None
+    if idea.trigger_event not in context.allowed_events:
+        return _rejected("trigger event the project does not send", trigger_event=idea.trigger_event)
+    if not plan.steps or len(plan.steps) > MAX_PLANNED_STEPS:
+        return _rejected("no steps or too many steps", step_count=len(plan.steps))
     steps = _with_waits_between_emails(plan.steps)
     steps_by_id = {step.id: step for step in steps}
     if len(steps_by_id) != len(steps) or plan.first_step not in steps_by_id:
-        return None
+        return _rejected("duplicate step ids or unknown first step", first_step=plan.first_step)
     action_ids = {step.id: f"action_{index}_{step.type}" for index, step in enumerate(steps)}
 
     links: dict[str, list[_Link]] = {}
     for step in steps:
         step_links = _links(step)
         if step_links is None or any(link.target is not None and link.target not in steps_by_id for link in step_links):
-            return None
+            return _rejected("step links to an unknown step", step_id=step.id, step_type=step.type)
         links[step.id] = step_links
     if not _is_acyclic_and_connected(plan.first_step, links):
-        return None
+        return _rejected("loop or unreachable step")
 
     trigger_config = {
         "type": "event",
@@ -89,7 +95,9 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     for step in steps:
         action = _build_step(step, action_ids[step.id], context)
         if action is None:
-            return None
+            return _rejected(
+                "step the builder cannot use", step_id=step.id, step_type=step.type, template_id=step.template_id
+            )
         uses_saved_template = uses_saved_template or (step.type == "email" and bool(step.email_template_id))
         actions.append(action)
         for link in links[step.id]:
@@ -123,6 +131,12 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
             "exit_condition": "exit_only_at_end",
         },
     )
+
+
+def _rejected(reason: str, **details: Any) -> None:
+    # A rejected plan turns into a 422 for the user, so the reason is only visible here.
+    logger.info("workflows.data_suggestions.plan_rejected", reason=reason, **details)
+    return None
 
 
 def _links(step: PlannedStep) -> list[_Link] | None:
@@ -328,6 +342,8 @@ def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) 
 
 
 def clean_copy(text: str) -> str:
-    cleaned = re.sub(r"\s*—\s*", ", ", _TEMPLATE_TAGS.sub("", text)).strip()
+    cleaned = re.sub(r"\s*—\s*", ", ", _TEMPLATE_TAGS.sub("", text))
+    # Removing one tag can join the braces around it into a new one, so no brace may remain at all.
+    cleaned = cleaned.replace("{", "").replace("}", "").strip()
     # Sentence case starts with a capital, which the model does not always write.
     return cleaned[:1].upper() + cleaned[1:]

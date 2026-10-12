@@ -67,6 +67,8 @@ logger = structlog.get_logger(__name__)
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 # A failed run waits this long before it tries again, so an outage does not rerun the queries on every visit.
 FAILURE_CACHE_TTL_SECONDS = 5 * 60
+# Longer than the slowest run, so a crashed worker cannot block a team for good.
+_GENERATION_LOCK_SECONDS = 5 * 60
 # Above this many events a week the counts are sampled. The estimate itself reads 1 in 100 events.
 _FULL_SCAN_MAX_WEEKLY_EVENTS = 20_000_000
 _ESTIMATE_SAMPLE_DENOMINATOR = 100
@@ -117,23 +119,34 @@ def get_data_suggestions(*, team: Team, user: User, refresh: bool = False) -> Da
     if not refresh and isinstance(cached, DataSuggestionsResult):
         return cached
 
+    # Visits that arrive while a run is going would each repeat the queries and the model calls.
+    lock = _generation_lock_key(team)
+    if not cache.add(lock, True, _GENERATION_LOCK_SECONDS):
+        return DataSuggestionsResult(status="unavailable", suggestions=())
     try:
-        result = _suggest(team=team, user=user)
-    except (
-        StageClassificationFailed,
-        InternalCHQueryError,
-        ClickHouseQueryTimeOut,
-        ClickHouseAtCapacity,
-        ClickHouseQueryMemoryLimitExceeded,
-    ):
-        result = DataSuggestionsResult(status="unavailable", suggestions=())
-    # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
-    if result.status != "ready" and isinstance(cached, DataSuggestionsResult) and cached.status == "ready":
-        return cached
-    # An empty answer often means the team's events have not arrived yet, so it is retried as soon as a failure.
-    ttl = CACHE_TTL_SECONDS if result.status == "ready" and result.suggestions else FAILURE_CACHE_TTL_SECONDS
-    cache.set(key, result, ttl)
-    return result
+        try:
+            result = _suggest(team=team, user=user)
+        except (
+            StageClassificationFailed,
+            InternalCHQueryError,
+            ClickHouseQueryTimeOut,
+            ClickHouseAtCapacity,
+            ClickHouseQueryMemoryLimitExceeded,
+        ):
+            result = DataSuggestionsResult(status="unavailable", suggestions=())
+        # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
+        if result.status != "ready" and isinstance(cached, DataSuggestionsResult) and cached.status == "ready":
+            return cached
+        # An empty answer often means the team's events have not arrived yet, so it is retried as soon as a failure.
+        ttl = CACHE_TTL_SECONDS if result.status == "ready" and result.suggestions else FAILURE_CACHE_TTL_SECONDS
+        cache.set(key, result, ttl)
+        return result
+    finally:
+        cache.delete(lock)
+
+
+def has_cached_data_suggestions(*, team: Team) -> bool:
+    return isinstance(cache.get(_cache_key(team)), DataSuggestionsResult)
 
 
 def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> BuiltSuggestion:
@@ -210,6 +223,10 @@ def _cache_key(team: Team) -> str:
 
 def _is_new_to_workflows(team: Team) -> bool:
     return not HogFlow.objects.filter(team_id=team.id).exclude(status="archived").exists()
+
+
+def _generation_lock_key(team: Team) -> str:
+    return f"workflows:data_suggestions:generating:{team.id}"
 
 
 def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
