@@ -6484,7 +6484,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
-            logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
+            capture_exception(e, {"endpoint": "internal_user_blast_radius", "team_id": team.id})
             return Response({"error": "Internal server error"}, status=500)
 
     def internal_user_blast_radius_persons(self, request: Request, team_id: str) -> Response:
@@ -6532,7 +6532,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
-            logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            capture_exception(e, {"endpoint": "internal_user_blast_radius_persons", "team_id": team.id})
             return Response({"error": "Internal server error"}, status=500)
 
     def internal_account_audience(self, request: Request, team_id: str) -> Response:
@@ -6571,7 +6571,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
-            logger.exception("Error in internal_account_audience", error=str(e), team_id=team_id)
+            capture_exception(e, {"endpoint": "internal_account_audience", "team_id": team.id})
             return Response({"error": "Internal server error"}, status=500)
 
     def internal_process_due_schedules(self, request: Request, **kwargs) -> Response:
