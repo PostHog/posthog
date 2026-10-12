@@ -75,16 +75,27 @@ cost, use `query_log` in the next step.)
 
 ### 2. Pull usage from `query_log`
 
-`query_log` records every personal-API-key call, tagged with the endpoint name. One query gives
-recency and call counts across all endpoints:
+`query_log` records every personal-API-key call. One query gives recency and call counts across
+all endpoints:
 
 ```sql
-SELECT name, count() AS calls, max(query_start_time) AS last_called
+SELECT
+  extract(endpoint, '/endpoints/([^/]+)/run') AS endpoint_name,
+  count() AS calls,
+  countIf(name = concat(endpoint_name, '_materialized')) AS materialized_calls,
+  max(query_start_time) AS last_called
 FROM query_log
-WHERE endpoint LIKE '%/endpoints/%' AND is_personal_api_key_request
-GROUP BY name
-ORDER BY name
+WHERE endpoint LIKE '%/endpoints/%/run%' AND is_personal_api_key_request
+GROUP BY endpoint_name
+ORDER BY endpoint_name
 ```
+
+Key usage on the endpoint name from the request path, not on the `name` column. A run that reads
+the materialised table logs `name` as `<endpoint_name>_materialized`. If you group by `name`, a
+materialised endpoint splits into two rows, and the row that matches the endpoint name holds only
+the inline runs. A materialised endpoint can then look stale or never called while it serves
+traffic. The `/run` filter also drops other API-key requests under `/endpoints/`, for example
+`/logs/`.
 
 Cross-reference with step 1:
 
