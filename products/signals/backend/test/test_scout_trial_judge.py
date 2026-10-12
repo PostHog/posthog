@@ -86,7 +86,7 @@ def _snapshot() -> TrialEvaluationSnapshot:
         rubric_document={"reference_context": _reference_context().model_dump(mode="json")},
         rubric_reference_generation_id=str(uuid4()),
         criteria=[_criterion()],
-        judge_model="gpt-6-astra",
+        judge_model="gpt-6.1-sol",
         judge_prompt_version=JUDGE_PROMPT_VERSION,
         runs=[
             TrialRunEvidence(
