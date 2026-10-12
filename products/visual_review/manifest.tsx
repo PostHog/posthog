@@ -10,6 +10,7 @@ import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { repoPath } from './frontend/lib/repoPaths'
 
 export const manifest: ProductManifest = {
     name: 'VisualReview',
@@ -67,17 +68,35 @@ export const manifest: ProductManifest = {
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+        '/visual_review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
+        '/visual_review/repos/:repoOwner/:repoName/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+        '/visual_review/repos/:repoOwner/:repoName/snapshots': [
+            'VisualReviewSnapshotOverview',
+            'visualReviewSnapshotOverview',
+        ],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
+        '/visual_review/repos/:repoOwner/:repoName/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
+        '/visual_review/repos/:repoOwner/:repoName/:runType/snapshots/:identifier': [
             'VisualReviewSnapshotHistory',
             'visualReviewSnapshotHistory',
+        ],
+        // URLs that name a repo or run by UUID. PR comments and bookmarks still carry them, so the index
+        // scene looks the repo up and forwards to its owner/name URL.
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
+        '/visual_review/runs/:runId': ['VisualReviewIndex', 'visualReviewLegacyRun'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
+        '/visual_review/repos/:repoId/runs': ['VisualReviewIndex', 'visualReviewLegacyRepoRuns'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
+        '/visual_review/repos/:repoId/snapshots': ['VisualReviewIndex', 'visualReviewLegacySnapshotOverview'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
+        '/visual_review/repos/:repoId/flakiness': ['VisualReviewIndex', 'visualReviewLegacyFlakiness'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
+        '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
+            'VisualReviewIndex',
+            'visualReviewLegacySnapshotHistory',
         ],
     },
     redirects: {},
@@ -86,12 +105,14 @@ export const manifest: ProductManifest = {
         // workspace. Sidebar/nav callers stay zero-arg as before.
         visualReviewRuns: (): string => '/visual_review',
         visualReviewSettings: (): string => '/visual_review/settings',
-        visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
-        visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
-        visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
-        visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
-        visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
-            `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
+        // Without a repo this is the old run URL, which forwards once the run names its repo.
+        visualReviewRun: (runId: string, repoFullName?: string): string =>
+            repoFullName ? `${repoPath(repoFullName)}/runs/${runId}` : `/visual_review/runs/${runId}`,
+        visualReviewRepoRuns: (repoFullName: string): string => `${repoPath(repoFullName)}/runs`,
+        visualReviewSnapshotOverview: (repoFullName: string): string => `${repoPath(repoFullName)}/snapshots`,
+        visualReviewFlakiness: (repoFullName: string): string => `${repoPath(repoFullName)}/flakiness`,
+        visualReviewSnapshotHistory: (repoFullName: string, runType: string, identifier: string): string =>
+            `${repoPath(repoFullName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

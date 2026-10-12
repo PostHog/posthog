@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -12,10 +13,12 @@ import { visualReviewReposBaselinesRetrieve } from '../generated/api'
 import type { BaselineEntryApi, BaselineOverviewApi } from '../generated/api.schemas'
 import type { RepoApi } from '../generated/api.schemas'
 import { parseArea, parseTheme, runTypeLabel } from '../lib/parseIdentifier'
+import { resolveRepoId } from '../lib/repoIds'
+import { repoFullNameFromParams } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
 export interface VisualReviewSnapshotOverviewSceneLogicProps {
-    repoId: string
+    repoFullName: string
 }
 
 // We deliberately don't model "show both themes" — for snapshot identifiers
@@ -160,6 +163,7 @@ function applyFilters(
 export interface visualReviewSnapshotOverviewSceneLogicValues {
     currentProjectId: number | string // teamLogic
     repo: RepoApi | null // visualReviewRepoLogic
+    repoNotFound: boolean // visualReviewRepoLogic
     breadcrumbs: Breadcrumb[]
     decoratedEntries: Array<
         BaselineEntryApi & {
@@ -177,7 +181,7 @@ export interface visualReviewSnapshotOverviewSceneLogicValues {
     frequentlyToleratedCount: number
     overview: BaselineOverviewApi | null
     overviewLoading: boolean
-    repoId: string
+    repoFullName: string
     statCounts: Record<StatPreset, number>
     thumbnailBasePath: string | null
 }
@@ -226,7 +230,7 @@ export interface visualReviewSnapshotOverviewSceneLogicActions {
 export interface visualReviewSnapshotOverviewSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        repoId: (arg: any) => string
+        repoFullName: (arg: any) => string
         entries: (overview: BaselineOverviewApi | null) => BaselineEntryApi[]
         decoratedEntries: (entries: BaselineEntryApi[]) => Array<
             BaselineEntryApi & {
@@ -273,8 +277,8 @@ export interface visualReviewSnapshotOverviewSceneLogicMeta {
             filters: Filters
         ) => FacetGroups
         facetSelection: (filters: Filters) => FacetSelection
-        thumbnailBasePath: (currentProjectId: number | string, arg: any) => string | null
-        breadcrumbs: (repo: RepoApi | null) => Breadcrumb[]
+        thumbnailBasePath: (currentProjectId: number | string, repo: RepoApi | null) => string | null
+        breadcrumbs: (repo: RepoApi | null, repoFullName: string) => Breadcrumb[]
     }
 }
 
@@ -288,9 +292,14 @@ export type visualReviewSnapshotOverviewSceneLogicType = MakeLogicType<
 export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOverviewSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewSnapshotOverviewSceneLogic']),
     props({} as VisualReviewSnapshotOverviewSceneLogicProps),
-    key((props) => props.repoId),
+    key((props) => props.repoFullName),
     connect((props: VisualReviewSnapshotOverviewSceneLogicProps) => ({
-        values: [teamLogic, ['currentProjectId'], visualReviewRepoLogic({ repoId: props.repoId }), ['repo']],
+        values: [
+            teamLogic,
+            ['currentProjectId'],
+            visualReviewRepoLogic({ repoFullName: props.repoFullName }),
+            ['repo', 'repoNotFound'],
+        ],
     })),
     actions({
         setStatPreset: (preset: StatPreset) => ({ preset }),
@@ -335,13 +344,15 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             null as BaselineOverviewApi | null,
             {
                 loadOverview: async () => {
-                    return visualReviewReposBaselinesRetrieve(String(values.currentProjectId), props.repoId)
+                    const projectId = String(values.currentProjectId)
+                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    return visualReviewReposBaselinesRetrieve(projectId, repoId)
                 },
             },
         ],
     })),
     selectors({
-        repoId: [() => [(_, p) => p.repoId], (repoId: string): string => repoId],
+        repoFullName: [() => [(_, p) => p.repoFullName], (repoFullName: string): string => repoFullName],
         entries: [
             (s) => [s.overview],
             (overview: BaselineOverviewApi | null): BaselineEntryApi[] => overview?.entries ?? [],
@@ -491,17 +502,17 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             }),
         ],
         thumbnailBasePath: [
-            (s) => [s.currentProjectId, (_, p) => p.repoId],
-            (projectId: number | string, repoId): string | null =>
-                projectId ? `/api/projects/${projectId}/visual_review/repos/${repoId}/thumbnails` : null,
+            (s) => [s.currentProjectId, s.repo],
+            (projectId: number | string, repo: RepoApi | null): string | null =>
+                projectId && repo ? `/api/projects/${projectId}/visual_review/repos/${repo.id}/thumbnails` : null,
         ],
         // Single scene crumb — see runs scene for why we collapse to one.
         breadcrumbs: [
-            (s) => [s.repo],
-            (repo: null | import('../generated/api.schemas').RepoApi): Breadcrumb[] => [
+            (s) => [s.repo, s.repoFullName],
+            (repo: RepoApi | null, repoFullName: string): Breadcrumb[] => [
                 {
-                    key: ['visual_review_repo', repo?.id ?? 'unknown'],
-                    name: repo?.repo_full_name ?? 'Visual review',
+                    key: ['visual_review_repo', repoFullName],
+                    name: repo?.repo_full_name ?? repoFullName,
                 },
             ],
         ],
@@ -530,7 +541,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             }
             return out
         }
-        const path = `/visual_review/repos/${props.repoId}/snapshots`
+        const path = urls.visualReviewSnapshotOverview(props.repoFullName)
         return {
             setStatPreset: () => [path, {}, buildHash()],
             toggleType: () => [path, {}, buildHash()],
@@ -542,8 +553,8 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         }
     }),
     urlToAction(({ actions, values, props }) => ({
-        '/visual_review/repos/:repoId/snapshots': (params, _searchParams, hash) => {
-            if (params.repoId !== props.repoId) {
+        '/visual_review/repos/:repoOwner/:repoName/snapshots': (params, _searchParams, hash) => {
+            if (repoFullNameFromParams(params.repoOwner, params.repoName) !== props.repoFullName) {
                 return
             }
             const f = values.filters

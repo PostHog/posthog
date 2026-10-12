@@ -12,6 +12,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -23,6 +24,7 @@ import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
+import { repoFullNameFromParams } from '../lib/repoPaths'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -30,8 +32,9 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 export const scene: SceneExport = {
     component: VisualReviewRunScene,
     logic: visualReviewRunSceneLogic,
-    paramsToProps: ({ params: { runId } }): VisualReviewRunSceneLogicProps => ({
+    paramsToProps: ({ params: { repoOwner, repoName, runId } }): VisualReviewRunSceneLogicProps => ({
         runId: runId || '',
+        repoFullName: repoFullNameFromParams(repoOwner, repoName),
     }),
 }
 
@@ -438,7 +441,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     ) : undefined
                 }
             />
-            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
+            {repoFullName && <VisualReviewTabs activeKey="runs" repoFullName={repoFullName} />}
 
             {isReportingOnly && (
                 <LemonBanner type="info" className="mb-4">
@@ -451,7 +454,10 @@ export function VisualReviewRunScene(): JSX.Element {
                 <LemonBanner type="warning" className="mb-4">
                     This run has been superseded by a newer run.{' '}
                     {run.superseded_by_id && (
-                        <Link to={`/visual_review/runs/${run.superseded_by_id}`} className="font-semibold">
+                        <Link
+                            to={urls.visualReviewRun(run.superseded_by_id, repoFullName ?? undefined)}
+                            className="font-semibold"
+                        >
                             View latest run
                         </Link>
                     )}
@@ -673,7 +679,6 @@ export function VisualReviewRunScene(): JSX.Element {
                             onCancelLiftOnMerge={cancelLiftOnMerge}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
-                            repoId={run.repo_id}
                             repoFullName={repoFullName}
                             runType={run.run_type}
                             githubRunId={(run.metadata?.github_run_id as string) || null}

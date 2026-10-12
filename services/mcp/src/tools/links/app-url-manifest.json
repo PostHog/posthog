@@ -1834,16 +1834,6 @@
         "params": [],
         "scope": "project"
     },
-    "visualReviewFlakiness": {
-        "template": "/visual_review/repos/{repoId}/flakiness",
-        "params": ["repoId"],
-        "scope": "project"
-    },
-    "visualReviewRepoRuns": {
-        "template": "/visual_review/repos/{repoId}/runs",
-        "params": ["repoId"],
-        "scope": "project"
-    },
     "visualReviewRun": {
         "template": "/visual_review/runs/{runId}",
         "params": ["runId"],
@@ -1857,16 +1847,6 @@
     "visualReviewSettings": {
         "template": "/visual_review/settings",
         "params": [],
-        "scope": "project"
-    },
-    "visualReviewSnapshotHistory": {
-        "template": "/visual_review/repos/{repoId}/{runType}/snapshots/{identifier}",
-        "params": ["repoId", "runType", "identifier"],
-        "scope": "project"
-    },
-    "visualReviewSnapshotOverview": {
-        "template": "/visual_review/repos/{repoId}/snapshots",
-        "params": ["repoId"],
         "scope": "project"
     },
     "warehouseDestinations": {

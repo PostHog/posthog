@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconFlag, IconGear, IconPulse, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +15,7 @@ import { RECENT_DRIFT_WINDOW, SnapshotCard } from '../components/SnapshotCard'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
 import { SnapshotStatRow } from '../components/SnapshotStatRow'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
+import { repoFullNameFromParams } from '../lib/repoPaths'
 import {
     VisualReviewSnapshotOverviewSceneLogicProps,
     visualReviewSnapshotOverviewSceneLogic,
@@ -22,8 +24,8 @@ import {
 export const scene: SceneExport = {
     component: VisualReviewSnapshotOverviewScene,
     logic: visualReviewSnapshotOverviewSceneLogic,
-    paramsToProps: ({ params: { repoId } }): VisualReviewSnapshotOverviewSceneLogicProps => ({
-        repoId: repoId || '',
+    paramsToProps: ({ params: { repoOwner, repoName } }): VisualReviewSnapshotOverviewSceneLogicProps => ({
+        repoFullName: repoFullNameFromParams(repoOwner, repoName),
     }),
 }
 
@@ -37,7 +39,8 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
         overview,
         overviewLoading,
         repo,
-        repoId,
+        repoNotFound,
+        repoFullName,
         filteredEntries,
         statCounts,
         frequentlyToleratedCount,
@@ -59,21 +62,25 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
         filters.stability.length > 0 ||
         filters.search.length > 0
 
+    if (repoNotFound) {
+        return <NotFound object="visual review repo" />
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
-                name={repo?.repo_full_name ?? 'Visual review'}
+                name={repo?.repo_full_name ?? repoFullName}
                 resourceType={{ type: 'visual_review' }}
                 actions={
                     <div className="flex gap-2 items-center">
-                        <RepoSwitcher repoId={repoId} activeTab="snapshots" />
+                        <RepoSwitcher repoFullName={repoFullName} activeTab="snapshots" />
                         <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
                             Settings
                         </LemonButton>
                     </div>
                 }
             />
-            <VisualReviewTabs activeKey="snapshots" repoId={repoId} />
+            <VisualReviewTabs activeKey="snapshots" repoFullName={repoFullName} />
 
             <SnapshotStatRow
                 counts={statCounts}
@@ -209,7 +216,7 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                             {filteredEntries.map((entry) => (
                                 <SnapshotCard
                                     key={`${entry.run_type}::${entry.identifier}`}
-                                    repoId={repoId}
+                                    repoFullName={repoFullName}
                                     entry={entry}
                                     thumbnailBasePath={thumbnailBasePath}
                                 />
