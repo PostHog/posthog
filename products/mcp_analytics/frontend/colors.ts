@@ -18,6 +18,9 @@ export const AI_LAB_SHADES: Record<AiLab, readonly string[]> = {
 }
 
 const MAIN_SHADE = 2
+// Neighboring shades are at most 0.12 apart in lightness (4/3 of a ramp step), so a lab with few models
+// stays close to its main shade instead of stretching to the darkest and lightest ends.
+const MAX_SHADE_STEP = 4 / 3
 
 export const HARNESS_BRAND_COLORS = {
     vscode: '#007acc',
@@ -36,7 +39,7 @@ export function labColor(theme: ChartTheme, lab: string): string | undefined {
 /**
  * Colors every model shown on one page. Pass the models in display order, with every model that any
  * chart on the page shows, so that a model has the same color in every chart. Each lab's models spread
- * over its shades, darkest first. Models without a lab use the theme palette.
+ * around its main shade, darkest first. Models without a lab use the theme palette.
  */
 export function modelColors(theme: ChartTheme, models: string[]): Map<string, string | undefined> {
     const unique = [...new Set(models)]
@@ -54,14 +57,10 @@ export function modelColors(theme: ChartTheme, models: string[]): Map<string, st
     }
     for (const [lab, labModels] of modelsByLab) {
         const shades = AI_LAB_SHADES[lab]
-        labModels.forEach((model, rank) =>
-            colors.set(
-                model,
-                labModels.length === 1
-                    ? shades[MAIN_SHADE]
-                    : shadeAt(shades, (rank / (labModels.length - 1)) * (shades.length - 1))
-            )
-        )
+        const gaps = labModels.length - 1
+        const step = gaps > 0 ? Math.min((shades.length - 1) / gaps, MAX_SHADE_STEP) : 0
+        const first = MAIN_SHADE - (step * gaps) / 2
+        labModels.forEach((model, rank) => colors.set(model, shadeAt(shades, first + step * rank)))
     }
     return colors
 }
@@ -69,8 +68,9 @@ export function modelColors(theme: ChartTheme, models: string[]): Map<string, st
 // A color at a fractional position on a ramp. Neighboring shades are close, so mixing them in sRGB keeps
 // the steps even when a lab shows more models than the ramp has shades.
 function shadeAt(shades: readonly string[], position: number): string {
-    const lower = Math.floor(position)
-    const fraction = position - lower
+    const clamped = Math.min(Math.max(position, 0), shades.length - 1)
+    const lower = Math.floor(clamped)
+    const fraction = clamped - lower
     if (fraction === 0) {
         return shades[lower]
     }

@@ -37,13 +37,30 @@ describe('colors', () => {
         expect(modelColors(theme, ['gemini-2.5-pro']).get('gemini-2.5-pro')).toBe(labColor(theme, 'Google'))
     })
 
-    it('spreads models over the whole ramp, darkest first', () => {
-        const colors = modelColors(theme, ['claude-sonnet-4-5', 'gpt-5', 'claude-opus-4-1', 'claude-haiku-4-5'])
-        expect(['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-haiku-4-5'].map((model) => colors.get(model))).toEqual([
-            AI_LAB_SHADES.Anthropic[0],
-            AI_LAB_SHADES.Anthropic[2],
-            AI_LAB_SHADES.Anthropic[4],
-        ])
+    it.each([
+        [
+            ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5'],
+            [undefined, 2, undefined],
+        ],
+        [
+            ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-sonnet-5'],
+            [0, undefined, undefined, 4],
+        ],
+        [
+            ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-5'],
+            [0, 1, 2, 3, 4],
+        ],
+    ])('centers %j on the main shade, darkest first', (models, expectedShades) => {
+        const colors = modelColors(theme, ['gpt-5', ...models])
+        const shades = AI_LAB_SHADES.Anthropic
+        models.forEach((model, rank) => {
+            const shade = expectedShades[rank]
+            if (shade === undefined) {
+                expect(shades).not.toContain(colors.get(model))
+            } else {
+                expect(colors.get(model)).toBe(shades[shade])
+            }
+        })
     })
 
     it('keeps neutral buckets gray and gives models without a lab a palette color', () => {
