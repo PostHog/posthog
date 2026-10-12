@@ -5,8 +5,8 @@ import { IconLetter, IconNotification } from '@posthog/icons'
 import { LemonSegmentedButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
+import { metricsStepUrl } from '../metricsDrillParams'
 import { workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
 
 type LeaderboardMetric = 'sent' | 'opened' | 'clicked'
@@ -30,9 +30,8 @@ const METRIC_OPTIONS: { value: LeaderboardMetric; label: string }[] = [
 ]
 
 export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const { emailMetricsRows, pushMetricsRows, emailTotalsByActionIdLoading, pushTotalsByActionIdLoading } = useValues(
-        workflowMetricsSummaryLogic({ logicKey, id })
-    )
+    const { emailMetricsRows, pushMetricsRows, emailTotalsByActionIdLoading, pushTotalsByActionIdLoading, params } =
+        useValues(workflowMetricsSummaryLogic({ logicKey, id }))
     const [metric, setMetric] = useState<LeaderboardMetric>('sent')
 
     const rows = useMemo<LeaderboardRow[]>(() => {
@@ -70,7 +69,7 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
             key: 'name',
             render: (_, row) => (
                 <Link
-                    to={urls.workflow(id, 'metrics') + `?action=${encodeURIComponent(row.id)}`}
+                    to={metricsStepUrl(id, row.id, params)}
                     className="inline-flex items-center gap-1.5 font-medium"
                     data-attr="workflow-overview-leaderboard-message"
                 >

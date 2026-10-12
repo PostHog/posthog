@@ -19,6 +19,7 @@ import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { EmailMetricsSummary } from './EmailMetricsSummary'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
+import { metricsRangeFromSearchParams } from './metricsDrillParams'
 import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
@@ -77,6 +78,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         logicKey,
         loadOnChanges: true,
         loadOnMount: true,
+        defaultParams: metricsRangeFromSearchParams(searchParams),
         forceParams: {
             appSource: 'hog_flow',
             appSourceId: props.id,

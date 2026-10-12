@@ -4,8 +4,8 @@ import { LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
+import { metricsStepUrl } from '../metricsDrillParams'
 import { workflowOverviewLogic } from './workflowOverviewLogic'
 
 function ReachRow({
@@ -50,7 +50,7 @@ function ReachRow({
 }
 
 export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const { stepReach, stepTotalsLoading, healthTotals } = useValues(workflowOverviewLogic({ id, logicKey }))
+    const { stepReach, stepTotalsLoading, healthTotals, params } = useValues(workflowOverviewLogic({ id, logicKey }))
     const started = healthTotals?.triggered ?? 0
 
     return (
@@ -78,7 +78,7 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
                             count={reached}
                             base={started}
                             failed={failed}
-                            to={`${urls.workflow(id, 'metrics')}?action=${encodeURIComponent(action.id)}`}
+                            to={metricsStepUrl(id, action.id, params)}
                         />
                     ))}
                 </div>

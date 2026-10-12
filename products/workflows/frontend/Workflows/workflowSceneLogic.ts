@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
 
+import { metricsRangeFromSearchParams } from './metricsDrillParams'
+
 export const WorkflowTabs = [
     'overview',
     'workflow',
@@ -174,9 +176,10 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             // browser back/forward restore the selected step (its date range/interval stay untouched).
             // Batch metrics render several per-job tables, so they keep their own local selection.
             if (tab === 'metrics' && id && id !== 'new') {
-                appMetricsLogic
-                    .findMounted({ logicKey: `hog-flow-metrics-${id}` })
-                    ?.actions.setParams({ instanceId: (searchParams.action as string) || undefined })
+                appMetricsLogic.findMounted({ logicKey: `hog-flow-metrics-${id}` })?.actions.setParams({
+                    ...metricsRangeFromSearchParams(searchParams),
+                    instanceId: (searchParams.action as string) || undefined,
+                })
             }
         },
     })),
