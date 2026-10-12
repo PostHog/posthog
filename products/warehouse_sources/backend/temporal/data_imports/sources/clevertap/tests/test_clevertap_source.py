@@ -19,17 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 
-def config(**overrides: str) -> ClevertapSourceConfig:
-    return ClevertapSourceConfig(
-        **{
-            "account_id": "TEST-ACCOUNT",
-            "passcode": "fake-passcode",
-            "region": "eu1",
-            "event_name": "Product Viewed",
-            "start_date": "2024-01-01",
-            **overrides,
-        }
-    )
+def config(**overrides: Any) -> ClevertapSourceConfig:
+    values: dict[str, Any] = {
+        "account_id": "TEST-ACCOUNT",
+        "passcode": "fake-passcode",
+        "region": "eu1",
+        "event_name": "Product Viewed",
+        "start_date": "2024-01-01",
+        **overrides,
+    }
+    return ClevertapSourceConfig(**values)
 
 
 @pytest.mark.parametrize(
