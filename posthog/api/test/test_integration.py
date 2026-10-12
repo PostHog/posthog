@@ -4158,6 +4158,7 @@ class TestGitHubTeamIntegrationComplete:
         assert "account-connected/github-integration" in location
         assert "integration_id=" in location
         assert "installation_id=12345" in location
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch(
