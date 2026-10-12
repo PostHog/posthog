@@ -93,6 +93,8 @@ def client_config(config: CrispSourceConfig, api_version: str) -> ClientConfig:
         "base_url": f"https://api.crisp.chat/{api_version}/",
         "auth": {"type": "http_basic", "username": config.token_identifier, "password": config.token_key},
         "headers": {"X-Crisp-Tier": "website", "Accept": "application/json"},
+        # operators/list returns pending-invitation credentials that the sample scrubbers do not redact.
+        "capture": False,
         "allowed_hosts": [],
         "allow_redirects": False,
         "request_timeout": (10, 60),
