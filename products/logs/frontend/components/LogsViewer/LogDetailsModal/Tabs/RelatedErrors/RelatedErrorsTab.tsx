@@ -1,15 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { pluralize } from 'lib/utils/strings'
 
-import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
-
-import { ErrorTrackingIssueCard } from 'products/error_tracking/frontend/ErrorTrackingIssueCard'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { parseLogTimestamp } from 'products/logs/frontend/utils'
+import { ErrorIssuesList } from 'products/tracing/frontend/components/TraceDrawer/ErrorIssuesList'
 import {
     TraceErrorsLogicProps,
     TraceErrorsScope,
@@ -112,64 +109,16 @@ function RelatedErrorsTabContent(): JSX.Element {
                     }))}
                 />
             </div>
-            <RelatedIssuesList
+            <ErrorIssuesList
                 issues={issues}
                 loading={issuesLoading}
                 failed={issuesFailed}
-                scope={effectiveScope}
                 onRetry={loadIssues}
+                failedMessage="Failed to load related errors"
+                emptyTitle={SCOPES[effectiveScope].emptyTitle}
+                emptyDescription={SCOPES[effectiveScope].emptyBody}
+                where={SCOPES[effectiveScope].where}
             />
-        </div>
-    )
-}
-
-function RelatedIssuesList({
-    issues,
-    loading,
-    failed,
-    scope,
-    onRetry,
-}: {
-    issues: MaxErrorTrackingIssuePreview[]
-    loading: boolean
-    failed: boolean
-    scope: TraceErrorsScope
-    onRetry: () => void
-}): JSX.Element {
-    if (loading) {
-        return (
-            <div className="flex flex-col gap-3">
-                <LemonSkeleton className="h-16 w-full" repeat={3} />
-            </div>
-        )
-    }
-
-    if (failed) {
-        return (
-            <LemonBanner type="error" action={{ children: 'Retry', onClick: onRetry }}>
-                Failed to load related errors
-            </LemonBanner>
-        )
-    }
-
-    if (issues.length === 0) {
-        return (
-            <div className="flex justify-center w-full py-8">
-                <EmptyMessage title={SCOPES[scope].emptyTitle} description={SCOPES[scope].emptyBody} size="small" />
-            </div>
-        )
-    }
-
-    const totalOccurrences = issues.reduce((sum, issue) => sum + issue.occurrences, 0)
-    return (
-        <div className="flex flex-col">
-            <p className="text-muted text-sm mb-2">
-                {pluralize(issues.length, 'issue')} with {pluralize(totalOccurrences, 'occurrence')}{' '}
-                {SCOPES[scope].where}
-            </p>
-            {issues.map((issue) => (
-                <ErrorTrackingIssueCard key={issue.id} issue={issue} showUserCount={false} />
-            ))}
         </div>
     )
 }
