@@ -15,7 +15,7 @@ export function ExpandedLogContent({ log }: ExpandedLogContentProps): JSX.Elemen
     const { openLogRelatedErrors } = useActions(logDetailsModalLogic)
 
     return (
-        <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
+        <div className="hotkey-block flex flex-col gap-2 p-2 bg-primary border-t border-border">
             <LogContextLinks
                 log={log}
                 surface="row"
