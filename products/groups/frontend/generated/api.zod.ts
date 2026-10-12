@@ -31,38 +31,34 @@ export const GroupsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
         .describe('Value to set. Any JSON value other than null.'),
 })
 
-export const groupsTypesCreateDetailDashboardUpdateBodyNameSingularMax = 400
-
-export const groupsTypesCreateDetailDashboardUpdateBodyNamePluralMax = 400
-
 export const GroupsTypesCreateDetailDashboardUpdateBody = /* @__PURE__ */ zod.object({
-    name_singular: zod.string().max(groupsTypesCreateDetailDashboardUpdateBodyNameSingularMax).nullish(),
-    name_plural: zod.string().max(groupsTypesCreateDetailDashboardUpdateBodyNamePluralMax).nullish(),
-    detail_dashboard: zod.number().nullish(),
-    default_columns: zod.array(zod.string()).nullish(),
-    created_at: zod.iso.datetime({ offset: true }).nullish(),
+    group_type_index: zod.number().describe('Index of the group type that gets the detail dashboard.'),
 })
 
-export const groupsTypesSetDefaultColumnsUpdateBodyNameSingularMax = 400
-
-export const groupsTypesSetDefaultColumnsUpdateBodyNamePluralMax = 400
-
 export const GroupsTypesSetDefaultColumnsUpdateBody = /* @__PURE__ */ zod.object({
-    name_singular: zod.string().max(groupsTypesSetDefaultColumnsUpdateBodyNameSingularMax).nullish(),
-    name_plural: zod.string().max(groupsTypesSetDefaultColumnsUpdateBodyNamePluralMax).nullish(),
-    detail_dashboard: zod.number().nullish(),
-    default_columns: zod.array(zod.string()).nullish(),
-    created_at: zod.iso.datetime({ offset: true }).nullish(),
+    group_type_index: zod.number().describe('Index of the group type to update.'),
+    default_columns: zod
+        .array(zod.string())
+        .describe('Columns that the groups list of this group type shows by default.'),
 })
 
 export const groupsTypesUpdateMetadataPartialUpdateBodyNameSingularMax = 400
 
 export const groupsTypesUpdateMetadataPartialUpdateBodyNamePluralMax = 400
 
-export const GroupsTypesUpdateMetadataPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name_singular: zod.string().max(groupsTypesUpdateMetadataPartialUpdateBodyNameSingularMax).nullish(),
-    name_plural: zod.string().max(groupsTypesUpdateMetadataPartialUpdateBodyNamePluralMax).nullish(),
-    detail_dashboard: zod.number().nullish(),
-    default_columns: zod.array(zod.string()).nullish(),
-    created_at: zod.iso.datetime({ offset: true }).nullish(),
+export const GroupsTypesUpdateMetadataPartialUpdateBodyItem = /* @__PURE__ */ zod.object({
+    group_type_index: zod.number().describe('Index of the group type to update.'),
+    name_singular: zod
+        .string()
+        .max(groupsTypesUpdateMetadataPartialUpdateBodyNameSingularMax)
+        .nullish()
+        .describe('Singular display name of the group type.'),
+    name_plural: zod
+        .string()
+        .max(groupsTypesUpdateMetadataPartialUpdateBodyNamePluralMax)
+        .nullish()
+        .describe('Plural display name of the group type.'),
 })
+export const GroupsTypesUpdateMetadataPartialUpdateBody = /* @__PURE__ */ zod.array(
+    GroupsTypesUpdateMetadataPartialUpdateBodyItem
+)

@@ -97,6 +97,36 @@ class GroupTypeSerializer(serializers.ModelSerializer, UserAccessControlSerializ
         read_only_fields = ["group_type", "group_type_index"]
 
 
+class GroupTypeMetadataUpdateSerializer(serializers.Serializer):
+    group_type_index = serializers.IntegerField(help_text="Index of the group type to update.")
+    name_singular = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Singular display name of the group type.",
+    )
+    name_plural = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Plural display name of the group type.",
+    )
+
+
+class GroupTypeCreateDetailDashboardSerializer(serializers.Serializer):
+    group_type_index = serializers.IntegerField(help_text="Index of the group type that gets the detail dashboard.")
+
+
+class GroupTypeSetDefaultColumnsSerializer(serializers.Serializer):
+    group_type_index = serializers.IntegerField(help_text="Index of the group type to update.")
+    default_columns = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Columns that the groups list of this group type shows by default.",
+    )
+
+
 def _group_type_row_to_response(row: dict[str, Any]) -> dict[str, Any]:
     """Shape a get_group_types_for_project row like GroupTypeSerializer output.
 
@@ -130,6 +160,9 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         rows = get_group_types_for_project(self.team.project_id, caller_tag="groups/list")
         return response.Response([_group_type_row_to_response(row) for row in rows])
 
+    @extend_schema(
+        request=GroupTypeMetadataUpdateSerializer(many=True), responses={200: GroupTypeSerializer(many=True)}
+    )
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         for row in cast(list[dict], request.data):
@@ -153,6 +186,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
 
+    @extend_schema(request=GroupTypeCreateDetailDashboardSerializer, responses={200: GroupTypeSerializer})
     @action(methods=["PUT"], detail=False)
     def create_detail_dashboard(self, request: request.Request, **kw: Any) -> response.Response:
         try:
@@ -197,6 +231,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(request=GroupTypeSetDefaultColumnsSerializer, responses={200: GroupTypeSerializer})
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw: Any) -> response.Response:
         try:
