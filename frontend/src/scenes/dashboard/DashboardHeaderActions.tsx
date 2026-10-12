@@ -122,7 +122,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                 },
             }}
             contextDescription={{
-                text: dashboard.name,
+                text: dashboard.name || 'Untitled dashboard',
                 icon: iconForType('dashboard'),
             }}
             active={false}

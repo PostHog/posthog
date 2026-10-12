@@ -995,7 +995,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                 // First, add all tool context items (they have precedence)
                 Object.values(toolMap).forEach((tool: any) => {
-                    if (tool.contextDescription) {
+                    // Callers can pass a nullable name, e.g. an unnamed dashboard
+                    if (typeof tool.contextDescription?.text === 'string') {
                         const itemName = tool.contextDescription.text.toLowerCase()
                         if (!addedNames.has(itemName)) {
                             items.push(tool.contextDescription)
