@@ -82,14 +82,9 @@ Click a bar, line point, table cell, or pivot cell to explore its source rows. *
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 
-With `SQL_EDITOR_BI_MODE` enabled, open **Business intelligence**, select a table and choose **Add calculated measure** in the data pane.
-Enter a name and an aggregate SQL formula, such as `sum(revenue) / nullIf(count(DISTINCT user_id), 0)` for average revenue per user.
-Use field names from the selected table. Filters apply before the formula runs for each group on the worksheet.
+With `SQL_EDITOR_BI_MODE` enabled, choose **Add calculated field** in the data pane. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
 
-The measure appears on Rows. Its menu lets you edit the name and formula, sort by the measure, or remove it.
-Cancel discards the draft. Names and formulas persist with the worksheet's BI configuration; measures are not shared across worksheets.
-Calculated measures cannot become dimensions or row filters.
-If a measure name conflicts with a field or another result column, the generated query adds a numeric suffix to its column name. The worksheet keeps the name you entered on the measure pill and sort menu.
+Calculated fields appear in Dimensions or Measures with a ƒ indicator. Drag or double-click them to reuse the definition. Editing a definition updates its name and expression on every shelf, including duplicated uses; date granularities and measure display settings remain independent. A field's role cannot change after creation. **Delete field and all uses** removes the local definition and its shelf/filter uses; Undo restores them. Clear sheet retains the definitions. Save, reload, and Save a copy preserve them inside the worksheet, without creating source-table or project-wide fields.
 
 ## Filters in BI mode
 

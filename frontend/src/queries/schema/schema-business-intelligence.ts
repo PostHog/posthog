@@ -64,9 +64,11 @@ export interface BIField {
     dateBucket?: BIDateBucket
     datePart?: 'month' | 'quarter' | 'day_of_week'
     localDefinition?: BILocalFieldDefinition
+    localFieldId?: string
 }
 
 export type BILocalFieldDefinition =
+    | { kind: 'expression'; expression: string; aggregate: boolean }
     | { kind: 'groups'; expression: string; groups: BICategoryGroup[]; other: string }
     | { kind: 'bins'; expression: string; width: number; origin: number }
 

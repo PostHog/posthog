@@ -993,13 +993,22 @@ class BILocalFieldDefinition1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregate: bool
+    expression: str
+    kind: Literal["expression"] = "expression"
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     expression: str
     groups: list[BICategoryGroup]
     kind: Literal["groups"] = "groups"
     other: str
 
 
-class BILocalFieldDefinition2(BaseModel):
+class BILocalFieldDefinition3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5115,7 +5124,8 @@ class BIField(BaseModel):
     datePart: DatePart | None = None
     expression: str
     id: str
-    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | None = None
+    localFieldId: str | None = None
     name: str
     source: BIDataSource
     type: DatabaseSerializedFieldType

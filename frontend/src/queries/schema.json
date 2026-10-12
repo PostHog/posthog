@@ -6287,6 +6287,9 @@
                 "localDefinition": {
                     "$ref": "#/definitions/BILocalFieldDefinition"
                 },
+                "localFieldId": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -6350,6 +6353,23 @@
         },
         "BILocalFieldDefinition": {
             "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "aggregate": {
+                            "type": "boolean"
+                        },
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "expression",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "aggregate"],
+                    "type": "object"
+                },
                 {
                     "additionalProperties": false,
                     "properties": {

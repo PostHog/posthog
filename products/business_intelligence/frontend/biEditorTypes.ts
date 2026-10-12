@@ -260,6 +260,9 @@ const IDENTIFIER_FIELD_NAME_REGEX = /(^|_)(id|uuid)$/i
 
 /** Numeric fields that are not identifiers aggregate by default, like measures in a BI tool. */
 export function isBIMeasureField(field: BIField): boolean {
+    if (field.localDefinition?.kind === 'expression') {
+        return field.localDefinition.aggregate
+    }
     return (
         !field.localDefinition &&
         isNumericBIField(field) &&
@@ -443,6 +446,7 @@ function parseBIFieldValue(value: unknown): BIField | null {
         typeof candidate.name !== 'string' ||
         typeof candidate.expression !== 'string' ||
         typeof candidate.type !== 'string' ||
+        (candidate.localFieldId !== undefined && typeof candidate.localFieldId !== 'string') ||
         (candidate.dateBucket !== undefined &&
             (!BI_DATE_BUCKETS.has(candidate.dateBucket) ||
                 (candidate.type !== 'date' && candidate.type !== 'datetime'))) ||

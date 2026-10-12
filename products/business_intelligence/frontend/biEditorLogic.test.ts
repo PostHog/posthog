@@ -425,6 +425,62 @@ describe('biEditorLogic', () => {
         }
     )
 
+    it.each(['dimension', 'measure'] as const)(
+        'reuses, edits, clears, restores and deletes a worksheet-local %s',
+        (kind) => {
+            const logic = biEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            logic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            const expression = kind === 'dimension' ? "coalesce(properties.plan, 'Unknown')" : 'sum(revenue)'
+            const editedExpression = kind === 'dimension' ? 'lower(properties.plan)' : 'avg(revenue)'
+            logic.actions.setCalculatedMeasureDraft({ index: null, kind, name: 'Local calculation', expression })
+            logic.actions.saveCalculatedMeasure()
+            const field = logic.values.config.localFields![0]
+            const shelf = kind === 'dimension' ? 'rows' : 'values'
+            logic.actions.duplicateField(shelf, kind === 'dimension' ? logic.values.config.rows.length - 1 : 0)
+            if (kind === 'dimension') {
+                logic.actions.addFieldToShelf(field, 'filters')
+            }
+            logic.actions.editCalculatedField(field)
+            logic.actions.setCalculatedMeasureDraft({
+                ...logic.values.calculatedMeasureDraft!,
+                name: 'Renamed calculation',
+                expression: editedExpression,
+            })
+            logic.actions.saveCalculatedMeasure()
+            expect(logic.values.config.localFields![0].name).toBe('Renamed calculation')
+            if (kind === 'dimension') {
+                expect(logic.values.config.rows.slice(-2).map((field) => field.expression)).toEqual([
+                    editedExpression,
+                    editedExpression,
+                ])
+                expect(
+                    logic.values.config.filters.find((filter) => filter.field.id === field.id)?.field.expression
+                ).toBe(editedExpression)
+            } else {
+                expect(logic.values.config.values.map((value) => value.customExpression)).toEqual([
+                    editedExpression,
+                    editedExpression,
+                ])
+            }
+            const saved = parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))!
+            logic.actions.resetConfig()
+            expect(logic.values.config.localFields).toEqual(saved.config.localFields)
+            expect(
+                logic.values.dataPaneFields[kind === 'dimension' ? 'dimensions' : 'measures'].some(
+                    (field) => field.name === 'Renamed calculation'
+                )
+            ).toBe(true)
+            logic.actions.restoreState(saved)
+            logic.actions.removeLocalField(field.id)
+            expect(logic.values.config.localFields).toEqual([])
+            expect(logic.values.config.filters.some((filter) => filter.field.id === field.id)).toBe(false)
+            expect(logic.values.config.values.some((value) => value.field.id === field.id)).toBe(false)
+            expect(logic.values.config.rows.some((row) => (row.localFieldId ?? row.id) === field.id)).toBe(false)
+            logic.unmount()
+        }
+    )
+
     it('creates and edits a calculated measure without applying canceled drafts or losing its sort', () => {
         const biLogic = biEditorLogic({ tabId: TAB_ID })
         biLogic.mount()

@@ -10745,19 +10745,25 @@ export namespace Schemas {
       DayOfWeek: 'day_of_week',
     } as const;
 
+    export interface BILocalFieldDefinition1 {
+      aggregate: boolean;
+      expression: string;
+      kind?: 'expression';
+    }
+
     export interface BICategoryGroup {
       name: string;
       values: string[];
     }
 
-    export interface BILocalFieldDefinition1 {
+    export interface BILocalFieldDefinition2 {
       expression: string;
       groups: BICategoryGroup[];
       kind?: 'groups';
       other: string;
     }
 
-    export interface BILocalFieldDefinition2 {
+    export interface BILocalFieldDefinition3 {
       expression: string;
       kind?: 'bins';
       origin: number;
@@ -10796,7 +10802,8 @@ export namespace Schemas {
       datePart?: DatePart | null;
       expression: string;
       id: string;
-      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | null;
+      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | null;
+      localFieldId?: string | null;
       name: string;
       source: BIDataSource;
       type: DatabaseSerializedFieldType;
