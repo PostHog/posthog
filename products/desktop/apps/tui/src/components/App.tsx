@@ -59,6 +59,7 @@ import {
   WALKTHROUGH_PROMPT,
 } from "../today";
 import type { WorkList } from "../work";
+import { Help } from "./Help";
 import { Pane } from "./Pane";
 import { DividerColumn, PaneTree } from "./PaneTree";
 import { Search } from "./Search";
@@ -236,6 +237,7 @@ export function App({
   });
 
   const settings = useSettings(session?.codexCloud, runSetup);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const { modalFor, openModal, closeModal, onModalKey } = useSheets({
     layout,
@@ -307,6 +309,7 @@ export function App({
       pickFor,
       compact,
       openSearch: search.toggle,
+      openHelp: () => setHelpOpen(true),
       openSettings: settings.toggle,
       repos: repoPicker,
       onChatStarted,
@@ -419,6 +422,7 @@ export function App({
     sidebar,
     search,
     settings,
+    help: { open: helpOpen, close: () => setHelpOpen(false) },
     composerFor,
     modalFor,
     onModalKey,
@@ -538,6 +542,7 @@ export function App({
   );
 
   if (search.open) return <Search search={search} />;
+  if (helpOpen) return <Help />;
   if (settings.open) return <Settings settings={settings} />;
   if (welcomeStep)
     return (

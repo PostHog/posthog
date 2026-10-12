@@ -310,7 +310,7 @@ export function Sidebar({
           ? notice
             ? "●"
             : "^B"
-          : (notice ?? "^N new · ^\\ split · ^Q quit")}
+          : (notice ?? "^N new · ^\\ split · /help")}
       </Text>
     </Box>
   );

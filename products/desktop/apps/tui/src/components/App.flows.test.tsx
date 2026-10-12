@@ -525,6 +525,29 @@ describe("App flows", () => {
     }
   });
 
+  it("shows every shortcut on /help and closes it on Esc", async () => {
+    const app = cloudApp({ layout: initialLayout() });
+    try {
+      await vi.waitFor(() =>
+        expect(app.plain()).toContain("start a cloud run"),
+      );
+      app.press("/help");
+      app.press("\r");
+      await vi.waitFor(() =>
+        expect(app.plain()).toContain("Keyboard shortcuts"),
+      );
+      expect(app.plain().slice(-3000)).toContain("Split side by side");
+      app.press("\x1b");
+      await vi.waitFor(() =>
+        expect(stripTerminalSequences(app.output().slice(-3000))).toContain(
+          "start a cloud run",
+        ),
+      );
+    } finally {
+      app.close();
+    }
+  });
+
   it("saves a pasted Claude token from settings and closes on Esc", async () => {
     const app = cloudApp({ layout: initialLayout() });
     try {
