@@ -158,6 +158,23 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         self.assertEqual(response.json()["results"][0]["installation_status"], "unavailable")
 
+    def test_list_keeps_a_credential_that_needs_reconnecting_and_marks_it(self):
+        integration = _create_user_integration(self.user)
+        integration.config = {
+            **integration.config,
+            "needs_reauthorization_reason": "refresh rejected by GitHub",
+            "needs_reauthorization_at": 1704110400,
+        }
+        integration.save()
+
+        response = self.client.get("/api/users/@me/integrations/")
+
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["needs_reauthorization"])
+        self.assertEqual(results[0]["needs_reauthorization_at"], "2024-01-01T12:00:00Z")
+        self.assertNotIn("needs_reauthorization_reason", results[0])
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_list_heals_a_placeholder_account_name(self, mock_client_request):
         mock_client_request.return_value = MagicMock(
