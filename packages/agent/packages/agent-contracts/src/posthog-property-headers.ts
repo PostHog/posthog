@@ -228,6 +228,22 @@ export function buildPosthogPropertiesHeaderLines(
  */
 export const POSTHOG_SESSION_ID_HEADER = "X-PostHog-Session-Id";
 
+export function buildPosthogSessionHeaderRecord(
+  sessionId: string | null | undefined,
+): Record<string, string> {
+  return sessionId
+    ? { [POSTHOG_SESSION_ID_HEADER]: sanitizeHeaderValue(sessionId) }
+    : {};
+}
+
+export function buildPosthogSessionHeaderLines(
+  sessionId: string | null | undefined,
+): string {
+  return Object.entries(buildPosthogSessionHeaderRecord(sessionId))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+}
+
 const PROPERTY_HEADER_PREFIX = "x-posthog-property-";
 
 function parsePropertiesBlob(raw: string): PosthogProperties {

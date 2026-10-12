@@ -9,6 +9,8 @@ import {
   buildPosthogPropertyHeaderRecord,
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
+  buildPosthogSessionHeaderLines,
+  buildPosthogSessionHeaderRecord,
   collapsePropertyHeadersForAiGateway,
 } from "./posthog-property-headers";
 
@@ -30,6 +32,24 @@ describe("PostHog project headers", () => {
     expect(
       buildPosthogScopedPropertyHeaderLines({ task_id: "task-1" }, 42),
     ).toBe("x-posthog-property-task_id: task-1\nX-PostHog-Project-Id: 42");
+  });
+});
+
+describe("PostHog session headers", () => {
+  it("builds record and line forms with sanitized values", () => {
+    expect(
+      buildPosthogSessionHeaderRecord("session-1\r\nmalicious: true"),
+    ).toEqual({
+      "X-PostHog-Session-Id": "session-1 malicious: true",
+    });
+    expect(buildPosthogSessionHeaderLines("session-1")).toBe(
+      "X-PostHog-Session-Id: session-1",
+    );
+  });
+
+  it.each([undefined, null, ""])("omits the header for %s", (sessionId) => {
+    expect(buildPosthogSessionHeaderRecord(sessionId)).toEqual({});
+    expect(buildPosthogSessionHeaderLines(sessionId)).toBe("");
   });
 });
 
