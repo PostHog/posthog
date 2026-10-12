@@ -293,5 +293,32 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
             },
         ],
     },
+    {
+        key: 'workflows',
+        label: 'Workflows',
+        iconType: 'workflows',
+        suggestions: [
+            {
+                title: 'Build your first workflow',
+                description: 'What workflows do and how to set one up',
+                content: 'How do I create my first workflow in PostHog?',
+            },
+            {
+                title: 'Pick a trigger',
+                description: 'Events, schedules, and cohorts that can start a workflow',
+                content: 'What can trigger a PostHog workflow?',
+            },
+            {
+                title: 'Send an email from a workflow',
+                description: 'Add an email step and a template',
+                content: 'How do I send an email from a PostHog workflow?',
+            },
+            {
+                title: 'Test before you publish',
+                description: 'Run a workflow against a test event first',
+                content: 'How do I test a workflow before publishing it?',
+            },
+        ],
+    },
     LEARN_TOPIC,
 ]
