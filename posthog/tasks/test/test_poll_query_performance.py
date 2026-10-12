@@ -7,12 +7,63 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 import posthog.tasks.tasks
+from posthog.clickhouse.workload import Workload
 from posthog.redis import get_client
-from posthog.tasks.poll_query_performance import poll_query_performance, query_manager_from_initial_query_id
+from posthog.settings import CLICKHOUSE_HOST
+from posthog.tasks.poll_query_performance import (
+    _get_legacy_query_results,
+    poll_query_performance,
+    query_manager_from_initial_query_id,
+)
 from posthog.tasks.tasks import Polling
 
 
 class TestPollQueryPerformance(SimpleTestCase):
+    @override_settings(CLICKHOUSE_OFFLINE_CLUSTER_HOST="offline.example.com")
+    def test_legacy_probe_stays_on_online_host_when_celery_defaults_to_offline(self) -> None:
+        with (
+            patch("posthog.clickhouse.client.connection._default_workload", Workload.OFFLINE),
+            patch("posthog.clickhouse.client.connection.ClickHouseClient") as client,
+            patch("posthog.tasks.poll_query_performance.sync_execute", return_value=[]),
+        ):
+            _get_legacy_query_results("SELECT 1 SETTINGS skip_unavailable_shards=1")
+        self.assertEqual(client.call_args.kwargs["host"], CLICKHOUSE_HOST)
+
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_healthy_native_progress_survives_stalled_legacy_probe(self) -> None:
+        legacy_started, release_legacy, legacy_finished = Event(), Event(), Event()
+        native_id = "44_550e8400-e29b-41d4-a716-446655440002_example"
+
+        def execute(
+            _query: str, _parameters: dict[str, str], **kwargs: object
+        ) -> list[tuple[str, int, int, int, int, int, str]]:
+            if kwargs.get("workload") == Workload.ONLINE:
+                legacy_started.set()
+                try:
+                    self.assertTrue(release_legacy.wait(2))
+                    raise TimeoutError("legacy unavailable")
+                finally:
+                    legacy_finished.set()
+            return [(native_id, 2, 3, 4, 5, 6, "native-query")]
+
+        with (
+            patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
+            patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
+            patch("posthog.tasks.poll_query_performance.default_client"),
+            patch(
+                "posthog.tasks.poll_query_performance.perf_counter",
+                side_effect=lambda: 10.1 if legacy_finished.is_set() else 0,
+            ),
+            patch("posthog.tasks.poll_query_performance._LEGACY_POLL_TIMEOUT_SECONDS", 0.05, create=True),
+        ):
+            try:
+                poll_query_performance()
+                self.assertTrue(legacy_started.is_set())
+                manager.return_value.update_clickhouse_query_progresses.assert_called()
+            finally:
+                release_legacy.set()
+                self.assertTrue(legacy_finished.wait(1))
+
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_native_wall_deadline_accounts_for_legacy_time_and_preserves_progress(self) -> None:
         release_native, native_started, native_finished = Event(), Event(), Event()
@@ -21,7 +72,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         def execute(
             _query: str, _parameters: dict[str, str], **kwargs: object
         ) -> list[tuple[str, int, int, int, int, int, str]]:
-            if kwargs.get("sync_client") is not None:
+            if kwargs.get("workload") != Workload.ONLINE:
                 native_started.set()
                 try:
                     self.assertTrue(release_native.wait(2))
@@ -52,7 +103,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         def execute(
             _query: str, _parameters: dict[str, str], **kwargs: object
         ) -> list[tuple[str, int, int, int, int, int, str]]:
-            query_id = "native-child" if kwargs.get("sync_client") is not None else "legacy-child"
+            query_id = "native-child" if kwargs.get("workload") != Workload.ONLINE else "legacy-child"
             return [(initial_id, 2, 3, 4, 5, 6, query_id)]
 
         with (
@@ -73,7 +124,7 @@ class TestPollQueryPerformance(SimpleTestCase):
             _query: str, _parameters: dict[str, str], **kwargs: object
         ) -> list[tuple[str, int, int, int, int, int, str]]:
             nonlocal saw_legacy_progress
-            if kwargs.get("sync_client") is not None:
+            if kwargs.get("workload") != Workload.ONLINE:
                 saw_legacy_progress = manager.return_value.update_clickhouse_query_progresses.called
                 return []
             return [(legacy_id, 2, 3, 4, 5, 6, "example-query")]
@@ -97,7 +148,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         def execute(
             _query: str, _parameters: dict[str, str], **kwargs: object
         ) -> list[tuple[str, int, int, int, int, int, str]]:
-            native = kwargs.get("sync_client") is not None
+            native = kwargs.get("workload") != Workload.ONLINE
             if failed == ("native" if native else "legacy"):
                 raise RuntimeError("cluster unavailable")
             return [(native_id if native else legacy_id, 2, 3, 4, 5, 6, "example-query")]

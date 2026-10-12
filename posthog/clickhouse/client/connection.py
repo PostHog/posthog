@@ -351,7 +351,7 @@ class ProxyClient:
 
 
 @cache
-def _clickhouse_http_pool_mgr():
+def _clickhouse_http_pool_mgr(verify: bool | None = None):
     # clickhouse_connect probes pandas/numpy availability when imported, dragging pandas and
     # pyarrow (~400ms) onto the path of whoever imports it — and this module loads at
     # django.setup(). Only the HTTP client paths need it, so build the pool manager on demand.
@@ -362,7 +362,7 @@ def _clickhouse_http_pool_mgr():
         block=True,  # makes the maxsize limit per pool, keeps connections
         num_pools=12,  # number of pools
         ca_cert=settings.CLICKHOUSE_CA,
-        verify=settings.QUERYSERVICE_VERIFY,
+        verify=settings.QUERYSERVICE_VERIFY if verify is None else verify,
     )
 
 
@@ -381,7 +381,7 @@ def get_http_client(**overrides):
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         "autogenerate_session_id": True,
         # beware, this makes each query to run in a separate session - no temporary tables will work
-        "pool_mgr": _clickhouse_http_pool_mgr(),
+        "pool_mgr": _clickhouse_http_pool_mgr(overrides.get("verify", settings.QUERYSERVICE_VERIFY)),
         **overrides,
     }
     yield ProxyClient(get_client(**kwargs))

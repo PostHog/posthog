@@ -1,11 +1,13 @@
 from concurrent.futures import Future, ThreadPoolExecutor
-from threading import Barrier, BoundedSemaphore, Event, Lock
+from threading import Barrier, BoundedSemaphore, Event, Lock, get_ident
 
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
-from posthog.clickhouse.native_metadata import submit_native_metadata
+from parameterized import parameterized
+
+from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
 
 
 class TestNativeMetadataCapacity(SimpleTestCase):
@@ -101,3 +103,42 @@ class TestNativeMetadataCapacity(SimpleTestCase):
             retry = submit_native_metadata(lambda: "retry")
             assert retry is not None
             self.assertEqual(retry.result(timeout=1), "retry")
+
+    @parameterized.expand([(False,), (True,)])
+    def test_worker_closes_its_database_connections_on_success_and_failure(self, failed: bool) -> None:
+        caller_thread = get_ident()
+        closed_threads: list[int] = []
+
+        def work() -> str:
+            if failed:
+                raise RuntimeError("metadata failed")
+            return "done"
+
+        with patch("django.db.connections.close_all", side_effect=lambda: closed_threads.append(get_ident())):
+            future = submit_native_metadata(work)
+            assert future is not None
+            if failed:
+                with self.assertRaisesRegex(RuntimeError, "metadata failed"):
+                    future.result(timeout=1)
+            else:
+                self.assertEqual(future.result(timeout=1), "done")
+        self.assertEqual(len(closed_threads), 1)
+        self.assertNotEqual(closed_threads[0], caller_thread)
+
+    def test_stalled_legacy_work_cannot_consume_native_capacity(self) -> None:
+        release = Event()
+        with (
+            ThreadPoolExecutor(max_workers=1) as legacy_executor,
+            patch("posthog.clickhouse.native_metadata._legacy_pool", legacy_executor),
+            patch("posthog.clickhouse.native_metadata._legacy_slots", BoundedSemaphore(1)),
+        ):
+            legacy = submit_legacy_metadata(lambda: release.wait(2))
+            assert legacy is not None
+            try:
+                self.assertIsNone(submit_legacy_metadata(lambda: None))
+                native = submit_native_metadata(lambda: "native available")
+                assert native is not None
+                self.assertEqual(native.result(timeout=1), "native available")
+            finally:
+                release.set()
+                self.assertTrue(legacy.result(timeout=1))

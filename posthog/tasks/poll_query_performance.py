@@ -14,12 +14,15 @@ from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload, default_client
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.clickhouse.native_metadata import submit_native_metadata
+from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.utils import UUID_REGEX
 
 logger = get_logger(__name__)
+
+
+_LEGACY_POLL_TIMEOUT_SECONDS = 3.0
 
 
 def query_manager_from_initial_query_id(initial_query_id: str) -> Optional[QueryStatusManager]:
@@ -64,9 +67,23 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         """
 
     try:
-        raw_results = sync_execute(
-            SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE, ch_user=ClickHouseUser.OPS
-        )
+        if settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+            legacy = submit_legacy_metadata(partial(_get_legacy_query_results, SYSTEM_PROCESSES_SQL))
+            if legacy is None:
+                raw_results = []
+            else:
+                try:
+                    raw_results = legacy.result(timeout=_LEGACY_POLL_TIMEOUT_SECONDS)
+                except TimeoutError:
+                    legacy.add_done_callback(partial(_log_detached_poll, "legacy"))
+                    raise
+        else:
+            raw_results = sync_execute(
+                SYSTEM_PROCESSES_SQL,
+                {"cluster": CLICKHOUSE_CLUSTER},
+                workload=Workload.ONLINE,
+                ch_user=ClickHouseUser.OPS,
+            )
     except Exception:
         if not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
             raise
@@ -86,9 +103,22 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         yield _format_results(native.result(timeout=remaining))
     except TimeoutError:
         logger.warning("Native query progress exceeded polling budget")
-        native.add_done_callback(_log_detached_native_poll)
+        native.add_done_callback(partial(_log_detached_poll, "native"))
     except Exception:
         logger.exception("Failed to poll native query progress")
+
+
+def _get_legacy_query_results(sql: str) -> list[Any]:
+    with default_client(
+        workload=Workload.ONLINE, ch_user=ClickHouseUser.OPS, connect_timeout=1, send_receive_timeout=2
+    ) as client:
+        return sync_execute(
+            sql + ", max_execution_time=2",
+            {"cluster": CLICKHOUSE_CLUSTER},
+            workload=Workload.ONLINE,
+            ch_user=ClickHouseUser.OPS,
+            sync_client=client,
+        )
 
 
 def _get_native_query_results(sql: str) -> list[Any]:
@@ -101,9 +131,9 @@ def _get_native_query_results(sql: str) -> list[Any]:
         return sync_execute(sql + ", max_execution_time=2", {"cluster": CLICKHOUSE_CLUSTER}, sync_client=client)
 
 
-def _log_detached_native_poll(future: Future[list[Any]]) -> None:
+def _log_detached_poll(cluster: str, future: Future[list[Any]]) -> None:
     if not future.cancelled() and (error := future.exception()) is not None:
-        logger.warning("Detached native query progress failed", error=str(error))
+        logger.warning("Detached query progress failed", cluster=cluster, error=str(error))
 
 
 def _format_results(raw_results: list[Any]) -> list[dict[str, Any]]:

@@ -339,3 +339,41 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
         expected_user,
         expected_password,
     )
+
+
+@pytest.mark.parametrize("native_verify", [False, True])
+def test_native_http_pool_enforces_its_verification_policy(settings, monkeypatch, native_verify):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
+    settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY = native_verify
+    settings.QUERYSERVICE_VERIFY = not native_verify
+    settings.CLICKHOUSE_USE_HTTP = True
+    connection._clickhouse_http_pool_mgr.cache_clear()
+    try:
+        with patch("clickhouse_connect.get_client") as client:
+            with connection.get_client_from_pool(Workload.NATIVE_EVENTS):
+                pass
+        manager = client.call_args.kwargs["pool_mgr"]
+        assert manager.connection_pool_kw["cert_reqs"] == ("CERT_REQUIRED" if native_verify else "CERT_NONE")
+    finally:
+        connection._clickhouse_http_pool_mgr.cache_clear()
+
+
+def test_http_pool_policies_are_reused_without_mutating_caller_owned_pools(settings):
+    from clickhouse_connect.driver import httputil
+
+    settings.QUERYSERVICE_VERIFY = False
+    connection._clickhouse_http_pool_mgr.cache_clear()
+    caller_pool = httputil.get_pool_manager(verify=False)
+    try:
+        with patch("clickhouse_connect.get_client") as client:
+            for overrides in ({"verify": True}, {"verify": False}, {}, {"verify": True, "pool_mgr": caller_pool}):
+                with get_http_client(**overrides):
+                    pass
+        managers = [call.kwargs["pool_mgr"] for call in client.call_args_list]
+        assert managers[0] is not managers[1]
+        assert managers[1] is managers[2]
+        assert managers[3] is caller_pool
+        assert caller_pool.connection_pool_kw["cert_reqs"] == "CERT_NONE"
+    finally:
+        connection._clickhouse_http_pool_mgr.cache_clear()
+        caller_pool.clear()

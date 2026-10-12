@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from threading import Event
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +24,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
 
         release_native, native_started, native_finished = Event(), Event(), Event()
 
-        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> list[tuple[str, str]]:
+        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
             if "ON CLUSTER" in query:
                 native_started.set()
                 try:
@@ -31,7 +32,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
                     return []
                 finally:
                     native_finished.set()
-            return []
+            return ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
 
         with (
             patch("posthog.clickhouse.cancel.monotonic", side_effect=[0, 19.9]),
@@ -83,7 +84,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         def get_client(**kwargs: object) -> MagicMock:
             return native_client if kwargs.get("workload") == Workload.NATIVE_EVENTS else legacy_client
 
-        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> list[tuple[str, str]]:
+        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
             if kwargs["sync_client"] is native_client:
                 self.assertIsNone(get_query_tags().team_id)
                 self.assertIsNone(get_query_tags().client_query_id)
@@ -98,7 +99,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
                 self.assertIsNone(get_query_tags().client_query_id)
                 return [("legacy.example.com", "44_example-query_12345678")]
             legacy_killed.set()
-            return []
+            return ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
 
         with (
             patch("posthog.clickhouse.cancel.default_client", side_effect=get_client),
@@ -142,11 +143,11 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         metadata_ids: list[str] = []
         tag_queries(team_id=44, client_query_id=query_id)
 
-        def capture_metadata_id(_query: str, _parameters: dict[str, str], **kwargs: object) -> list[tuple[str, str]]:
+        def capture_metadata_id(_query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
             metadata_id = validated_client_query_id()
             assert metadata_id is not None
             metadata_ids.append(metadata_id)
-            return []
+            return ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
 
         with (
             patch("posthog.clickhouse.cancel.default_client"),
@@ -175,13 +176,13 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
 
         native_finished = Event()
 
-        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> list[tuple[str, str]]:
+        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
             if "ON CLUSTER" in query:
                 native_finished.set()
                 raise RuntimeError("native unavailable")
             if "distributed_system_processes" in query and legacy_found:
                 return [("legacy.example.com", "44_example-query_12345678")]
-            return []
+            return ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
 
         with (
             patch("posthog.clickhouse.cancel.default_client"),
@@ -202,7 +203,12 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
 
         with (
             patch("posthog.clickhouse.cancel.default_client") as client,
-            patch("posthog.clickhouse.cancel.sync_execute", return_value=[]) as execute,
+            patch(
+                "posthog.clickhouse.cancel.sync_execute",
+                side_effect=lambda *args, **kwargs: (
+                    ([], [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else []
+                ),
+            ) as execute,
         ):
             cancel_query_on_cluster(44, "example-query")
         native_clients = [
@@ -214,3 +220,47 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         self.assertEqual(len(kills), 1)
         self.assertIn("ON CLUSTER", kills[0].args[0])
         self.assertEqual(kills[0].args[1], {"client_query_id": "44_example-query_"})
+
+    @parameterized.expand(
+        [
+            (False, False, False),
+            (False, True, False),
+            (True, False, False),
+            (True, True, False),
+            (True, False, True),
+            (True, True, True),
+        ]
+    )
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_legacy_outage_does_not_mask_confirmed_native_cancellation(
+        self, fallback: bool, confirmed: bool, discovery_only: bool
+    ) -> None:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
+
+        native_client, legacy_client = MagicMock(), MagicMock()
+        native_client.__enter__.return_value = native_client
+        legacy_client.__enter__.return_value = legacy_client
+
+        def get_client(**kwargs: object) -> MagicMock:
+            return native_client if kwargs.get("workload") == Workload.NATIVE_EVENTS else legacy_client
+
+        def execute(query: str, _parameters: dict[str, str], **kwargs: object) -> Any:
+            if kwargs["sync_client"] is legacy_client:
+                if not discovery_only or "distributed_system_processes" in query:
+                    raise RuntimeError("legacy unavailable")
+                return []
+            rows = [("waiting", "44_example-query_12345678")] if confirmed else []
+            return (
+                (rows, [("kill_status", "String"), ("query_id", "String")]) if kwargs.get("with_column_types") else rows
+            )
+
+        with (
+            override_settings(CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=fallback),
+            patch("posthog.clickhouse.cancel.default_client", side_effect=get_client),
+            patch("posthog.clickhouse.cancel.sync_execute", side_effect=execute),
+        ):
+            if confirmed:
+                cancel_query_on_cluster(44, "example-query")
+            else:
+                with self.assertRaisesRegex(RuntimeError, "legacy unavailable"):
+                    cancel_query_on_cluster(44, "example-query")
