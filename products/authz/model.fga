@@ -1,0 +1,174 @@
+# Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
+# Content digest: da45d6d550708bee
+model
+  schema 1.1
+
+type user
+  relations
+    define identity: [user]
+    define organization: [organization]
+    define can_view: identity
+    define can_edit: identity
+    define can_delete: identity but not member from organization
+
+type organization
+  relations
+    define member: [organization_member#user] or admin
+    define admin: [organization_member#user] or owner
+    define owner: [organization_member#user]
+    define access_control_enabled: [user:*]
+    define role_based_access_enabled: [user:*]
+    define members_can_invite: [user:*]
+    define members_can_create_projects: [user:*]
+    define members_can_see_members: [user:*]
+    define can_view: member
+    define can_edit: admin
+    define can_delete: owner
+    define can_manage_access: admin
+    define can_manage_owners: owner
+    define can_manage_billing: admin
+    define can_create_role: admin
+    define can_create_project: admin or (member and members_can_create_projects)
+    define can_invite_member: admin or (member and members_can_invite)
+    define can_invite_admin: admin
+    define can_invite_owner: owner
+    define can_list_members: member
+
+type organization_member
+  relations
+    define user: [user]
+    define organization: [organization]
+    define project: [project]
+    define is_owner: [user:*]
+    define can_view: user or admin from organization or ((member from organization) and (members_can_see_members from organization or member from project)) or ((member from organization) but not access_control_enabled from organization)
+    define can_edit: user or can_change_level
+    define can_change_level: ((owner from organization) or ((admin from organization) but not is_owner)) but not user
+    define can_make_owner: (owner from organization) but not user
+    define can_delete: (user but not is_owner) or can_change_level
+
+type role
+  relations
+    define organization: [organization]
+    define assignee: [organization_member#user]
+    define member: assignee and member from organization
+    define can_view: member from organization
+    define can_edit: admin from organization
+    define can_delete: admin from organization
+    define can_manage_access: admin from organization
+
+type project
+  relations
+    define organization: [organization]
+    define creator: [organization_member#user]
+    define member_none: [organization_member#user]
+    define member_member: [organization_member#user]
+    define member_admin: [organization_member#user]
+    define member_owner: [organization_member#user]
+    define role_none: [role#member] and role_based_access_enabled from organization
+    define role_member: [role#member] and role_based_access_enabled from organization
+    define role_admin: [role#member] and role_based_access_enabled from organization
+    define role_owner: [role#member] and role_based_access_enabled from organization
+    define default_none: [user:*]
+    define default_member: [user:*]
+    define default_admin: [user:*]
+    define default_owner: [user:*]
+    define member_override: member_none or member_member or member_admin or member_owner
+    define role_override: role_none or role_member or role_admin or role_owner
+    define default_override: default_none or default_member or default_admin or default_owner
+    define has_rule: member_override or role_override or default_override
+    define rule_member: member_member or member_admin or member_owner or ((role_member or role_admin or role_owner) but not member_override) or ((default_member or default_admin or default_owner) but not (member_override or role_override))
+    define rule_admin: member_admin or member_owner or ((role_admin or role_owner) but not member_override) or ((default_admin or default_owner) but not (member_override or role_override))
+    define org_member: member from organization
+    define org_admin: admin from organization
+    define access_control_enabled: access_control_enabled from organization
+    define member: org_admin or (org_member and ((rule_member and access_control_enabled) or (org_member but not access_control_enabled) or (org_member but not has_rule)))
+    define admin: org_admin or (org_member and access_control_enabled and (rule_admin or (org_member but not has_rule)))
+    define owner: org_admin or (org_member and access_control_enabled and (member_owner or (role_owner but not member_override) or (default_owner but not (member_override or role_override))))
+    # The implicit project-admin default must not grant access-management rights.
+    define can_manage_access: org_admin or (member and (creator or (rule_admin and access_control_enabled)))
+    define can_view: member
+    define can_edit: admin
+    define can_delete: admin
+
+# A rule's presence blocks inheritance even if it grants none or a lower level.
+type access_policy
+  relations
+    define organization: [organization]
+    define member_none: [organization_member#user]
+    define member_viewer: [organization_member#user]
+    define member_editor: [organization_member#user]
+    define member_manager: [organization_member#user]
+    define role_none: [role#member] and role_based_access_enabled from organization
+    define role_viewer: [role#member] and role_based_access_enabled from organization
+    define role_editor: [role#member] and role_based_access_enabled from organization
+    define role_manager: [role#member] and role_based_access_enabled from organization
+    define default_none: [user:*]
+    define default_viewer: [user:*]
+    define default_editor: [user:*]
+    define default_manager: [user:*]
+    define member_override: member_none or member_viewer or member_editor or member_manager
+    define role_override: role_none or role_viewer or role_editor or role_manager
+    define default_override: default_none or default_viewer or default_editor or default_manager
+    define has_rule: (member_override or role_override or default_override) and access_control_enabled from organization
+    define viewer: (member_viewer or member_editor or member_manager or ((role_viewer or role_editor or role_manager) but not member_override) or ((default_viewer or default_editor or default_manager) but not (member_override or role_override))) and has_rule
+    define editor: (member_editor or member_manager or ((role_editor or role_manager) but not member_override) or ((default_editor or default_manager) but not (member_override or role_override))) and has_rule
+    define manager: (member_manager or (role_manager but not member_override) or (default_manager but not (member_override or role_override))) and has_rule
+
+type resource_category
+  relations
+    define project: [project]
+    define policy: [access_policy]
+    define has_rule: has_rule from policy
+    define viewer: (member from project) and (org_admin from project or viewer from policy or ((member from project) but not has_rule))
+    define editor: (member from project) and (org_admin from project or editor from policy or ((member from project) but not has_rule))
+    define manager: (member from project) and (org_admin from project or manager from policy)
+    define can_view: viewer
+    define can_list: viewer
+    define can_create: editor
+    define can_manage_access: manager or can_manage_access from project
+
+type dashboard
+  relations
+    define project: [project]
+    define category: [resource_category]
+    define policy: [access_policy]
+    define creator: [organization_member#user]
+    define has_rule: has_rule from policy
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from category) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from category) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from category) but not has_rule))
+    # Legacy collaborator restrictions remain an independent write gate.
+    define restricted: [user:*] and access_control_enabled from project
+    # Members with a legacy collaborator privilege can edit a restricted dashboard.
+    define collaborator: [organization_member#user]
+    # The legacy rule: anyone in the project can edit, except on a restricted dashboard.
+    define legacy_editor: creator or admin from project or collaborator or ((member from project) but not restricted)
+    define can_view: viewer
+    # An edit must pass both the access rules and the legacy collaborator rule.
+    define can_edit: editor and legacy_editor
+    define can_delete: can_edit
+    define can_manage_access: manager or can_manage_access from project
+    define can_share: can_edit
+
+type insight
+  relations
+    define project: [project]
+    define category: [resource_category]
+    define policy: [access_policy]
+    define creator: [organization_member#user]
+    define has_rule: has_rule from policy
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from category) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from category) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from category) but not has_rule))
+    # An insight takes the legacy edit rule from the dashboards that show it.
+    define dashboard: [dashboard]
+    # This marker distinguishes an unattached insight from one with no editable dashboards.
+    define has_dashboard: [user:*]
+    # An insight on a dashboard is editable by the dashboard's legacy editors; an unattached insight is editable by project members.
+    define legacy_editor: legacy_editor from dashboard or ((member from project) but not has_dashboard)
+    define can_view: viewer
+    # An edit must pass both the access rules and the legacy dashboard rule.
+    define can_edit: editor and legacy_editor
+    define can_delete: can_edit
+    define can_manage_access: manager or can_manage_access from project
+    define can_share: can_edit

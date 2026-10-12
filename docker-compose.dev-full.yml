@@ -89,6 +89,15 @@ services:
         volumes:
             - objectstorage-data:/data
 
+    openfga:
+        image: openfga/openfga:v1.8.0
+        command: run
+        env_file: ./products/authz/openfga.env
+        ports:
+            - '127.0.0.1:8080:8080'
+            - '127.0.0.1:8081:8081'
+            - '127.0.0.1:3000:3000'
+
     maildev:
         extends:
             file: docker-compose.base.yml
@@ -119,6 +128,7 @@ services:
             - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
             - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
             - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
+            - OPENFGA_API_URL=http://openfga:8080
 
     web:
         extends:
@@ -138,6 +148,7 @@ services:
             - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
             - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
             - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
+            - OPENFGA_API_URL=http://openfga:8080
         depends_on:
             - db
             - redis7

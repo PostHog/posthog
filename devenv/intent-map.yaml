@@ -18,6 +18,10 @@ capabilities:
         description: 'Essential infrastructure (docker, postgres, clickhouse)'
         docker_profiles: []
 
+    openfga:
+        description: 'OpenFGA authorization service'
+        docker_profiles: [authz]
+
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
         # The combined-mode ingestion server's AI consumer reads persons through PersonHog
@@ -424,6 +428,10 @@ intents:
     personhog:
         description: 'PersonHog gRPC service for person data access (replaces direct DB queries)'
         capabilities: [personhog]
+
+    authz:
+        description: 'Authorization services'
+        capabilities: [openfga]
 
     endpoints:
         description: 'Endpoints (the product)'

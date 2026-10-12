@@ -60,6 +60,21 @@ class PropertyAccessControlState:
     default_access_level: PropertyAccessLevel = PropertyAccessLevel.READ_WRITE
 
 
+@frozen
+class AuthorizationRule:
+    resource: str
+    resource_id: str | None
+    access_level: str
+    organization_member_id: UUID | None
+    role_id: UUID | None
+
+
+@frozen
+class AuthorizationRole:
+    id: UUID
+    user_ids: tuple[int, ...]
+
+
 # --- Input DTOs ---
 
 

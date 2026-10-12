@@ -1,0 +1,23 @@
+# Bases for resource types. Each file in resources/ holds one type that extends one of these bases.
+# The model build copies the base into each resource type and does not write the bases into model.fga.
+# A resource can define new relations, and override or remove inherited permissions (can_*).
+# The stored relations and the viewer, editor and manager levels below stay the same in every resource.
+type resource
+  relations
+    define project: [project]
+    define category: [resource_category]
+    define policy: [access_policy]
+    define creator: [organization_member#user]
+    define has_rule: has_rule from policy
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from category) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from category) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from category) but not has_rule))
+    define can_view: viewer
+    define can_edit: editor
+    define can_delete: can_edit
+    define can_manage_access: manager or can_manage_access from project
+
+# A resource that share links can expose. Anyone who can edit it can share it.
+type shareable_resource extends resource
+  relations
+    define can_share: can_edit

@@ -162,6 +162,138 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
+Select the `authz` intent to start OpenFGA. It uses in-memory storage and no authentication, so its data resets when the container restarts. Edit the model sources in `products/authz/model/`, then run `products/authz/generate_model.sh`. It builds `model.fga` and the JSON model, checks them against the model rules in `products/authz/AGENTS.md`, and runs the model tests. The pre-commit hook runs the same script when a commit changes the sources or the tests. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
+
+Run the authorization checks without starting the stack:
+
+```bash
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model validate --file products/authz/model.fga
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --allow-external-files --tests products/authz/model/core.fga.yaml
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --allow-external-files --tests 'products/authz/model/resources/*.fga.yaml'
+```
+
+The model covers users, organizations, organization members, roles, projects, dashboards, and insights.
+It models most-specific access resolution, not legacy highest-level resolution.
+The model does not replace Django permission checks.
+The opt-in dashboard mirror populates relationships from the database as described below.
+Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next to them as examples when writing local tuples:
+
+- Use `user:<user_id>` for the actor and `organization_member:<membership_id>#user` for member overrides.
+  The `identity` relation on a user points to that same user.
+  Link a user's organizations for the account-deletion check.
+- Link each organization member to their user and organization.
+  Assign their userset to the organization's `member`, `admin`, or `owner` relation.
+  Set `is_owner` to `user:*` on owner memberships.
+  Member-level changes use `can_change_level`; promotions to owner also require `can_make_owner`.
+- Use one `project:<team_id>` entity for the team and project.
+  Link it to its organization.
+  Project overrides use `member_*`, `role_*`, and `default_*` relations with `none`, `member`, or `admin` levels.
+  The model accepts `owner` as an admin-equivalent project relation; persisted project levels stop at `admin`.
+- Create one `resource_category` per project and resource type, with its own `access_policy`.
+  Link each dashboard or insight to its project and category, and to a separate object policy when it has overrides.
+  Link each policy to its organization.
+  Policies resolve member overrides first, then the highest matching role override, then the default.
+  An object policy with any applicable rule overrides the category, including a `none` or lower-level rule.
+  Without a category rule, dashboards and insights default to `editor`.
+- Set default levels and organization settings with `user:*` tuples.
+  Set `access_control_enabled` and `role_based_access_enabled` from the organization's entitlements.
+  Rules are inert without the relevant entitlement.
+  Without project rules, access-control-enabled organizations default to project admin; other organizations default to project member.
+- Organization admins and owners bypass resource restrictions.
+  Creators bypass object restrictions but still require project membership.
+  Explicit project admins can manage access and bypass legacy dashboard collaborator restrictions, but cannot bypass resource or object rules.
+  The implicit project-admin default alone does not grant `can_manage_access`.
+- For legacy collaborator-only dashboards, set `restricted` to `user:*` and write `collaborator` tuples for edit privileges.
+  Link attached insights to their dashboards and set `has_dashboard` to `user:*` while any attachment exists.
+  Remove the marker when the last attachment is removed.
+  An insight passes this legacy write gate if any attached dashboard permits editing, or if it has no attachments.
+- When member visibility is restricted, link a membership's `project` relations only to projects that grant that member scoped access, excluding the organization-admin bypass.
+  This lets peers with access to a shared project see the membership.
+- Check `can_create` on the category for creation and use `ListObjects` with `can_view` to filter individual objects.
+  Object grants do not grant creation rights.
+
+Tuple writers must keep these relationships consistent with the database.
+Write only active, valid role memberships from the same organization as the policy or project.
+Keep each object's project, category, and policy in the same organization and project.
+Store one member/default level per scope and replace the old level when it changes.
+OpenFGA does not enforce relationship cardinality or compare organization IDs across tuple paths.
+Application checks still enforce request-specific rules such as API scopes, reauthentication, verified domains, and the last-owner invariant.
+
+#### Dashboard authorization mirror
+
+Set `OPENFGA_SYNC_ENABLED=1` in `.env.local` for the web and Celery processes to mirror dashboard authorization.
+Bootstrap the OpenFGA store first, then backfill existing data with `python manage.py sync_openfga ORGANIZATION_UUID`, replacing `ORGANIZATION_UUID` with your organization's ID.
+You can set `OPENFGA_STORE_ID` and `OPENFGA_AUTHORIZATION_MODEL_ID` to pin the target store and model.
+Without these values, the client uses the named store and its latest model.
+
+AccessControl, dashboard, project, organization, organization-membership, role, and role-membership saves and deletes enqueue reconciliation after the database transaction commits.
+Dashboard soft deletion and restoration use the same hook.
+Legacy dashboard collaborator privileges also trigger reconciliation.
+Rolled-back transactions enqueue nothing.
+The worker retries failed reconciliations and reads current database state, so a delayed event does not replay an obsolete grant.
+The mirror covers project rules and dashboard category/object rules; other resource types, including insights, are not mirrored yet.
+
+The worker uses organization- and project-qualified tuple IDs and a per-organization lock.
+It deletes obsolete grants before writing replacements.
+Redis tracks a reconciliation revision: OpenFGA checks deny while a revision is pending or missing, and OpenFGA listings return an empty, incomplete result.
+A revision change during a check also invalidates that result.
+Legacy checks do not depend on these readiness keys.
+If retries run out, bulk writes bypass model signals, or Redis loses the readiness keys, run `sync_openfga` again.
+`QuerySet.update()`, `bulk_create()`, and `bulk_update()` do not emit Django model signals.
+
+This is a development/pilot integration, not a production authorization rollout.
+It reconciles the whole organization and scans the store to compute its tuple diff.
+Use incremental projections before enabling it broadly.
+Existing endpoints still use Django permissions until their checks move to the authorization facade.
+Post-commit task publishing is not a transactional outbox.
+Add durable change capture before using the facade as the sole authorization check.
+
+The `products.authz.backend.facade.api` decision methods use the `authz-rebac` multivariate feature flag:
+
+| Variant         | Authoritative result           | Comparison                     |
+| --------------- | ------------------------------ | ------------------------------ |
+| `v1`            | Existing Python access control | None                           |
+| `v1-shadow-log` | Existing Python access control | OpenFGA                        |
+| `v2`            | OpenFGA                        | Existing Python access control |
+
+Missing, disabled, boolean, or unknown flag values use `v1`.
+The flag evaluates locally with the organization ID as its distinct ID and organization group key.
+Only the organization's `id` property is supplied, so use organization-ID targeting for the pilot.
+Each organization in a batch gets its own evaluation; results retain the input order.
+Create the flag with these variant keys before testing a rollout.
+
+- `check` supports a single action or an ordered batch of requests.
+- `permissions` uses the same routed checks to return the supported actions the user can take.
+- `list_resources` returns authorized dashboard IDs scoped to the requested project.
+  Legacy mode evaluates the project's dashboards with the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
+  A supplied limit returns an empty, incomplete result if exceeded.
+- `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
+
+The pilot supports dashboards, dashboard categories, projects, organizations, and roles.
+It does not replace API scope checks, reauthentication, or other request-specific enforcement.
+Shadow comparisons run synchronously after the authoritative check.
+`authz_decision_comparison` logs both decisions, whether they match, the rollout mode, and the user/resource identifiers.
+`authz_resource_list_comparison` logs counts, completeness, and whether the results match, without logging the returned IDs.
+A failed comparison logs an error type and a comparison with `matches=null`; it does not change the authoritative result.
+An authoritative error propagates without falling back to the other engine.
+Optimize the legacy dashboard scan and shadow-check latency before using this path broadly.
+
+These methods require an explicit `Subject(user_id=...)`.
+Request-context overrides and non-user principals are not wired yet and raise rather than being ignored.
+The relationship-write, subject-listing, and explanation methods remain unimplemented.
+Use the existing AccessControl write APIs as the database source of truth.
+
+Run the real-server integration tests against the local OpenFGA service:
+
+```bash
+OPENFGA_API_URL=http://127.0.0.1:8080 hogli test products/authz/backend/tests/openfga_e2e.py
+```
+
+The tests create and delete their own store and upload the checked-in JSON model.
+They run the post-commit Celery task eagerly and exercise rule CRUD, role membership changes, member-over-role precedence, scoped dashboard listing, soft deletion, restoration, hard deletion, and rollback.
+The file runs explicitly because it requires a real OpenFGA service; ordinary pytest discovery does not collect it.
+The normal authz tests cover pending revisions and service failures without a live server.
+
 The session replay video export worker builds a Docker image on its first start, then reuses the cached image. It runs in development mode to accept Django's default development key. The launcher translates HTTP loopback storage URLs to `host.docker.internal`, preserving optional ports and paths. It maps that hostname to Docker's host gateway so the container can reach host object storage on native Linux too. A worker startup failure returns a nonzero exit code.
 
 ### Setting environment variables

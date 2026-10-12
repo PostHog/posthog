@@ -126,6 +126,7 @@ PRODUCTS_APPS = [
     "products.security.backend.apps.SecurityConfig",
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
+    "products.authz.backend.apps.AuthzConfig",
 ]
 
 INSTALLED_APPS = [

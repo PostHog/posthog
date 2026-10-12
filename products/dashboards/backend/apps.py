@@ -14,4 +14,4 @@ class DashboardsConfig(AppConfig):
         # pulls that, so a process that never builds the router (celery, temporal, migrate) would
         # drop audit logs on dashboard writes. They live in a light activity_logging module because
         # the dashboard viewset pulls scipy via the error-tracking widget query runners.
-        from products.dashboards.backend import activity_logging  # noqa: F401, PLC0415
+        from products.dashboards.backend import activity_logging, authorization_signals  # noqa: F401, PLC0415

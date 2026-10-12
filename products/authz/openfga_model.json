@@ -1,0 +1,3063 @@
+{
+    "schema_version": "1.1",
+    "type_definitions": [
+        {
+            "metadata": {
+                "relations": {
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_view": {},
+                    "identity": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user"
+                            }
+                        ]
+                    },
+                    "organization": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "organization"
+                            }
+                        ]
+                    }
+                }
+            },
+            "relations": {
+                "can_delete": {
+                    "difference": {
+                        "base": {
+                            "computedUserset": {
+                                "relation": "identity"
+                            }
+                        },
+                        "subtract": {
+                            "tupleToUserset": {
+                                "computedUserset": {
+                                    "relation": "member"
+                                },
+                                "tupleset": {
+                                    "relation": "organization"
+                                }
+                            }
+                        }
+                    }
+                },
+                "can_edit": {
+                    "computedUserset": {
+                        "relation": "identity"
+                    }
+                },
+                "can_view": {
+                    "computedUserset": {
+                        "relation": "identity"
+                    }
+                },
+                "identity": {
+                    "this": {}
+                },
+                "organization": {
+                    "this": {}
+                }
+            },
+            "type": "user"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "access_control_enabled": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "admin": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "can_create_project": {},
+                    "can_create_role": {},
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_invite_admin": {},
+                    "can_invite_member": {},
+                    "can_invite_owner": {},
+                    "can_list_members": {},
+                    "can_manage_access": {},
+                    "can_manage_billing": {},
+                    "can_manage_owners": {},
+                    "can_view": {},
+                    "member": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "members_can_create_projects": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "members_can_invite": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "members_can_see_members": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "owner": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "role_based_access_enabled": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    }
+                }
+            },
+            "relations": {
+                "access_control_enabled": {
+                    "this": {}
+                },
+                "admin": {
+                    "union": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "owner"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_create_project": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "admin"
+                                }
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "members_can_create_projects"
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_create_role": {
+                    "computedUserset": {
+                        "relation": "admin"
+                    }
+                },
+                "can_delete": {
+                    "computedUserset": {
+                        "relation": "owner"
+                    }
+                },
+                "can_edit": {
+                    "computedUserset": {
+                        "relation": "admin"
+                    }
+                },
+                "can_invite_admin": {
+                    "computedUserset": {
+                        "relation": "admin"
+                    }
+                },
+                "can_invite_member": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "admin"
+                                }
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "members_can_invite"
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_invite_owner": {
+                    "computedUserset": {
+                        "relation": "owner"
+                    }
+                },
+                "can_list_members": {
+                    "computedUserset": {
+                        "relation": "member"
+                    }
+                },
+                "can_manage_access": {
+                    "computedUserset": {
+                        "relation": "admin"
+                    }
+                },
+                "can_manage_billing": {
+                    "computedUserset": {
+                        "relation": "admin"
+                    }
+                },
+                "can_manage_owners": {
+                    "computedUserset": {
+                        "relation": "owner"
+                    }
+                },
+                "can_view": {
+                    "computedUserset": {
+                        "relation": "member"
+                    }
+                },
+                "member": {
+                    "union": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "admin"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "members_can_create_projects": {
+                    "this": {}
+                },
+                "members_can_invite": {
+                    "this": {}
+                },
+                "members_can_see_members": {
+                    "this": {}
+                },
+                "owner": {
+                    "this": {}
+                },
+                "role_based_access_enabled": {
+                    "this": {}
+                }
+            },
+            "type": "organization"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "can_change_level": {},
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_make_owner": {},
+                    "can_view": {},
+                    "is_owner": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "organization": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "organization"
+                            }
+                        ]
+                    },
+                    "project": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "project"
+                            }
+                        ]
+                    },
+                    "user": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user"
+                            }
+                        ]
+                    }
+                }
+            },
+            "relations": {
+                "can_change_level": {
+                    "difference": {
+                        "base": {
+                            "union": {
+                                "child": [
+                                    {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "owner"
+                                            },
+                                            "tupleset": {
+                                                "relation": "organization"
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "difference": {
+                                            "base": {
+                                                "tupleToUserset": {
+                                                    "computedUserset": {
+                                                        "relation": "admin"
+                                                    },
+                                                    "tupleset": {
+                                                        "relation": "organization"
+                                                    }
+                                                }
+                                            },
+                                            "subtract": {
+                                                "computedUserset": {
+                                                    "relation": "is_owner"
+                                                }
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "subtract": {
+                            "computedUserset": {
+                                "relation": "user"
+                            }
+                        }
+                    }
+                },
+                "can_delete": {
+                    "union": {
+                        "child": [
+                            {
+                                "difference": {
+                                    "base": {
+                                        "computedUserset": {
+                                            "relation": "user"
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "is_owner"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "can_change_level"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_edit": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "user"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "can_change_level"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_make_owner": {
+                    "difference": {
+                        "base": {
+                            "tupleToUserset": {
+                                "computedUserset": {
+                                    "relation": "owner"
+                                },
+                                "tupleset": {
+                                    "relation": "organization"
+                                }
+                            }
+                        },
+                        "subtract": {
+                            "computedUserset": {
+                                "relation": "user"
+                            }
+                        }
+                    }
+                },
+                "can_view": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "user"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "admin"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "member"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "organization"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "union": {
+                                                "child": [
+                                                    {
+                                                        "tupleToUserset": {
+                                                            "computedUserset": {
+                                                                "relation": "members_can_see_members"
+                                                            },
+                                                            "tupleset": {
+                                                                "relation": "organization"
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        "tupleToUserset": {
+                                                            "computedUserset": {
+                                                                "relation": "member"
+                                                            },
+                                                            "tupleset": {
+                                                                "relation": "project"
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "member"
+                                            },
+                                            "tupleset": {
+                                                "relation": "organization"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "access_control_enabled"
+                                            },
+                                            "tupleset": {
+                                                "relation": "organization"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "is_owner": {
+                    "this": {}
+                },
+                "organization": {
+                    "this": {}
+                },
+                "project": {
+                    "this": {}
+                },
+                "user": {
+                    "this": {}
+                }
+            },
+            "type": "organization_member"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "assignee": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_manage_access": {},
+                    "can_view": {},
+                    "member": {},
+                    "organization": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "organization"
+                            }
+                        ]
+                    }
+                }
+            },
+            "relations": {
+                "assignee": {
+                    "this": {}
+                },
+                "can_delete": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "admin"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "can_edit": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "admin"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "can_manage_access": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "admin"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "can_view": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "member"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "member": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "assignee"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "organization": {
+                    "this": {}
+                }
+            },
+            "type": "role"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "access_control_enabled": {},
+                    "admin": {},
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_manage_access": {},
+                    "can_view": {},
+                    "creator": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "default_admin": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "default_member": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "default_none": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "default_override": {},
+                    "default_owner": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "has_rule": {},
+                    "member": {},
+                    "member_admin": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_member": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_none": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_override": {},
+                    "member_owner": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "org_admin": {},
+                    "org_member": {},
+                    "organization": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "organization"
+                            }
+                        ]
+                    },
+                    "owner": {},
+                    "role_admin": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_member": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_none": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_override": {},
+                    "role_owner": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "rule_admin": {},
+                    "rule_member": {}
+                }
+            },
+            "relations": {
+                "access_control_enabled": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "access_control_enabled"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "admin": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "org_admin"
+                                }
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "org_member"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "access_control_enabled"
+                                            }
+                                        },
+                                        {
+                                            "union": {
+                                                "child": [
+                                                    {
+                                                        "computedUserset": {
+                                                            "relation": "rule_admin"
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "org_member"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "has_rule"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_delete": {
+                    "computedUserset": {
+                        "relation": "admin"
+                    }
+                },
+                "can_edit": {
+                    "computedUserset": {
+                        "relation": "admin"
+                    }
+                },
+                "can_manage_access": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "org_admin"
+                                }
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member"
+                                            }
+                                        },
+                                        {
+                                            "union": {
+                                                "child": [
+                                                    {
+                                                        "computedUserset": {
+                                                            "relation": "creator"
+                                                        }
+                                                    },
+                                                    {
+                                                        "intersection": {
+                                                            "child": [
+                                                                {
+                                                                    "computedUserset": {
+                                                                        "relation": "rule_admin"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "computedUserset": {
+                                                                        "relation": "access_control_enabled"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_view": {
+                    "computedUserset": {
+                        "relation": "member"
+                    }
+                },
+                "creator": {
+                    "this": {}
+                },
+                "default_admin": {
+                    "this": {}
+                },
+                "default_member": {
+                    "this": {}
+                },
+                "default_none": {
+                    "this": {}
+                },
+                "default_override": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "default_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_member"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_owner"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "default_owner": {
+                    "this": {}
+                },
+                "has_rule": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_override"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_override"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_override"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "member": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "org_admin"
+                                }
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "org_member"
+                                            }
+                                        },
+                                        {
+                                            "union": {
+                                                "child": [
+                                                    {
+                                                        "intersection": {
+                                                            "child": [
+                                                                {
+                                                                    "computedUserset": {
+                                                                        "relation": "rule_member"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "computedUserset": {
+                                                                        "relation": "access_control_enabled"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "org_member"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "access_control_enabled"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "org_member"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "has_rule"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "member_admin": {
+                    "this": {}
+                },
+                "member_member": {
+                    "this": {}
+                },
+                "member_none": {
+                    "this": {}
+                },
+                "member_override": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_member"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_owner"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "member_owner": {
+                    "this": {}
+                },
+                "org_admin": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "admin"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "org_member": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "member"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "organization": {
+                    "this": {}
+                },
+                "owner": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "org_admin"
+                                }
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "org_member"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "access_control_enabled"
+                                            }
+                                        },
+                                        {
+                                            "union": {
+                                                "child": [
+                                                    {
+                                                        "computedUserset": {
+                                                            "relation": "member_owner"
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "role_owner"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "member_override"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "default_owner"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "union": {
+                                                                    "child": [
+                                                                        {
+                                                                            "computedUserset": {
+                                                                                "relation": "member_override"
+                                                                            }
+                                                                        },
+                                                                        {
+                                                                            "computedUserset": {
+                                                                                "relation": "role_override"
+                                                                            }
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_admin": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_member": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_none": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_override": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "role_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_member"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_owner"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_owner": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "rule_admin": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_owner"
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "union": {
+                                            "child": [
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "role_admin"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "role_owner"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "member_override"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "union": {
+                                            "child": [
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "default_admin"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "default_owner"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "subtract": {
+                                        "union": {
+                                            "child": [
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "member_override"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "role_override"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "rule_member": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_member"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_owner"
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "union": {
+                                            "child": [
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "role_member"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "role_admin"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "role_owner"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "member_override"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "union": {
+                                            "child": [
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "default_member"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "default_admin"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "default_owner"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "subtract": {
+                                        "union": {
+                                            "child": [
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "member_override"
+                                                    }
+                                                },
+                                                {
+                                                    "computedUserset": {
+                                                        "relation": "role_override"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "project"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "default_editor": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "default_manager": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "default_none": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "default_override": {},
+                    "default_viewer": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "editor": {},
+                    "has_rule": {},
+                    "manager": {},
+                    "member_editor": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_manager": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_none": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "member_override": {},
+                    "member_viewer": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "organization": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "organization"
+                            }
+                        ]
+                    },
+                    "role_editor": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_manager": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_none": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_override": {},
+                    "role_viewer": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "member",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "viewer": {}
+                }
+            },
+            "relations": {
+                "default_editor": {
+                    "this": {}
+                },
+                "default_manager": {
+                    "this": {}
+                },
+                "default_none": {
+                    "this": {}
+                },
+                "default_override": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "default_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_manager"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "default_viewer": {
+                    "this": {}
+                },
+                "editor": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_editor"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_manager"
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "union": {
+                                                        "child": [
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_editor"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_manager"
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "member_override"
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "union": {
+                                                        "child": [
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "default_editor"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "default_manager"
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "union": {
+                                                        "child": [
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "member_override"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_override"
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "has_rule"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_rule": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_override"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "role_override"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "default_override"
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "access_control_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "manager": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_manager"
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "computedUserset": {
+                                                        "relation": "role_manager"
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "member_override"
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "computedUserset": {
+                                                        "relation": "default_manager"
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "union": {
+                                                        "child": [
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "member_override"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_override"
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "has_rule"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "member_editor": {
+                    "this": {}
+                },
+                "member_manager": {
+                    "this": {}
+                },
+                "member_none": {
+                    "this": {}
+                },
+                "member_override": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_manager"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "member_viewer": {
+                    "this": {}
+                },
+                "organization": {
+                    "this": {}
+                },
+                "role_editor": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_manager": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_none": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_override": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "role_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_manager"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "role_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "role_based_access_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_viewer"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_editor"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_manager"
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "union": {
+                                                        "child": [
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_viewer"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_editor"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_manager"
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "member_override"
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "union": {
+                                                        "child": [
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "default_viewer"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "default_editor"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "default_manager"
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "union": {
+                                                        "child": [
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "member_override"
+                                                                }
+                                                            },
+                                                            {
+                                                                "computedUserset": {
+                                                                    "relation": "role_override"
+                                                                }
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "has_rule"
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "access_policy"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "can_create": {},
+                    "can_list": {},
+                    "can_manage_access": {},
+                    "can_view": {},
+                    "editor": {},
+                    "has_rule": {},
+                    "manager": {},
+                    "policy": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "access_policy"
+                            }
+                        ]
+                    },
+                    "project": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "project"
+                            }
+                        ]
+                    },
+                    "viewer": {}
+                }
+            },
+            "relations": {
+                "can_create": {
+                    "computedUserset": {
+                        "relation": "editor"
+                    }
+                },
+                "can_list": {
+                    "computedUserset": {
+                        "relation": "viewer"
+                    }
+                },
+                "can_manage_access": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "manager"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "can_manage_access"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_view": {
+                    "computedUserset": {
+                        "relation": "viewer"
+                    }
+                },
+                "editor": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "editor"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "member"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "project"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
+                },
+                "manager": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "manager"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy": {
+                    "this": {}
+                },
+                "project": {
+                    "this": {}
+                },
+                "viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "viewer"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "member"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "project"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "resource_category"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_manage_access": {},
+                    "can_share": {},
+                    "can_view": {},
+                    "category": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "resource_category"
+                            }
+                        ]
+                    },
+                    "collaborator": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "creator": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "editor": {},
+                    "has_rule": {},
+                    "legacy_editor": {},
+                    "manager": {},
+                    "policy": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "access_policy"
+                            }
+                        ]
+                    },
+                    "project": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "project"
+                            }
+                        ]
+                    },
+                    "restricted": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "viewer": {}
+                }
+            },
+            "relations": {
+                "can_delete": {
+                    "computedUserset": {
+                        "relation": "can_edit"
+                    }
+                },
+                "can_edit": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "legacy_editor"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_manage_access": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "manager"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "can_manage_access"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_share": {
+                    "computedUserset": {
+                        "relation": "can_edit"
+                    }
+                },
+                "can_view": {
+                    "computedUserset": {
+                        "relation": "viewer"
+                    }
+                },
+                "category": {
+                    "this": {}
+                },
+                "collaborator": {
+                    "this": {}
+                },
+                "creator": {
+                    "this": {}
+                },
+                "editor": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "editor"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "editor"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "category"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
+                },
+                "legacy_editor": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "creator"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "admin"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "collaborator"
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "member"
+                                            },
+                                            "tupleset": {
+                                                "relation": "project"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "restricted"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "manager": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "manager"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "manager"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "category"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy": {
+                    "this": {}
+                },
+                "project": {
+                    "this": {}
+                },
+                "restricted": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "this": {}
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "access_control_enabled"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "viewer"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "category"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "dashboard"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_manage_access": {},
+                    "can_share": {},
+                    "can_view": {},
+                    "category": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "resource_category"
+                            }
+                        ]
+                    },
+                    "creator": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "dashboard": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "dashboard"
+                            }
+                        ]
+                    },
+                    "editor": {},
+                    "has_dashboard": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "user",
+                                "wildcard": {}
+                            }
+                        ]
+                    },
+                    "has_rule": {},
+                    "legacy_editor": {},
+                    "manager": {},
+                    "policy": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "access_policy"
+                            }
+                        ]
+                    },
+                    "project": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "project"
+                            }
+                        ]
+                    },
+                    "viewer": {}
+                }
+            },
+            "relations": {
+                "can_delete": {
+                    "computedUserset": {
+                        "relation": "can_edit"
+                    }
+                },
+                "can_edit": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "legacy_editor"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_manage_access": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "manager"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "can_manage_access"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_share": {
+                    "computedUserset": {
+                        "relation": "can_edit"
+                    }
+                },
+                "can_view": {
+                    "computedUserset": {
+                        "relation": "viewer"
+                    }
+                },
+                "category": {
+                    "this": {}
+                },
+                "creator": {
+                    "this": {}
+                },
+                "dashboard": {
+                    "this": {}
+                },
+                "editor": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "editor"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "editor"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "category"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_dashboard": {
+                    "this": {}
+                },
+                "has_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
+                },
+                "legacy_editor": {
+                    "union": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "legacy_editor"
+                                    },
+                                    "tupleset": {
+                                        "relation": "dashboard"
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "member"
+                                            },
+                                            "tupleset": {
+                                                "relation": "project"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_dashboard"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "manager": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "manager"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "manager"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "category"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy": {
+                    "this": {}
+                },
+                "project": {
+                    "this": {}
+                },
+                "viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "viewer"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "category"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "insight"
+        }
+    ]
+}
