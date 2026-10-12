@@ -2,7 +2,6 @@ from celery import shared_task
 
 from products.review_hog.backend.automatic_reviews import AuthoredPRReview
 from products.review_hog.backend.label_reviews import LabelReview
-from products.review_hog.backend.pull_request_events import LEGACY_REVIEW_LABEL
 
 
 @shared_task(
@@ -61,8 +60,6 @@ def process_label_event(
     head_branch: str,
     labeler_login: str,
     labeled_by_bot: bool,
-    # Messages queued by an older deploy omit label_name, and those came only from the legacy label.
-    label_name: str = LEGACY_REVIEW_LABEL,
 ) -> None:
     LabelReview(
         installation_id=installation_id,
@@ -71,7 +68,6 @@ def process_label_event(
         pr_number=pr_number,
         author_login=author_login,
         head_branch=head_branch,
-        label_name=label_name,
         labeler_login=labeler_login,
         labeled_by_bot=labeled_by_bot,
     ).start()

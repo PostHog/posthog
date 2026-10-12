@@ -253,7 +253,6 @@ class TestAuthoredPRWebhook(SimpleTestCase):
                 pr_number=42,
                 author_login="octocat",
                 head_branch="feature",
-                label_name=label,
                 labeler_login=sender,
                 labeled_by_bot=sender_type == "Bot",
             )
@@ -527,7 +526,8 @@ class TestLabelReviewTask(BaseTest):
             assert calls == []
         else:
             assert calls == [
-                ("DELETE", f"/repos/PostHog/posthog/issues/42/labels/{label}"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
 
@@ -535,7 +535,14 @@ class TestLabelReviewTask(BaseTest):
         queued = self._queued_event(_label_payload(sender="renovate[bot]", sender_type="Bot"))
         gone = GitHubAPIError("gone", status=404)
         # The second POST fails after GitHub stored the comment, so the third run finds it and skips.
-        self.github.side_effect = [GitHubAPIError("boom", status=502), gone, GitHubAPIError("boom", status=502), gone]
+        self.github.side_effect = [
+            GitHubAPIError("boom", status=502),
+            gone,
+            gone,
+            GitHubAPIError("boom", status=502),
+            gone,
+            gone,
+        ]
         posted = {"body": BOT_LABEL_COMMENT, "user": {"login": "posthog[bot]", "type": "Bot"}}
         self.github_comments.side_effect = [[], [posted]]
 
@@ -545,7 +552,7 @@ class TestLabelReviewTask(BaseTest):
         process_label_event.run(**queued)
 
         calls = [call.args[0] for call in self.github.call_args_list]
-        assert calls == ["DELETE", "DELETE", "POST", "DELETE"]
+        assert calls == ["DELETE", "DELETE", "DELETE", "POST", "DELETE", "DELETE"]
         self.start.assert_not_called()
 
     @parameterized.expand(

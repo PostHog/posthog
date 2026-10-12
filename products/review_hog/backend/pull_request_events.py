@@ -151,7 +151,6 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
         pr_number=event.pr_number,
         author_login=event.author_login,
         head_branch=event.head_branch,
-        label_name=event.label_name or REVIEW_LABEL,
         labeler_login=event.sender_login or "",
         labeled_by_bot=event.sender_is_bot,
     )
