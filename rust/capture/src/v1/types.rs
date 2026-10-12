@@ -22,10 +22,6 @@ pub enum Destination {
 }
 
 impl Destination {
-    pub fn is_analytics_pipeline(&self) -> bool {
-        matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
-    }
-
     pub fn pipeline(&self) -> Option<Pipeline> {
         match self {
             Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => {
@@ -104,24 +100,25 @@ pub trait Publishable: Send + Sync {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
+    use crate::event_restrictions::Pipeline;
     use crate::sinks::registry::Destination as V0Destination;
 
-    #[test]
-    fn is_analytics_pipeline_true_for_main_and_historical() {
-        assert!(Destination::AnalyticsMain.is_analytics_pipeline());
-        assert!(Destination::AnalyticsHistorical.is_analytics_pipeline());
-    }
-
-    #[test]
-    fn is_analytics_pipeline_false_for_non_analytics() {
-        assert!(!Destination::ExceptionErrorTracking.is_analytics_pipeline());
-        assert!(!Destination::HeatmapMain.is_analytics_pipeline());
-        assert!(!Destination::ClientIngestionWarning.is_analytics_pipeline());
-        assert!(!Destination::AiEvents.is_analytics_pipeline());
-        assert!(!Destination::AiEventsOverflow.is_analytics_pipeline());
-        assert!(!Destination::Overflow.is_analytics_pipeline());
-        assert!(!Destination::Dlq.is_analytics_pipeline());
-        assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
+    #[rstest::rstest]
+    #[case(Destination::AnalyticsMain, Some(Pipeline::Analytics))]
+    #[case(Destination::AnalyticsHistorical, Some(Pipeline::Analytics))]
+    #[case(Destination::Overflow, Some(Pipeline::Analytics))]
+    #[case(Destination::AiEvents, Some(Pipeline::Ai))]
+    #[case(Destination::AiEventsOverflow, Some(Pipeline::Ai))]
+    #[case(Destination::ExceptionErrorTracking, Some(Pipeline::ErrorTracking))]
+    #[case(Destination::HeatmapMain, None)]
+    #[case(Destination::ClientIngestionWarning, None)]
+    #[case(Destination::Dlq, None)]
+    #[case(Destination::Custom("admin_topic".into()), None)]
+    fn pipeline_classifies_every_destination(
+        #[case] destination: Destination,
+        #[case] expected: Option<Pipeline>,
+    ) {
+        assert_eq!(destination.pipeline(), expected);
     }
 
     /// Each v1 destination names the same routed slot as its v0 counterpart.
