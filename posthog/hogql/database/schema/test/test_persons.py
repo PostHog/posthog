@@ -45,7 +45,7 @@ from posthog.models.person.util import create_person
 from posthog.uuidt import UUIDT
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import recalculate_cohortpeople
+from products.cohorts.backend.models.util import insert_static_cohort, recalculate_cohortpeople
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
@@ -468,6 +468,32 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         # The cohort member is correctly returned
         assert len(response.results) == 1
         assert response.results[0][1] == "cohort_member@example.com"
+
+    def test_v2_join_finds_people_past_the_limit(self):
+        # Only the newest person is in the cohort. A LIMIT copied into the persons subquery keeps
+        # the two oldest people, so the join would find nobody.
+        people = [
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"join_{i}"],
+                created_at=datetime(2024, 1, 1 + i),
+                immediate=True,
+            )
+            for i in range(3)
+        ]
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        insert_static_cohort([people[2].uuid], cohort.pk, team_id=self.team.pk)
+
+        response = execute_hogql_query(
+            "SELECT persons.id FROM persons JOIN static_cohort_people AS s ON s.person_id = persons.id "
+            "ORDER BY created_at LIMIT 1",
+            self.team,
+            modifiers=self._v2_modifiers(),
+            pretty=False,
+        )
+
+        assert [str(row[0]) for row in response.results] == [str(people[2].uuid)]
 
     @parameterized.expand(
         [
