@@ -643,13 +643,16 @@ const TRIPWIRE_RULES = [
     // suite's tests run on a PR, so an under-selection can only mask conflicts
     // that suite's lanes already serialize: the snob shadow, its verdict, and
     // the testmon fanout list select Django tests, the dagster selector its
-    // own suite, and the playwright pair the E2E specs.
+    // own suite, the warehouse sources selector the vendor tests, and the
+    // playwright pair the E2E specs.
     ['tools/snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_selection_verdict.py', PYTHON],
     ['tools/test_test_selection_verdict.py', PYTHON],
     ['tools/dagster_test_selection.py', PYTHON],
     ['tools/test_dagster_test_selection.py', PYTHON],
+    ['tools/warehouse_sources_vendor_selection.py', PYTHON],
+    ['tools/test_warehouse_sources_vendor_selection.py', PYTHON],
     ['tools/testmon_high_fanout_files.txt', PYTHON],
     ['tools/playwright_spec_selection.py', FULLSTACK],
     ['tools/test_playwright_spec_selection.py', FULLSTACK],

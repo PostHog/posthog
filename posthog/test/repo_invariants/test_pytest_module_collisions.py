@@ -76,6 +76,7 @@ CI_SESSIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "tool:query-performance-ai": (("tools/query-performance-ai",), ()),
     "tool:pr-approval-agent": (("tools/pr-approval-agent",), ()),
     "tool:dependency-detection": (("bin/test",), ()),
+    "warehouse-sources": (("sources",), ()),
 }
 
 
