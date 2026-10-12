@@ -12,7 +12,7 @@ CONFLICT_KEY = "merge-conflict"
 # `@posthog <command>` lines belong to the pull request comment dispatcher (products/github_commands),
 # which also marks its replies. Neither is feedback for this loop, and acting on a command such as
 # `@posthog stamp` here would run it a second time.
-_DISPATCHER_COMMAND_LINE_RE = re.compile(r"^@posthog(?![\w-])", re.IGNORECASE)
+_DISPATCHER_COMMAND_LINE_RE = re.compile(r"^ {0,3}@posthog(?![\w-])", re.IGNORECASE)
 _DISPATCHER_REPLY_MARKER = "<!-- posthog-github-command:"
 
 

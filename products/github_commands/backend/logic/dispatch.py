@@ -69,6 +69,7 @@ DispatchOutcome = Literal[
     "unknown_command",
     "invalid_arguments",
     "unlinked",
+    "account_refused",
     "no_project",
     "pull_request_unavailable",
     "pull_request_unsupported",
@@ -157,7 +158,7 @@ def _admit(request: CommentCommandRequest, github: CommandGitHub | None) -> _Adm
     if not _within_rate_limit(request.commenter_github_id):
         return "rate_limited"
     if github is None:
-        github = InstallationGitHub.for_installation(request.installation_id)
+        github = InstallationGitHub.for_installation(request.installation_id, rolled_out_team_ids)
         if github is None:
             return "no_installation"
     try:
@@ -198,7 +199,8 @@ def _command_context(
     declaration = spec.declaration
     commenter = resolve_commenter(github_user_id=request.commenter_github_id, installation_id=request.installation_id)
     if not isinstance(commenter, Commenter):
-        return _Answer(outcome="unlinked", message=_UNRESOLVED_MESSAGES[commenter.reason])
+        outcome: DispatchOutcome = "account_refused" if commenter.reason == "refused" else "unlinked"
+        return _Answer(outcome=outcome, message=_UNRESOLVED_MESSAGES[commenter.reason])
     team_ids = tuple(team_id for team_id in commenter.team_ids if team_id in rolled_out_team_ids)
     if not team_ids:
         return _Answer(
@@ -243,6 +245,7 @@ _UNRESOLVED_MESSAGES = {
     "Connect GitHub in your PostHog personal settings, then comment again.",
     "ambiguous": "Your GitHub account is linked to more than one PostHog account, so I can't tell which to run this "
     "as. Disconnect GitHub from the accounts you don't use, then comment again.",
+    "refused": "I can't run commands for your PostHog account.",
 }
 
 

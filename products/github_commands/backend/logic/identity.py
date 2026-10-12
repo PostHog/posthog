@@ -18,6 +18,10 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
+from products.security.backend.facade.api import access_refused
+from products.security.backend.facade.contracts import SubjectInput
+from products.security.backend.facade.enums import Surface
+
 
 @frozen
 class Commenter:
@@ -29,7 +33,7 @@ class Commenter:
 
 @frozen
 class UnresolvedCommenter:
-    reason: Literal["unlinked", "ambiguous"]
+    reason: Literal["unlinked", "ambiguous", "refused"]
 
 
 def resolve_commenter(*, github_user_id: int, installation_id: str) -> Commenter | UnresolvedCommenter:
@@ -41,6 +45,11 @@ def resolve_commenter(*, github_user_id: int, installation_id: str) -> Commenter
         # with its access, so neither may.
         return UnresolvedCommenter(reason="ambiguous")
     user = User.objects.get(id=next(iter(user_ids)))
+    # The same rule that refuses the account's logins and API keys refuses its commands.
+    if access_refused(
+        SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="github_command"
+    ):
+        return UnresolvedCommenter(reason="refused")
     return Commenter(user_id=user.id, team_ids=_member_team_ids(user, installation_id))
 
 

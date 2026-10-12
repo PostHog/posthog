@@ -184,6 +184,21 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert outcome == "accepted"
 
+    def test_an_account_the_security_rules_refuse_runs_no_command(self) -> None:
+        # The rule that blocks the account's logins and API keys must also block its comment commands.
+        self._link_github_login()
+        github = FakeGitHub()
+
+        with (
+            patch("products.github_commands.backend.logic.identity.access_refused", return_value=True),
+            patch(REQUEST_STAMPHOG_REVIEW) as request_review,
+        ):
+            outcome = dispatch_comment_command(self._request(), github=github)
+
+        assert outcome == "account_refused"
+        request_review.assert_not_called()
+        assert "can't run commands" in github.replies[0]
+
     def test_a_comment_runs_at_most_once(self) -> None:
         self._link_github_login()
 

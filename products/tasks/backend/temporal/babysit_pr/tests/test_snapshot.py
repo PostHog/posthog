@@ -138,6 +138,7 @@ class TestPRSnapshotFromRaw(SimpleTestCase):
     @parameterized.expand(
         [
             ("command_only", "@posthog stamp", None),
+            ("indented_command", "   @posthog stamp", None),
             ("dispatcher_reply", "<!-- posthog-github-command:42 -->\n@octocat Stamphog is reviewing.", None),
             ("feedback_with_a_command", "Please rename `x`.\n@posthog review --deep", "Please rename `x`."),
             ("another_account", "@posthog-bot please rebase", "@posthog-bot please rebase"),

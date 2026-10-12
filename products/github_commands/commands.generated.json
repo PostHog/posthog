@@ -26,7 +26,10 @@
                 "verbatim": true
             },
             "refuses_forks": true,
-            "access": null,
+            "access": {
+                "resource": "loop",
+                "level": "editor"
+            },
             "usage": "@posthog loop <name>"
         },
         {
@@ -42,7 +45,10 @@
                 "verbatim": true
             },
             "refuses_forks": true,
-            "access": null,
+            "access": {
+                "resource": "task",
+                "level": "editor"
+            },
             "usage": "@posthog qa [<focus>]"
         },
         {
@@ -70,7 +76,10 @@
             ],
             "text": null,
             "refuses_forks": true,
-            "access": null,
+            "access": {
+                "resource": "review_hog",
+                "level": "editor"
+            },
             "usage": "@posthog review [--deep] [--no-resolve]"
         },
         {

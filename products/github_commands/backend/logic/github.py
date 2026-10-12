@@ -5,6 +5,7 @@ a lost acknowledgement must not stop a command or turn a run that started into a
 """
 
 import re
+from collections.abc import Collection
 from typing import Literal, Protocol
 
 import requests
@@ -51,9 +52,19 @@ class InstallationGitHub:
         self._client = client
 
     @classmethod
-    def for_installation(cls, installation_id: str) -> "InstallationGitHub | None":
-        # Every row on the installation mints the same installation token, so any one will do.
-        integration = Integration.objects.filter(kind="github", integration_id=installation_id).order_by("id").first()
+    def for_installation(cls, installation_id: str, team_ids: Collection[int]) -> "InstallationGitHub | None":
+        """A client on the installation, through the row of one of ``team_ids``.
+
+        Every row mints the same installation token, but minting saves the token on the row and a
+        failed refresh marks the row with an error. Passing the projects that turned commands on keeps
+        those writes off projects that never did. The project a command runs in is picked later.
+        """
+        # nosemgrep: github-installation-first-team -- any of the given projects serves, see the docstring
+        integration = (
+            Integration.objects.filter(kind="github", integration_id=installation_id, team_id__in=team_ids)
+            .order_by("id")
+            .first()
+        )
         if integration is None:
             return None
         return cls(GitHubIntegration(integration, source=_SOURCE))

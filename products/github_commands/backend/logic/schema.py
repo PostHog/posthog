@@ -235,6 +235,7 @@ REVIEW = CommandDeclaration(
     summary="Start a Standard review of this pull request.",
     args=ReviewArgs,
     dispatches_to="PostHog Review",
+    access=ResourceAccess(resource="review_hog", level="editor"),
 )
 STAMP = CommandDeclaration(
     verb="stamp",
@@ -249,12 +250,14 @@ QA = CommandDeclaration(
     summary="Run frontend QA on this pull request in PostHog Code and post a report.",
     args=QaArgs,
     dispatches_to="PostHog Code",
+    access=ResourceAccess(resource="task", level="editor"),
 )
 LOOP = CommandDeclaration(
     verb="loop",
     summary="Run one of your own Loops with this pull request as its input.",
     args=LoopArgs,
     dispatches_to="Loops",
+    access=ResourceAccess(resource="loop", level="editor"),
 )
 # Answered by dispatch itself: it needs no PostHog account, project or pull request state.
 HELP = CommandDeclaration(
