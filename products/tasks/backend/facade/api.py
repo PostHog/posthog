@@ -361,6 +361,7 @@ __all__ = [
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
+    "upload_task_run_artifacts",
     "start_task_run",
     "task_accessible_for_run_view",
     "task_channel_id",

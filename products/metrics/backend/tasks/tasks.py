@@ -27,3 +27,15 @@ HARD_TIME_LIMIT_GRACE_SECONDS = 60
 def finalize_metrics_dashboard_import(team_id: int, import_id: str) -> None:
     with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team_id):
         api.finalize_dashboard_import(team_id=team_id, import_id=import_id)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=FINALIZE_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=FINALIZE_SOFT_TIME_LIMIT_SECONDS + HARD_TIME_LIMIT_GRACE_SECONDS,
+)
+@with_team_scope()
+def check_metrics_dashboard_import_layout(team_id: int, import_id: str) -> None:
+    with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team_id):
+        api.check_dashboard_import_layout(team_id=team_id, import_id=import_id)

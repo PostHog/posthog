@@ -14,6 +14,8 @@ const COMPLETED_IMPORT: DashboardImportApi = {
     dashboard_name: 'Checkout service',
     phase: null,
     panel_progress: [],
+    layout_rounds: null,
+    layout_round: null,
     dashboard_id: 1,
     error: null,
     summary: { total: 6, imported: 3, approximated: 1, failed: 1, skipped: 1 },
@@ -79,6 +81,24 @@ export const ImportProgress: Story = {
     render: () => {
         useDelayedOnMountEffect(() => {
             metricsDashboardImportLogic.actions.openImport(RUNNING_IMPORT)
+        })
+
+        return <MetricsDashboardImportModal />
+    },
+}
+
+export const ImportCheckingLayout: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            metricsDashboardImportLogic.actions.openImport({
+                ...RUNNING_IMPORT,
+                source: 'screenshot',
+                phase: 'checking_layout',
+                layout_rounds: 3,
+                layout_round: 2,
+                dashboard_id: 1,
+                panel_progress: RUNNING_IMPORT.panel_progress.map((panel) => ({ ...panel, state: 'done' })),
+            })
         })
 
         return <MetricsDashboardImportModal />

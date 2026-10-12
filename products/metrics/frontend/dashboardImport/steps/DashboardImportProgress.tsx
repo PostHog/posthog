@@ -17,6 +17,7 @@ const PHASES: { key: DashboardImportPhaseEnumApi; label: string }[] = [
     { key: 'starting', label: 'Start agent' },
     { key: 'matching', label: 'Match panels' },
     { key: 'building', label: 'Build dashboard' },
+    { key: 'checking_layout', label: 'Check layout' },
 ]
 
 const PANEL_ICONS: Record<PanelProgressStateEnumApi, JSX.Element> = {
@@ -29,7 +30,10 @@ const PANEL_ICONS: Record<PanelProgressStateEnumApi, JSX.Element> = {
 export function DashboardImportProgress(): JSX.Element {
     const { currentImport } = useValues(metricsDashboardImportLogic)
     const phase = currentImport?.phase ?? 'starting'
-    const phaseIndex = PHASES.findIndex((item) => item.key === phase)
+    const layoutRounds = currentImport?.layout_rounds ?? null
+    const layoutRound = currentImport?.layout_round ?? 1
+    const phases = layoutRounds ? PHASES : PHASES.filter((item) => item.key !== 'checking_layout')
+    const phaseIndex = phases.findIndex((item) => item.key === phase)
     // Only the matching step has an agent at work. Before and after it, an unfinished panel just waits.
     const panels = (currentImport?.panel_progress ?? []).map((panel) =>
         phase !== 'matching' && panel.state === 'working' ? { ...panel, state: 'waiting' as const } : panel
@@ -41,7 +45,7 @@ export function DashboardImportProgress(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <ol className="flex items-center gap-2 m-0 p-0 list-none">
-                {PHASES.map((item, index) => (
+                {phases.map((item, index) => (
                     <li key={item.key} className="flex items-center gap-2 flex-1 last:flex-none">
                         <span
                             className={clsx(
@@ -58,11 +62,33 @@ export function DashboardImportProgress(): JSX.Element {
                             )}
                             {item.label}
                         </span>
-                        {index < PHASES.length - 1 && <span className="h-px flex-1 bg-border" />}
+                        {index < phases.length - 1 && <span className="h-px flex-1 bg-border" />}
                     </li>
                 ))}
             </ol>
-            {knowsTotal ? (
+            {phase === 'checking_layout' && layoutRounds ? (
+                <div className="flex flex-col gap-1.5">
+                    <div className="flex justify-between text-xs text-secondary">
+                        <span>Comparing the dashboard with your screenshot</span>
+                        <span translate="no">{`Check ${layoutRound} of ${layoutRounds}`}</span>
+                    </div>
+                    <div className="flex h-2 gap-1">
+                        {Array.from({ length: layoutRounds }, (_, index) => index + 1).map((check) => (
+                            <span
+                                key={check}
+                                className={clsx(
+                                    'flex-1 rounded',
+                                    check < layoutRound
+                                        ? 'bg-success'
+                                        : check === layoutRound
+                                          ? 'bg-success opacity-40 animate-pulse'
+                                          : 'bg-muted-alt opacity-40'
+                                )}
+                            />
+                        ))}
+                    </div>
+                </div>
+            ) : knowsTotal ? (
                 <div className="flex flex-col gap-1.5">
                     <div className="flex justify-between text-xs text-secondary">
                         <span>Panels ready</span>
@@ -73,6 +99,11 @@ export function DashboardImportProgress(): JSX.Element {
             ) : panels.length > 0 ? (
                 <div className="text-xs text-secondary" translate="no">
                     {`${settled} panels matched`}
+                </div>
+            ) : phase === 'matching' ? (
+                <div className="flex items-center gap-2 text-sm text-secondary">
+                    <Spinner className="text-base" />
+                    Reading the dashboard
                 </div>
             ) : null}
             {panels.length > 0 && (

@@ -1,6 +1,8 @@
-"""Grafana panel boxes mapped to the 12-column dashboard grid."""
+"""Tile boxes on the 12-column dashboard grid, from Grafana panel boxes or from boxes read in a screenshot."""
 
 from __future__ import annotations
+
+from posthog.dataclasses import frozen
 
 from products.metrics.backend.dashboard_import.spec import GRID_COLUMNS, GridLayout
 
@@ -55,3 +57,72 @@ class GridPacker:
     def start_band(self) -> None:
         """Make the next boxes start below every box placed so far, as a Grafana row does."""
         self._bottoms = [max(self._bottoms)] * GRID_COLUMNS
+
+
+@frozen
+class RequestedBox:
+    """A box that an agent read from a screenshot, with the smallest size its tile can have."""
+
+    key: str
+    layout: GridLayout
+    min_w: int = 1
+    min_h: int = 1
+
+
+def _fit_widths(wanted: list[int], minimums: list[int]) -> list[int]:
+    """Share the grid columns in proportion to the wanted widths. No width goes below its minimum."""
+    total = sum(wanted)
+    exact = [width * GRID_COLUMNS / total for width in wanted]
+    widths = [max(int(share), minimum) for share, minimum in zip(exact, minimums)]
+    by_remainder = sorted(range(len(widths)), key=lambda index: exact[index] - int(exact[index]), reverse=True)
+    while sum(widths) < GRID_COLUMNS:
+        for index in by_remainder:
+            if sum(widths) == GRID_COLUMNS:
+                break
+            widths[index] += 1
+    while sum(widths) > GRID_COLUMNS:
+        index = max((index for index in range(len(widths)) if widths[index] > minimums[index]), key=lambda i: widths[i])
+        widths[index] -= 1
+    return widths
+
+
+def _split_lines(row: list[RequestedBox]) -> list[list[RequestedBox]]:
+    """Split a row that is too wide into lines of about equal size, so that each line fits the grid."""
+    for count in range(1, len(row) + 1):
+        size = -(-len(row) // count)
+        lines = [row[start : start + size] for start in range(0, len(row), size)]
+        if all(sum(box.min_w for box in line) <= GRID_COLUMNS for line in lines):
+            return lines
+    return [[box] for box in row]
+
+
+def place_screenshot_boxes(boxes: list[RequestedBox]) -> dict[str, GridLayout]:
+    """Place the boxes of a screenshot so that no two overlap, and boxes in one row stay side by side.
+
+    An agent reads the boxes by eye, so a row can overlap or be wider than the grid after the minimum
+    sizes apply. Such a row shares the grid width in proportion to the widths the agent read, and a row
+    that cannot fit even at the minimum widths wraps onto more lines.
+    """
+    rows: dict[int, list[RequestedBox]] = {}
+    for box in sorted(boxes, key=lambda box: (box.layout.y, box.layout.x)):
+        rows.setdefault(max(box.layout.y, 0), []).append(box)
+    packer = GridPacker()
+    placed: dict[str, GridLayout] = {}
+    for row in rows.values():
+        widths = [min(max(box.layout.w, box.min_w), GRID_COLUMNS) for box in row]
+        if sum(widths) <= GRID_COLUMNS:
+            cursor = 0
+            for index, (box, width) in enumerate(zip(row, widths)):
+                # Keep the gap the agent read, but leave room for the boxes that follow in the row.
+                room = GRID_COLUMNS - sum(widths[index:])
+                left = min(max(box.layout.x, cursor), room)
+                placed[box.key] = packer.place(x=left, w=width, h=max(box.layout.h, box.min_h))
+                cursor = left + width
+            continue
+        for line in _split_lines(row):
+            fitted = _fit_widths([max(box.layout.w, 1) for box in line], [box.min_w for box in line])
+            cursor = 0
+            for box, width in zip(line, fitted):
+                placed[box.key] = packer.place(x=cursor, w=width, h=max(box.layout.h, box.min_h))
+                cursor += width
+    return placed

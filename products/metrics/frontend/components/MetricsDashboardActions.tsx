@@ -24,7 +24,13 @@ function importStatusLine(dashboardImport: DashboardImportApi): string {
         if (dashboardImport.phase === 'building') {
             return 'Building the dashboard'
         }
-        if (dashboardImport.phase === 'matching' && panels.length) {
+        if (dashboardImport.phase === 'checking_layout') {
+            return `Checking layout · ${dashboardImport.layout_round} of ${dashboardImport.layout_rounds}`
+        }
+        if (dashboardImport.phase === 'matching') {
+            if (!panels.length) {
+                return 'Matching panels'
+            }
             return dashboardImport.source === 'grafana'
                 ? `Matching panels · ${settled} of ${panels.length}`
                 : `Matching panels · ${settled} matched`

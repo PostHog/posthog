@@ -5,6 +5,7 @@ import pytest
 from products.metrics.backend.dashboard_import.display import map_color, map_thresholds, map_unit
 from products.metrics.backend.dashboard_import.grafana import GrafanaDashboardParser, GrafanaImportError, relative_date
 from products.metrics.backend.dashboard_import.grafana_variables import TemplateVariables
+from products.metrics.backend.dashboard_import.layout import RequestedBox, place_screenshot_boxes
 from products.metrics.backend.dashboard_import.promql_text import (
     combine_targets,
     drop_match_all_matchers,
@@ -471,3 +472,43 @@ def test_base_threshold_sits_below_every_other_step() -> None:
 
 def test_an_unknown_unit_is_dropped_with_a_note() -> None:
     assert map_unit("lengthmm") == (None, 'The unit "lengthmm" is not available, so the panel shows plain numbers.')
+
+
+def _box(key: str, x: int, y: int, w: int, h: int) -> RequestedBox:
+    return RequestedBox(key=key, layout=GridLayout(x=x, y=y, w=w, h=h), min_w=2, min_h=2)
+
+
+@pytest.mark.parametrize(
+    "boxes, expected",
+    [
+        pytest.param(
+            [_box(f"s{index}", index, 0, 1, 2) for index in range(8)],
+            {
+                **{f"s{index}": GridLayout(x=3 * index, y=0, w=3, h=2) for index in range(4)},
+                **{f"s{index}": GridLayout(x=3 * (index - 4), y=2, w=3, h=2) for index in range(4, 8)},
+            },
+            id="a_row_too_wide_at_the_minimum_width_wraps_evenly",
+        ),
+        pytest.param(
+            [_box("a", 0, 0, 8, 4), _box("b", 6, 0, 6, 2)],
+            {"a": GridLayout(x=0, y=0, w=7, h=4), "b": GridLayout(x=7, y=0, w=5, h=2)},
+            id="an_overlapping_row_shares_the_width",
+        ),
+        pytest.param(
+            [_box("a", 0, 0, 6, 4), _box("b", 6, 0, 6, 2), _box("c", 6, 2, 6, 2), _box("d", 3, 4, 4, 2)],
+            {
+                "a": GridLayout(x=0, y=0, w=6, h=4),
+                "b": GridLayout(x=6, y=0, w=6, h=2),
+                "c": GridLayout(x=6, y=2, w=6, h=2),
+                "d": GridLayout(x=3, y=4, w=4, h=2),
+            },
+            id="a_layout_that_fits_keeps_its_boxes",
+        ),
+    ],
+)
+def test_screenshot_boxes_never_overlap(boxes: list[RequestedBox], expected: dict[str, GridLayout]) -> None:
+    placed = place_screenshot_boxes(boxes)
+
+    assert placed == expected
+    layouts = list(placed.values())
+    assert not any(_overlaps(first, second) for i, first in enumerate(layouts) for second in layouts[i + 1 :])

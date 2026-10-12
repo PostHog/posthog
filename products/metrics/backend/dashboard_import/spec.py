@@ -147,6 +147,11 @@ class AgentPanel(_Model):
 class AgentImportOutput(_Model):
     dashboard_name: str = Field(description="A short name for the dashboard.")
     panels: list[AgentPanel]
+    layout_matches: bool = Field(
+        default=False,
+        description="Only in an answer to a picture of the built dashboard: true when the picture already "
+        "matches the screenshot, so no panel moves.",
+    )
 
 
 class TileDraft(_Model):
@@ -193,6 +198,8 @@ class ImportResult(_Model):
     error: str | None = None
     summary: ImportSummary
     panels: list[PanelVerdict]
+    # The dashboard tile of each panel key, so that a layout check can move the tiles.
+    tile_ids: dict[str, int] = Field(default_factory=dict)
 
 
 class PanelCheck(_Model):
@@ -202,12 +209,22 @@ class PanelCheck(_Model):
     ok: bool
 
 
+class LayoutCheck(_Model):
+    """A screenshot import sends the agent pictures of the built dashboard until the layout matches the screenshot."""
+
+    round: int = 0
+    # The agent answer that the latest round used, so that a repeated save of the same answer starts no round.
+    answer_digest: str = ""
+    done: bool = False
+
+
 class ImportState(_Model):
     """The value the import keeps under its key in the task state."""
 
     source: ImportSource
     user_id: int
     dashboard_name: str
+    named_by_user: bool = False
     date_from: str | None = None
     promql_available: bool
     spec: DashboardSpec | None = None
@@ -216,4 +233,5 @@ class ImportState(_Model):
     started_at: str
     finalizing_since: str | None = None
     checks: dict[str, PanelCheck] = Field(default_factory=dict)
+    layout_check: LayoutCheck | None = None
     result: ImportResult | None = None

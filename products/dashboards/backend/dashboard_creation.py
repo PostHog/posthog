@@ -1,9 +1,13 @@
-"""Create a dashboard and all of its tiles in one transaction, for a product that builds a dashboard for a user."""
+"""Create a dashboard and all of its tiles in one transaction, for a product that builds a dashboard for a user.
+
+The product can later move the tiles that it created, for example after it compared the dashboard with its source.
+"""
 
 from __future__ import annotations
 
 import hashlib
 from base64 import urlsafe_b64encode
+from collections.abc import Mapping
 from typing import Any
 
 from django.db import transaction
@@ -75,6 +79,8 @@ class CreatedDashboard:
     id: int
     insight_count: int
     text_tile_count: int
+    # In the order of `NewDashboard.tiles`.
+    tile_ids: tuple[int, ...] = ()
 
 
 def _insight_short_id(idempotency_key: str, index: int) -> str:
@@ -104,6 +110,7 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
 
     insight_count = 0
     text_tile_count = 0
+    tile_ids: list[int] = []
     with ActingUserContext(user), transaction.atomic():
         created = Dashboard.objects.create(
             team_id=team_id,
@@ -125,15 +132,43 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
                 )
                 if not was_created:
                     raise ValueError("A dashboard was already created with this idempotency key.")
-                DashboardTile.objects.create(
+                created_tile = DashboardTile.objects.create(
                     dashboard=created, team_id=team_id, insight_id=insight_id, layouts=_layouts(tile.layout)
                 )
                 insight_count += 1
             else:
                 text = Text.objects.create(team_id=team_id, body=tile.body, created_by=user, last_modified_by=user)
-                DashboardTile.objects.create(
+                created_tile = DashboardTile.objects.create(
                     dashboard=created, team_id=team_id, text=text, layouts=_layouts(tile.layout)
                 )
                 text_tile_count += 1
+            tile_ids.append(created_tile.id)
 
-    return CreatedDashboard(id=created.id, insight_count=insight_count, text_tile_count=text_tile_count)
+    return CreatedDashboard(
+        id=created.id, insight_count=insight_count, text_tile_count=text_tile_count, tile_ids=tuple(tile_ids)
+    )
+
+
+def move_dashboard_tiles(*, team_id: int, user_id: int, dashboard_id: int, layouts: Mapping[int, TileLayout]) -> int:
+    """Set the desktop box of tiles on a dashboard, as the user. Returns how many tiles moved.
+
+    Raises `DashboardCreationDenied` when the user cannot edit the dashboard. Ignores a tile id that
+    is not on the dashboard, or that is deleted.
+    """
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    dashboard = Dashboard.objects.filter(team_id=team_id, id=dashboard_id, deleted=False).first()
+    if dashboard is None:
+        return 0
+    if not UserAccessControl(user=user, team=team).check_access_level_for_object(dashboard, "editor"):
+        raise DashboardCreationDenied("You need editor access to this dashboard to move its tiles.")
+    moved = 0
+    with ActingUserContext(user), transaction.atomic():
+        tiles = DashboardTile.objects.filter(
+            team_id=team_id, dashboard_id=dashboard_id, id__in=list(layouts)
+        ).select_for_update()
+        for tile in tiles:
+            tile.layouts = _layouts(layouts[tile.id])
+            tile.save(update_fields=["layouts"])
+            moved += 1
+    return moved
