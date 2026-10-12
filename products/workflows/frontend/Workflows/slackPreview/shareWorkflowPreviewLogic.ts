@@ -120,8 +120,6 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
                 submit: () => true,
                 submitSuccess: () => false,
                 submitFailure: () => false,
-                openModal: () => false,
-                closeModal: () => false,
             },
         ],
     }),

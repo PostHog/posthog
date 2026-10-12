@@ -1,14 +1,16 @@
 import { BLANK_IMAGE, captureElementImage } from 'lib/utils/captureElementImage'
 
+import { sanitizeEmailForPreview } from './sanitizeEmailForPreview'
 import type { EmailStep } from './workflowPreviewOutline'
 
 const PREVIEW_WIDTH_PX = 640
 const MAX_PREVIEW_HEIGHT_PX = 6000
 const FRAME_LOAD_TIMEOUT_MS = 10000
 const MEASURING_HEIGHT_PX = 1
+const IMAGE_LOAD_TIMEOUT_MS = 5000
 
 export async function renderEmailPreviewPngBase64(step: EmailStep): Promise<string> {
-    const emailDocument = new DOMParser().parseFromString(step.html, 'text/html')
+    const emailDocument = sanitizeEmailForPreview(step.html)
     await inlineImages(emailDocument)
     emailDocument.body.prepend(buildInboxHeader(emailDocument, step))
 
@@ -83,8 +85,13 @@ async function loadAsDataUrl(source: string): Promise<string | null> {
 function drawToDataUrl(source: string): Promise<string | null> {
     return new Promise((resolve) => {
         const image = new Image()
+        const giveUp = setTimeout(() => {
+            image.onload = image.onerror = null
+            resolve(null)
+        }, IMAGE_LOAD_TIMEOUT_MS)
         image.crossOrigin = 'anonymous'
         image.onload = () => {
+            clearTimeout(giveUp)
             const canvas = document.createElement('canvas')
             canvas.width = image.naturalWidth
             canvas.height = image.naturalHeight
@@ -95,7 +102,10 @@ function drawToDataUrl(source: string): Promise<string | null> {
                 resolve(null)
             }
         }
-        image.onerror = () => resolve(null)
+        image.onerror = () => {
+            clearTimeout(giveUp)
+            resolve(null)
+        }
         image.src = source
     })
 }

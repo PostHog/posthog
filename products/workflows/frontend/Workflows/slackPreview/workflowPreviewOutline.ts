@@ -131,7 +131,7 @@ function describeBranch(action: HogFlowAction, edge: HogFlowEdge): string {
     if (action.type !== 'random_cohort_branch') {
         return label
     }
-    const percentage = action.config.cohorts[edge.index ?? 0]?.percentage
+    const percentage = action.config.cohorts?.[edge.index ?? 0]?.percentage
     return percentage === undefined ? label : `${label} (${percentage}%)`
 }
 

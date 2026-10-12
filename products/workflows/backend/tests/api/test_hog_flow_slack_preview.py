@@ -1,4 +1,5 @@
 import base64
+from urllib.error import URLError
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -144,16 +145,24 @@ class TestHogFlowSlackPreview(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_slack.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("slack_api_error", SlackApiError("failed", response={"error": "not_in_channel"}), "not_in_channel"),
+            ("upload_transport_error", URLError("connection reset"), "Could not reach Slack"),
+        ]
+    )
     @patch(SLACK_INTEGRATION_PATH)
-    def test_surfaces_slack_error_code(self, mock_slack: MagicMock) -> None:
+    def test_surfaces_slack_failures_as_bad_request(
+        self, _name: str, error: Exception, expected_detail: str, mock_slack: MagicMock
+    ) -> None:
         slack_client = mock_slack.return_value.client
         slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
-        slack_client.files_upload_v2.side_effect = SlackApiError("failed", response={"error": "not_in_channel"})
+        slack_client.files_upload_v2.side_effect = error
 
         response = self._share()
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not_in_channel" in response.json()["detail"]
+        assert expected_detail in response.json()["detail"]
 
 
 class TestSharePreviewToSlackRequestValidation(SimpleTestCase):
@@ -171,7 +180,22 @@ class TestSharePreviewToSlackRequestValidation(SimpleTestCase):
                 "emails",
             ),
             ("image_is_not_base64", {"emails": [{"title": "Hi", "image_base64": "%%%"}]}, "emails"),
-            ("too_many_emails", {"emails": [{"title": "Hi", "image_base64": PNG_BASE64}] * 21}, "emails"),
+            ("too_many_emails", {"emails": [{"title": "Hi", "image_base64": PNG_BASE64}] * 11}, "emails"),
+            (
+                "lookalike_host",
+                {"channel": None, "thread_link": "https://evilslack.com/archives/C0X/p1760000000123456"},
+                "thread_link",
+            ),
+            (
+                "plain_http_link",
+                {"channel": None, "thread_link": "http://acme.slack.com/archives/C0X/p1760000000123456"},
+                "thread_link",
+            ),
+            (
+                "malformed_thread_ts",
+                {"channel": None, "thread_link": "https://acme.slack.com/archives/C0X/p1760000000123456?thread_ts=abc"},
+                "thread_link",
+            ),
         ]
     )
     def test_rejects_invalid_request(self, _name: str, overrides: dict, error_field: str) -> None:

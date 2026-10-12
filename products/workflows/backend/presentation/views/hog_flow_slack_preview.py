@@ -23,14 +23,16 @@ from products.workflows.backend.facade.slack_preview import (
 )
 
 MAX_EMAIL_PREVIEW_BYTES = 2 * 1024 * 1024
-MAX_EMAIL_PREVIEWS = 20
+MAX_EMAIL_PREVIEWS = 10
+MAX_EMAIL_PREVIEW_BASE64_LENGTH = 4 * ((MAX_EMAIL_PREVIEW_BYTES + 2) // 3)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 class EmailPreviewImageSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=300, help_text="Caption shown under the image in Slack.")
     image_base64 = serializers.CharField(
-        help_text="The rendered email as a base64-encoded PNG, at most 2 MB once decoded."
+        max_length=MAX_EMAIL_PREVIEW_BASE64_LENGTH,
+        help_text="The rendered email as a base64-encoded PNG, at most 2 MB once decoded.",
     )
 
     def validate_image_base64(self, value: str) -> bytes:

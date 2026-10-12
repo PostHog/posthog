@@ -25,6 +25,7 @@ export function ShareWorkflowPreviewModal(props: ShareWorkflowPreviewLogicProps)
         <LemonModal
             isOpen={isOpen}
             onClose={closeModal}
+            closable={!isSubmitting}
             width={560}
             title="Share preview to Slack"
             description="Post this workflow's steps and an image of each email to Slack, so your team can review them before anything is sent."

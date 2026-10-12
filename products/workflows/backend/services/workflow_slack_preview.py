@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from urllib.parse import parse_qs, urlparse
 
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
+from slack_sdk.errors import SlackApiError, SlackClientError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -14,7 +14,8 @@ from posthog.utils import absolute_uri
 from products.workflows.backend.facade.contracts import WorkflowRef
 
 SLACK_REQUEST_TIMEOUT_SECONDS = 15
-_PERMALINK_PATH = re.compile(r"/archives/(?P<channel>[A-Z0-9]+)/p(?P<ts>\d{7,})")
+_PERMALINK_PATH = re.compile(r"/archives/(?P<channel>[A-Z0-9]+)/p(?P<ts>\d{7,})/?")
+_THREAD_TS = re.compile(r"\d+\.\d+")
 
 
 class WorkflowPreviewShareError(Exception):
@@ -45,12 +46,18 @@ def parse_slack_thread_link(link: str) -> SlackDestination | None:
         parsed = urlparse(link.strip())
     except ValueError:
         return None
-    match = _PERMALINK_PATH.search(parsed.path)
-    if not parsed.netloc.endswith("slack.com") or not match:
+    match = _PERMALINK_PATH.fullmatch(parsed.path)
+    if not match or not _is_slack_host(parsed.scheme, parsed.hostname):
         return None
-    reply_parent_ts = parse_qs(parsed.query).get("thread_ts", [None])[0]
     raw_ts = match.group("ts")
-    return SlackDestination(channel=match.group("channel"), thread_ts=reply_parent_ts or f"{raw_ts[:-6]}.{raw_ts[-6:]}")
+    thread_ts = parse_qs(parsed.query).get("thread_ts", [f"{raw_ts[:-6]}.{raw_ts[-6:]}"])[0]
+    if not _THREAD_TS.fullmatch(thread_ts):
+        return None
+    return SlackDestination(channel=match.group("channel"), thread_ts=thread_ts)
+
+
+def _is_slack_host(scheme: str, hostname: str | None) -> bool:
+    return scheme == "https" and hostname is not None and (hostname == "slack.com" or hostname.endswith(".slack.com"))
 
 
 def find_team_slack_integration(team: Team, integration_id: int) -> Integration | None:
@@ -73,6 +80,8 @@ def share_workflow_preview_to_slack(
     except SlackApiError as error:
         slack_error = (error.response.get("error") if error.response else None) or "unknown error"
         raise WorkflowPreviewShareError(f"Slack did not accept the preview ({slack_error})") from error
+    except (SlackClientError, OSError) as error:
+        raise WorkflowPreviewShareError("Could not reach Slack. Check the channel before you try again.") from error
 
 
 def _ensure_sharer_may_post_to(client: WebClient, integration: Integration, user: User, channel_id: str) -> None:
