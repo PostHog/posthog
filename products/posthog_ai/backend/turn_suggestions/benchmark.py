@@ -247,7 +247,11 @@ def load_cases(path: Path = CASES_PATH) -> list[BenchmarkCase]:
             raise ValueError(f"Duplicate benchmark case name: {raw['name']}")
         names.add(raw["name"])
         transcript = _transcript_from_case(raw)
-        available = available_offers(transcript, scouts_available=raw.get("scouts_available", True))
+        available = available_offers(
+            transcript,
+            scouts_available=raw.get("scouts_available", True),
+            workflows_available=raw.get("workflows_available", False),
+        )
         # Production never asks the judge about a turn with nothing to offer.
         if not available:
             raise ValueError(f"Benchmark case {raw['name']} has no offer its turn can make")

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useContext, useEffect } from 'react'
 
-import { IconBell, IconCalendar, IconNotebook, IconTelescope, IconWarning } from '@posthog/icons'
+import { IconBell, IconCalendar, IconDecisionTree, IconNotebook, IconTelescope, IconWarning } from '@posthog/icons'
 
 import { TurnSuggestionLogicProps, turnSuggestionLogic } from '../logics/turnSuggestionLogic'
 import type { TurnSuggestion } from '../types/streamTypes'
@@ -11,6 +11,8 @@ import { NotebookSuggestionCard } from './NotebookSuggestionCard'
 import { ScoutSuggestionCard } from './ScoutSuggestionCard'
 import { SubscriptionSuggestionCard } from './SubscriptionSuggestionCard'
 import { SuggestionCardShell } from './SuggestionCardShell'
+import { WorkflowSuggestionAvailabilityContext } from './WorkflowSuggestionAvailabilityContext'
+import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 
 const CARD_BY_KIND: Record<
     TurnSuggestion['kind'],
@@ -18,13 +20,16 @@ const CARD_BY_KIND: Record<
 > = {
     scout: { icon: <IconTelescope />, Body: ScoutSuggestionCard },
     notebook: { icon: <IconNotebook />, Body: NotebookSuggestionCard },
+    workflow: { icon: <IconDecisionTree />, Body: WorkflowSuggestionCard },
     alert: { icon: <IconBell />, Body: AlertSuggestionCard },
     subscription: { icon: <IconCalendar />, Body: SubscriptionSuggestionCard },
     error_alert: { icon: <IconWarning />, Body: ErrorAlertSuggestionCard },
 }
 
 export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.Element | null {
-    const logic = turnSuggestionLogic(logicProps)
+    const workflowBuilderAvailable = useContext(WorkflowSuggestionAvailabilityContext)
+    const cardProps = { ...logicProps, workflowBuilderAvailable }
+    const logic = turnSuggestionLogic(cardProps)
     const { suggestion, visible, completed, shownSuggestion } = useValues(logic)
     const { dismiss, reportShown } = useActions(logic)
 
@@ -47,7 +52,7 @@ export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.El
                 description={suggestion.description}
                 onDismiss={completed ? undefined : dismiss}
             >
-                <Body {...logicProps} />
+                <Body {...cardProps} />
             </SuggestionCardShell>
         </div>
     )

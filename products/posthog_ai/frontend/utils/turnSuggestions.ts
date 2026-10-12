@@ -1,3 +1,5 @@
+import { isValidWorkflowBrief } from 'lib/utils/workflowDraftHandoff'
+
 import {
     ALERT_DIRECTIONS,
     type AlertSuggestionDirection,
@@ -47,6 +49,7 @@ const TURN_SUGGESTION_KINDS: readonly TurnSuggestion['kind'][] = [
     'alert',
     'subscription',
     'error_alert',
+    'workflow',
 ]
 
 function parseScoutDraft(scout: PosthogTurnSuggestionParams['scout']): ScoutSuggestionDraft | null {
@@ -158,6 +161,12 @@ export function parseTurnSuggestionParams(params: unknown): TurnSuggestion | nul
         description,
     }
     switch (kind) {
+        case 'workflow': {
+            const prompt = drafts.workflow?.prompt
+            return typeof prompt === 'string' && isValidWorkflowBrief(prompt)
+                ? { ...base, kind, workflow: { prompt } }
+                : null
+        }
         case 'scout': {
             const scout = parseScoutDraft(drafts.scout)
             return scout ? { ...base, kind, scout } : null

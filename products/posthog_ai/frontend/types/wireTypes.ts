@@ -474,6 +474,7 @@ export interface PosthogTurnSuggestionParams {
     alert?: SuggestedInsightRefParams & { direction?: string; changePercent?: number }
     subscription?: SuggestedInsightRefParams & { cadence?: string }
     errorAlert?: { issueId?: string; issueName?: string }
+    workflow?: { prompt?: string }
 }
 
 export interface PosthogTurnSuggestionResolvedParams {

@@ -38,6 +38,20 @@ The thread hides empty and whitespace-only assistant messages during streaming a
 
 An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
 
+When `posthog-ai-turn-suggestions` is enabled, a completed chat turn can offer a workflow for an event-triggered automation.
+Workflow offers also require the AI-first workflow builder rollout (`workflows-ai-first-new`, enabled or `test`) and `phai-scene-auto-open`.
+The frontend hides workflow offers when the AI scene integration is off, including when the legacy AI view is selected. It does not read the `workflows-ai-first-new` variant, so a page load records no experiment exposure.
+The user edits the brief, opens the workflow builder, and sends it there to request a draft.
+The brief travels once through project-scoped session storage and remains unsent in the composer.
+The builder URL carries only a one-time `handoff` ID. Any other builder entry discards the stored brief, so it cannot attach to a later workflow.
+Accepting the suggestion creates or enables no workflow. Metric reports and aggregate thresholds still use scouts, subscriptions, or alerts.
+The workflow builder's viewed, submitted, and created events carry `source: ai_turn_suggestion`, the original `task_id`, `turn_index`, and the environment's `team_id`.
+The created event adds `workflow_id`, which joins to the existing `hog_flow_activated` event by `workflow_id` and `team_id` when the draft is enabled later. These events include no brief or prompt text.
+
+Run `python manage.py turn_suggestions_benchmark --jev-only` to measure suggestion selection against labeled, synthetic turns through the configured System One model.
+The benchmark requires `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Add `--category workflow` to run only workflow selection and rejection cases.
+Like production, a case offers no workflow unless it sets `workflows_available: true`. The workflow cases set it, so they also test whether another suggestion remains the better choice.
+
 The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.

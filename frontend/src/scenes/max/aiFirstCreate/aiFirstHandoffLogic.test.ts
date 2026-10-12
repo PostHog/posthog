@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -71,7 +72,26 @@ describe('aiFirstHandoffLogic', () => {
         logic?.unmount()
     })
 
-    // Otherwise the composer and the side panel show the same empty chat side by side.
+    it.each([undefined, 'Draft an onboarding reminder workflow.'])(
+        'opens the composer with the initial brief %s without submitting it',
+        async (initialPrompt) => {
+            logic.unmount()
+            logic = aiFirstHandoffLogic({
+                ...handoff(),
+                getInitialSeed: () => (initialPrompt ? { prompt: initialPrompt } : null),
+            })
+            logic.mount()
+            const seeds = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID })
+            seeds.mount()
+            seeds.actions.setSeed({ prompt: 'Unrelated unsent prompt', autoSubmit: false })
+
+            await expectLogic(logic, () => logic.actions.composerShown()).toFinishAllListeners()
+
+            expect(seeds.values.seed).toMatchObject({ prompt: initialPrompt ?? '', autoSubmit: false })
+            seeds.unmount()
+        }
+    )
+
     it('closes an open PostHog AI panel when the composer is shown', async () => {
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
 
@@ -81,6 +101,99 @@ describe('aiFirstHandoffLogic', () => {
 
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
+
+    it('attributes the builder funnel to its suggestion and clears attribution for the next composer', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const eventProperties = {
+            source: 'ai_turn_suggestion',
+            task_id: 'original-chat-task',
+            turn_index: 2,
+            team_id: '997',
+        }
+        let consumed = false
+        logic.unmount()
+        logic = aiFirstHandoffLogic({
+            ...handoff(),
+            getInitialSeed: () => {
+                if (consumed) {
+                    return null
+                }
+                consumed = true
+                return { prompt: 'Draft an onboarding reminder workflow.', eventProperties }
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        capture.mockClear()
+
+        await expectLogic(logic, () => logic.actions.composerShown()).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.setActiveCreation({ streamKey: 'draft-1' })
+            logic.actions.setActiveCreation({ streamKey: 'draft-1', taskId: 'builder-task' })
+            toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
+        }).toFinishAllListeners()
+
+        const builderEvents = (): unknown[][] =>
+            capture.mock.calls.filter(([event]) => typeof event === 'string' && event.startsWith('thing ai composer'))
+        expect(builderEvents()).toEqual([
+            ['thing ai composer viewed', eventProperties],
+            ['thing ai composer submitted', eventProperties],
+            ['thing ai composer created thing', { ...eventProperties, thing_id: CREATED_ID }],
+        ])
+
+        capture.mockClear()
+        await expectLogic(logic, () => logic.actions.composerShown()).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.setActiveCreation({ streamKey: 'unrelated-draft' })
+        ).toFinishAllListeners()
+        expect(builderEvents()).toEqual([
+            ['thing ai composer viewed', {}],
+            ['thing ai composer submitted', {}],
+        ])
+        capture.mockRestore()
+    })
+
+    it.each(['goBack', 'clearActiveCreation'] as const)(
+        'clears attribution on deliberate Back and preserves a failed submission retry with %s',
+        async (transition) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            const eventProperties = {
+                source: 'ai_turn_suggestion',
+                task_id: 'original-chat-task',
+                turn_index: 2,
+                team_id: '997',
+            }
+            logic.unmount()
+            logic = aiFirstHandoffLogic({
+                ...handoff(),
+                getInitialSeed: () => ({ prompt: 'Draft an onboarding reminder workflow.', eventProperties }),
+            })
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.composerShown()).toFinishAllListeners()
+            const panel = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+            await expectLogic(logic, () =>
+                panel.actions.setActiveCreation({ streamKey: 'draft-1' })
+            ).toFinishAllListeners()
+            capture.mockClear()
+
+            await expectLogic(logic, () => panel.actions[transition]()).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                panel.actions.setActiveCreation({ streamKey: 'draft-2' })
+                toolStreamEventsLogic.actions.emitToolEvent(createEvent({ streamKey: 'draft-2' }))
+            }).toFinishAllListeners()
+
+            const expectedProperties = transition === 'goBack' ? {} : eventProperties
+            expect(
+                capture.mock.calls.filter(
+                    ([event]) => typeof event === 'string' && event.startsWith('thing ai composer')
+                )
+            ).toEqual([
+                ['thing ai composer submitted', expectedProperties],
+                ['thing ai composer created thing', { ...expectedProperties, thing_id: CREATED_ID }],
+            ])
+            capture.mockRestore()
+        }
+    )
 
     // The composer is the panel's own instance, so an unsent panel prompt would show here. An empty seed clears it.
     it('empties the shared composer when the composer is shown', async () => {

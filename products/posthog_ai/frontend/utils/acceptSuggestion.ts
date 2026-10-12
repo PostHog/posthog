@@ -1,3 +1,10 @@
+import { combineUrl } from 'kea-router'
+
+import {
+    WORKFLOW_BRIEF_HANDOFF_PARAM,
+    WorkflowDraftEventProperties,
+    storeWorkflowDraftBrief,
+} from 'lib/utils/workflowDraftHandoff'
 import { getInsightId } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -35,7 +42,9 @@ export interface AcceptOutcome {
 
 export interface AcceptInput {
     suggestion: TurnSuggestion
+    sessionId: string
     projectId: number
+    teamId: number
     userId: number | undefined
     slackIntegrationId: number | null
     slackChannel: string | null
@@ -45,6 +54,7 @@ export interface AcceptInput {
     changePercent: number
     notebookTitle: string
     conversationBlocks: ConversationBlocks
+    workflowPrompt: string
 }
 
 function slackDestination(input: AcceptInput): SlackDestinationInput {
@@ -67,6 +77,22 @@ export async function acceptSuggestion(input: AcceptInput): Promise<AcceptOutcom
     const { suggestion, cadence } = input
     const projectId = String(input.projectId)
     switch (suggestion.kind) {
+        case 'workflow': {
+            const eventProperties: WorkflowDraftEventProperties = {
+                source: 'ai_turn_suggestion',
+                task_id: input.sessionId,
+                turn_index: suggestion.turnIndex,
+                team_id: String(input.teamId),
+            }
+            const handoffId = storeWorkflowDraftBrief(input.projectId, input.workflowPrompt, eventProperties)
+            return {
+                accepted: {
+                    url: combineUrl(urls.workflowNew(), { mode: 'ai', [WORKFLOW_BRIEF_HANDOFF_PARAM]: handoffId }).url,
+                    slackConnected: true,
+                },
+                eventProperties,
+            }
+        }
         case 'scout': {
             const created = await signalsScoutCreate(
                 projectId,
