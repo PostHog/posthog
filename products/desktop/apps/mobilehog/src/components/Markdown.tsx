@@ -37,7 +37,7 @@ function openLink(href: string): void {
 }
 
 // Kinds without a page in PostHog read as plain text.
-function ObjectChip({ target }: { target: ObjectTagRef }) {
+function ObjectChip({ target }: { target: ObjectTagRef }): ReactNode {
   const url = useObjectUrl(target.kind, target.id);
   return url ? (
     <Text style={styles.chip} onPress={() => openObjectUrl(url)}>

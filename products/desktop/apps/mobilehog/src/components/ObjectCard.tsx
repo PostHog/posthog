@@ -1,6 +1,6 @@
 import { getObjectKind } from "@posthog/core/inbox/objectTags";
 import { isSafeExternalUrl } from "@posthog/shared";
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text } from "react-native";
 import { useAuth } from "@/lib/auth";
 import { type ObjectCardSpec, objectWebUrl } from "@/lib/objectTags";
@@ -25,7 +25,13 @@ function meta(kind: string): string {
   return `${kindLabel} · ${source}`;
 }
 
-function InsightCard({ shortId, title }: { shortId: string; title?: string }) {
+function InsightCard({
+  shortId,
+  title,
+}: {
+  shortId: string;
+  title?: string;
+}): ReactElement {
   const insight = useInsightSummary(shortId);
   const url = useObjectUrl("insight", shortId);
   const name = title ?? insight.data?.name;
@@ -56,7 +62,13 @@ function InsightCard({ shortId, title }: { shortId: string; title?: string }) {
   );
 }
 
-function QueryCard({ query, title }: { query: string; title?: string }) {
+function QueryCard({
+  query,
+  title,
+}: {
+  query: string;
+  title?: string;
+}): ReactElement {
   const url = useObjectUrl("hogql", query);
   const [expanded, setExpanded] = useState(false);
   const long = query.split("\n").length > COLLAPSED_LINES;
@@ -86,7 +98,7 @@ function QueryCard({ query, title }: { query: string; title?: string }) {
   );
 }
 
-export function ObjectCard({ spec }: { spec: ObjectCardSpec }) {
+export function ObjectCard({ spec }: { spec: ObjectCardSpec }): ReactElement {
   return spec.mode === "insight" ? (
     <InsightCard shortId={spec.shortId} title={spec.title} />
   ) : (

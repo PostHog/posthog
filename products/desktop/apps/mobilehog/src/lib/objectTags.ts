@@ -20,6 +20,9 @@ const MAX_CARDS = 10;
 const TAG_RE =
   /^<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(?:\/>|>([\s\S]*?)<\/\1\s*>)/;
 const BLOCK_TAIL_RE = /^[ \t]*(?:\n+|$)/;
+const OPEN_TAG_RE = /^<([a-z][\w-]*)(?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*\s*>/;
+const PARTIAL_TAG_RE =
+  /^<([a-z][\w-]*)(?:\s+[a-z][\w-]*(?:\s*=\s*(?:"[^"]*"|"[^"]*$)?)?)*\s*\/?$/;
 const TAG_START_RE = /<[a-z]/;
 const MARKUP_RE = /^<\/?([a-z][\w-]*)/;
 
@@ -88,6 +91,14 @@ function inlineToken(tag: MatchedTag): Token {
   return { type: "text", raw: tag.raw, text: label ?? "" };
 }
 
+// A known tag that is still streaming has no end yet. It hides up to the end of
+// the text, so neither its markup nor its half-written label shows.
+function isUnfinishedTag(src: string): boolean {
+  const open = OPEN_TAG_RE.exec(src) ?? PARTIAL_TAG_RE.exec(src);
+  if (!open || resolveObjectKindName(open[1]) === null) return false;
+  return !new RegExp(`</${open[1]}\\s*>`).test(src);
+}
+
 // A fresh set per document, so the card cap counts one message at a time.
 export function objectTagExtensions(): TokenizerExtension[] {
   let cards = 0;
@@ -108,11 +119,13 @@ export function objectTagExtensions(): TokenizerExtension[] {
           cards++;
           return { type: "objectCard", raw, spec };
         }
+        // Like a Markdown paragraph, the fallback leaves its line breaks to the
+        // lexer, so a blank line still ends it.
         return {
           type: "paragraph",
-          raw,
+          raw: src.slice(0, end + tail[0].trimEnd().length),
           text: tag.raw,
-          tokens: this.lexer.inlineTokens(tag.raw),
+          tokens: this.lexer.inline(tag.raw),
         };
       },
     },
@@ -125,7 +138,10 @@ export function objectTagExtensions(): TokenizerExtension[] {
       },
       tokenizer(src) {
         const tag = matchTag(src);
-        return tag && isObjectTag(tag) ? inlineToken(tag) : undefined;
+        if (tag) return isObjectTag(tag) ? inlineToken(tag) : undefined;
+        return isUnfinishedTag(src)
+          ? { type: "text", raw: src, text: "" }
+          : undefined;
       },
     },
   ];

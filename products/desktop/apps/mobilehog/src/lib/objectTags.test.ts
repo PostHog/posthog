@@ -97,6 +97,59 @@ describe("object tags in markdown", () => {
     ]);
   });
 
+  it("keeps text indented under a block tag without a card", () => {
+    expect(shape('<dashboard id="7" display="block"/>\n    text')).toEqual([
+      expect.objectContaining({
+        type: "paragraph",
+        tokens: [
+          expect.objectContaining({ type: "objectRef" }),
+          expect.objectContaining({ type: "text", text: "\ntext" }),
+        ],
+      }),
+    ]);
+  });
+
+  it("keeps a code block after a blank line under a block tag", () => {
+    const tokens = lexMarkdown(
+      '<dashboard id="7" display="block"/>\n\n    code',
+    );
+    expect(tokens.map((token) => token.type)).toEqual([
+      "paragraph",
+      "space",
+      "code",
+    ]);
+  });
+
+  it.each([
+    'See <insight id="9pQx3',
+    'See <insight id="9pQx3"',
+    'See <insight id="9pQx3" title="Check',
+    'See <insight id="9pQx3">chec',
+    'See <insight id="9pQx3">checkout</insi',
+    "See <insight",
+  ])("hides an unfinished tag: %s", (text) => {
+    expect(inline(text)).toEqual([
+      expect.objectContaining({ type: "text", text: "See " }),
+      expect.objectContaining({ type: "text", text: "" }),
+    ]);
+  });
+
+  it("does not hide a tag name in prose", () => {
+    expect(inline("x <insight, then y")).toEqual([
+      expect.objectContaining({ type: "text", text: "x <insight, then y" }),
+    ]);
+  });
+
+  it("does not hide a closed malformed tag or the text after it", () => {
+    const tokens = inline("See <insight id=x/> now");
+    expect(tokens.map((token) => token.raw).join("")).toBe(
+      "See <insight id=x/> now",
+    );
+    expect(tokens.at(-1)).toEqual(
+      expect.objectContaining({ type: "text", text: " now" }),
+    );
+  });
+
   it("caps the cards in one message and resets for the next", () => {
     const text = Array.from(
       { length: 12 },
