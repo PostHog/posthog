@@ -89,6 +89,7 @@ describe('HogFlowInvocationPipeline', () => {
             hogWatcherMirror: hogWatcher,
             hogMasker,
             hogFunctionMonitoringService,
+            workflowsActivationReporter: { report: jest.fn() },
             quotaLimiting,
             redis: {} as any,
             valkeyShadow: { writer: {} as any, reader: {} as any },

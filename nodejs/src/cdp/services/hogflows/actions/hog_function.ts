@@ -361,7 +361,12 @@ export class HogFunctionHandler implements ActionHandler {
 
         const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
-            () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
+            () =>
+                this.recipientPreferencesService.shouldSkipAction(
+                    hogFunctionInvocation,
+                    action,
+                    hogExecutorOptions?.isTest
+                )
         )
         if (skipReason) {
             // Suppression and opt-out both short-circuit the send, but a customer reading the run

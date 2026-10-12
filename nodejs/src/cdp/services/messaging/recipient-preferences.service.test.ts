@@ -22,6 +22,7 @@ describe('RecipientPreferencesService', () => {
     let service: RecipientPreferencesService
     let mockRecipientsManager: RecipientsManagerService
     let mockEmailSuppressionService: EmailSuppressionService
+    let workflowsActivationReporter: { report: jest.Mock }
     let mockRecipientsManagerGet: jest.SpyInstance
     let mockRecipientsManagerGetPreference: jest.SpyInstance
     let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.SpyInstance
@@ -38,7 +39,12 @@ describe('RecipientPreferencesService', () => {
         )
 
         mockEmailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-        service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
+        workflowsActivationReporter = { report: jest.fn() }
+        service = new RecipientPreferencesService(
+            mockRecipientsManager,
+            mockEmailSuppressionService,
+            workflowsActivationReporter
+        )
     })
 
     afterEach(async () => {
@@ -235,6 +241,34 @@ describe('RecipientPreferencesService', () => {
                     `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
                 )
             })
+
+            it.each([
+                ['a marketing send', 'marketing', false, 1, 'rejects'],
+                ['a transactional send', 'transactional', false, 1, 'sends'],
+                ['a test send', 'marketing', true, 0, 'rejects'],
+            ] as const)(
+                'should report a recipient without an email address only for a real send: %s',
+                async (_name, categoryType, isTest, reports, outcome) => {
+                    const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000', categoryType)
+                    const invocation = createFunctionStepInvocation(action)
+
+                    const skipReason = service.shouldSkipAction(invocation, action, isTest)
+
+                    if (outcome === 'rejects') {
+                        await expect(skipReason).rejects.toThrow('No recipient identifier found')
+                    } else {
+                        await expect(skipReason).resolves.toBeNull()
+                    }
+
+                    expect(workflowsActivationReporter.report.mock.calls).toEqual(
+                        Array(reports).fill([
+                            invocation.teamId,
+                            'workflows send failed',
+                            { reason: 'missing_recipient', channel: 'email', workflow_id: invocation.functionId },
+                        ])
+                    )
+                }
+            )
 
             it('should return true if recipient is opted out of all marketing messaging', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
