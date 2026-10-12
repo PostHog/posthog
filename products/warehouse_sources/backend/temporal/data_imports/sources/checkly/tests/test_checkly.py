@@ -1,3 +1,4 @@
+import types
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -55,9 +57,11 @@ def test_list_pagination_auth_and_terminal_page(name: str, api_version: str, pat
     assert [state.paginator_state for state in result.saved_states] == [{"page": 2}, {"page": 3}]
     assert result.response is not None
     on_complete = result.response.on_complete
-    assert on_complete is not None
+    # The completion hook is bound to the run's resume manager, so the test reaches it from there.
+    assert isinstance(on_complete, types.MethodType)
+    manager = on_complete.__self__
+    assert isinstance(manager, ResumableSourceManager)
     with scripted_network([]):
-        manager = on_complete.__self__
         manager.save_state(result.saved_states[-1])
         manager.confirm()
         manager.commit()
