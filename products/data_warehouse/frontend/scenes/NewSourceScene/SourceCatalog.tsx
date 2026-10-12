@@ -235,7 +235,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                                 or request one below.
                             </div>
                         )}
-                        {customSourceItem && !accessDisabledReason && (
+                        {customSourceItem && !hasCrossCategoryMatches && !accessDisabledReason && (
                             <div className="text-muted text-sm">
                                 If the tool has a REST API, you can connect it with a{' '}
                                 <Link
