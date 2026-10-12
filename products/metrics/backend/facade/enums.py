@@ -155,6 +155,20 @@ class PanelProgressState(LabeledStrEnum):
     SKIPPED = "skipped"
 
 
+class PanelBuilderAggregation(LabeledStrEnum):
+    """The aggregations of a builder clause that the dashboard import checks. They match the metrics query API."""
+
+    SUM = "sum"
+    AVG = "avg"
+    COUNT = "count"
+    MIN = "min"
+    MAX = "max"
+    P95 = "p95"
+    RATE = "rate"
+    INCREASE = "increase"
+    HISTOGRAM_QUANTILE = "histogram_quantile"
+
+
 class PanelQueryLanguage(LabeledStrEnum):
     PROMQL = "promql"
     BUILDER = "builder"

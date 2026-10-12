@@ -7,6 +7,8 @@ import math
 import colorsys
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 from products.metrics.backend.dashboard_import.spec import Reducer, Threshold
 
 # Grafana unit ids to UCUM units that the metrics panels format. A unit that is not here shows plain numbers.
@@ -71,13 +73,20 @@ _HEX = re.compile(r"^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 _RGB = re.compile(r"^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)")
 
 
-def map_unit(grafana_unit: Any) -> tuple[str | None, str | None]:
+@frozen
+class MappedUnit:
+    unit: str | None
+    # Why the unit is lost, when it is.
+    note: str | None = None
+
+
+def map_unit(grafana_unit: Any) -> MappedUnit:
     """The UCUM unit for a Grafana unit id, and a note when the unit cannot be kept."""
     if not isinstance(grafana_unit, str):
-        return None, None
+        return MappedUnit(unit=None)
     if grafana_unit in _UNITS:
-        return _UNITS[grafana_unit], None
-    return None, f'The unit "{grafana_unit}" is not available, so the panel shows plain numbers.'
+        return MappedUnit(unit=_UNITS[grafana_unit])
+    return MappedUnit(unit=None, note=f'The unit "{grafana_unit}" is not available, so the panel shows plain numbers.')
 
 
 def agent_unit(unit: str | None) -> str | None:
