@@ -301,7 +301,7 @@ class TestSimilarwebTransport:
     def test_window_params(
         self,
         _name: str,
-        granularity: str,
+        granularity: Literal["monthly", "weekly", "daily"],
         start_date: Optional[str],
         should_use_incremental_field: bool,
         last_value: Any,
