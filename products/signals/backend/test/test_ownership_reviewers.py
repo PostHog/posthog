@@ -311,6 +311,7 @@ def test_research_decision_controls_persisted_reviewers(team, selection):
     elif selection == "empty":
         assert reviewers == []
         assert capture.call_args.kwargs["resolution_outcome"] == "research_cleared"
+        assert decision is not None
         notes = SignalReportArtefact.objects.filter(report=report, type="note")
         assert any(decision.reason in note.content for note in notes)
     else:
