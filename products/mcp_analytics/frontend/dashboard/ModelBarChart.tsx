@@ -126,13 +126,7 @@ export function ModelBarChart({
                         </Tooltip>
                     </div>
                     {sortedRows.length > 0 ? (
-                        <ShareBarChart
-                            rows={chartRows}
-                            totalCalls={totalCalls}
-                            theme={theme}
-                            tooltip={renderTooltip}
-                            label="Calls by model"
-                        />
+                        <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
                     ) : (
                         <p className="mb-0 text-xs text-secondary">
                             {totalCalls > 0
