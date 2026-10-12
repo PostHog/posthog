@@ -42,6 +42,10 @@ FAILURE_MESSAGES: dict[CheckFailure, str] = {
 }
 
 
+# Failures caused by the destination's database or schema. The rest come from the integration.
+CONFIG_FAILURES = frozenset({CheckFailure.UNKNOWN_DATABASE, CheckFailure.MISSING_PRIVILEGE})
+
+
 class DestinationConnectionCheckError(Exception):
     def __init__(self, failure: CheckFailure) -> None:
         super().__init__(FAILURE_MESSAGES[failure])
