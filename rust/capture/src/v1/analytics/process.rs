@@ -177,7 +177,7 @@ async fn run_pipeline(
     //   1. Ordering: v1 runs this GRL step AFTER burst overflow stamping (above);
     //      legacy runs its GRL BEFORE overflow stamping. The pass order differs,
     //      but the observable outcome does not: both reroute only
-    //      AnalyticsMain/Destination::Overflow, and both drop the partition key
+    //      AnalyticsMain/Destination::AnalyticsOverflow, and both drop the partition key
     //      once person processing is off, so a key the GRL wanted spread stays
     //      spread on either path even when the burst limiter preserves locality.
     //      `crate::overflow_parity` pins that across the whole matrix.
@@ -789,7 +789,7 @@ fn apply_overflow_stamping(
         // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC) is armed, so limiter
         // presence encodes the valve here.
         let (overflow_destination, lane_limiter) = match event.destination {
-            Destination::AnalyticsMain => (Destination::Overflow, analytics_limiter),
+            Destination::AnalyticsMain => (Destination::AnalyticsOverflow, analytics_limiter),
             Destination::AiEvents => (Destination::AiEventsOverflow, ai_limiter),
             _ => continue,
         };
@@ -880,7 +880,7 @@ async fn apply_restrictions(
         // rerouting so an analytics event is always AnalyticsMain here; the
         // explicit guard makes the invariant ordering-independent.
         let force_overflow_destination = match event.destination {
-            Destination::AnalyticsMain => Some(Destination::Overflow),
+            Destination::AnalyticsMain => Some(Destination::AnalyticsOverflow),
             Destination::AiEvents if ai_events_overflow_enabled => {
                 Some(Destination::AiEventsOverflow)
             }
@@ -1130,7 +1130,7 @@ async fn apply_token_distinct_id_limits(
             // (matches v0's `pipeline::resolve`). Other lanes (exceptions,
             // heatmaps, etc.) keep their own destination.
             if event.destination == Destination::AnalyticsMain {
-                event.destination = Destination::Overflow;
+                event.destination = Destination::AnalyticsOverflow;
             }
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
             limited_event_count += 1;
@@ -2141,7 +2141,7 @@ mod tests {
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
-        assert_eq!(ev.destination, Destination::Overflow);
+        assert_eq!(ev.destination, Destination::AnalyticsOverflow);
     }
 
     /// A diverted AI event consults ai-scoped restrictions: an ai-scoped
@@ -2833,7 +2833,7 @@ mod tests {
         let limited_ev = find_by_did(&events, "user-2");
         assert_eq!(limited_ev.result, EventResult::Warning);
         // AnalyticsMain event over the limit is rerouted to overflow.
-        assert_eq!(limited_ev.destination, Destination::Overflow);
+        assert_eq!(limited_ev.destination, Destination::AnalyticsOverflow);
         assert!(limited_ev.force_disable_person_processing);
         assert_eq!(limited_ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
@@ -2868,7 +2868,7 @@ mod tests {
             assert_eq!(ev.result, EventResult::Warning, "should be Warning");
             assert_eq!(
                 ev.destination,
-                Destination::Overflow,
+                Destination::AnalyticsOverflow,
                 "should be rerouted to overflow"
             );
             assert!(
@@ -2902,7 +2902,7 @@ mod tests {
         // Other event rate-limited (person processing disabled, rerouted to overflow)
         let limited = find_by_did(&events, "user-2");
         assert_eq!(limited.result, EventResult::Warning);
-        assert_eq!(limited.destination, Destination::Overflow);
+        assert_eq!(limited.destination, Destination::AnalyticsOverflow);
         assert!(limited.force_disable_person_processing);
         assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
@@ -3222,7 +3222,7 @@ mod tests {
             .iter_mut()
             .find(|e| e.uuid == ev_uuid)
             .unwrap()
-            .destination = Destination::Overflow;
+            .destination = Destination::AnalyticsOverflow;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
@@ -3232,7 +3232,7 @@ mod tests {
                 .find(|e| e.uuid == ev_uuid)
                 .unwrap()
                 .destination,
-            Destination::Overflow
+            Destination::AnalyticsOverflow
         );
     }
 
@@ -3441,13 +3441,13 @@ mod tests {
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(events[1].force_disable_person_processing);
         assert_eq!(events[1].result, EventResult::Warning);
-        assert_eq!(events[1].destination, Destination::Overflow);
+        assert_eq!(events[1].destination, Destination::AnalyticsOverflow);
         assert_eq!(events[1].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[2].force_disable_person_processing);
         assert_eq!(events[2].destination, Destination::AnalyticsMain);
         assert!(events[3].force_disable_person_processing);
         assert_eq!(events[3].result, EventResult::Warning);
-        assert_eq!(events[3].destination, Destination::Overflow);
+        assert_eq!(events[3].destination, Destination::AnalyticsOverflow);
         assert_eq!(events[3].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[4].force_disable_person_processing);
         assert_eq!(events[4].destination, Destination::AnalyticsMain);
@@ -3549,7 +3549,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::Overflow);
+        assert_eq!(events[0].destination, Destination::AnalyticsOverflow);
         assert!(events[0].spread_partitions);
         assert!(events[0].force_disable_person_processing);
     }
@@ -3563,7 +3563,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[0].destination, Destination::Overflow);
+        assert_eq!(events[0].destination, Destination::AnalyticsOverflow);
         assert!(events[0].spread_partitions);
         assert!(events[0].force_disable_person_processing);
     }
@@ -3585,7 +3585,7 @@ mod tests {
         assert!(!events[0].spread_partitions);
         assert!(!events[0].force_disable_person_processing);
 
-        assert_eq!(events[1].destination, Destination::Overflow);
+        assert_eq!(events[1].destination, Destination::AnalyticsOverflow);
         assert!(
             events[1].spread_partitions,
             "a bursting key must carry the spread stamp"
@@ -3608,7 +3608,7 @@ mod tests {
 
         apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
 
-        assert_eq!(events[1].destination, Destination::Overflow);
+        assert_eq!(events[1].destination, Destination::AnalyticsOverflow);
         assert!(
             !events[1].spread_partitions,
             "preserve_locality=true keeps the partition key"
@@ -3723,7 +3723,7 @@ mod tests {
     #[case::analytics_force_key_leaves_ai_untouched(
         Some("phc_tok:user-1"),
         None,
-        Destination::Overflow,
+        Destination::AnalyticsOverflow,
         Destination::AiEvents
     )]
     #[case::ai_force_key_leaves_analytics_untouched(
@@ -5295,7 +5295,8 @@ mod tests {
         ctx.created_at = None;
 
         let events =
-            vec![wrapped_event("$pageview", "user-1").with_destination(Destination::Overflow)];
+            vec![wrapped_event("$pageview", "user-1")
+                .with_destination(Destination::AnalyticsOverflow)];
 
         let (mut events, serialized) =
             serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;

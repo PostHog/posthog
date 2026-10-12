@@ -344,8 +344,8 @@ pub fn realistic_ordered_mixed_batch() -> Vec<WrappedEvent> {
     exception_warning.result = EventResult::Warning;
     exception_warning.details = Some("exceptions_over_quota");
 
-    let click_overflow =
-        realistic_custom("user-pos-4", "button_clicked").with_destination(Destination::Overflow);
+    let click_overflow = realistic_custom("user-pos-4", "button_clicked")
+        .with_destination(Destination::AnalyticsOverflow);
 
     let pageview_historical =
         realistic_pageview("user-pos-5").with_destination(Destination::AnalyticsHistorical);
@@ -395,7 +395,8 @@ pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
     let main = realistic_pageview("user-dest-0").with_destination(Destination::AnalyticsMain);
     let historical =
         realistic_pageview("user-dest-1").with_destination(Destination::AnalyticsHistorical);
-    let overflow = realistic_pageview("user-dest-2").with_destination(Destination::Overflow);
+    let overflow =
+        realistic_pageview("user-dest-2").with_destination(Destination::AnalyticsOverflow);
     let dlq = realistic_pageview("user-dest-3").with_destination(Destination::Dlq);
     let custom = realistic_pageview("user-dest-4")
         .with_destination(Destination::Custom("custom_topic".to_string()));

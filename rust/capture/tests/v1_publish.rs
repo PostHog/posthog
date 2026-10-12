@@ -378,7 +378,7 @@ async fn v1_multi_destination_batch() -> Result<()> {
     let hist_ev = test_utils::realistic_pageview("integ-dest-hist")
         .with_destination(capture::v1::types::Destination::AnalyticsHistorical);
     let overflow_ev = test_utils::realistic_pageview("integ-dest-overflow")
-        .with_destination(capture::v1::types::Destination::Overflow);
+        .with_destination(capture::v1::types::Destination::AnalyticsOverflow);
 
     let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&main_ev, &hist_ev, &overflow_ev];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;

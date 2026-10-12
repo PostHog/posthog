@@ -11,7 +11,7 @@ pub enum Destination {
     #[default]
     AnalyticsMain,
     AnalyticsHistorical,
-    Overflow,
+    AnalyticsOverflow,
     Dlq,
     Custom(String),
     ExceptionErrorTracking,
@@ -24,7 +24,7 @@ pub enum Destination {
 impl Destination {
     pub fn pipeline(&self) -> Option<Pipeline> {
         match self {
-            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => {
+            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::AnalyticsOverflow => {
                 Some(Pipeline::Analytics)
             }
             Self::AiEvents | Self::AiEventsOverflow => Some(Pipeline::Ai),
@@ -35,7 +35,7 @@ impl Destination {
 
     pub fn absorbs_hot_keys(&self) -> bool {
         match self {
-            Self::AnalyticsMain | Self::Overflow | Self::AiEventsOverflow => true,
+            Self::AnalyticsMain | Self::AnalyticsOverflow | Self::AiEventsOverflow => true,
             Self::AnalyticsHistorical
             | Self::Dlq
             | Self::Custom(_)
@@ -48,7 +48,7 @@ impl Destination {
 
     pub fn writes_persons(&self) -> bool {
         match self {
-            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => true,
+            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::AnalyticsOverflow => true,
             Self::Dlq | Self::Custom(_) => true,
             Self::AiEvents
             | Self::AiEventsOverflow
@@ -63,7 +63,7 @@ impl Destination {
         match self {
             Self::AnalyticsMain => lane(pipeline::Pipeline::Analytics, Lane::Main),
             Self::AnalyticsHistorical => lane(pipeline::Pipeline::Analytics, Lane::Historical),
-            Self::Overflow => lane(pipeline::Pipeline::Analytics, Lane::Overflow),
+            Self::AnalyticsOverflow => lane(pipeline::Pipeline::Analytics, Lane::Overflow),
             Self::AiEvents => lane(pipeline::Pipeline::Ai, Lane::Main),
             Self::AiEventsOverflow => lane(pipeline::Pipeline::Ai, Lane::Overflow),
             Self::ExceptionErrorTracking => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
@@ -100,7 +100,7 @@ mod destination_tests {
     #[rstest::rstest]
     #[case(Destination::AnalyticsMain, Some(Pipeline::Analytics))]
     #[case(Destination::AnalyticsHistorical, Some(Pipeline::Analytics))]
-    #[case(Destination::Overflow, Some(Pipeline::Analytics))]
+    #[case(Destination::AnalyticsOverflow, Some(Pipeline::Analytics))]
     #[case(Destination::AiEvents, Some(Pipeline::Ai))]
     #[case(Destination::AiEventsOverflow, Some(Pipeline::Ai))]
     #[case(Destination::ExceptionErrorTracking, Some(Pipeline::ErrorTracking))]
@@ -121,7 +121,7 @@ mod destination_tests {
         Destination::AnalyticsHistorical,
         Some(V0Destination::AnalyticsHistorical)
     )]
-    #[case(Destination::Overflow, Some(V0Destination::AnalyticsOverflow))]
+    #[case(Destination::AnalyticsOverflow, Some(V0Destination::AnalyticsOverflow))]
     #[case(Destination::Dlq, Some(V0Destination::Dlq))]
     #[case(Destination::Custom("admin_topic".into()), Some(V0Destination::Custom("admin_topic".into())))]
     #[case(

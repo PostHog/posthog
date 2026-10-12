@@ -1310,17 +1310,20 @@ mod tests {
         Stamps { spread: true, ..Stamps::on(Destination::AnalyticsMain) },
         OrderingGuarantee::PerDistinctId
     )]
-    #[case::overflow_untouched(Stamps::on(Destination::Overflow), OrderingGuarantee::PerDistinctId)]
+    #[case::overflow_untouched(
+        Stamps::on(Destination::AnalyticsOverflow),
+        OrderingGuarantee::PerDistinctId
+    )]
     #[case::overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::overflow_spread_person_off(
-        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::Overflow) },
+        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::AnalyticsOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_spread(
@@ -1369,10 +1372,10 @@ mod tests {
     #[rstest::rstest]
     #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
     #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
-    #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
+    #[case::ok_overflow(EventResult::Ok, Destination::AnalyticsOverflow)]
     #[case::warning_main(EventResult::Warning, Destination::AnalyticsMain)]
     #[case::warning_historical(EventResult::Warning, Destination::AnalyticsHistorical)]
-    #[case::warning_overflow(EventResult::Warning, Destination::Overflow)]
+    #[case::warning_overflow(EventResult::Warning, Destination::AnalyticsOverflow)]
     fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -1570,8 +1573,8 @@ mod tests {
     #[test]
     fn destination_returns_event_destination() {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Overflow;
-        assert_eq!(*ev.destination(), Destination::Overflow);
+        ev.destination = Destination::AnalyticsOverflow;
+        assert_eq!(*ev.destination(), Destination::AnalyticsOverflow);
     }
 
     #[test]
