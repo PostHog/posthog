@@ -152,7 +152,8 @@ describe('dataWarehouseViewsLogic', () => {
     })
 
     // Regression: the view page is keyed by the node id, so a link built from the view id opens a
-    // missing model. A view with no node must still open somewhere.
+    // missing model. A view with no node must still open somewhere. The toast can outlive the logic
+    // when the person leaves the editor, so the button must work with the logic unmounted.
     it.each([
         [
             'its page',
@@ -185,13 +186,16 @@ describe('dataWarehouseViewsLogic', () => {
         }).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
 
         const createdToast = toastSuccessSpy.mock.calls.find(([message]) => message === 'orders successfully created')
-        const button = (createdToast?.[1] as { button?: { label: string; action: () => void } } | undefined)?.button
+        const button = (createdToast?.[1] as { button?: { label: string; action: () => Promise<void> } } | undefined)
+            ?.button
         expect(button?.label).toBe('Go to view')
 
-        await expectLogic(logic, () => button?.action()).toFinishAllListeners()
+        logic.unmount()
+        await button?.action()
         const { pathname, search } = router.values.location
         expect(`${pathname}${search}`).toContain(expectedUrl)
         toastSuccessSpy.mockRestore()
+        logic.mount()
     })
 
     // Regression: a freshly materialized view showed as a plain view in the sidebar until a manual
