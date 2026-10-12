@@ -19,9 +19,9 @@ def _domain_of(key: str) -> str:
     return key.partition(":")[0]
 
 
-def _scope_of(key: str) -> str:
+def _metric_scope(key: str, policy: RatePolicy) -> str:
     # The id segment: the value the domain's request counter records as its scope, so the two join.
-    return key.rpartition(":")[2]
+    return key.rpartition(":")[2] if policy.scope_in_metrics else ""
 
 
 def _validate(n: int, policy: RatePolicy, priority: Priority) -> None:
@@ -52,7 +52,11 @@ class OutboundRateLimiter:
         _validate(n, policy, priority)
         granted = await self._backend.acquire(key, policy, n, priority)
         record_outbound_decision(
-            domain=_domain_of(key), scope=_scope_of(key), source=source, priority=priority.value, granted=granted
+            domain=_domain_of(key),
+            scope=_metric_scope(key, policy),
+            source=source,
+            priority=priority.value,
+            granted=granted,
         )
         return granted
 
@@ -64,7 +68,11 @@ class OutboundRateLimiter:
         _validate(n, policy, priority)
         granted = self._backend.consume_sync(key, policy, n, priority)
         record_outbound_decision(
-            domain=_domain_of(key), scope=_scope_of(key), source=source, priority=priority.value, granted=granted
+            domain=_domain_of(key),
+            scope=_metric_scope(key, policy),
+            source=source,
+            priority=priority.value,
+            granted=granted,
         )
         return granted
 

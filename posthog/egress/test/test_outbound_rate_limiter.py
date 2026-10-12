@@ -75,14 +75,17 @@ async def test_unique_keys_do_not_share_budget():
     assert await limiter.acquire("test-isolation:scope:B", 1) is True
 
 
-def test_denied_decision_records_its_scope():
-    # Without the scope, a denial cannot be traced to the installation whose budget ran out.
-    register_policy("test-decision-scope", RatePolicy(limits=((1, 3600.0),)))
+@pytest.mark.parametrize("scope_in_metrics", [True, False])
+def test_denied_decision_records_its_scope_only_when_the_policy_opts_in(scope_in_metrics: bool) -> None:
+    # A denial must trace to the installation it hit, but a key scoped per PostHog team must not add a
+    # metric series per team.
+    domain = f"test-decision-scope-{scope_in_metrics}"
+    register_policy(domain, RatePolicy(limits=((1, 3600.0),), scope_in_metrics=scope_in_metrics))
     limiter = _fresh_limiter()
-    key = _unique_key("test-decision-scope")
+    key = _unique_key(domain)
     labels = {
-        "domain": "test-decision-scope",
-        "scope": key.rpartition(":")[2],
+        "domain": domain,
+        "scope": key.rpartition(":")[2] if scope_in_metrics else "",
         "source": "probe",
         "priority": "normal",
         "granted": "false",
