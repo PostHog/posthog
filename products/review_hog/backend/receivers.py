@@ -45,6 +45,7 @@ from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.preferences import ReviewPreferences
+from products.review_hog.backend.review_request_rules import trigger_review_mode
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
@@ -359,6 +360,7 @@ def _start_review(
             publish=True,
             acting_user_id=user_id,
             trigger_source=TRIGGER_INBOX,
+            review_mode=trigger_review_mode(team_id, pr_repository, int(pr_info["pr_number"])),
             signal_report_id=signal_report_id,
             signal_priority=signal_priority,
             pr_url=pr_url,

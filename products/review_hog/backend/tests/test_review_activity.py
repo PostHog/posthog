@@ -40,12 +40,14 @@ from products.review_hog.backend.reviewer.tools.coordinator_review import Coordi
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
+    BuildBodyInput,
     CoordinatorReviewInput,
     LensReviewInput,
     LoadedPerspectiveDTO,
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    _build_and_finalize,
     _current_pr_comments,
     coordinator_review_activity,
     dedup_activity,
@@ -739,3 +741,41 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
         )
 
     assert result.raised_elsewhere == [AlreadyRaised(title="Already said", level="P2", comment_id=2, commenter="alice")]
+
+
+@pytest.mark.parametrize(
+    "trigger_source,commands_on,expected_hint",
+    [
+        pytest.param("label", True, "@posthog review --deep", id="label_with_commands"),
+        pytest.param("label", False, None, id="label_without_commands"),
+        pytest.param("automatic", True, None, id="other_trigger"),
+    ],
+)
+def test_a_label_review_body_points_to_the_comment_commands(
+    trigger_source: str, commands_on: bool, expected_hint: str | None
+) -> None:
+    # The hint advertises `@posthog` commands, so it must not appear where they do not run or where nobody used the label.
+    finalize = MagicMock()
+    with (
+        patch(f"{_MODULE}.load_run_issues", return_value=[]),
+        patch(f"{_MODULE}.load_run_validations", return_value={}),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=None),
+        patch(f"{_MODULE}.build_review_body", return_value="# Review"),
+        patch(f"{_MODULE}.comment_commands_enabled", return_value=commands_on),
+        patch(f"{_MODULE}.finalize_review_report", finalize),
+    ):
+        _build_and_finalize(
+            BuildBodyInput(
+                team_id=1,
+                report_id="rep-1",
+                head_sha="sha1",
+                run_index=1,
+                issue_ids=[],
+                trigger_source=trigger_source,
+                review_mode=REVIEW_MODE_FLASH,
+            )
+        )
+
+    body = finalize.call_args.kwargs["body_markdown"]
+    assert body.startswith("# Review")
+    assert (expected_hint in body) if expected_hint else body == "# Review"

@@ -36,6 +36,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
+from products.review_hog.backend.label_reviews import comment_commands_enabled, label_commands_hint
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -498,6 +499,9 @@ class BuildBodyInput:
     # idle write to publish so the report never reads at-rest with the post still in flight.
     # Defaulted False so pre-field payloads keep the finalize-goes-idle behavior.
     will_publish: bool = False
+    # What started this turn and what it runs on, for the label hint. Defaulted so pre-field payloads add none.
+    trigger_source: str | None = None
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass(frozen=False)
@@ -2001,6 +2005,8 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
         pr_files=pr_files,
         published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
     )
+    if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
+        body = f"{body}\n\n{label_commands_hint(input.review_mode)}"
     finalize_review_report(
         team_id=input.team_id,
         report_id=input.report_id,
