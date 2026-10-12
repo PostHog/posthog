@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +50,13 @@ _REGION_LABELS = {
     "latam": "Latin America",
     "sandbox": "Sandbox",
 }
+
+
+@frozen
+class CloverConnection:
+    region: str
+    merchant_id: str
+    auth: AuthConfigBase
 
 
 @SourceRegistry.register
@@ -138,12 +147,14 @@ class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
             schema.detected_primary_keys = CLOVER_ENDPOINTS[schema.name].primary_keys
         return schemas
 
-    def _connection(self, config: CloverSourceConfig) -> tuple[str, str, AuthConfigBase]:
+    def _connection(self, config: CloverSourceConfig) -> CloverConnection:
         if not config.api_token:
             raise ValueError("Missing Clover API token")
         if not config.merchant_id:
             raise ValueError("Missing Clover merchant ID")
-        return config.region, config.merchant_id, BearerTokenAuth(config.api_token)
+        return CloverConnection(
+            region=config.region, merchant_id=config.merchant_id, auth=BearerTokenAuth(config.api_token)
+        )
 
     def validate_credentials(
         self,
@@ -153,7 +164,7 @@ class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            region, merchant_id, auth = self._connection(config)
+            connection = self._connection(config)
         except ValueError as e:
             raw = str(e)
             for pattern, friendly in self.get_non_retryable_errors().items():
@@ -162,9 +173,9 @@ class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
             return False, raw
 
         return validate_clover_credentials(
-            region=region,
-            merchant_id=merchant_id,
-            auth=auth,
+            region=connection.region,
+            merchant_id=connection.merchant_id,
+            auth=connection.auth,
             schema_name=schema_name,
             api_version=self.resolve_api_version(api_version),
         )
@@ -177,15 +188,15 @@ class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         try:
-            region, merchant_id, auth = self._connection(config)
+            connection = self._connection(config)
         except ValueError:
             return dict.fromkeys(endpoints)
 
         return clover_endpoint_permissions(
-            region=region,
-            merchant_id=merchant_id,
+            region=connection.region,
+            merchant_id=connection.merchant_id,
             endpoints=endpoints,
-            auth=auth,
+            auth=connection.auth,
             api_version=self.resolve_api_version(api_version),
         )
 
@@ -198,15 +209,15 @@ class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
         resumable_source_manager: ResumableSourceManager[CloverResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        region, merchant_id, auth = self._connection(config)
+        connection = self._connection(config)
         return clover_source(
-            region=region,
-            merchant_id=merchant_id,
+            region=connection.region,
+            merchant_id=connection.merchant_id,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            auth=auth,
+            auth=connection.auth,
             api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
         )
