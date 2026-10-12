@@ -148,3 +148,96 @@ class TestMercurySourceResumeBehavior:
 
         assert sent_params[0]["start"] == "2026-01-02"
         assert sent_params[0]["order"] == "asc"
+
+
+class TestMercuryFanoutEndpoints:
+    @pytest.mark.parametrize(
+        (
+            "endpoint",
+            "parent_body",
+            "child_bodies",
+            "expected_paths",
+            "cursor_param",
+            "expected_cursors",
+            "expected_rows",
+        ),
+        [
+            (
+                "AccountStatements",
+                {"accounts": [{"id": "acc-1"}, {"id": "acc-2"}], "page": {"nextPage": None}},
+                [
+                    {"statements": [{"id": "s1"}], "page": {"nextPage": "s1"}},
+                    {"statements": [{"id": "s2"}], "page": {}},
+                    {"statements": [{"id": "s3"}], "page": {"nextPage": None}},
+                ],
+                ["/account/acc-1/statements", "/account/acc-1/statements", "/account/acc-2/statements"],
+                "start_after",
+                [None, "s1", None],
+                [
+                    {"id": "s1", "accountId": "acc-1"},
+                    {"id": "s2", "accountId": "acc-1"},
+                    {"id": "s3", "accountId": "acc-2"},
+                ],
+            ),
+            (
+                "TreasuryTransactions",
+                {"accounts": [{"id": "tr-1"}, {"id": "tr-2"}], "page": {"nextPage": None}},
+                [
+                    {"transactions": [{"id": "t1", "accountId": "tr-1"}], "cursor": 7},
+                    {"transactions": [{"id": "t2", "accountId": "tr-1"}], "cursor": None},
+                    {"transactions": [{"id": "t3", "accountId": "tr-2"}]},
+                ],
+                ["/treasury/tr-1/transactions", "/treasury/tr-1/transactions", "/treasury/tr-2/transactions"],
+                "cursor",
+                [None, 7, None],
+                [
+                    {"id": "t1", "accountId": "tr-1"},
+                    {"id": "t2", "accountId": "tr-1"},
+                    {"id": "t3", "accountId": "tr-2"},
+                ],
+            ),
+        ],
+    )
+    def test_walks_child_pages_for_each_parent_account(
+        self,
+        endpoint: str,
+        parent_body: dict[str, Any],
+        child_bodies: list[dict[str, Any]],
+        expected_paths: list[str],
+        cursor_param: str,
+        expected_cursors: list[Any],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = iter([_make_http_response(parent_body), *(_make_http_response(b) for b in child_bodies)])
+        sent: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent.append((request.url, dict(request.params or {})))
+            return next(responses)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = mercury_source(
+                api_key="test-token",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+            )
+            rows = [row for page in cast(Iterable[Any], resource) for row in page]
+
+        child_requests = sent[1:]
+        assert [url.split("/api/v1", 1)[1] for url, _ in child_requests] == expected_paths
+        assert [params.get(cursor_param) for _, params in child_requests] == expected_cursors
+        assert all(params["order"] == "asc" for _, params in child_requests)
+        assert rows == expected_rows
+        manager.save_state.assert_not_called()

@@ -31,7 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MEM0_ENDPOINTS,
-    MEMORIES_ENDPOINT,
     SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -68,7 +67,7 @@ class Mem0Source(ResumableSource[Mem0SourceConfig, Mem0ResumeConfig]):
             name=ExternalDataSourceType.MEM0,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mem0",
-            caption="""Enter your Mem0 API key to automatically pull your Mem0 memories, entities, and operation events into the PostHog Data warehouse.
+            caption="""Enter your Mem0 API key to automatically pull your Mem0 memories, memory history, entities, operation events, organizations, and projects into the PostHog Data warehouse.
 
 You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/api-keys).""",
             iconPath="/static/services/mem0.svg",
@@ -175,7 +174,7 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field
-            and inputs.schema_name == MEMORIES_ENDPOINT,
+            and bool(INCREMENTAL_FIELDS.get(inputs.schema_name)),
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
