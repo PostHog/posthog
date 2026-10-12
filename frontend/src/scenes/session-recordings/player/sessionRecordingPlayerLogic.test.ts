@@ -533,6 +533,34 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.isBuffering).toBe(false)
         })
 
+        it('restarts from the first segment when play is pressed with the playhead past the end', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { timestamp: new Date(1682952380877 + 10_000_000).toISOString() })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
+            const end = logic.values.sessionPlayerData.end?.valueOf() ?? 0
+            expect(logic.values.currentTimestamp).toBeGreaterThan(end)
+
+            // Re-creating the replayer clears endReached but keeps the playhead past the end
+            logic.actions.setPause()
+            logic.actions.tryInitReplayer()
+            expect(logic.values.endReached).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePlayPause()
+            }).toFinishAllListeners()
+
+            expect(logic.values.endReached).toBe(false)
+            expect(logic.values.playingState).toBe(SessionPlayerState.PLAY)
+            expect(logic.values.currentTimestamp).toBe(logic.values.sessionPlayerData.segments[0].startTimestamp)
+        })
+
         it('re-seeks a deep link only when the linked time changes or the same URL is pushed again', async () => {
             logic.unmount()
             router.actions.push('/replay/2', { t: 5 })
