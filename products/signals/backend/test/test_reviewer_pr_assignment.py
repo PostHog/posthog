@@ -92,6 +92,7 @@ def _open_pr_github() -> MagicMock:
         "success": True,
         "requested_reviewers": ["opted-in"],
     }
+    github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": []}
     return github
 
 
@@ -173,13 +174,14 @@ class TestAssignReviewersToPullRequest:
     @pytest.mark.django_db
     def test_suggested_reviewers_receive_review_requests(self, org_and_team):
         org, team = org_and_team
-        for login in ("author", "assigned", "requested", "new-reviewer"):
+        for login in ("author", "assigned", "requested", "completed", "new-reviewer"):
             _make_reviewer(org, login, opted_in=False)
-        report = _make_report(team, ["author", "assigned", "requested", "new-reviewer"])
+        report = _make_report(team, ["author", "assigned", "requested", "completed", "new-reviewer"])
         github = _open_pr_github()
         github.get_pull_request.return_value.update(
             {"author": "Author", "assignees": ["Assigned"], "requested_reviewers": ["Requested"]}
         )
+        github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": ["Completed"]}
         github.request_pull_request_reviews.return_value = {
             "success": True,
             "requested_reviewers": ["requested", "new-reviewer"],
@@ -192,6 +194,7 @@ class TestAssignReviewersToPullRequest:
             assigned = assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
         assert assigned == []
+        github.list_submitted_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 123)
         github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["new-reviewer"])
         github.add_pull_request_assignees.assert_not_called()
 
@@ -225,6 +228,12 @@ class TestAssignReviewersToPullRequest:
         [
             ("get_pull_request", Exception("boom"), []),
             ("get_pull_request", {"success": False, "error": "Failed to fetch pull request"}, []),
+            ("list_submitted_pull_request_reviewers", Exception("boom"), ["opted-in"]),
+            (
+                "list_submitted_pull_request_reviewers",
+                {"success": False, "error": "Failed to fetch reviews"},
+                ["opted-in"],
+            ),
             ("request_pull_request_reviews", Exception("boom"), ["opted-in"]),
             (
                 "request_pull_request_reviews",
@@ -237,6 +246,8 @@ class TestAssignReviewersToPullRequest:
         ids=[
             "pr_read_raises",
             "pr_read_reports_failure",
+            "reviews_read_raises",
+            "reviews_read_reports_failure",
             "review_request_raises",
             "review_request_reports_failure",
             "assign_raises",

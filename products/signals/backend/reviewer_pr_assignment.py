@@ -336,6 +336,19 @@ def _request_reviews(
 
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
     try:
+        reviews = github.list_submitted_pull_request_reviewers(parsed.repository, parsed.number)
+    except Exception:
+        log.exception("signals.reviewer_pr_assignment.reviews_fetch_failed")
+        return []
+    if not reviews.get("success"):
+        log.warning("signals.reviewer_pr_assignment.reviews_fetch_failed", error=reviews.get("error"))
+        return []
+    existing.update(str(login).lower() for login in (reviews.get("reviewed_by") or []) if login)
+    wanted = [login for login in wanted if login.lower() not in existing]
+    if not wanted:
+        return []
+
+    try:
         result = github.request_pull_request_reviews(parsed.repository, parsed.number, wanted)
     except Exception:
         log.exception("signals.reviewer_pr_assignment.review_request_failed")
