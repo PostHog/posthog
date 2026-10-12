@@ -192,7 +192,7 @@ def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tup
     workflow_name = state.workflow_type.value
     if state.status == ManagedWarehouseSourceJobStatus.FAILED:
         return "needs_attention", (
-            f"The latest {workflow_name} workflow failed. To retry, select Sync now for this table on its source page."
+            f"The latest {workflow_name} workflow failed. To retry, sync this table again from its source page."
         )
     if state.status == ManagedWarehouseSourceJobStatus.RUNNING:
         return "backfilling", f"The {workflow_name} workflow is applying the latest source import."
@@ -273,6 +273,7 @@ def get_source_schema_statuses(
 
 
 _SOURCE_SUMMARY_DETAILS: dict[ReadinessState, str] = {
+    "needs_attention": "One or more schemas need attention.",
     "backfilling": "A copy or register workflow is running for one or more schemas.",
     "waiting": "One or more schemas are waiting to start.",
     "sync_paused": "Sync is paused for one or more schemas.",
@@ -284,9 +285,9 @@ _MAX_NAMED_TABLES = 3
 
 
 def _source_summary_detail(readiness_state: ReadinessState, rows: list[SourceTableStatus]) -> str:
-    if readiness_state != "needs_attention":
-        return _SOURCE_SUMMARY_DETAILS[readiness_state]
     names = sorted((row["table_name"] for row in rows if row["readiness_state"] == "needs_attention"), key=str.lower)
+    if readiness_state != "needs_attention" or not names:
+        return _SOURCE_SUMMARY_DETAILS[readiness_state]
     hidden = len(names) - _MAX_NAMED_TABLES
     if hidden > 0:
         listed = f"{', '.join(names[:_MAX_NAMED_TABLES])} and {hidden} more"
@@ -294,7 +295,9 @@ def _source_summary_detail(readiness_state: ReadinessState, rows: list[SourceTab
         listed = f"{', '.join(names[:-1])} and {names[-1]}"
     else:
         listed = names[0]
-    return f"The latest workflow failed for {listed}."
+    # source_table_readiness sets needs_attention only when the latest workflow failed.
+    # Change this sentence if needs_attention gets another cause.
+    return f"The latest workflow failed for {listed}. Select the source for details."
 
 
 def _rollup_sources(tables: list[SourceTableStatus]) -> list[SourceSummary]:

@@ -293,12 +293,21 @@ class TestRollupSources(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("one_table", ["orders"], "The latest workflow failed for orders."),
-            ("two_tables", ["refunds", "orders"], "The latest workflow failed for orders and refunds."),
+            ("one_table", ["orders"], "The latest workflow failed for orders. Select the source for details."),
+            (
+                "two_tables",
+                ["refunds", "orders"],
+                "The latest workflow failed for orders and refunds. Select the source for details.",
+            ),
+            (
+                "exactly_as_many_as_fit",
+                ["refunds", "orders", "charges"],
+                "The latest workflow failed for charges, orders and refunds. Select the source for details.",
+            ),
             (
                 "more_than_fit",
                 ["refunds", "orders", "Invoices", "charges", "payouts"],
-                "The latest workflow failed for charges, Invoices, orders and 2 more.",
+                "The latest workflow failed for charges, Invoices, orders and 2 more. Select the source for details.",
             ),
         ]
     )

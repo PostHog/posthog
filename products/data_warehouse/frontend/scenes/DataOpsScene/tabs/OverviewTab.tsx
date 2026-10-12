@@ -111,7 +111,7 @@ export function OverviewTab(): JSX.Element {
             render: (_, source) => (
                 <div className="space-y-1 max-w-96">
                     <StatusTag readinessState={source.readiness_state} />
-                    <div className="text-xs text-muted">{source.detail}</div>
+                    <div className="text-xs text-muted break-words">{source.detail}</div>
                 </div>
             ),
             sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
@@ -219,7 +219,7 @@ export function OverviewTab(): JSX.Element {
                     <div>
                         <h3 className="mb-1">Imported source tables</h3>
                         <p className="text-xs text-muted mb-0">
-                            Covers all warehouse source imports, including tables with sync paused.{' '}
+                            Shows your warehouse source imports, including tables with sync paused.{' '}
                             <Link to={urls.sources()}>Manage sources</Link>
                         </p>
                     </div>
