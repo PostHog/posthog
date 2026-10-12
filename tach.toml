@@ -1696,3 +1696,18 @@ expose = [
 from = [
     "products.warehouse_suggestions",
 ]
+
+[[modules]]
+path = "products.github_commands"
+# Facade-only (enforced by each product's [[interfaces]] block): pull request comment commands
+# dispatch into these products.
+depends_on = ["posthog", "products.review_hog", "products.security", "products.stamphog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.github_commands",
+]
