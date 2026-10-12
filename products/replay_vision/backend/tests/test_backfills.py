@@ -779,6 +779,30 @@ class TestBackfillsApi(APIBaseTest):
         response = self.client.post(f"{self.base_url}/{running.id}/resume/")
         assert response.status_code == 400
 
+    @patch("products.replay_vision.backend.temporal.schedule.a_resume_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_create_and_resume_refuse_without_ai_consent(
+        self, mock_query: MagicMock, mock_upsert: AsyncMock, mock_resume: AsyncMock
+    ) -> None:
+        mock_query.return_value.count.return_value = 1
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        paused = _make_backfill(self.scanner, status=BackfillStatus.PAUSED_QUOTA)
+
+        create = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": 10**6}, format="json"
+        )
+        resume = self.client.post(f"{self.base_url}/{paused.id}/resume/")
+
+        assert (create.status_code, resume.status_code) == (400, 400), (create.json(), resume.json())
+        assert create.json()["code"] == resume.json()["code"] == "ai_data_processing_not_approved"
+        paused.refresh_from_db()
+        assert paused.status == BackfillStatus.PAUSED_QUOTA
+        assert ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).count() == 1
+        mock_upsert.assert_not_awaited()
+        mock_resume.assert_not_awaited()
+
     def test_enumerating_actions_are_throttled_and_cheap_ones_are_not(self) -> None:
         # The global burst/sustained throttles extend PersonalApiKeyRateThrottle, which gates on
         # personal-API-key auth, so a UI session skips them and could resubmit wide windows until the
