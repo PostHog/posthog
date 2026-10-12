@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
@@ -323,7 +324,7 @@ export const projectLogic = kea<projectLogicType>([
             // Lock the project out once deletion has been initiated (covers full page loads / reloads)
             actions.guardPendingDeletion(router.values.location.pathname, currentProject?.is_pending_deletion)
         },
-        locationChanged: ({ pathname }) => {
+        [router.actionTypes.locationChanged]: ({ pathname }: LocationChangedPayload) => {
             actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
         },
         guardPendingDeletion: ({ pathname, isPendingDeletion }) => {

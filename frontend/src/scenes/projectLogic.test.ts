@@ -78,4 +78,18 @@ describe('projectLogic', () => {
 
         expect(router.values.location.pathname === path).toBe(staysOpen)
     })
+
+    it('locks out a page opened from my tickets on a project pending deletion', async () => {
+        initKeaTests()
+        router.actions.push('/project/997/my-tickets')
+        const logic = projectLogic()
+        logic.mount()
+        logic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push('/project/997/insights')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).not.toEqual('/project/997/insights')
+    })
 })
