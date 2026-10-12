@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from unittest import mock
@@ -48,10 +48,8 @@ def _ctx() -> DestinationRunContext:
 
 
 def _client_error(code: str, operation: str = "PutObject", status: int = 403) -> botocore.exceptions.ClientError:
-    return botocore.exceptions.ClientError(
-        {"Error": {"Code": code, "Message": "fake-secret"}, "ResponseMetadata": {"HTTPStatusCode": status}},
-        operation,
-    )
+    response: Any = {"Error": {"Code": code, "Message": "fake-secret"}, "ResponseMetadata": {"HTTPStatusCode": status}}
+    return botocore.exceptions.ClientError(response, operation)
 
 
 async def _batches() -> AsyncIterator[pa.RecordBatch]:
