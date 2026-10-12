@@ -5286,6 +5286,10 @@ class TestHogFlowAPI(APIBaseTest):
         assert len(created_events) == 1
         assert created_events[0].args[2]["origin_product"] == origin_product
 
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{response.json()['id']}")
+        assert response.status_code == 204
+        assert [c.args[1] for c in mock_report.call_args_list].count("hog_flow_deleted") == 1
+
     @parameterized.expand(
         [
             ("draft",),

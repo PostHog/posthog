@@ -4663,7 +4663,8 @@ class HogFlowViewSet(
                 {
                     "workflow_id": str(instance.id),
                     "workflow_name": instance.name,
-                    "origin_product": instance.origin_product,
+                    # A WorkflowRef or a deleted workflow carries no origin.
+                    "origin_product": getattr(instance, "origin_product", None),
                     "team_id": str(self.team_id),
                     "organization_id": str(self.organization.id),
                     **(extra_properties or {}),
