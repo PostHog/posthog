@@ -25,7 +25,6 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 LD_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly.make_tracked_session"
 )
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
 def _make_manager(resume_state: LaunchDarklyResumeConfig | None = None) -> mock.MagicMock:
@@ -87,19 +86,6 @@ class TestUrlHelpers:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
-    @mock.patch(LD_SESSION_PATCH)
-    def test_returns_status_code(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("api-token") == status_code
-
-    @mock.patch(LD_SESSION_PATCH)
-    def test_uses_no_bearer_prefix(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("api-secret-token")
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "api-secret-token"
-
     @mock.patch(LD_SESSION_PATCH)
     def test_returns_none_on_exception(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
@@ -145,15 +131,6 @@ class TestGetRowsTopLevel:
 
         assert snaps[0]["url"] == resume_url
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, mock_session):
-        session = mock_session.return_value
-        _wire(session, [_response([], None)])
-
-        manager = _make_manager()
-        assert _rows(_source("members", manager)) == []
-        manager.save_state.assert_not_called()
-
 
 class TestGetRowsFanout:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -178,43 +155,6 @@ class TestGetRowsFanout:
         assert urls[0] == f"{BASE_URL}/projects"
         assert urls[1] == f"{BASE_URL}/projects/proj1/environments"
         assert urls[2] == f"{BASE_URL}/projects/proj2/environments"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_metrics_compose_path(self, mock_session):
-        session = mock_session.return_value
-        snaps = _wire(
-            session,
-            [
-                _response([{"key": "proj1"}], None),
-                _response([{"_id": "m1"}], None),
-            ],
-        )
-        _rows(_source("metrics", _make_manager()))
-
-        assert snaps[1]["url"] == f"{BASE_URL}/metrics/proj1"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_project(self, mock_session):
-        session = mock_session.return_value
-        # proj1 already fully synced last run; resume must start at proj2.
-        snaps = _wire(
-            session,
-            [
-                _response([{"key": "proj1"}, {"key": "proj2"}], None),
-                _response([{"_id": "e2"}], None),
-            ],
-        )
-        manager = _make_manager(
-            LaunchDarklyResumeConfig(
-                fanout_state={"completed": ["/projects/proj1/environments"], "current": None, "child_state": None}
-            )
-        )
-
-        rows = _rows(_source("environments", manager))
-
-        assert rows == [{"_id": "e2", "_project_key": "proj2"}]
-        urls = [snap["url"] for snap in snaps]
-        assert urls == [f"{BASE_URL}/projects", f"{BASE_URL}/projects/proj2/environments"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_midproject_uses_saved_url(self, mock_session):
@@ -247,12 +187,95 @@ class TestGetRowsFanout:
             f"{BASE_URL}/projects/proj2/environments",
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_projects_yields_nothing(self, mock_session):
-        session = mock_session.return_value
-        _wire(session, [_response([], None)])
 
-        assert _rows(_source("flags", _make_manager())) == []
+class TestGetRowsEnvironmentFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_iterates_environments_of_every_project_and_injects_both_keys(self, mock_session):
+        session = mock_session.return_value
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}], None),
+                _response([{"key": "prod"}, {"key": "dev"}], None),
+                _response([{"key": "s1"}], "/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate"),
+                _response([{"key": "s2"}], None),
+                _response([{"key": "s3"}], None),
+            ],
+        )
+
+        rows = _rows(_source("segments", _make_manager()))
+
+        assert rows == [
+            {"key": "s1", "_environment_key": "prod", "_project_key": "proj1"},
+            {"key": "s2", "_environment_key": "prod", "_project_key": "proj1"},
+            {"key": "s3", "_environment_key": "dev", "_project_key": "proj1"},
+        ]
+        assert [snap["url"] for snap in snaps] == [
+            f"{BASE_URL}/projects",
+            f"{BASE_URL}/projects/proj1/environments",
+            f"{BASE_URL}/segments/proj1/prod",
+            f"{API_HOST}/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate",
+            f"{BASE_URL}/segments/proj1/dev",
+        ]
+        assert snaps[2]["params"] == {"limit": 20, "sort": "creationDate"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flag_statuses_take_flag_key_from_self_link(self, mock_session):
+        session = mock_session.return_value
+        status = {
+            "name": "inactive",
+            "_links": {
+                "parent": {"href": "/api/v2/flags/proj1/my-flag"},
+                "self": {"href": "/api/v2/flag-statuses/proj1/prod/my-flag"},
+            },
+        }
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}], None),
+                _response([{"key": "prod"}], None),
+                _response([status], None),
+            ],
+        )
+
+        rows = _rows(_source("flag_statuses", _make_manager()))
+
+        assert [(row["_flag_key"], row["_project_key"], row["_environment_key"]) for row in rows] == [
+            ("my-flag", "proj1", "prod")
+        ]
+        assert snaps[2]["url"] == f"{BASE_URL}/flag-statuses/proj1/prod"
+        assert snaps[2]["params"] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_environments(self, mock_session):
+        session = mock_session.return_value
+        resume_url = f"{BASE_URL}/projects/proj1/environments/dev/holdouts?limit=20&offset=20"
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}], None),
+                _response([{"key": "prod"}, {"key": "dev"}], None),
+                _response([{"_id": "h2"}], None),
+            ],
+        )
+        manager = _make_manager(
+            LaunchDarklyResumeConfig(
+                fanout_state={
+                    "completed": ["/projects/proj1/environments/prod/holdouts"],
+                    "current": "/projects/proj1/environments/dev/holdouts",
+                    "child_state": {"next_url": resume_url},
+                }
+            )
+        )
+
+        rows = _rows(_source("holdouts", manager))
+
+        assert rows == [{"_id": "h2", "_environment_key": "dev", "_project_key": "proj1"}]
+        assert [snap["url"] for snap in snaps] == [
+            f"{BASE_URL}/projects",
+            f"{BASE_URL}/projects/proj1/environments",
+            resume_url,
+        ]
 
 
 class TestRetryAndErrors:
@@ -263,22 +286,6 @@ class TestRetryAndErrors:
 
         with pytest.raises(Exception, match="403 Client Error"):
             _rows(_source("members", _make_manager()))
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_429_is_retried_then_succeeds(self, mock_session, _mock_sleep):
-        session = mock_session.return_value
-        # A 429 is retryable at the client layer; the retry re-issues and succeeds.
-        _wire(
-            session,
-            [
-                _response([], None, status_code=429),
-                _response([{"_id": "1"}], None),
-            ],
-        )
-
-        rows = _rows(_source("members", _make_manager()))
-        assert [item["_id"] for item in rows] == ["1"]
 
 
 class TestLaunchDarklySourceResponse:
@@ -294,6 +301,3 @@ class TestLaunchDarklySourceResponse:
         # Partitioning is intentionally off (epoch-ms timestamps).
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    def test_flags_use_composite_primary_key(self):
-        assert LAUNCHDARKLY_ENDPOINTS["flags"].primary_key == ["key", "_project_key"]

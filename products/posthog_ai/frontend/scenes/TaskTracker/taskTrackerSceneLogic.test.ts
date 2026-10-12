@@ -9,6 +9,7 @@ import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -853,6 +854,31 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
     })
 
+    it('refreshes the rail’s Recent list when a composer creates a session', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/task_channels/': [],
+                '/api/projects/:team/task_activity/': { results: [] },
+            },
+        })
+        const rail = todaySpacesLogic()
+        rail.mount()
+        // Step past the load the rail does on mount, so the assertion below can only match a later one.
+        await expectLogic(rail).toDispatchActions(['loadRecentTasksSuccess']).toFinishAllListeners()
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewTaskData({ description: 'ship it' })
+
+        await expectLogic(rail, () => {
+            logic.actions.submitNewTask()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['loadRecentTasks'])
+
+        rail.unmount()
+    })
+
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
     it.each(['global', 'runner'])('keeps a repository hidden by a %s override out of requests', async (scope) => {
         useMocks({
@@ -1055,11 +1081,15 @@ describe('taskTrackerSceneLogic', () => {
         const seedLogic = composerSeedLogic()
         seedLogic.mount()
         const contextItems = [{ type: 'skill', key: 'example-skill' }]
-        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        const files = [new File(['demo'], 'notes.txt', { type: 'text/plain' })]
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems, files })
 
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.stagedAttachments.map(({ file }) => file)).toEqual(files)
+        logic.actions.applyComposerSeed()
+        expect(logic.values.stagedAttachments).toHaveLength(1)
         expect(logic.values.newTaskData.description).toBe('analyze churn')
         expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
         expect(seedLogic.values.seed).toBeNull()

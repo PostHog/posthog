@@ -275,6 +275,18 @@ class TestAppleSearchAdsTransport:
         assert "PEM file" not in message
         assert raised.value.__cause__ is not None
 
+    @parameterized.expand(
+        [
+            ("pem", PUBLIC_KEY_PEM),
+            ("pem_with_escaped_newlines", PUBLIC_KEY_PEM.replace("\n", "\\n")),
+        ]
+    )
+    def test_client_secret_names_a_pasted_public_key(self, _name: str, public_key: str) -> None:
+        with pytest.raises(AppleSearchAdsAuthError) as raised:
+            build_client_secret(_with_key(public_key))
+
+        assert "You entered the public key" in str(raised.value)
+
     @parameterized.expand([(V5, "orgId=555"), (V1, "adAccountId=123456789")])
     def test_requests_carry_the_bearer_token_and_the_versions_context_id(
         self, api_version: str, expected_context: str

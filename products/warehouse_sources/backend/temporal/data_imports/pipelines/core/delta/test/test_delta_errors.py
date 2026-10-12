@@ -60,6 +60,15 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A read timeout never gets s3fs's OSError translation (there's no response to
+                # translate), so it reaches here as the raw botocore `HTTPClientError` subclass once
+                # s3fs's own retries are exhausted - the same blip `s3/writer.py` already retries on
+                # the write path.
+                "bare_read_timeout_error",
+                botocore.exceptions.ReadTimeoutError(endpoint_url="https://example.com/part-0000.parquet"),
+                True,
+            ),
+            (
                 # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
                 # bundled endpoints.json before any network call is made - a full fd table fails that
                 # local open the same way it fails a socket connect, so it needs the same transient
@@ -71,6 +80,11 @@ class TestIsTransientObjectStoreError:
             (
                 "fd_table_full_enfile",
                 OSError(errno.ENFILE, "Too many open files in system"),
+                True,
+            ),
+            (
+                "s3_service_unavailable_ebusy",
+                OSError(errno.EBUSY, "Service Unavailable"),
                 True,
             ),
             (
@@ -88,6 +102,28 @@ class TestIsTransientObjectStoreError:
                 "s3_clock_skew_permission_error",
                 PermissionError("The difference between the request time and the current time is too large."),
                 True,
+            ),
+            (
+                # S3 omits the usual XML error body on some 5xx responses, so the AWS SDK for C++
+                # (pyarrow's S3FileSystem) can't classify the response and reports it as the fixed
+                # "UNKNOWN" code instead of a specific, permanent one like AccessDenied.
+                "bodyless_5xx_reported_as_unknown",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 503) during HeadObject operation: No response body."
+                ),
+                True,
+            ),
+            (
+                # AWS omits the error body for every HeadObject response regardless of status, so a
+                # permanent 403/404 reports the same "UNKNOWN" code as the 5xx case above. Only the
+                # status in the message tells them apart, and this one must not be retried.
+                "bodyless_4xx_reported_as_unknown_not_transient",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 404) during HeadObject operation: No response body."
+                ),
+                False,
             ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller

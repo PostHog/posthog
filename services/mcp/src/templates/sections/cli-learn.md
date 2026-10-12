@@ -10,5 +10,5 @@ Syntax: `learn [skills|-s "<up to 8 keywords>"|-d <name...>|(posthog|project):<s
 
 <example>
 User: At what exposure share does the experiment bias warning fire?
-Assistant: [Runs only `learn -s "experiment bias warning"`; waits. Loads `posthog:diagnosing-experiment-results`, reads `references/bias-and-skew.md`, answers from it — no web search, no source clone.]
+Assistant: [Runs only `learn -s "experiment bias warning"`; waits. Loads `posthog:diagnosing-experiment-health`, reads `references/bias-and-skew.md`, answers from it — no web search, no source clone.]
 </example>

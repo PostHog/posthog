@@ -18,7 +18,8 @@ export function useTurnRating({ sessionId, turnIndex, run, traceId }: TurnRating
 } {
     const { ratingForKey } = useValues(messageRatingsLogic)
     const { setRating } = useActions(messageRatingsLogic)
-    const ratingKey = `${sessionId}:turn-${turnIndex}`
+    // A trace id names one turn however the thread numbers its turns, so a stored rating stays on its answer.
+    const ratingKey = traceId ?? `${sessionId}:turn-${turnIndex}`
     const rating = ratingForKey(ratingKey)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<TurnFeedbackInputStatus>('hidden')

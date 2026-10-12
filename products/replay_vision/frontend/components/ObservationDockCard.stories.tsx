@@ -39,6 +39,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             signals_count: 1,
         },
         prompt_question: 'Did the user struggle to complete checkout?',
+        prompt_valence: 'bad',
         triggered_by: 'schedule',
         triggered_by_user: null,
         distinct_id: 'user_2m1x9d',

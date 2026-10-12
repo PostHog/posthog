@@ -1,5 +1,5 @@
 """
-DRF serializers for Loops. See `products/tasks/docs/LOOPS.md` for the spec.
+DRF serializers for Loops.
 
 Presentation never imports `products.tasks.backend.models` directly (see
 `products/architecture.md`): read serializers wrap the frozen DTOs from
@@ -440,7 +440,7 @@ class LoopWriteSerializer(serializers.Serializer):
     )
     instructions = serializers.CharField(help_text="The prompt delivered to the agent on every run.")
     runtime_adapter = serializers.ChoiceField(
-        choices=[adapter.value for adapter in RuntimeAdapter], help_text="Runtime adapter: 'claude' or 'codex'."
+        choices=RuntimeAdapter.choices, help_text="Runtime adapter: 'claude' or 'codex'."
     )
     model = serializers.CharField(
         required=False,

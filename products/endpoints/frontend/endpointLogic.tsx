@@ -70,7 +70,9 @@ export interface endpointLogicActions {
     deleteEndpoint: (name: string) => {
         name: string
     }
-    deleteEndpointFailure: () => {}
+    deleteEndpointFailure: (errorObject?: any) => {
+        errorObject: any
+    }
     deleteEndpointSuccess: (response: any) => {
         response: any
     }
@@ -243,7 +245,7 @@ export const endpointLogic = kea<endpointLogicType>([
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         clearMaterializationStatus: true,
-        deleteEndpointFailure: () => ({}),
+        deleteEndpointFailure: (errorObject?: any) => ({ errorObject }),
         confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
         saveTagsInline: (tags: string[]) => ({ tags }),
     }),
@@ -495,17 +497,26 @@ export const endpointLogic = kea<endpointLogicType>([
                 try {
                     await api.endpoint.delete(name)
                     actions.deleteEndpointSuccess(name)
-                } catch (error) {
+                } catch (error: any) {
                     console.error('Failed to delete endpoint:', error)
-                    actions.deleteEndpointFailure()
+                    actions.deleteEndpointFailure(error)
                 }
             },
             deleteEndpointSuccess: () => {
                 lemonToast.success('Endpoint deleted')
                 actions.loadEndpoints()
+                router.actions.push(urls.endpoints())
             },
-            deleteEndpointFailure: () => {
-                lemonToast.error('Failed to delete endpoint')
+            deleteEndpointFailure: ({ errorObject }) => {
+                const nodeId = errorObject?.data?.extra?.node_id
+                lemonToast.error(errorObject?.detail || 'Failed to delete endpoint', {
+                    button: nodeId
+                        ? {
+                              label: 'Open lineage',
+                              action: () => router.actions.push(urls.nodeDetail(nodeId, 'lineage')),
+                          }
+                        : undefined,
+                })
             },
             confirmToggleActive: ({ endpoint }) => {
                 const isActivating = !endpoint.is_active

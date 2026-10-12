@@ -3,6 +3,9 @@ from typing import Optional
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -36,6 +39,13 @@ class LemlistEndpointConfig:
     # Bound the first incremental sync so we don't pull the entire activity history at once.
     default_lookback_days: Optional[int] = None
     should_sync_default: bool = True
+    # JSONPath to the row list when the response wraps it (e.g. /contacts returns {"data": [...]}).
+    data_selector: Optional[str] = None
+    # Per-campaign child endpoints fan out over /campaigns; their rows carry the parent id.
+    fanout: Optional[DependentEndpointConfig] = None
+    # Read by the shared fan-out helper; lemlist list pages hold at most 100 rows.
+    page_size: int = 100
+    default_incremental_field: Optional[str] = None
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -45,6 +55,22 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
         "field": name,
         "field_type": IncrementalFieldType.DateTime,
     }
+
+
+def _campaign_fanout(
+    include_campaign_id: bool, child_params: Optional[dict[str, str]] = None
+) -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="campaigns",
+        resolve_param="campaignId",
+        resolve_field="_id",
+        include_from_parent=["_id"] if include_campaign_id else [],
+        parent_field_renames={"_id": "campaignId"} if include_campaign_id else {},
+        child_params=child_params or {},
+        # A campaign deleted between the listing and the child fetch 404s; skip it rather than
+        # failing the sync with the "no user for this API key" 404 message.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    )
 
 
 LEMLIST_ENDPOINTS: dict[str, LemlistEndpointConfig] = {
@@ -87,6 +113,42 @@ LEMLIST_ENDPOINTS: dict[str, LemlistEndpointConfig] = {
     "unsubscribes": LemlistEndpointConfig(
         name="unsubscribes",
         path="/unsubscribes",
+    ),
+    # Without a filter /contacts lists every contact in a {data, total, limit, offset} envelope. It
+    # exposes no sort or date filter, so it's full refresh only.
+    "contacts": LemlistEndpointConfig(
+        name="contacts",
+        path="/contacts",
+        data_selector="data",
+        partition_key="createdAt",
+    ),
+    # GET /campaigns/{id}/leads/ caps a response at 500 leads with no offset param, so the JSON
+    # export is the only way to read every lead of a campaign. Lead ids are scoped to their
+    # campaign, so the key carries the campaign id.
+    "campaign_leads": LemlistEndpointConfig(
+        name="campaign_leads",
+        path="/v2/campaigns/{campaignId}/export/leads",
+        paginate=False,
+        primary_keys=["campaignId", "_id"],
+        fanout=_campaign_fanout(include_campaign_id=True, child_params={"state": "all", "format": "json"}),
+    ),
+    # All-time headline stats per campaign; each report row's `_id` is the campaign id.
+    "campaign_reports": LemlistEndpointConfig(
+        name="campaign_reports",
+        path="/campaigns/reports?campaignIds={campaignId}",
+        paginate=False,
+        partition_key="createdAt",
+        fanout=_campaign_fanout(include_campaign_id=False),
+    ),
+    # The response is an object keyed by sequence id (condition branches are their own sequences),
+    # so `$.*` turns its values into one row per sequence, each with its ordered `steps`.
+    "campaign_sequences": LemlistEndpointConfig(
+        name="campaign_sequences",
+        path="/campaigns/{campaignId}/sequences",
+        paginate=False,
+        data_selector="$.*",
+        primary_keys=["campaignId", "_id"],
+        fanout=_campaign_fanout(include_campaign_id=True),
     ),
 }
 

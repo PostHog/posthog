@@ -8,7 +8,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { FeatureFlagGroupType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FeatureFlagFilters, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -20,7 +20,7 @@ jest.mock('lib/components/AutoSizer', () => ({
 
 // `aggregation_group_type_index` is set at flag level only, so the condition has to inherit it. That
 // resolution happens at the call site and is invisible to `matchingActorsUrl`'s own tests.
-function buildFilters(aggregationGroupTypeIndex?: number): FeatureFlagType['filters'] {
+function buildFilters(aggregationGroupTypeIndex?: number): FeatureFlagFilters {
     const group: FeatureFlagGroupType = {
         properties: [
             {

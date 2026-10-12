@@ -4,17 +4,19 @@ export function MetricSparkline({
     color = 'var(--success)',
     floor,
     ceil,
+    width = 280,
+    height = 56,
 }: {
     points: { date: string; value: number }[]
     color?: string
     floor?: number
     ceil?: number
+    width?: number
+    height?: number
 }): JSX.Element | null {
     if (points.length < 2) {
         return null
     }
-    const width = 280
-    const height = 56
     const pad = 4
     const values = points.map((p) => p.value)
     const min = Math.min(...values, ...(floor != null ? [floor] : []))

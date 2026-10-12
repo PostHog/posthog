@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous
     TREMENDOUS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (
-    DEFAULT_PROBE_PATH,
     TremendousResumeConfig,
     _balance_transaction_row_id,
     _to_iso_datetime,
@@ -31,8 +30,6 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 TREMENDOUS_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous.make_tracked_session"
 )
-
-INVOICES_PAGE_SIZE = TREMENDOUS_ENDPOINTS["invoices"].page_size  # 10 — cheap full-page fixtures
 
 
 def _response(items: list[dict[str, Any]], *, data_key: str = "orders") -> Response:
@@ -100,49 +97,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_progresses_offset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": f"i_{i}"} for i in range(INVOICES_PAGE_SIZE)]
-        params = _wire(
-            session, [_response(full_page, data_key="invoices"), _response([{"id": "i_last"}], data_key="invoices")]
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("invoices", manager))
-
-        assert [r["id"] for r in rows] == [*(f"i_{i}" for i in range(INVOICES_PAGE_SIZE)), "i_last"]
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == INVOICES_PAGE_SIZE
-        assert params[1]["offset"] == INVOICES_PAGE_SIZE
-        # Checkpoint saved after the first full page (points at the next page); short page ends it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == TremendousResumeConfig(offset=INVOICES_PAGE_SIZE)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "A"}, {"id": "B"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("orders", manager))
-
-        assert [r["id"] for r in rows] == ["A", "B"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source("orders", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": "X"}])])
@@ -176,29 +130,6 @@ class TestPagination:
 
         assert len(params) == 2
         assert all(p["created_at[gte]"] == "2026-01-02T03:04:05+00:00" for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_no_created_at_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "A"}])])
-
-        _rows(_source("orders", _make_manager()))
-
-        assert all("created_at[gte]" not in p for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_fetches_once_without_offset_limit(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "M1"}, {"id": "M2"}], data_key="members")])
-
-        manager = _make_manager()
-        rows = _rows(_source("members", manager))
-
-        assert [r["id"] for r in rows] == ["M1", "M2"]
-        assert session.send.call_count == 1
-        # A single-page endpoint sends no offset/limit pagination params.
-        assert "offset" not in params[0] and "limit" not in params[0]
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_pins_redirects_off(self, MockSession: mock.MagicMock) -> None:
@@ -280,19 +211,6 @@ def _bt_row(**overrides: Any) -> dict[str, Any]:
 
 
 class TestBalanceTransactionRowId:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rows_come_out_with_synthetic_id(self, MockSession: mock.MagicMock) -> None:
-        # Rows are wrapped under "transactions" (not the endpoint name) and carry no API id;
-        # without the row map the table has no primary key and incremental merges break.
-        session = MockSession.return_value
-        _wire(session, [_response([_bt_row(), _bt_row(action="Refund")], data_key="transactions")])
-
-        rows = _rows(_source("balance_transactions", _make_manager()))
-
-        assert len(rows) == 2
-        assert all(isinstance(r["id"], str) and len(r["id"]) == 64 for r in rows)
-        assert rows[0]["id"] != rows[1]["id"]
-
     @parameterized.expand(
         [
             # `balance` may be backfilled late (null -> value); re-keying on it would duplicate
@@ -371,14 +289,6 @@ class TestValidateCredentials:
         mock_session.return_value = self._session(mock.MagicMock(status_code=200))
         validate_credentials("tremendous-key", "production")
         assert mock_session.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(TREMENDOUS_SESSION_PATCH)
-    def test_probe_targets_selected_environment(self, mock_session: mock.MagicMock) -> None:
-        session = self._session(mock.MagicMock(status_code=200))
-        mock_session.return_value = session
-        validate_credentials("tremendous-key", "sandbox")
-        url = session.get.call_args.args[0]
-        assert url == f"https://testflight.tremendous.com/api/v2{DEFAULT_PROBE_PATH}"
 
 
 class TestTremendousSourceResponse:

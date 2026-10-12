@@ -85,6 +85,7 @@ class TrialComparisonResult(EvaluationDocument):
     rubric_revision: int
     variants: list[TrialComparisonVariantResult]
     status: Literal["not_started", "starting", "running", "judging", "completed", "failed", "unknown"]
+    archived: bool = False
     error: str | None
     evaluation: TrialComparisonEvaluation | None
 
@@ -92,6 +93,7 @@ class TrialComparisonResult(EvaluationDocument):
 class TrialComparisonHistory(EvaluationDocument):
     results: list[TrialComparisonResult]
     has_more: bool
+    next_cursor: str | None = None
 
 
 class TrialComparisonProgress(EvaluationDocument):

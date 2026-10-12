@@ -14,6 +14,10 @@ description: >
 
 # Exploring AI observability evaluations
 
+For stored offline experiment comparisons, scorer history, or externally computed
+result uploads, use `analyzing-offline-evaluations`. Offline experiments use pinned
+scorer configurations and separate result APIs from the online evaluations below.
+
 PostHog evaluations score `$ai_generation` events. Each evaluation is one of three
 types:
 

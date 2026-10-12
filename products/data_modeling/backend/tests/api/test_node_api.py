@@ -69,6 +69,25 @@ class TestNodeViewSet(APIBaseTest):
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
 
+    def test_deleted_saved_query_nodes_are_hidden_from_the_graph(self):
+        self.saved_query.soft_delete()
+
+        nodes_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+        edges_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+        lineage_response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.table_node.id}"
+        )
+
+        self.assertEqual(nodes_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(nodes_response.json()["count"], 1)
+        self.assertEqual(nodes_response.json()["results"][0]["name"], "events")
+        self.assertEqual(nodes_response.json()["results"][0]["downstream_count"], 0)
+        self.assertEqual(edges_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(edges_response.json()["count"], 0)
+        self.assertEqual(lineage_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([node["name"] for node in lineage_response.json()["nodes"]], ["events"])
+        self.assertEqual(lineage_response.json()["edges"], [])
+
     def _node_payload(self) -> dict:
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

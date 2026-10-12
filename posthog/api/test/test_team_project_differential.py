@@ -183,6 +183,7 @@ FIELD_VALUES: dict[str, Any] = {
     "survey_config": {"appearance": {"backgroundColor": "#ffffff"}},
     "week_start_day": 1,
     "primary_dashboard": "__PER_TWIN_DASHBOARD__",  # special-cased: a dashboard belonging to each twin
+    "home_tab_dashboard": "__PER_TWIN_DASHBOARD__",
     "live_events_columns": ["event"],
     "recording_domains": ["https://example.com"],
     "cookieless_server_hash_mode": 2,
@@ -232,7 +233,7 @@ class TestWriteParity(DifferentialParityBase):
         project_b, team_b = self._make_twin()
 
         value = FIELD_VALUES[field]
-        if field == "primary_dashboard":
+        if field in {"primary_dashboard", "home_tab_dashboard"}:
             dash_a = Dashboard.objects.create(team=team_a, name="d")
             dash_b = Dashboard.objects.create(team=team_b, name="d")
             body_a: dict[str, Any] = {field: dash_a.id}
@@ -256,7 +257,7 @@ class TestWriteParity(DifferentialParityBase):
             # 2. Round-trip parity: reading the field back must yield the same result via both routes.
             get_a = self.client.get(f"/api/environments/{team_a.id}/").json()
             get_b = self.client.get(f"/api/projects/{project_b.id}/").json()
-            if field == "primary_dashboard":
+            if field in {"primary_dashboard", "home_tab_dashboard"}:
                 self.assertEqual(get_a[field], dash_a.id)
                 self.assertEqual(get_b[field], dash_b.id)
             else:

@@ -358,6 +358,26 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         if replaced:
             assert self._champion().metrics["promotion_reason"] == "replaced_unscorable"
 
+    @parameterized.expand([("part_day_anchors", None, True), ("utc_day_anchors", "utc_day", False)])
+    def test_a_champion_trained_on_part_day_anchors_is_replaced_below_the_margin(self, _name, alignment, replaced):
+        first = self._run()
+        self._iteration(first, number=0, holdout=0.95)
+        complete_training_run(first)
+        champion = self._champion()
+        metrics = {key: value for key, value in champion.metrics.items() if key != "anchor_alignment"}
+        champion.metrics = {**metrics, **({"anchor_alignment": alignment} if alignment else {})}
+        champion.save(update_fields=["metrics"])
+
+        second = self._run()
+        self._iteration(second, number=0, holdout=0.89)
+        result = complete_training_run(second)
+
+        assert result["promoted"] is replaced
+        assert self._champion().holdout_score == (0.89 if replaced else 0.95)
+        assert self._champion().metrics["anchor_alignment"] == "utc_day"
+        if replaced:
+            assert self._champion().metrics["promotion_reason"] == "replaced_anchor_change"
+
     @parameterized.expand(
         [
             # SQL without {anchors} reads the outcome window whatever the iteration recorded.

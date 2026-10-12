@@ -59,6 +59,7 @@ const meta: Meta<typeof AddIntegrationButton> = {
                             AppleSearchAds: 'apple_search_ads.png',
                             OpenAIAds: 'openai_ads.svg',
                             AmazonAds: 'amazon_ads.png',
+                            TwitterAds: 'twitter_ads.png',
                             BigQuery: 'bigquery.png',
                         }).map(([name, icon]) => [
                             name,
@@ -75,6 +76,7 @@ const meta: Meta<typeof AddIntegrationButton> = {
             FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS,
         ],
         testOptions: { viewport: { width: 520, height: 1024 } },
     },
