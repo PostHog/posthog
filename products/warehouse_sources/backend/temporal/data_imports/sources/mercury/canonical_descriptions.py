@@ -3,6 +3,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "AccountStatements": {
+        "description": "A monthly statement for a Mercury bank account, with the period's ending balance and the transactions it covers.",
+        "docs_url": "https://docs.mercury.com/reference/getaccountstatements",
+        "columns": {
+            "id": "Unique identifier for the account statement.",
+            "accountId": "The Mercury account this statement belongs to.",
+            "startDate": "Start of the period covered by the statement.",
+            "endDate": "End of the period covered by the statement.",
+            "endingBalance": "Account balance at the end of the statement period, in dollars.",
+            "accountNumber": "Bank account number printed on the statement.",
+            "routingNumber": "Bank routing number printed on the statement.",
+            "companyLegalName": "Legal name of the company on the statement.",
+            "companyLegalAddress": "Legal address of the company on the statement.",
+            "ein": "Employer identification number on the statement, if any.",
+            "downloadUrl": "URL to download the statement PDF.",
+            "transactions": "IDs and timestamps of the transactions included in the statement.",
+        },
+    },
     "Accounts": {
         "description": "A bank account (checking or savings) in your Mercury organization, including balances and routing details.",
         "docs_url": "https://docs.mercury.com/reference/getaccounts",
@@ -117,6 +135,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "slug": "Unique identifier used to build public payment URLs for this invoice.",
         },
     },
+    "Merchants": {
+        "description": "A priority merchant that can be used in card spend controls such as merchant locking.",
+        "docs_url": "https://docs.mercury.com/reference/listmerchants",
+        "columns": {
+            "id": "Unique identifier for the merchant.",
+            "name": "Name of the merchant.",
+        },
+    },
     "Recipients": {
         "description": "A payment recipient saved in your Mercury organization, with routing and payment method details.",
         "docs_url": "https://docs.mercury.com/reference/getrecipients",
@@ -176,6 +202,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "When the treasury account was created.",
             "status": "Current status of the treasury account.",
             "netReturns": "Monthly net return breakdown with dividend and fee details.",
+        },
+    },
+    "TreasuryStatements": {
+        "description": "A document for a Mercury treasury account, such as a monthly statement, trade confirmation, or tax form.",
+        "docs_url": "https://docs.mercury.com/reference/gettreasurystatements",
+        "columns": {
+            "id": "Unique identifier for the statement.",
+            "accountId": "The treasury account this statement belongs to.",
+            "documentType": "Type of document, such as MonthlyStatement, TradeConfirmation, or a tax form.",
+            "description": "Human-readable description of the statement.",
+            "periodStart": "Start of the period covered by the statement.",
+            "periodEnd": "End of the period covered by the statement.",
+            "creationDate": "Date the custodian created the statement.",
+            "createdAt": "When the statement record was created.",
+            "updatedAt": "When the statement record was last updated.",
+            "downloadUrl": "URL to download the statement PDF.",
+        },
+    },
+    "TreasuryTransactions": {
+        "description": "A ledger entry on a Mercury treasury account, such as a deposit, withdrawal, dividend, interest payment, or fee.",
+        "docs_url": "https://docs.mercury.com/reference/gettreasurytransactions",
+        "columns": {
+            "id": "Unique identifier for the treasury transaction.",
+            "accountId": "The treasury account this transaction belongs to.",
+            "type": "Kind of treasury transaction, such as depositComplete, dividendPosted, or interestPosted.",
+            "amount": "Transaction amount, in dollars.",
+            "balance": "Treasury account balance after this transaction, in dollars.",
+            "canonicalDay": "Day the transaction applies to.",
+            "description": "Description of the transaction.",
+            "security": "Security involved in the transaction, if any.",
+            "details": "Extra details such as trade action, sweep direction, and counterparty account IDs.",
+            "additionalDetails": "Free-text additional details about the transaction, if any.",
         },
     },
     "Users": {

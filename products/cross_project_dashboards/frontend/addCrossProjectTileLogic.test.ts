@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -9,7 +10,7 @@ import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
 import { addCrossProjectTileLogic } from './addCrossProjectTileLogic'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
-import { crossProjectDashboardsRetrieve } from './generated/api'
+import { crossProjectDashboardsRetrieve, crossProjectDashboardsTilesCreate } from './generated/api'
 
 jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
 
@@ -21,11 +22,13 @@ jest.mock('products/product_analytics/frontend/generated/api', () => ({
 jest.mock('./generated/api', () => ({
     __esModule: true,
     crossProjectDashboardsRetrieve: jest.fn(),
+    crossProjectDashboardsTilesCreate: jest.fn(),
 }))
 
 const mockedDialogOpen = LemonDialog.open as jest.Mock
 const mockedInsightsList = insightsList as jest.Mock
 const mockedRetrieve = crossProjectDashboardsRetrieve as jest.Mock
+const mockedTileCreate = crossProjectDashboardsTilesCreate as jest.Mock
 
 const DASHBOARD_ID = '01a0f19d-1c44-715a-a679-188869bd033f'
 
@@ -67,6 +70,24 @@ describe('addCrossProjectTileLogic', () => {
 
         expect(logic.values.isOpen).toBe(true)
         expect(dashboardLogic.values.layoutEditMode).toBe(false)
+    })
+
+    it('reports an added insight with the tile and project counts the dashboard has after the add', async () => {
+        mockedInsightsList.mockResolvedValue({ results: [], next: null })
+        mockedTileCreate.mockResolvedValue({ ...TILE, id: 'tile-2', project_id: 54, insight_id: 7 })
+        const capture = jest.spyOn(posthog, 'capture')
+
+        logic.actions.setProjectId(54)
+        logic.actions.setInsight({ id: 7, name: 'Signups' })
+        logic.actions.addTile()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith('cross project dashboard insight added', {
+            dashboard_id: DASHBOARD_ID,
+            tile_count: 2,
+            project_count: 2,
+            used_search: false,
+        })
     })
 
     it('finds an insight past the first page by searching the selected project and loading more', async () => {

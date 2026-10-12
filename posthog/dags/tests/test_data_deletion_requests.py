@@ -3270,7 +3270,7 @@ def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(fai
         ('{"$groups":{"custom_group":"g"}}', "$groups", 1),
         ('{"$browser":""}', "$browser", 0),
         ('{"custom":""}', "custom", 0),
-        ('{"custom":{"a":""}}', "custom", 0),
+        ('{"custom":{"a":""}}', "custom", 1),
         ('{"custom":{"a":"y"}}', "custom", 1),
     ],
 )

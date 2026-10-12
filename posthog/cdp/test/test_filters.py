@@ -89,6 +89,26 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert bytecode == ["_H", HOGQL_BYTECODE_VERSION, 29]
         assert execute_bytecode(bytecode, {}).result is True
 
+    @parameterized.expand(
+        [
+            ("missing_property", {}),
+            ("null_property", {"score": None}),
+        ]
+    )
+    def test_ordered_numeric_filter_bytecode_handles_missing_property(self, _name, properties):
+        # An ordered numeric filter on an untyped property compiles to a toFloat(...) cast. The
+        # Python VM raised TypeError on a missing or null property, which made error tracking
+        # alert filtering fail closed and suppress alerts a negated filter should pass.
+        bytecode = self.filters_to_bytecode(
+            filters={"properties": [{"key": "score", "operator": "not_between", "value": [0, 100], "type": "event"}]}
+        )
+        assert execute_bytecode(bytecode, {"properties": properties}).result is True
+
+        bytecode = self.filters_to_bytecode(
+            filters={"properties": [{"key": "score", "operator": "gt", "value": 0, "type": "event"}]}
+        )
+        assert execute_bytecode(bytecode, {"properties": properties}).result is False
+
     def test_filters_all_events(self):
         bytecode = self.filters_to_bytecode(
             filters={

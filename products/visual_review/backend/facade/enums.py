@@ -39,6 +39,15 @@ class RunPurpose(StrEnum):
     OBSERVE = "observe"  # Tracking only — not approvable
 
 
+class RunReviewFilter(StrEnum):
+    """Where a run stands in review, as the run lists filter it."""
+
+    NEEDS_REVIEW = "needs_review"  # Completed PR run with changes nobody approved yet
+    CLEAN = "clean"  # No changes, or approved
+    PROCESSING = "processing"  # Diffs still computing
+    STALE = "stale"  # Superseded by a newer run while its changes were unapproved
+
+
 class ReviewDecision(StrEnum):
     """Run-level review outcome."""
 

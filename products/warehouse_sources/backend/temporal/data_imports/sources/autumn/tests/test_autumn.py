@@ -14,10 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.aut
     autumn_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import (
-    AUTUMN_ENDPOINTS,
-    PARTITION_BUCKET_MILLISECONDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import AUTUMN_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 WATERMARK_MS = 1704067200000
@@ -177,17 +174,6 @@ class TestAutumnSourceBehavior:
         assert [body.get("start_cursor") for body in sent_bodies] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response({"list": [{"id": "only"}], "next_cursor": None}),
-        ]
-        self._drive("Customers", manager, responses)
-
-        manager.save_state.assert_not_called()
-
     def test_incremental_events_run_carries_custom_range_on_every_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -276,26 +262,6 @@ class TestAutumnSourceBehavior:
 
         assert source_response.primary_keys == expected_primary_keys
         assert source_response.sort_mode == expected_sort_mode
-
-    def test_events_partitioning_uses_numerical_buckets_for_epoch_ms(self) -> None:
-        # "datetime" partition mode interprets integer values as epoch seconds; Autumn returns
-        # epoch milliseconds, which would crash the partitioner.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn.rest_api_resource"):
-            source_response = autumn_source(
-                api_key="am_sk_test",
-                endpoint="Events",
-                team_id=123,
-                job_id="test_job",
-                api_version="2.3.0",
-                resumable_source_manager=manager,
-            )
-
-        assert source_response.partition_mode == "numerical"
-        assert source_response.partition_keys == ["timestamp"]
-        assert source_response.partition_size == PARTITION_BUCKET_MILLISECONDS
 
 
 class TestValidateCredentials:

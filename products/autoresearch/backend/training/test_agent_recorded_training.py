@@ -20,7 +20,10 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.presentation.views.serializers import (
     AGENT_DESCRIPTION_MAX_LENGTH,
+    ITERATION_SUMMARY_MAX_LENGTH,
     MODEL_SPEC_MAX_BYTES,
+    NEXT_STEP_MAX_LENGTH,
+    NEXT_STEPS_MAX_ITEMS,
     OBJECT_JSON_MAX_BYTES,
     CompleteTrainingRunSerializer,
     RecordIterationSerializer,
@@ -76,6 +79,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         spec: dict[str, Any] | None = None,
         recipe: dict[str, Any] | None = None,
         runs_url: str | None = None,
+        summary: str | None = None,
     ) -> Any:
         return self.client.post(
             f"{runs_url or self.runs_url}/{run_id}/iterations/",
@@ -86,6 +90,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
                 "status": status_value,
                 "holdout_score": holdout,
                 "agent_description": "test iteration",
+                **({"summary": summary} if summary is not None else {}),
             },
             format="json",
         )
@@ -303,18 +308,38 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
 
     def test_complete_persists_agent_summary_enrichment(self):
         run_id = self._open_run()
-        self._record(run_id, number=0, status_value="kept", holdout=0.8)
+        recorded = self._record(run_id, number=0, status_value="kept", holdout=0.8, summary="Recent visits helped.")
+        assert recorded.json()["summary"] == "Recent visits helped."
+        too_many_steps = self.client.post(
+            f"{self.runs_url}/{run_id}/complete/",
+            {"next_steps": ["step"] * (NEXT_STEPS_MAX_ITEMS + 1)},
+            format="json",
+        )
+        assert too_many_steps.status_code == status.HTTP_400_BAD_REQUEST
         resp = self.client.post(
             f"{self.runs_url}/{run_id}/complete/",
-            {"distillation": "log1p of counts won", "recommended_next": "try session recency"},
+            {
+                "distillation": "log1p of counts won",
+                "recommended_next": "try session recency",
+                "reader_summary": "People who came back often were more likely to convert.",
+                "next_steps": ["Try time since last visit"],
+            },
             format="json",
         )
         assert resp.status_code == status.HTTP_200_OK
-        summary = resp.json()["summary"]
+        data = resp.json()
+        summary = data["summary"]
         assert summary["distillation"] == "log1p of counts won"
         assert summary["recommended_next"] == "try session recency"
+        assert data["reader_summary"] == "People who came back often were more likely to convert."
+        assert data["next_steps"] == ["Try time since last visit"]
         run = AutoresearchTrainingRun.objects.get(pk=run_id, team_id=self.team.pk)
         assert run.summary["recommended_next"] == "try session recency"
+        listed = self.client.get(f"{self.runs_url}/")
+        assert listed.status_code == status.HTTP_200_OK
+        listed_run = next(r for r in listed.json()["results"] if r["id"] == run_id)
+        assert listed_run["reader_summary"] == data["reader_summary"]
+        assert listed_run["iterations"][0]["summary"] == "Recent visits helped."
 
     def test_complete_that_loses_the_race_to_failure_is_refused(self):
         run_id = self._open_run()
@@ -609,6 +634,7 @@ class TestAgentWriteSerializers(SimpleTestCase):
                 {"agent_description": "x" * (AGENT_DESCRIPTION_MAX_LENGTH + 1)},
                 "agent_description",
             ),
+            ("oversized_summary", {"summary": "x" * (ITERATION_SUMMARY_MAX_LENGTH + 1)}, "summary"),
             ("nested_nan_in_spec", {"model_spec": {**VALID_SPEC, "model_params": {"C": float("nan")}}}, "model_spec"),
             ("lone_surrogate_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "\ud800"}}, "recipe_snapshot"),
             ("boolean_holdout", {"holdout_score": True}, "holdout_score"),
@@ -663,6 +689,18 @@ class TestAgentWriteSerializers(SimpleTestCase):
         serializer = CompleteTrainingRunSerializer(data={"model_explanation": explanation})
         assert not serializer.is_valid()
         assert "model_explanation" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("too_many_items", ["step"] * (NEXT_STEPS_MAX_ITEMS + 1)),
+            ("oversized_item", ["x" * (NEXT_STEP_MAX_LENGTH + 1)]),
+            ("not_a_list", "try recency"),
+        ]
+    )
+    def test_complete_rejects_next_steps(self, _name: str, next_steps: Any) -> None:
+        serializer = CompleteTrainingRunSerializer(data={"next_steps": next_steps})
+        assert not serializer.is_valid()
+        assert "next_steps" in serializer.errors
 
     def test_complete_orders_explanation_features_strongest_first(self) -> None:
         serializer = CompleteTrainingRunSerializer(

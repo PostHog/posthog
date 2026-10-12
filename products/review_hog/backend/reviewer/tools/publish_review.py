@@ -11,10 +11,12 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
-    PRIORITY_LABELS,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    display_level,
     effective_priority,
+    finding_heading,
+    finding_text,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
@@ -27,6 +29,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
+    is_transient_github_error,
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
@@ -87,7 +90,7 @@ def publish_persisted_review(
 
     The DB-driven publish path shared by the workflow's publish activity and the standalone
     `publish_review` management command — no recompute, no sandbox. Skips if this exact head was
-    already published (so a re-trigger / re-run can't double-post or re-fire the one-time promo),
+    already published (so a re-trigger / re-run can't double-post),
     rebuilds the inline comments from this run's valid findings against the snapshot diff, and records
     the published-head watermark only on a real post (a no-op turn must not block a later publish at
     the same head). `urgency_threshold` gates which findings publish and is snapshotted on the report
@@ -113,8 +116,6 @@ def publish_persisted_review(
         pr_files=pr_files,
         token=token,
         head_sha=head_sha,
-        # The alpha promo comment is posted once per report (first real publish), not every turn.
-        post_promo=report.published_head_sha is None,
         published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
         review_mode=review_mode,
@@ -178,11 +179,6 @@ def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None
     return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
-def _promo_marker(report_id: str) -> str:
-    """A hidden marker (HTML comment) embedded in the promo comment — posted once per report."""
-    return f"<!-- reviewhog:promo:{report_id} -->"
-
-
 def publish_review(
     *,
     owner: str,
@@ -194,7 +190,6 @@ def publish_review(
     pr_files: list[PRFile],
     token: str,
     head_sha: str,
-    post_promo: bool,
     published_priorities: set[IssuePriority],
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
@@ -205,9 +200,7 @@ def publish_review(
     from this turn's valid finding/verdict rows (`run_index`-scoped, so a prior turn's findings are
     never replayed), positioned against the PR's diff. `token` is the team's GitHub App installation
     token; `head_sha` pins the review to the exact reviewed commit so a force-push between review and
-    post can't misattribute comments. `post_promo` posts the one-time "PostHog Review alpha" feedback
-    comment (the caller passes it only on the first publish for the report, so it isn't re-posted
-    every turn). Reads the DB, so callers run it off the event loop.
+    post can't misattribute comments. Reads the DB, so callers run it off the event loop.
 
     `posted` is False when there was nothing publishable — the caller records the published-head
     watermark only on a real post, so a no-op turn doesn't block a later turn (with a valid finding)
@@ -249,9 +242,7 @@ def publish_review(
         comments,
         token=token,
         head_sha=head_sha,
-        post_promo=post_promo,
         marker=marker,
-        promo_marker=_promo_marker(report_id),
         installation_id=installation_id,
         inline_body=inline_body,
         legacy_marker=_review_marker(report_id, head_sha),
@@ -260,39 +251,27 @@ def publish_review(
     return PublishOutcome(posted=True, review_url=review_url)
 
 
-def _finding_meta_line(priority: IssuePriority, category: str | None) -> str:
-    """The severity (+ optional category) line under the title, in plain text so it reads the same
-    in the PR, in email notifications, and with images blocked."""
-    meta = f"**{PRIORITY_LABELS[priority].capitalize()}**"
-    if category:
-        meta += f" · {category.replace('_', ' ')}"
-    return meta
-
-
 def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
-    """Format a finding + its verdict as an inline comment body: title, severity, issue, fix.
+    """Format a finding + its verdict as an inline comment body: the P level and title, then the issue
+    and its fix in one paragraph.
 
+    The comment is plain text, so it reads the same in the PR and in email notifications.
     The validator's argumentation stays out of the comment. It is stored on the verdict and the
-    reviews API returns it as `validator_note`. The title must stay the first line, because the
+    reviews API returns it as `validator_note`. The heading must stay the first line, because the
     outcome sweep (`find_finding_comment`) matches a finding to its comment by that line.
+    The finding's `suggestion_code` is not posted, because the readers apply the fix from the wording.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
-    return "\n".join(
-        [
-            f"### {finding.title}",
-            "",
-            _finding_meta_line(priority, verdict.category),
-            "",
-            finding.body,
-            "",
-            "**Suggested fix**",
-            "",
-            finding.suggestion,
-            "",
-            # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
-            REVIEW_HOG_FINDING_MARKER,
-        ]
-    )
+    level = display_level(priority, finding.reported_priority)
+    lines = [
+        finding_heading(finding.title, level),
+        "",
+        finding_text(finding.body, finding.suggestion),
+        "",
+        # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
+        REVIEW_HOG_FINDING_MARKER,
+    ]
+    return "\n".join(lines)
 
 
 def _build_inline_comments(
@@ -345,8 +324,9 @@ def _review_already_posted(
 ) -> bool:
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
-    Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
-    drop the review — the `published_head_sha` watermark still guards the common retry path. Only
+    Best-effort idempotency backstop: a transient readback failure raises, because an earlier attempt
+    may have posted already and the activity retries. Any other readback failure proceeds to post rather
+    than silently drop the review — the `published_head_sha` watermark still guards the common retry path. Only
     our own app-bot's reviews count (`is_app_bot_author`, shared with the status comment's marker
     scan): on a public repo anyone can paste the marker, and a spoofed match would silently
     suppress the publish.
@@ -371,33 +351,10 @@ def _review_already_posted(
             )
         )
     except (GitHubAPIError, GitHubRateLimitError) as e:
+        if is_transient_github_error(e):
+            raise
         logger.warning(f"Could not read existing reviews to check publish idempotency: {e}. Proceeding to post.")
         return False
-
-
-def _promo_already_posted(
-    owner: str, repo: str, pr_number: int, promo_marker: str, *, token: str, installation_id: str | None
-) -> bool:
-    """True if the promo comment is already on the PR (posted on an attempt that later failed).
-
-    The promo posts before the review, so a transient review-creation failure retries the whole
-    activity with `published_head_sha` still unset — without this check the retry would post the
-    promo a second time. Failure stakes invert versus the review readback: a duplicate promo is
-    spam while a missing one is harmless, so an unreadable comment list counts as already posted.
-    """
-    try:
-        return any(
-            promo_marker in (comment.get("body") or "")
-            for comment in github_api_get_paginated(
-                f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
-                token=token,
-                installation_id=installation_id,
-                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            )
-        )
-    except (GitHubAPIError, GitHubRateLimitError) as e:
-        logger.warning(f"Could not read issue comments to check promo idempotency: {e}. Skipping the promo.")
-        return True
 
 
 def _code_span(text: str) -> str:
@@ -443,9 +400,7 @@ def _post_github_review(
     *,
     token: str,
     head_sha: str,
-    post_promo: bool,
     marker: str,
-    promo_marker: str,
     installation_id: str | None = None,
     inline_body: str | None = None,
     legacy_marker: str | None = None,
@@ -473,23 +428,6 @@ def _post_github_review(
     ):
         logger.info(f"Review for {owner}/{repo}#{pr_number} at {head_sha[:12]} already on PR (marker found); skipping")
         return None
-
-    if post_promo and not _promo_already_posted(
-        owner, repo, pr_number, promo_marker, token=token, installation_id=installation_id
-    ):
-        github_api_request(
-            "POST",
-            f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
-            token=token,
-            installation_id=installation_id,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json={
-                "body": "PostHog Review alpha \U0001f994 "
-                "If you find any issues helpful - "
-                'please reply "valid", "invalid", etc., '
-                f"for evaluation purposes \U0001f64f\n\n{promo_marker}"
-            },
-        )
 
     # Pin the review to the exact commit we reviewed; without it GitHub posts against the PR's latest
     # head, so a force-push between review and post would misplace the inline comments. Best-effort:

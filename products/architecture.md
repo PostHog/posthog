@@ -121,13 +121,16 @@ Two core registries are keyed by model class identity and are explicit, sanction
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
 
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
-Two products hold entries.
+Three products hold entries.
 `warehouse_sources`: core HogQL reads its warehouse table/schema/source models to build queryable tables.
 `ExternalDataDestination`, `ExternalDataSourceDestination` and `ExternalDataSchemaDestination` cross for the same reason as the rest of the product's models — the destination CRUD `ModelViewSet` and the source-/schema-level link-table editors need the classes themselves for `Meta.model`, querysets, and edits to the link rows, not a read-only shape.
 `product_analytics`: `Insight` and `InsightVariable`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
 `InsightVariable` has no consumer left outside the product; its entry survives only because the SQL-variables `ModelViewSet` in `presentation/` needs the class and presentation may reach internals only through the facade, so retiring the entry means converting that viewset off `ModelSerializer` first.
 The dashboards→product_analytics `DashboardTile.insight` FK and `Dashboard.insights` M2M-through cross into the product against §8's direction rule; that coupling is accepted under this entry until dashboards pursues its own isolation.
+`workflows`: `HogFlow`.
+`HogFlowViewSet` in `presentation/` reads and writes workflows through facade functions, but the log, metrics and access-control mixins it inherits read the row through `get_object()`, and `UserAccessControl` resolves the resource and the object-level rules from the model instance.
+Retiring the entry means teaching those core mixins and `UserAccessControl` to accept a resource type and id in place of a model instance.
 
 An allowance product's facade may hand out model classes defined under `backend/models/`.
 The model surface is watched by every narrowed product anyway (see [What makes the skip sound](#what-makes-the-skip-sound)); the allowance adds only the permission to hand out the class.
@@ -445,6 +448,18 @@ If both presentation and logic need the same utility (caching, permissions, etc.
 ### Who owns RBAC?
 
 User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
+
+A view that fetches a contract from the facade has no model instance for DRF's `get_object()` to check.
+It still checks object access through the same permission stack, with an `ObjectAccessRef` from `products/access_control/backend/facade/contracts.py` in place of the instance:
+
+- Override `safely_get_object()` to fetch the contract through the facade. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
+- Build `ObjectAccessRef(resource=..., id=..., team_id=..., created_by_id=...)` from the contract and return it. Return `None` for a missing object, which becomes a 404.
+- The mixin's `get_object()` then calls `check_object_permissions` on the reference. Every permission class on the view runs, and `AccessControlPermission` resolves the object's access from the reference.
+- `LogEntryMixin` and `AppMetricsMixin` read only `.id` from `get_object()`, so they keep working without the model.
+- An action that needs the contract itself can fetch it, build the reference, and call `self.check_object_permissions(self.request, ref)` directly.
+
+Do not call `AccessControlPermission` methods by hand, and do not pass `UserAccessControl` or a required level into the facade.
+A resource that inherits access from a parent object (`RESOURCE_FALLBACK_MAP`) needs the model instance, and a reference for it raises.
 
 The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
 

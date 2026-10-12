@@ -14,9 +14,9 @@ from django.db import transaction
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models.user import User
 
+from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from products.error_tracking.backend.logic.assignees import resolve_current_assignee
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,

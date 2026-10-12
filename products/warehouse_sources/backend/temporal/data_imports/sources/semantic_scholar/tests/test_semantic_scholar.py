@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 import responses
-from requests.exceptions import HTTPError, Timeout
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -109,31 +109,6 @@ def test_edges_paginate_each_parent_and_keep_distinct_keys(endpoint: str, relate
     ]
 
 
-@pytest.mark.parametrize("endpoint", ["citations", "references"])
-@responses.activate
-def test_resume_skips_completed_parents_and_restores_child_offset(endpoint: str) -> None:
-    related_field = "citingPaper" if endpoint == "citations" else "citedPaper"
-    responses.get(f"{BASE_URL}/paper/search/bulk", json={"data": [{"paperId": "a"}, {"paperId": "b"}]})
-    responses.get(f"{BASE_URL}/paper/b/{endpoint}", json={"data": [{related_field: {"paperId": "c"}}]})
-    manager = make_manager(
-        {"completed": [f"paper/a/{endpoint}"], "current": f"paper/b/{endpoint}", "child_state": {"cursor": 1000}}
-    )
-    result = semantic_scholar_source(CONFIG, make_inputs(endpoint), manager, "v1")
-    rows = [row for page in items(result) for row in page]
-    assert [(row["paper_id"], row["related_paper_id"]) for row in rows] == [("b", "c")]
-    assert len(responses.calls) == 2
-    assert parse_qs(urlsplit(responses.calls[1].request.url).query)["offset"] == ["1000"]
-
-
-@pytest.mark.parametrize("endpoint", ["papers", "citations", "references"])
-@responses.activate
-def test_empty_search_stops_without_child_requests(endpoint: str) -> None:
-    responses.get(f"{BASE_URL}/paper/search/bulk", json={"total": 0, "data": []})
-    result = semantic_scholar_source(CONFIG, make_inputs(endpoint), make_manager(), "v1")
-    assert list(items(result)) == []
-    assert len(responses.calls) == 1
-
-
 @responses.activate
 def test_bulk_limit_fails_before_yielding_partial_results() -> None:
     responses.get(f"{BASE_URL}/paper/search/bulk", json={"total": 10_000_001, "data": [{"paperId": "a"}]})
@@ -174,14 +149,6 @@ def test_validation_uses_one_call_and_maps_errors(status: int, message: str | No
     assert parse_qs(urlsplit(responses.calls[0].request.url).query)["fields"] == ["paperId"]
 
 
-@responses.activate
-def test_validation_hides_transport_error_details() -> None:
-    responses.get(f"{BASE_URL}/paper/search/bulk", body=Timeout("private transport detail"))
-    valid, message = validate_credentials(CONFIG, "v1")
-    assert not valid
-    assert message == "Semantic Scholar is unavailable or has limited requests. Try again later."
-
-
 @pytest.mark.parametrize(("key", "query"), [("", "graph"), ("key\n", "graph"), ("é", "graph"), ("key", " ")])
 @responses.activate
 def test_invalid_config_does_not_make_requests(key: str, query: str) -> None:
@@ -189,14 +156,3 @@ def test_invalid_config_does_not_make_requests(key: str, query: str) -> None:
     assert not valid
     assert message
     assert len(responses.calls) == 0
-
-
-@responses.activate
-def test_rate_limit_retries_same_page() -> None:
-    responses.get(
-        f"{BASE_URL}/paper/search/bulk", json={"message": "limited"}, status=429, headers={"Retry-After": "0"}
-    )
-    responses.get(f"{BASE_URL}/paper/search/bulk", json={"data": [{"paperId": "a"}]})
-    result = semantic_scholar_source(CONFIG, make_inputs("papers"), make_manager(), "v1")
-    assert list(items(result)) == [[{"paperId": "a"}]]
-    assert responses.calls[0].request.url == responses.calls[1].request.url

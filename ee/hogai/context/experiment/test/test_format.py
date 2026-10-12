@@ -1,10 +1,14 @@
 from unittest import TestCase
 
+from parameterized import parameterized
+
 from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 
 def _bayesian_day(
     *,
+    baseline_key: str = "control",
+    variant_key: str = "test",
     control_n: int = 1000,
     control_sum: float = 50,
     test_n: int = 1010,
@@ -15,14 +19,14 @@ def _bayesian_day(
 ) -> dict:
     return {
         "baseline": {
-            "key": "control",
+            "key": baseline_key,
             "number_of_samples": control_n,
             "sum": control_sum,
             "sum_squares": control_sum * 2,
         },
         "variant_results": [
             {
-                "key": "test",
+                "key": variant_key,
                 "method": "bayesian",
                 "number_of_samples": test_n,
                 "sum": test_sum,
@@ -50,23 +54,42 @@ class TestExperimentTimeseriesFormatter(TestCase):
             "No completed timeseries data (status: pending).",
         )
 
-    def test_bayesian_two_days(self):
+    @parameterized.expand(
+        [
+            (
+                "control_baseline",
+                "control",
+                "test",
+                "Variants: control (baseline), test",
+                "Date|control n|control mean|test n|test mean|test interval|test chance_to_win|test significant",
+            ),
+            (
+                "non_control_baseline",
+                "redesign",
+                "control",
+                "Variants: redesign (baseline), control",
+                "Date|redesign n|redesign mean|control n|control mean|control interval|control chance_to_win|control significant",
+            ),
+        ]
+    )
+    def test_bayesian_two_days(
+        self, _name: str, baseline_key: str, variant_key: str, expected_variants: str, expected_header: str
+    ):
         response = {
             "status": "completed",
             "timeseries": {
-                "2026-04-01": _bayesian_day(),
-                "2026-04-02": _bayesian_day(test_sum=80, chance_to_win=0.97),
+                "2026-04-01": _bayesian_day(baseline_key=baseline_key, variant_key=variant_key),
+                "2026-04-02": _bayesian_day(
+                    baseline_key=baseline_key, variant_key=variant_key, test_sum=80, chance_to_win=0.97
+                ),
             },
         }
         out = ExperimentTimeseriesFormatter(response).format()
         lines = out.splitlines()
         self.assertEqual(lines[0], "Method: bayesian")
-        self.assertEqual(lines[1], "Variants: control (baseline), test")
+        self.assertEqual(lines[1], expected_variants)
         self.assertEqual(lines[2], "Status: completed")
-        self.assertEqual(
-            lines[3],
-            "Date|control n|control mean|test n|test mean|test interval|test chance_to_win|test significant",
-        )
+        self.assertEqual(lines[3], expected_header)
         self.assertEqual(lines[4], "2026-04-01|1000|0.05|1010|0.069307|0.01..0.05|0.92|true")
         self.assertEqual(lines[5], "2026-04-02|1000|0.05|1010|0.079208|0.01..0.05|0.97|true")
 

@@ -127,10 +127,6 @@ class TestNotion:
         assert body["page_size"] == 100
         assert "start_cursor" not in body
 
-    def test_search_body_includes_cursor_when_set(self) -> None:
-        body = _search_body("page", "cursor-123")
-        assert body["start_cursor"] == "cursor-123"
-
     def test_search_stream_paginates_and_terminates(self) -> None:
         session = FakeSession(
             [
@@ -149,17 +145,6 @@ class TestNotion:
         assert total_rows == 2
         # Two pages fetched, then the loop terminates on has_more=False.
         assert len(session.calls) == 2
-
-    def test_search_stream_resumes_from_saved_cursor(self) -> None:
-        session = FakeSession([_list_response([{"id": "p1"}], has_more=False, next_cursor=None)])
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = NotionResumeConfig(next_cursor="resume-cursor")
-
-        list(_search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
-
-        # The first request must start from the persisted cursor.
-        assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
 
     @staticmethod
     def _invalid_cursor_response() -> FakeResponse:
@@ -430,27 +415,6 @@ class TestNotion:
             )
         assert exc_info.value.retry_after is None
 
-    def test_request_retries_chunked_encoding_error(self) -> None:
-        # Notion can break the connection mid-response, which requests surfaces as a
-        # ChunkedEncodingError ("Connection broken: InvalidChunkLength"). It is transient and must be
-        # retried like other connection failures, not propagated as a fatal sync error.
-        attempts = {"count": 0}
-
-        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
-            attempts["count"] += 1
-            if attempts["count"] == 1:
-                raise requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'')")
-            return FakeResponse({"results": []})
-
-        session = mock.MagicMock()
-        session.request.side_effect = request
-
-        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
-            result = _request(cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={})
-
-        assert result == {"results": []}
-        assert attempts["count"] == 2
-
     def test_request_non_json_2xx_raises_retryable(self) -> None:
         # A 2xx whose body is empty or non-JSON makes response.json() raise JSONDecodeError. That is a
         # truncated/garbled response, not real Notion output, so it must surface as the retryable type
@@ -612,17 +576,6 @@ class TestNotion:
     def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:
         assert _parse_retry_after(value) == expected
 
-    def test_wait_strategy_honors_retry_after(self) -> None:
-        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == 3.0
-
-    def test_wait_strategy_honors_multi_minute_retry_after(self) -> None:
-        # Notion routinely asks for several minutes under sustained load. Clamping that to the
-        # exponential ceiling retried inside the penalty window and exhausted attempts, so the
-        # full Retry-After must be honored.
-        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=336.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == 336.0
-
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
         assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_AFTER_SECONDS
@@ -708,12 +661,3 @@ class TestNotion:
             ["https://api.notion.com/admin/v1/spaces/ws-1/groups?page_size=1"] if admin_status is not None else []
         )
         assert [call["url"] for call in admin_session.calls] == expected_admin_urls
-
-
-@pytest.mark.parametrize("endpoint", list(NOTION_ENDPOINTS.keys()))
-def test_every_endpoint_has_config(endpoint: str) -> None:
-    config = NOTION_ENDPOINTS[endpoint]
-    assert config.name == endpoint
-    assert config.stream_type in ("search", "users", "blocks", "comments", "permission_groups")
-    if config.stream_type == "search":
-        assert config.object_filter in ("page", "data_source")

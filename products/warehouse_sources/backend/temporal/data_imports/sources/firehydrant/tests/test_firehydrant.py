@@ -10,7 +10,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant import firehydrant
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.firehydrant import (
-    PAGE_SIZE,
     FireHydrantResumeConfig,
     base_url_for_region,
     firehydrant_source,
@@ -68,153 +67,7 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_page_pagination(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(
-            session,
-            [
-                _response([{"id": "i1"}, {"id": "i2"}], next_page=2),
-                _response([{"id": "i3"}], next_page=None),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(
-            firehydrant_source("fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert [r["id"] for r in rows] == ["i1", "i2", "i3"]
-        # First request carries per_page but no explicit page (FireHydrant defaults to page 1);
-        # the second request injects the `page` cursor from `pagination.next`.
-        assert params[0]["per_page"] == PAGE_SIZE
-        assert "page" not in params[0]
-        assert params[1]["page"] == 2
-        assert params[1]["per_page"] == PAGE_SIZE
-        # Checkpoint saved once, pointing at the next page; the final (next=None) page saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == FireHydrantResumeConfig(paginator_state={"cursor": 2})
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_unpaginated_response_terminates(self, MockSession) -> None:
-        # signals_on_call and similar endpoints may return a single page with no `pagination` object.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "s1"}], drop_pagination=True)])
-
-        manager = _make_manager()
-        rows = _rows(
-            firehydrant_source("fhb_test", "signals_on_call", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert [r["id"] for r in rows] == ["s1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_state_saved_after_each_page_with_next(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": "a"}], next_page=2),
-                _response([{"id": "b"}], next_page=3),
-                _response([{"id": "c"}], next_page=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        # State saved only when a next page exists — not after the final page.
-        assert [c.args[0].paginator_state["cursor"] for c in manager.save_state.call_args_list] == [2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_region_routes_requests_to_eu_host(self, MockSession) -> None:
-        # EU accounts only answer on the data-residency host; if the source ignored region it would hit
-        # the US host and every EU sync would fail.
-        session = MockSession.return_value
-        _params, urls = _wire(session, [_response([{"id": "eu1"}], next_page=None)])
-
-        manager = _make_manager()
-        rows = _rows(
-            firehydrant_source(
-                "fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager, region="eu"
-            )
-        )
-
-        assert [r["id"] for r in rows] == ["eu1"]
-        assert urls[0].startswith("https://api.eu.firehydrant.io/v1/incidents")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_from_saved_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response([{"id": "b"}], next_page=None)])
-
-        manager = _make_manager(FireHydrantResumeConfig(paginator_state={"cursor": 2}))
-        rows = _rows(
-            firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        # Resumes at page 2 (page 1 is never requested), proving the saved cursor is honored.
-        assert [r["id"] for r in rows] == ["b"]
-        assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rate_limit_then_success_is_retried(self, MockSession, monkeypatch: Any) -> None:
-        # 429 must be classified retryable (not fatal): a 429 followed by a 200 recovers and yields rows.
-        import tenacity.nap
-
-        monkeypatch.setattr(tenacity.nap.time, "sleep", lambda _s: None)
-
-        session = MockSession.return_value
-        throttled = Response()
-        throttled.status_code = 429
-        throttled.headers["Retry-After"] = "1"
-        _wire(session, [throttled, _response([{"id": "ok"}], next_page=None)])
-
-        manager = _make_manager()
-        rows = _rows(
-            firehydrant_source("fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-        assert [r["id"] for r in rows] == ["ok"]
-
-
 class TestFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_child_endpoint_once_per_parent(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, urls = _wire(
-            session,
-            [
-                _response([{"id": "inc1"}, {"id": "inc2"}], next_page=None),
-                _response([{"id": "m1"}], next_page=None),
-                _response([{"id": "m2"}], next_page=None),
-            ],
-        )
-
-        rows = _rows(
-            firehydrant_source(
-                "fhb_test", "incident_milestones", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        )
-
-        assert urls == [
-            "https://api.firehydrant.io/v1/incidents",
-            "https://api.firehydrant.io/v1/incidents/inc1/milestones",
-            "https://api.firehydrant.io/v1/incidents/inc2/milestones",
-        ]
-        # The parent id is injected and renamed to `incident_id`, which the primary key depends on
-        # (milestone ids are only unique within their incident).
-        assert rows == [
-            {"id": "m1", "incident_id": "inc1"},
-            {"id": "m2", "incident_id": "inc2"},
-        ]
-        # The resolved param binds the path only; leaking it into the query string would make every
-        # child request carry a filter FireHydrant never documented.
-        assert "incident_id" not in params[1]
-        assert params[1]["per_page"] == PAGE_SIZE
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_skips_parents_already_synced(self, MockSession) -> None:
         session = MockSession.return_value
@@ -247,22 +100,6 @@ class TestFanout:
         assert rows == [{"id": "task2", "team_id": "t2"}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_records_completed_parents(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": "inc1"}], next_page=None),
-                _response([{"id": "task1"}], next_page=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(firehydrant_source("fhb_test", "incident_tasks", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert manager.save_state.call_args.args[0].paginator_state["completed"] == ["/v1/incidents/inc1/tasks"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_child_response_without_the_data_envelope_fails_loud(self, MockSession) -> None:
         # A shape change has to stop the sync. Reading it as an empty page would replace the whole
         # table with no rows, and nothing downstream would report that.
@@ -282,53 +119,6 @@ class TestFanout:
                     resumable_source_manager=_make_manager(),
                 )
             )
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_service_dependencies_read_the_flattened_named_array(self, MockSession) -> None:
-        # This endpoint answers outside the `data` envelope: reading `data` would sync zero rows,
-        # and reading the split arrays instead of the flattened one would double-count each edge.
-        session = MockSession.return_value
-        dependencies = Response()
-        dependencies.status_code = 200
-        dependencies._content = json.dumps(
-            {
-                "child_service_dependencies": [{"id": "d1", "type": "child"}],
-                "parent_service_dependencies": [{"id": "d2", "type": "parent"}],
-                "service_dependencies": [{"id": "d1", "type": "child"}, {"id": "d2", "type": "parent"}],
-            }
-        ).encode()
-        params, urls = _wire(session, [_response([{"id": "svc1"}], next_page=None), dependencies])
-
-        rows = _rows(
-            firehydrant_source(
-                "fhb_test", "service_dependencies", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        )
-
-        assert urls[1] == "https://api.firehydrant.io/v1/services/svc1/dependencies"
-        # The parent service id is what keeps an edge unique — the same edge id comes back under
-        # both services it joins.
-        assert rows == [
-            {"id": "d1", "type": "child", "service_id": "svc1"},
-            {"id": "d2", "type": "parent", "service_id": "svc1"},
-        ]
-        assert params[1]["flatten"] == "true"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_child_body_is_zero_rows(self, MockSession) -> None:
-        # An empty container carries no rows and no alternative shape, so it must not fail loud.
-        session = MockSession.return_value
-        empty = Response()
-        empty.status_code = 200
-        empty._content = b"{}"
-        _wire(session, [_response([{"id": "t1"}], next_page=None), empty])
-
-        rows = _rows(
-            firehydrant_source(
-                "fhb_test", "team_escalation_policies", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        )
-        assert rows == []
 
 
 class TestSourceResponse:

@@ -506,8 +506,14 @@ fn spawn_write(
     let sink = service.sink.clone();
     let token = token.to_string();
     writes.spawn(async move {
-        sink.write(&token, batch.rows, batch.bytes, batch.timestamps_overridden)
-            .await
+        sink.write(
+            &token,
+            batch.rows,
+            batch.bytes,
+            batch.timestamps_overridden,
+            None,
+        )
+        .await
     });
 }
 

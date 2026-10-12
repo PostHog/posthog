@@ -1,19 +1,152 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
+import { SeriesTab, YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
 import { YSeriesLogicProps } from './ySeriesLogic'
 
+const renderPartOfWholeSeriesTab = (
+    display: ChartDisplayType,
+    xAxis: { column: string } | undefined,
+    valueColumns: string[],
+    seriesBreakdownColumn?: string,
+    rows: unknown[][] = [['Mon', 3, 5, 'US']]
+): ReturnType<typeof render> => {
+    initKeaTests()
+    const cachedResults: HogQLQueryResponse = {
+        results: rows,
+        columns: ['day', 'signups', 'logins', 'country'],
+        types: [
+            ['day', 'String'],
+            ['signups', 'Float64'],
+            ['logins', 'Float64'],
+            ['country', 'String'],
+        ],
+    }
+    const query: VisualizationNode = {
+        kind: NodeKind.DataVisualizationNode,
+        source: { kind: NodeKind.HogQLQuery, query: 'select day, signups, logins, country from daily' },
+        display,
+        chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })), seriesBreakdownColumn },
+    }
+    const props: DataVisualizationLogicProps = {
+        key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}-${seriesBreakdownColumn}-${rows.length}`,
+        query,
+        cachedResults,
+        dataNodeCollectionId: 'series-tab-part-of-whole',
+        setQuery: jest.fn(),
+    }
+    dataNodeLogic({
+        key: props.key,
+        query: query.source,
+        cachedResults,
+        dataNodeCollectionId: props.dataNodeCollectionId,
+    }).mount()
+    dataVisualizationLogic(props).mount()
+
+    return render(
+        <BindLogic logic={dataVisualizationLogic} props={props}>
+            <SeriesTab />
+        </BindLogic>
+    )
+}
+
 describe('SeriesTab', () => {
+    afterEach(() => {
+        cleanup()
+    })
+
+    it.each([
+        {
+            name: 'lists every value column for a proportion bar with no label column',
+            display: ChartDisplayType.ActionsProportionBar,
+            xAxis: undefined,
+            valueColumns: ['signups', 'logins'],
+            listsEveryValueColumn: true,
+            labelDisabled: true,
+        },
+        {
+            name: 'lists every value column and disables the label when several value columns ignore it',
+            display: ChartDisplayType.ActionsProportionBar,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups', 'logins'],
+            listsEveryValueColumn: true,
+            labelDisabled: true,
+        },
+        {
+            name: 'picks one value column for a proportion bar grouped by a label column',
+            display: ChartDisplayType.ActionsProportionBar,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups'],
+            listsEveryValueColumn: false,
+            labelDisabled: false,
+        },
+        {
+            name: 'lists the breakdown parts and disables the label when a breakdown ignores it',
+            display: ChartDisplayType.ActionsProportionBar,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups'],
+            seriesBreakdownColumn: 'country',
+            listsEveryValueColumn: true,
+            labelDisabled: true,
+        },
+        {
+            name: 'lists every value column for a pie with several value columns',
+            display: ChartDisplayType.ActionsPie,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups', 'logins'],
+            listsEveryValueColumn: true,
+            labelDisabled: true,
+        },
+        {
+            name: 'picks one value column for a pie grouped by a label column',
+            display: ChartDisplayType.ActionsPie,
+            xAxis: { column: 'day' },
+            valueColumns: ['signups'],
+            listsEveryValueColumn: false,
+            labelDisabled: false,
+        },
+    ])('$name', ({ display, xAxis, valueColumns, seriesBreakdownColumn, listsEveryValueColumn, labelDisabled }) => {
+        const { container } = renderPartOfWholeSeriesTab(display, xAxis, valueColumns, seriesBreakdownColumn)
+
+        expect(screen.queryAllByText('Values').length > 0).toBe(listsEveryValueColumn)
+        expect(container.querySelector('[data-attr="part-of-whole-label-column"]')?.getAttribute('aria-disabled')).toBe(
+            String(labelDisabled)
+        )
+        expect(container.querySelector('[title="Delete series breakdown"]') !== null).toBe(!!seriesBreakdownColumn)
+    })
+
+    it('keeps a selected breakdown removable when the results have no rows', () => {
+        const { container } = renderPartOfWholeSeriesTab(
+            ChartDisplayType.ActionsProportionBar,
+            { column: 'day' },
+            ['signups'],
+            'country',
+            []
+        )
+
+        expect(container.querySelector('[title="Delete series breakdown"]')).not.toBeNull()
+    })
+
+    it('lets each value column of a part-of-whole chart edit its label and color', async () => {
+        const { container } = renderPartOfWholeSeriesTab(ChartDisplayType.ActionsProportionBar, undefined, [
+            'signups',
+            'logins',
+        ])
+
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr="y-series-settings"]')!)
+
+        expect(await screen.findByText('Display')).toBeInTheDocument()
+    })
+
     it('persists table column formatting changes immediately', async () => {
         initKeaTests()
 

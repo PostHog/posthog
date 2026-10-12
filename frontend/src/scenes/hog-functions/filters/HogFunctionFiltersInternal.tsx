@@ -32,6 +32,7 @@ const CONTEXTS_WITH_RESOURCE_BINDING: HogFunctionConfigurationContextId[] = [
     'batch-export-alerts',
     'activity-log',
     'feature-flag-alerts',
+    'data-warehouse-alerts',
 ]
 
 export const setSimpleFilterValue = (
@@ -91,7 +92,11 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
-        } else if (contextId === 'batch-export-alerts' || contextId === 'feature-flag-alerts') {
+        } else if (
+            contextId === 'batch-export-alerts' ||
+            contextId === 'feature-flag-alerts' ||
+            contextId === 'data-warehouse-alerts'
+        ) {
             return [TaxonomicFilterGroupType.EventProperties]
         }
         return []

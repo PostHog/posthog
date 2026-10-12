@@ -111,9 +111,10 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         )
 
 
-class OpsClickhouseClusterResource(dagster.ConfigurableResource):
+class SatelliteClickhouseClusterResource(dagster.ConfigurableResource):
     max_execution_time: int
     max_memory_usage: int
+    satellite_cluster: str
 
     # OPS is discoverable only from the migrations host/cluster: satellite discovery runs
     # clusterAllReplicas(ops, system.clusters) WHERE cluster = <migrations cluster>, which the default
@@ -126,7 +127,7 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             context.log,
             host=self.host,
             cluster=self.cluster,
-            satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
+            satellite_clusters=[self.satellite_cluster],
             client_settings={
                 "max_execution_time": str(self.max_execution_time),
                 "max_memory_usage": str(self.max_memory_usage),
@@ -140,6 +141,10 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
+
+
+class OpsClickhouseClusterResource(SatelliteClickhouseClusterResource):
+    satellite_cluster: str = settings.CLICKHOUSE_OPS_CLUSTER
 
 
 class BackupsClickhouseClusterResource(dagster.ConfigurableResource):

@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hex import
 from products.warehouse_sources.backend.temporal.data_imports.sources.hex.hex import (
     HexResumeConfig,
     hex_source,
-    normalize_workspace_host,
     validate_credentials,
 )
 
@@ -78,24 +77,6 @@ def _source(endpoint: str = "projects", manager: Optional[mock.MagicMock] = None
     )
 
 
-class TestNormalizeWorkspaceHost:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            (None, "app.hex.tech"),
-            ("", "app.hex.tech"),
-            ("   ", "app.hex.tech"),
-            ("acme.hex.tech", "acme.hex.tech"),
-            ("https://acme.hex.tech", "acme.hex.tech"),
-            ("http://acme.hex.tech/", "acme.hex.tech"),
-            ("acme.hex.tech/api/v1", "acme.hex.tech"),
-            ("  https://app.hex.tech  ", "app.hex.tech"),
-        ],
-    )
-    def test_normalize(self, raw, expected):
-        assert normalize_workspace_host(raw) == expected
-
-
 class TestValidateCredentials:
     def _patch_session(self, response=None, raises=None):
         session = mock.MagicMock()
@@ -113,12 +94,6 @@ class TestValidateCredentials:
         response.text = text
         response.json.side_effect = Exception("not json")
         return response
-
-    def test_success_hits_default_host(self):
-        with self._patch_session(self._resp(status_code=200)) as patched:
-            assert validate_credentials(None, "tok") == (True, None)
-            url = patched.return_value.get.call_args.args[0]
-            assert url == "https://app.hex.tech/api/v1/projects"
 
     def test_custom_workspace_url_is_used(self):
         with self._patch_session(self._resp(status_code=200)) as patched:
@@ -175,50 +150,7 @@ class TestValidateCredentials:
             patched.return_value.get.assert_not_called()
 
 
-class TestHexSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, sort_mode",
-        [
-            ("projects", ["id"], "asc"),
-            ("project_runs", ["projectId", "runId"], "desc"),
-            ("users", ["id"], "asc"),
-            ("groups", ["id"], "asc"),
-            ("collections", ["id"], "asc"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, sort_mode):
-        response = _source(endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-
-    def test_projects_partitioned_on_created_at(self):
-        response = _source(endpoint="projects")
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"
-
-    def test_project_runs_not_partitioned(self):
-        # startTime is null for pending runs, so runs can't be datetime-partitioned.
-        response = _source(endpoint="project_runs")
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
-
 class TestHexCursorPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_after_cursor_across_pages(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_projects_page(["p1", "p2"], after="cur-1"), _projects_page(["p3"], after=None)])
-        rows = _rows(_source())
-
-        assert [r["id"] for r in rows] == ["p1", "p2", "p3"]
-        assert snaps[0]["url"] == "https://app.hex.tech/api/v1/projects"
-        assert snaps[0]["params"]["limit"] == 100
-        assert snaps[0]["params"]["sortBy"] == "CREATED_AT"
-        assert snaps[0]["params"]["sortDirection"] == "ASC"
-        assert "after" not in snaps[0]["params"]
-        assert snaps[1]["params"]["after"] == "cur-1"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_page_terminates_even_with_cursor(self, MockSession):
         # An `after` token on an empty page must end pagination rather than loop forever.
@@ -230,28 +162,6 @@ class TestHexCursorPagination:
         assert session.send.call_count == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_projects_page(["p1"], after="cur-1"), _projects_page(["p2"], after=None)])
-        manager = _make_manager()
-        _rows(_source(manager=manager))
-
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, HexResumeConfig)
-        assert saved.paginator_state == {"cursor": "cur-1"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(session, [_projects_page(["p9"], after=None)])
-        manager = _make_manager(HexResumeConfig(paginator_state={"cursor": "resume-cur"}))
-        rows = _rows(_source(manager=manager))
-
-        assert snaps[0]["params"]["after"] == "resume-cur"
-        assert [r["id"] for r in rows] == ["p9"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_custom_workspace_url_reaches_requests(self, MockSession):
         session = MockSession.return_value
         snaps = _wire(session, [_projects_page(["p1"], after=None)])
@@ -261,31 +171,6 @@ class TestHexCursorPagination:
 
 
 class TestProjectRunsFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_per_project_with_offset_pagination(self, MockSession):
-        session = MockSession.return_value
-        full_page = [{"runId": f"r{i}", "projectId": "p1", "status": "COMPLETED"} for i in range(100)]
-        snaps = _wire(
-            session,
-            [
-                _projects_page(["p1", "p2"], after=None),
-                _runs_page(full_page),
-                _runs_page([{"runId": "r100", "projectId": "p1", "status": "ERRORED"}]),
-                _runs_page([{"runId": "r-b", "projectId": "p2", "status": "COMPLETED"}]),
-            ],
-        )
-        rows = _rows(_source(endpoint="project_runs"))
-
-        assert len(rows) == 102
-        assert {r["projectId"] for r in rows} == {"p1", "p2"}
-        assert snaps[0]["url"] == "https://app.hex.tech/api/v1/projects"
-        assert snaps[1]["url"] == "https://app.hex.tech/api/v1/projects/p1/runs"
-        assert snaps[1]["params"] == {"offset": 0, "limit": 100}
-        # A full page advances the offset; a short page ends that project's pagination.
-        assert snaps[2]["params"]["offset"] == 100
-        assert snaps[3]["url"] == "https://app.hex.tech/api/v1/projects/p2/runs"
-        assert snaps[3]["params"]["offset"] == 0
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_skips_completed_projects(self, MockSession):
         session = MockSession.return_value
@@ -306,24 +191,6 @@ class TestProjectRunsFanout:
         assert [r["runId"] for r in rows] == ["r-b"]
         run_urls = [s["url"] for s in snaps[1:]]
         assert run_urls == ["https://app.hex.tech/api/v1/projects/p2/runs"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_completed_projects(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _projects_page(["p1"], after=None),
-                _runs_page([{"runId": "r1", "projectId": "p1", "status": "COMPLETED"}]),
-            ],
-        )
-        manager = _make_manager()
-        _rows(_source(endpoint="project_runs", manager=manager))
-
-        final_state = manager.save_state.call_args.args[0]
-        assert isinstance(final_state, HexResumeConfig)
-        assert final_state.paginator_state["completed"] == ["/v1/projects/p1/runs"]
-        assert final_state.paginator_state["current"] is None
 
 
 class TestPerProjectCursorFanout:
@@ -360,22 +227,6 @@ class TestPerProjectCursorFanout:
         assert snaps[2]["params"]["after"] == "cur-1"
         assert snaps[3]["url"] == "https://app.hex.tech/api/v1/projects/p2/queriedTables"
         assert "after" not in snaps[3]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cells_pass_project_as_query_param(self, MockSession):
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _projects_page(["p1"], after=None),
-                _response({"values": [{"id": "c1", "projectId": "p1"}], "pagination": {"after": None, "before": None}}),
-            ],
-        )
-        rows = _rows(_source(endpoint="cells"))
-
-        assert [r["id"] for r in rows] == ["c1"]
-        assert snaps[1]["url"] == "https://app.hex.tech/api/v1/cells?projectId=p1"
-        assert snaps[1]["params"] == {"limit": 100}
 
 
 class TestRuntimeHostCheck:

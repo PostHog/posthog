@@ -279,6 +279,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 query=self.preaggregated_query_builder.get_query(),
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
@@ -394,6 +395,7 @@ WHERE and(
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
         )
         visitors_response = visitors_runner._calculate()
         visitors = next(item for item in visitors_response.results if item.key == "visitors")
@@ -403,6 +405,7 @@ WHERE and(
             query=self._conversion_goal_select(),
             team=self.team,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -479,6 +482,7 @@ WHERE and(
                 query=self.to_query(),
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=execution_modifiers,
                 limit_context=self.limit_context,

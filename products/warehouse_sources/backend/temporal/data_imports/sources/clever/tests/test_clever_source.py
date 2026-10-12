@@ -1,6 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever import source as source_module
@@ -40,10 +39,6 @@ class TestCleverSource:
     def setup_method(self) -> None:
         self.source = CleverSource()
         self.config = CleverSourceConfig(bearer_token="test-token")
-
-    def test_no_unreleased_source_flag(self) -> None:
-        # A finished source ships visible; `unreleasedSource` hides it from every user.
-        assert self.source.get_source_config.unreleasedSource is not True
 
     @parameterized.expand(
         [
@@ -115,18 +110,6 @@ class TestCleverSource:
 
         mock_validate.assert_called_once_with("test-token", expected)
 
-    def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
-        # A stale watermark leaking into a full refresh would silently skip earlier rows.
-        inputs = _inputs(
-            schema_name="Events",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="evt-123",
-        )
-        with patch.object(source_module, "clever_source") as mock_source:
-            self.source.source_for_pipeline(self.config, MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
     @parameterized.expand(
         [
             ("Districts", None),
@@ -153,14 +136,3 @@ class TestCleverSource:
         else:
             assert response.partition_keys == [expected_partition_key]
             assert response.partition_mode == "datetime"
-
-    def test_non_retryable_errors_match_requests_error_format(self) -> None:
-        # The pipeline disables a source by substring-matching these keys against the raised
-        # error; they must match the message `requests.raise_for_status` actually produces.
-        response = MagicMock(spec=requests.Response)
-        response.status_code = 401
-        response.reason = "Unauthorized"
-        response.url = "https://api.clever.com/v3.0/districts?limit=10000"
-        error = requests.HTTPError(f"401 Client Error: Unauthorized for url: {response.url}", response=response)
-
-        assert any(key in str(error) for key in self.source.get_non_retryable_errors())

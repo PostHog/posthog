@@ -4,13 +4,13 @@ import { Text } from '@posthog/quill'
 
 import { TodayMarkedText } from './TodayMarkedText'
 import { todayReportLogic } from './todayReportLogic'
-import { TodayReportSectionTitle } from './TodayReportSectionTitle'
+import { TodaySectionTitle } from './TodaySectionTitle'
 
 export function TodayReportProposal({ reportId }: { reportId: string }): JSX.Element {
     const { proposal, shownKeyClauses } = useValues(todayReportLogic({ reportId }))
     return (
         <div className="flex flex-col gap-2">
-            <TodayReportSectionTitle>Proposal</TodayReportSectionTitle>
+            <TodaySectionTitle>Proposal</TodaySectionTitle>
             {proposal ? (
                 <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
                     <TodayMarkedText

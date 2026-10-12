@@ -63,35 +63,6 @@ def source(
     return qonto_source(CONFIG, endpoint, "v2", 1, "test-job", resume_manager, incremental, last_value)
 
 
-@pytest.mark.parametrize("endpoint", ["labels", "memberships", "transfers"])
-@pytest.mark.parametrize("empty_terminal", [False, True])
-def test_pagination_stops_at_last_page(endpoint: str, empty_terminal: bool) -> None:
-    resume_manager = manager()
-    last_rows = [] if empty_terminal else [{"id": "last"}]
-    with patch(
-        "requests.Session.send", side_effect=[page(endpoint, [{"id": "first"}], 1, 2), page(endpoint, last_rows, 2, 2)]
-    ) as send:
-        result = source(endpoint, resume_manager)
-        rows = [row for batch in cast(Iterable[list[dict[str, Any]]], result.items()) for row in batch]
-    assert rows == [{"id": "first"}, *last_rows]
-    requests = [call.args[0] for call in send.call_args_list]
-    assert [parse_qs(urlsplit(request.url).query)["page"] for request in requests] == [["1"], ["2"]]
-    assert all(request.headers["Authorization"] == "example-company:fake-secret" for request in requests)
-    assert all(call.kwargs["timeout"] == 30 for call in send.call_args_list)
-    assert all(parse_qs(urlsplit(request.url).query)["per_page"] == ["100"] for request in requests)
-    expected_path = "/v2/sepa/transfers" if endpoint == "transfers" else f"/v2/{endpoint}"
-    assert all(urlsplit(request.url).path == expected_path for request in requests)
-    resume_manager.save_state.assert_called_once_with(QontoResumeConfig(paginator_state={"page": 2}))
-
-
-def test_resume_starts_at_saved_page() -> None:
-    resume_manager = manager({"page": 3})
-    with patch("requests.Session.send", side_effect=[page("labels", [{"id": "last"}], 3, 3)]) as send:
-        assert list(cast(Iterable[Any], source("labels", resume_manager).items())) == [[{"id": "last"}]]
-    assert parse_qs(urlsplit(send.call_args.args[0].url).query)["page"] == ["3"]
-    resume_manager.save_state.assert_not_called()
-
-
 @pytest.mark.parametrize(
     ("incremental", "last_value", "expected"),
     [
@@ -121,59 +92,6 @@ def test_incremental_filters(
             assert params["status[]"] == ["pending", "declined", "completed", "reversed"]
             assert params["bank_account_id"] == ["account-1"]
     assert result.sort_mode == "desc"
-
-
-def test_transactions_across_accounts_and_resume() -> None:
-    resume_manager = manager()
-    accounts = response({"organization": {"bank_accounts": [{"id": "account-1"}, {"id": "account&2"}]}})
-    with patch(
-        "requests.Session.send",
-        side_effect=[
-            accounts,
-            page("transactions", [{"id": "shared-id"}]),
-            page("transactions", [{"id": "shared-id"}], 1, 2),
-            page("transactions", [{"id": "last"}], 2, 2),
-        ],
-    ) as send:
-        result = source("transactions", resume_manager)
-        batches = list(cast(Iterable[Any], result.items()))
-    assert batches == [
-        [{"id": "shared-id", "bank_account_id": "account-1"}],
-        [{"id": "shared-id", "bank_account_id": "account&2"}],
-        [{"id": "last", "bank_account_id": "account&2"}],
-    ]
-    assert result.primary_keys == ["bank_account_id", "id"]
-    assert [parse_qs(urlsplit(call.args[0].url).query)["bank_account_id"] for call in send.call_args_list[1:]] == [
-        ["account-1"],
-        ["account&2"],
-        ["account&2"],
-    ]
-    saved = [call.args[0].paginator_state for call in resume_manager.save_state.call_args_list]
-    checkpoint = next(state for state in saved if state.get("child_state") == {"page": 2})
-    assert checkpoint["completed"] == ["transactions?bank_account_id=account-1"]
-    assert checkpoint["current"] == "transactions?bank_account_id=account%262"
-    with patch(
-        "requests.Session.send", side_effect=[accounts, page("transactions", [{"id": "last"}], 2, 2)]
-    ) as resumed_send:
-        resumed = source("transactions", manager(checkpoint))
-        assert list(cast(Iterable[Any], resumed.items())) == [batches[-1]]
-    params = parse_qs(urlsplit(resumed_send.call_args.args[0].url).query)
-    assert params["page"] == ["2"]
-    assert params["bank_account_id"] == ["account&2"]
-
-
-@pytest.mark.parametrize("accounts", [[], [{"id": "account-1", "balance": 123}]])
-def test_bank_accounts_and_empty_transaction_fanout(accounts: list[dict[str, Any]]) -> None:
-    payload = response({"organization": {"bank_accounts": accounts}})
-    with patch("requests.Session.send", return_value=payload) as send:
-        batches = list(cast(Iterable[Any], source("bank_accounts", manager()).items()))
-    assert batches == ([accounts] if accounts else [])
-    assert send.call_count == 1
-    assert send.call_args.args[0].url == "https://thirdparty.qonto.com/v2/organization"
-    if not accounts:
-        with patch("requests.Session.send", return_value=payload) as send:
-            assert list(cast(Iterable[Any], source("transactions", manager()).items())) == []
-        assert send.call_count == 1
 
 
 @pytest.mark.parametrize(

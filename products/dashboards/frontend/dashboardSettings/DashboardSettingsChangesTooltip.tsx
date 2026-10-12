@@ -27,6 +27,9 @@ function getChangeIcon(label: DashboardFilterChange['label']): JSX.Element {
     if (label === 'Test accounts') {
         return <IconPeople />
     }
+    if (label === 'Compare') {
+        return <IconClock />
+    }
     return <IconFilter />
 }
 

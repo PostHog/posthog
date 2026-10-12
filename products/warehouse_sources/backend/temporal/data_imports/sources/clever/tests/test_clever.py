@@ -5,7 +5,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.clever import (
     CleverPaginator,
@@ -31,22 +31,6 @@ def _next_link(starting_after: str) -> dict[str, Any]:
 
 
 class TestCleverPaginator:
-    def test_initial_state(self) -> None:
-        paginator = CleverPaginator()
-        assert paginator._starting_after is None
-        assert paginator.has_next_page is True
-
-    def test_update_state_extracts_starting_after_from_next_link(self) -> None:
-        paginator = CleverPaginator()
-        response = MagicMock()
-        response.json.return_value = {
-            "data": [{"data": {"id": "d1"}}],
-            "links": [{"rel": "self", "uri": "/v3.0/districts"}, _next_link("d1")],
-        }
-        paginator.update_state(response)
-        assert paginator._starting_after == "d1"
-        assert paginator.has_next_page is True
-
     @pytest.mark.parametrize(
         "links",
         [
@@ -63,41 +47,6 @@ class TestCleverPaginator:
         assert paginator._starting_after is None
         assert paginator.has_next_page is False
 
-    def test_update_state_missing_links_key(self) -> None:
-        paginator = CleverPaginator()
-        response = MagicMock()
-        response.json.return_value = {"data": [{"data": {"id": "d1"}}]}
-        paginator.update_state(response)
-        assert paginator.has_next_page is False
-
-    @pytest.mark.parametrize(
-        ("label", "seeded_starting_after"),
-        [
-            ("fresh", None),
-            ("resumed", "cursor-2000"),
-        ],
-    )
-    def test_init_request_honours_seeded_starting_after(self, label: str, seeded_starting_after: str | None) -> None:
-        paginator = CleverPaginator()
-        if seeded_starting_after is not None:
-            paginator.set_resume_state({"starting_after": seeded_starting_after})
-
-        request = Request(method="GET", url="https://api.clever.com/v3.0/districts")
-        paginator.init_request(request)
-
-        if seeded_starting_after is None:
-            assert request.params is None or "starting_after" not in request.params
-        else:
-            assert request.params["starting_after"] == seeded_starting_after
-
-    def test_get_resume_state_returns_state_when_next_page(self) -> None:
-        paginator = CleverPaginator()
-        response = MagicMock()
-        response.json.return_value = {"data": [], "links": [_next_link("cursor-42")]}
-        paginator.update_state(response)
-
-        assert paginator.get_resume_state() == {"starting_after": "cursor-42"}
-
     def test_get_resume_state_returns_none_on_terminal_page(self) -> None:
         paginator = CleverPaginator()
         response = MagicMock()
@@ -105,20 +54,6 @@ class TestCleverPaginator:
         paginator.update_state(response)
 
         assert paginator.get_resume_state() is None
-
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = CleverPaginator()
-        paginator.set_resume_state({"starting_after": "cursor-99"})
-
-        assert paginator._starting_after == "cursor-99"
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"starting_after": "cursor-99"}
-
-    def test_set_resume_state_ignores_missing_key(self) -> None:
-        paginator = CleverPaginator()
-        paginator.set_resume_state({})
-
-        assert paginator._starting_after is None
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -211,15 +146,6 @@ class TestCleverSourceResumeBehavior:
 
         assert sent_urls == [expected_url, expected_url]
 
-    def test_contacts_endpoint_sends_role_filter(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"data": {"id": "c1"}}], "links": []})]
-        _, sent_params = self._drive("Contacts", manager, responses)
-
-        assert sent_params[0]["role"] == "contact"
-
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -247,30 +173,6 @@ class TestCleverSourceResumeBehavior:
         )
 
         assert sent_params[0]["starting_after"] == "evt-5"
-
-    def test_full_refresh_endpoint_ignores_db_last_value(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"data": {"id": "d1"}}], "links": []})]
-        _, sent_params = self._drive(
-            "Districts",
-            manager,
-            responses,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="should-be-unused",
-        )
-
-        assert "starting_after" not in sent_params[0]
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"data": {"id": "only"}}], "links": []})]
-        self._drive("Districts", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

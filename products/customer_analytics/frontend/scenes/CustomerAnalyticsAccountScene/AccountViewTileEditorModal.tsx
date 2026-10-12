@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
+import { AccountPropertiesWidgetConfiguration } from './AccountPropertiesWidgetConfiguration'
 import { accountViewsLogic } from './accountViewsLogic'
 
 interface AccountViewTileEditorModalProps {
@@ -11,7 +12,7 @@ interface AccountViewTileEditorModalProps {
 export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorModalProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
     const { tileEditor, tileSaving } = useValues(logic)
-    const { closeTileEditor, saveTileEditor, setTileEditorName } = useActions(logic)
+    const { closeTileEditor, saveTileEditor, setTileEditorName, setTileEditorPropertiesConfig } = useActions(logic)
     const saveDisabledReason = tileSaving
         ? 'Saving changes'
         : !tileEditor?.name.trim()
@@ -53,6 +54,7 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                 <LemonInput
                     id="account-view-tile-name"
                     value={tileEditor?.name ?? ''}
+                    disabled={tileSaving}
                     onChange={setTileEditorName}
                     onPressEnter={tileSaving ? undefined : saveTileEditor}
                     autoFocus
@@ -60,6 +62,17 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                     data-attr="account-view-tile-name"
                 />
             </div>
+            {tileEditor?.propertiesConfig && tileEditor.accountId ? (
+                <div className="mt-4">
+                    <AccountPropertiesWidgetConfiguration
+                        projectId={projectId}
+                        accountId={tileEditor.accountId}
+                        config={tileEditor.propertiesConfig}
+                        saving={tileSaving}
+                        onChange={setTileEditorPropertiesConfig}
+                    />
+                </div>
+            ) : null}
         </LemonModal>
     )
 }

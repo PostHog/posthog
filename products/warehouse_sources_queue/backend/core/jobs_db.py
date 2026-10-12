@@ -1203,9 +1203,16 @@ class _SyncConnectionPool:
             with self._lock:
                 conn = self._idle.pop() if self._idle else None
             if conn is None:
-                return psycopg.connect(
+                conn = psycopg.connect(
                     self._database_url, autocommit=True, connect_timeout=self._connect_timeout_seconds
                 )
+                # Pooled connections run the same query text many times, and the queue DB
+                # sits behind a transaction pooler that can hand consecutive statements to
+                # different backends. psycopg's default prepare_threshold would server-prepare
+                # after 5 identical executions, and a later Bind can land on a backend that
+                # never saw the Parse ("unable to bind ... cannot get parse message").
+                conn.prepare_threshold = None
+                return conn
             if not conn.closed and not conn.broken:
                 return conn
             self._close_quietly(conn)
@@ -1739,6 +1746,29 @@ class BatchQueue:
             ttl_seconds=ttl_seconds,
             reentrant=True,
         )
+
+    @staticmethod
+    async def release_queue_gauges_slot(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+        slot_key: str = QUEUE_GAUGES_LEASE_SCHEMA_ID_PREFIX,
+    ) -> bool:
+        """Delete the gauge slot row if ``owner_token`` still holds it; True means a row was deleted.
+
+        One statement, so a pod that lost the slot to another pod cannot delete the
+        new holder's row. After the delete, the next acquire inserts a fresh row at once.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                DELETE FROM {LEASE_TABLE}
+                WHERE team_id = %(team_id)s AND schema_id = %(schema_id)s AND owner_token = %(owner)s
+                RETURNING 1
+                """,
+                {"team_id": RECONCILE_SWEEP_LEASE_TEAM_ID, "schema_id": slot_key, "owner": owner_token},
+            )
+            return (await cur.fetchone()) is not None
 
     @staticmethod
     async def renew_lease(
