@@ -24,7 +24,7 @@ describe('buildMissingLinkPrompt', () => {
         [
             ['trace', 'session', 'person'],
             [
-                'no trace ID, session ID and distinct ID',
+                'no trace ID, session ID, and distinct ID',
                 '2. Check that the active span',
                 '3. Check whether the frontend',
             ],

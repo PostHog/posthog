@@ -46,13 +46,14 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
     const { featureFlags } = useValues(featureFlagLogic)
 
     const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
-    const missing: MissingLink[] = featureFlags[FEATURE_FLAGS.LOGS_MISSING_LINK_INVESTIGATE]
+    const investigateEnabled = !!featureFlags[FEATURE_FLAGS.LOGS_MISSING_LINK_INVESTIGATE]
+    const missing: MissingLink[] = investigateEnabled
         ? [!traceId && 'trace', !sessionId && 'session', !distinctId && 'person'].filter(
               (link): link is MissingLink => !!link
           )
         : []
 
-    if (!traceId && !sessionId && !distinctId && missing.length === 0) {
+    if (!investigateEnabled && !traceId && !sessionId && !distinctId) {
         return null
     }
 

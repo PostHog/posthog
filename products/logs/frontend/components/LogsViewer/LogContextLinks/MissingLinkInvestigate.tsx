@@ -1,55 +1,100 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { IconCopy, IconSearch, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { IconSearch, IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
+import { AgentPromptButton, AgentPromptDestination } from 'lib/components/AgentPromptButton/AgentPromptButton'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { SidePanelTab } from '~/types'
+
+import { getServiceName } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/logContextUtils'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import type { LogContextLinksSurface } from './LogContextLinks'
-import { missingLinkInvestigateLogic } from './missingLinkInvestigateLogic'
-import { MissingLink } from './missingLinkPrompt'
+import { MissingLink, buildMissingLinkPrompt } from './missingLinkPrompt'
 
-function missingLabel(names: MissingLink[]): string {
-    return names.length <= 1 ? `No ${names[0]}` : `No ${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+type InvestigateOption = AgentPromptDestination | 'posthog-ai-task'
+
+// pinned: analytics event names and properties, renaming breaks dashboards
+function captureInvestigate(
+    event: 'shown' | 'clicked',
+    log: ParsedLogMessage,
+    missing: MissingLink[],
+    surface: LogContextLinksSurface,
+    option?: InvestigateOption
+): void {
+    posthog.capture(`logs missing link investigate ${event}`, {
+        option,
+        missing,
+        source: `log-${surface}`,
+        service_name: getServiceName(log),
+    })
 }
 
-export interface MissingLinkInvestigateProps {
+function missingLabel(missing: MissingLink[]): string {
+    return missing.length > 1 ? `No ${missing.slice(0, -1).join(', ')} or ${missing.at(-1)}` : `No ${missing[0]}`
+}
+
+export function MissingLinkInvestigate({
+    log,
+    missing,
+    surface,
+}: {
     log: ParsedLogMessage
     missing: MissingLink[]
     surface: LogContextLinksSurface
-}
+}): JSX.Element {
+    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+    const { todayRailEnabled } = useValues(todayShellLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    // Only the new PostHog AI side panel turns a run prompt into a task; the legacy view would start a chat.
+    const canStartTask = isMaxAvailable && effectivePhaiView === 'new' && !todayRailEnabled
 
-export function MissingLinkInvestigate({ log, missing, surface }: MissingLinkInvestigateProps): JSX.Element {
-    const { taskDisabledReason } = useValues(missingLinkInvestigateLogic)
-    const { copyPrompt, startTask } = useActions(missingLinkInvestigateLogic)
+    useOnMountEffect(() => captureInvestigate('shown', log, missing, surface))
 
     return (
-        <LemonMenu
-            items={[
-                {
-                    label: 'Copy prompt for your agent',
-                    icon: <IconCopy />,
-                    onClick: () => copyPrompt(log, missing, surface),
-                    'data-attr': `logs-${surface}-missing-link-copy-prompt`,
-                },
-                {
-                    label: 'Investigate with PostHog AI',
-                    icon: <IconSparkles />,
-                    disabledReason: taskDisabledReason ?? undefined,
-                    onClick: () => startTask(log, missing, surface),
-                    'data-attr': `logs-${surface}-missing-link-start-task`,
-                },
-            ]}
-        >
-            <LemonButton
-                size="xsmall"
-                type="tertiary"
-                icon={<IconSearch />}
-                tooltip="Find out why this log can't link to everything it could"
-                data-attr={`logs-${surface}-missing-link-investigate`}
-            >
-                {missingLabel(missing)} · Investigate why
-            </LemonButton>
-        </LemonMenu>
+        <div className="flex flex-wrap items-center gap-1">
+            <span className="flex items-center gap-1 text-xs text-secondary">
+                <IconSearch />
+                <span>{missingLabel(missing)}</span>
+            </span>
+            <AgentPromptButton
+                storageKey="logs-missing-link"
+                defaultAgentKey="clipboard"
+                agentKeys={['clipboard', 'claude-code', 'cursor', 'codex', 'posthog-code']}
+                size="xs"
+                actions={[
+                    {
+                        key: 'investigate',
+                        label: 'Investigate why prompt',
+                        buildPrompt: () => buildMissingLinkPrompt(log, missing),
+                    },
+                ]}
+                onRun={({ agentKey }) =>
+                    captureInvestigate('clicked', log, missing, surface, agentKey as AgentPromptDestination)
+                }
+                data-attr={`logs-${surface}-missing-link-agent-prompt`}
+            />
+            {canStartTask && (
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    icon={<IconSparkles />}
+                    onClick={() => {
+                        captureInvestigate('clicked', log, missing, surface, 'posthog-ai-task')
+                        // A leading "!" makes the side panel start the task, behind the AI data consent gate.
+                        openSidePanel(SidePanelTab.Max, `!${buildMissingLinkPrompt(log, missing)}`)
+                    }}
+                    data-attr={`logs-${surface}-missing-link-posthog-ai`}
+                >
+                    Investigate with PostHog AI
+                </LemonButton>
+            )}
+        </div>
     )
 }
