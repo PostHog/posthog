@@ -394,9 +394,11 @@ impl EventRestrictionService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::CaptureMode;
     use crate::event_restrictions::repository::testing::MockRestrictionsRepository;
     use crate::event_restrictions::repository::RestrictionEntry;
     use crate::event_restrictions::types::RestrictionScope;
+    use crate::v0_request::DataType;
     use common_redis::CustomRedisError;
     use tokio_util::sync::CancellationToken;
 
@@ -586,6 +588,39 @@ mod tests {
         assert!(!manager
             .get_restrictions("token_both", &event, Pipeline::Analytics)
             .is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case(DataType::AnalyticsMain)]
+    #[case(DataType::AnalyticsHistorical)]
+    #[case(DataType::AiEvents)]
+    #[case(DataType::ExceptionErrorTracking)]
+    #[case(DataType::HeatmapMain)]
+    #[case(DataType::ClientIngestionWarning)]
+    #[tokio::test]
+    async fn events_deployment_loads_restrictions_for_every_classified_pipeline(
+        #[case] data_type: DataType,
+    ) {
+        let pipeline = data_type.pipeline().unwrap();
+        let repo = MockRestrictionsRepository::new();
+        repo.set_entries(
+            RestrictionType::DropEvent,
+            Some(vec![make_entry("token", vec![pipeline.as_str()])]),
+        )
+        .await;
+
+        let manager = RestrictionManager::from_repository(
+            &repo,
+            &Pipeline::for_capture_mode(CaptureMode::Events),
+        )
+        .await
+        .unwrap();
+
+        let restrictions = manager.get_restrictions("token", &EventContext::default(), pipeline);
+        assert!(
+            restrictions.contains(RestrictionType::DropEvent),
+            "{data_type:?}"
+        );
     }
 
     #[tokio::test]
