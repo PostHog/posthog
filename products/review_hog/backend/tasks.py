@@ -25,6 +25,8 @@ def process_authored_pr_event(
     repository: str = "PostHog/posthog",
     # Messages queued before this argument existed match the repository by name.
     github_repo_id: int | None = None,
+    draft: bool = False,
+    skip_agent_review: bool = False,
 ) -> None:
     AuthoredPRReview(
         installation_id=installation_id,
@@ -33,6 +35,8 @@ def process_authored_pr_event(
         pr_number=pr_number,
         head_sha=head_sha,
         github_repo_id=github_repo_id,
+        draft=draft,
+        skip_agent_review=skip_agent_review,
     ).start()
 
 
