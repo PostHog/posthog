@@ -20,6 +20,8 @@ class TestMonteCarloSource:
     @parameterized.expand(
         [
             ("alerts", True),
+            ("domains", False),
+            ("events", True),
             ("monitors", False),
             ("tables", False),
             ("users", False),

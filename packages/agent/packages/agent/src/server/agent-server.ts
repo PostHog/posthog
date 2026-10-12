@@ -1270,6 +1270,7 @@ export class AgentServer {
         {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
+          error_type: "agent_server_crash",
           state: { agent_version: this.agentVersion },
         },
       );
@@ -4822,6 +4823,9 @@ export class AgentServer {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
         error_message: persistedErrorMessage,
+        ...(options?.errorCategory
+          ? { error_type: options.errorCategory }
+          : {}),
         state: { agent_version: this.agentVersion },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
