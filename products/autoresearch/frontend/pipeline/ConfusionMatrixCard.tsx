@@ -101,7 +101,7 @@ export function ConfusionMatrixCard(): JSX.Element {
 
                                 <div className="text-sm font-semibold self-center">Not flagged</div>
                                 <Cell count={confusion.fn} label="Missed" tint="bg-danger-highlight" />
-                                <Cell count={confusion.tn} label="Correctly ignored" tint="bg-fill-secondary" />
+                                <Cell count={confusion.tn} label="Correctly ignored" tint="bg-surface-secondary" />
                                 <div />
 
                                 <div />
