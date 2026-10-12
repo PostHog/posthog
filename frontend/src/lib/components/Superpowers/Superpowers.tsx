@@ -20,6 +20,7 @@ import { getTreeItemsProducts } from '~/products'
 import type { TeamType } from '~/types'
 
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
+import { openBrowserStorageDebugModal } from './BrowserStorageDebug'
 import { FakeBillingAlert, FakeStatusOverride, superpowersLogic } from './superpowersLogic'
 
 const HedgehogSuperhero = pngHoggie(superheroPng)
@@ -385,6 +386,15 @@ function SuperpowersContent(): JSX.Element {
                     description="View recent ClickHouse queries for this user"
                     control={
                         <LemonButton type="secondary" size="small" onClick={handleOpenCHQueries}>
+                            Open
+                        </LemonButton>
+                    }
+                />
+                <SettingRow
+                    title="Browser storage"
+                    description="See what PostHog saves in this browser and clear it"
+                    control={
+                        <LemonButton type="secondary" size="small" onClick={openBrowserStorageDebugModal}>
                             Open
                         </LemonButton>
                     }
