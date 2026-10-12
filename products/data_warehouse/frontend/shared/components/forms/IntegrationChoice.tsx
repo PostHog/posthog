@@ -9,7 +9,11 @@ import {
 import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic, OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/integrationsLogic'
-import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
+import {
+    describeOAuthCallbackError,
+    INTEGRATION_ERROR_DESCRIPTION_PARAM,
+    INTEGRATION_ERROR_PARAM,
+} from 'lib/integrations/oauthCallbackErrors'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
@@ -106,7 +110,13 @@ export function SourceIntegrationChoice({
     return (
         <div className="flex flex-col gap-2">
             {oauthError && (
-                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), sourceKind)}</LemonBanner>
+                <LemonBanner type="error">
+                    {describeOAuthCallbackError(
+                        String(oauthError),
+                        kind,
+                        searchParams[INTEGRATION_ERROR_DESCRIPTION_PARAM]
+                    )}
+                </LemonBanner>
             )}
             {blockedFromConnecting && (
                 <LemonBanner type="info">

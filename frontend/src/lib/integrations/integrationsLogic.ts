@@ -10,8 +10,10 @@ import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconn
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
 import {
     describeOAuthCallbackError,
+    INTEGRATION_ERROR_DESCRIPTION_PARAM,
     INTEGRATION_ERROR_PARAM,
     OAUTH_STATE_EXPIRED,
+    summarizeProviderErrorDescription,
 } from 'lib/integrations/oauthCallbackErrors'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -83,6 +85,7 @@ export function reconnectReturnUrl(pathname: string, search: string): string {
     const params = new URLSearchParams(search)
     params.delete(OAUTH_INTEGRATION_ID_PARAM)
     params.delete(INTEGRATION_ERROR_PARAM)
+    params.delete(INTEGRATION_ERROR_DESCRIPTION_PARAM)
     const query = params.toString()
     return query ? `${pathname}?${query}` : pathname
 }
@@ -182,9 +185,11 @@ export interface integrationsLogicValues {
 export interface integrationsLogicActions {
     reportIntegrationConnectRejected: (
         kind: string,
-        error: string
+        error: string,
+        errorDescription?: string
     ) => {
         error: string
+        errorDescription: string | undefined
         kind: string
     } // eventUsageLogic
     markTaskAsCompleted: (taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]) => {
@@ -1251,19 +1256,25 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
-            const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
+            const { state, code, error, error_description, stripe_user_id, account_id, user_id } = searchParams
             const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
             const resolvedKind = kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
-                actions.reportIntegrationConnectRejected(resolvedKind, String(error))
+                const errorDescription = summarizeProviderErrorDescription(error_description)
+                actions.reportIntegrationConnectRejected(resolvedKind, String(error), errorDescription)
                 const url = new URL(replaceUrl, window.location.origin)
                 if (landsOnErrorAwarePage(url.pathname)) {
                     url.searchParams.set(INTEGRATION_ERROR_PARAM, String(error))
+                    if (errorDescription) {
+                        url.searchParams.set(INTEGRATION_ERROR_DESCRIPTION_PARAM, errorDescription)
+                    } else {
+                        url.searchParams.delete(INTEGRATION_ERROR_DESCRIPTION_PARAM)
+                    }
                     replaceUrl = url.pathname + url.search + url.hash
                 } else {
-                    lemonToast.error(describeOAuthCallbackError(String(error), resolvedKind))
+                    lemonToast.error(describeOAuthCallbackError(String(error), resolvedKind, errorDescription))
                 }
                 router.actions.replace(replaceUrl)
                 return

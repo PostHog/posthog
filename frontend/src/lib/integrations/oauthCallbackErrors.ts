@@ -8,6 +8,13 @@
 // pinned: URL search param — the callback redirect and the landing page both read it.
 export const INTEGRATION_ERROR_PARAM = 'integration_error'
 
+// Search param carrying the provider's `error_description`. Microsoft puts the sign-in error code
+// (AADSTS…) only there, so without it neither the user nor support can see why sign-in failed.
+// pinned: URL search param — the callback redirect and the landing page both read it.
+export const INTEGRATION_ERROR_DESCRIPTION_PARAM = 'integration_error_description'
+
+const MAX_PROVIDER_ERROR_DESCRIPTION_LENGTH = 300
+
 // Not a provider code: PostHog's own CSRF state cookie outlived the authorization round-trip, so
 // the callback can't be verified. It rides the same param as the provider codes to reach whichever
 // page the user lands on.
@@ -34,9 +41,32 @@ const OAUTH_CALLBACK_ERROR_MESSAGES_BY_KIND: Record<string, Record<string, strin
         access_denied:
             'PostHog was not added to your Slack workspace. Either the install was declined, or your workspace requires an admin to approve new apps and the request is now waiting for one. Once an admin approves it, come back to this page and click "Add to Slack" again.',
     },
+    // Microsoft rejects some accounts at the authorize step, before PostHog sees a code. The cause
+    // is in the user's Microsoft account or tenant, so a retry in another browser does not help.
+    'bing-ads': {
+        invalid_client:
+            "Microsoft didn't let this account sign in to PostHog. Check that you use the Microsoft account that has access to your Microsoft Advertising account. If you use a work account, your organization may block third-party apps, so ask your Microsoft admin to allow PostHog.",
+    },
 }
 
-export function describeOAuthCallbackError(error: string, kind?: string): string {
+/** Keeps the first line of a provider's `error_description`. Microsoft appends trace and
+ *  correlation IDs on later lines, which support does not need in the message. */
+export function summarizeProviderErrorDescription(description: unknown): string | undefined {
+    if (typeof description !== 'string') {
+        return undefined
+    }
+    const firstLine = description.trim().split(/\r?\n/)[0].trim()
+    if (!firstLine) {
+        return undefined
+    }
+    return firstLine.length > MAX_PROVIDER_ERROR_DESCRIPTION_LENGTH
+        ? `${firstLine.slice(0, MAX_PROVIDER_ERROR_DESCRIPTION_LENGTH)}…`
+        : firstLine
+}
+
+export function describeOAuthCallbackError(error: string, kind?: string, description?: unknown): string {
     const kindSpecific = kind ? OAUTH_CALLBACK_ERROR_MESSAGES_BY_KIND[kind]?.[error] : undefined
-    return kindSpecific ?? OAUTH_CALLBACK_ERROR_MESSAGES[error] ?? `Failed due to "${error}"`
+    const message = kindSpecific ?? OAUTH_CALLBACK_ERROR_MESSAGES[error] ?? `Failed due to "${error}".`
+    const summary = summarizeProviderErrorDescription(description)
+    return summary ? `${message} Details from the provider: ${summary}` : message
 }

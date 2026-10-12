@@ -7,6 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -367,7 +368,7 @@ describe('integrationsLogic', () => {
             ],
             [
                 '/project/1/data-warehouse/new-source',
-                '?kind=googlesearchconsole&integration_id=5&integration_error=access_denied',
+                '?kind=googlesearchconsole&integration_id=5&integration_error=access_denied&integration_error_description=Denied',
                 '/project/1/data-warehouse/new-source?kind=googlesearchconsole',
             ],
             [
@@ -453,6 +454,32 @@ describe('integrationsLogic', () => {
             } else {
                 expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('admin to approve new apps'))
             }
+        })
+
+        // Microsoft puts the sign-in error code (AADSTS…) only in `error_description`, so the
+        // landing page and the rejection event both need it to explain the failure.
+        it('carries the provider error description to the landing page and the rejection event', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.handleOauthCallback('bing-ads' as IntegrationKind, {
+                    state: `next=%2Fdata-warehouse%2Fnew-source%3Fkind%3DBingAds&token=csrf-tok`,
+                    error: 'invalid_client',
+                    error_description: 'AADSTS700000: Example sign-in failure.\r\nTrace ID: 00000000-0000',
+                })
+            })
+                .toDispatchActions([
+                    eventUsageLogic.actionCreators.reportIntegrationConnectRejected(
+                        'bing-ads',
+                        'invalid_client',
+                        'AADSTS700000: Example sign-in failure.'
+                    ),
+                ])
+                .toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({
+                kind: 'BingAds',
+                integration_error: 'invalid_client',
+                integration_error_description: 'AADSTS700000: Example sign-in failure.',
+            })
         })
 
         it('does not create the integration when the OAuth state token no longer matches the cookie', async () => {

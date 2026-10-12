@@ -1405,9 +1405,11 @@ export interface eventUsageLogicActions {
     }
     reportIntegrationConnectRejected: (
         kind: string,
-        error: string
+        error: string,
+        errorDescription?: string
     ) => {
         error: string
+        errorDescription: string | undefined
         kind: string
     }
     reportIntegrationLinkExistingOffered: (
@@ -1849,7 +1851,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             installationId?: string,
             responseAgeMs?: number
         ) => ({ surface, discoveryId, installationId, responseAgeMs }),
-        reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
+        reportIntegrationConnectRejected: (kind: string, error: string, errorDescription?: string) => ({
+            kind,
+            error,
+            errorDescription,
+        }),
         // insights
         reportDataTableColumnsUpdated: (context_type: string) => ({ context_type }),
         // insight filters
@@ -2396,10 +2402,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
         // only says the user started, so without this the drop-off is invisible outside session
         // recordings — and `access_denied` in particular hides a workspace waiting on an admin.
-        reportIntegrationConnectRejected: ({ kind, error }) => {
+        reportIntegrationConnectRejected: ({ kind, error, errorDescription }) => {
             posthog.capture('integration_connect_rejected', {
                 integration_kind: kind,
                 error,
+                error_description: errorDescription,
             })
         },
         reportTimeToSeeData: async ({ payload }) => {

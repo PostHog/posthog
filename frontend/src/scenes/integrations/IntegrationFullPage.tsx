@@ -7,7 +7,11 @@ import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
+import {
+    describeOAuthCallbackError,
+    INTEGRATION_ERROR_DESCRIPTION_PARAM,
+    INTEGRATION_ERROR_PARAM,
+} from 'lib/integrations/oauthCallbackErrors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useSelfDrivingRunState } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { urls } from 'scenes/urls'
@@ -79,7 +83,11 @@ function ConnectErrorBanner({ definition }: { definition: IntegrationDefinition 
 
     return (
         <LemonBanner type="warning" className="w-full">
-            {describeOAuthCallbackError(String(error), definition.kind)}
+            {describeOAuthCallbackError(
+                String(error),
+                definition.kind,
+                searchParams[INTEGRATION_ERROR_DESCRIPTION_PARAM]
+            )}
         </LemonBanner>
     )
 }
