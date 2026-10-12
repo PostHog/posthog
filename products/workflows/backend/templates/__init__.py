@@ -11,12 +11,10 @@ logger = structlog.get_logger(__name__)
 TEMPLATE_FILES = [
     "welcome_email_sequence_template.json",
     "support-ticket-notification.json",
-    "repeated-failure-alert.json",
     "negative-survey-response.json",
     "convert-trials-to-paid.json",
     "abandoned-checkout-recovery.json",
     "payment-failed-alert.json",
-    "re-engagement-workflow.json",
     "ai-support-first-responder.json",
     "ai-scheduled-report.json",
     "ai-slack-alert-responder.json",
