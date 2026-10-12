@@ -320,7 +320,6 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
 @pytest.mark.parametrize(
     "error_tracking_result,expected",
     [
-        # Error tracking ranks and counts the new issues, and its list replaces the Postgres one.
         (
             [
                 {
@@ -333,9 +332,7 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
             ],
             [("busy", 12, [{"height_percent": 100}])],
         ),
-        # A failed query keeps the Postgres issues without counts.
         (RuntimeError("ClickHouse is down"), [("quiet", None, []), ("busy", None, [])]),
-        # No new issue has occurrences outside test accounts, so the team gets no errors section.
         ([], None),
     ],
 )
