@@ -1,4 +1,5 @@
-"""The label trigger: the `reviewhog` label on a pull request starts a Full review.
+"""The label trigger: the `posthog-review` label (or the legacy `reviewhog` label) on a pull request starts a
+Full review.
 
 The PostHog GitHub App's own `labeled` delivery starts it, so the trigger works in every repository the
 app is installed on and a project owns (`ownership.py`). One label add is one review: pushes do not
@@ -24,7 +25,7 @@ from posthog.otel_metrics import OtelInstrumentFactory
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.pull_request_events import REVIEWHOG_LABEL
+from products.review_hog.backend.pull_request_events import REVIEW_LABEL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
@@ -40,8 +41,8 @@ _otel = OtelInstrumentFactory("review_hog")
 STAMPHOG_BOT_LOGIN = "stamphog[bot]"
 
 BOT_LABEL_COMMENT = (
-    f"ReviewHog reviews start only when a person adds the `{REVIEWHOG_LABEL}` label, so this label from a bot "
-    "was removed. Add it again yourself to start a review."
+    f"PostHog Review starts a review only when a person adds the `{REVIEW_LABEL}` label. A bot added it here, "
+    "so the label was removed. Add the label yourself to start a review."
 )
 
 LabelReviewOutcome = Literal[
@@ -76,6 +77,7 @@ class LabelReview:
     author_login: str
     # The payload refuses forks, so the head branch is in the base repository.
     head_branch: str
+    label_name: str
     labeler_login: str
     labeled_by_bot: bool
 
@@ -109,7 +111,7 @@ class LabelReview:
         try:
             github_api_request(
                 "DELETE",
-                f"/repos/{self.repository}/issues/{self.pr_number}/labels/{REVIEWHOG_LABEL}",
+                f"/repos/{self.repository}/issues/{self.pr_number}/labels/{self.label_name}",
                 token=token,
                 installation_id=self.installation_id,
                 endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",

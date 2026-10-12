@@ -82,7 +82,7 @@ def _payload(
 
 
 def _label_payload(
-    *, label: str = "reviewhog", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
+    *, label: str = "posthog-review", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
 ) -> dict[str, object]:
     return {
         **_payload(action="labeled", login=login),
@@ -220,16 +220,17 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("person_adds_the_label", "reviewhog", "OctoCat", "User", True),
-            ("label_name_ignores_case", "ReviewHog", "OctoCat", "User", True),
+            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
+            ("person_adds_the_legacy_label", "reviewhog", "OctoCat", "User", True),
+            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
             # The task explains the refusal on the pull request and removes the label.
-            ("bot_adds_the_label", "reviewhog", "renovate[bot]", "Bot", True),
+            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
             ("another_label", "bug", "OctoCat", "User", False),
         ]
     )
     @patch(_QUEUE)
     @patch(_LABEL_QUEUE)
-    def test_the_reviewhog_label_queues_a_label_review(
+    def test_a_review_label_queues_a_label_review(
         self,
         _name: str,
         label: str,
@@ -252,6 +253,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
                 pr_number=42,
                 author_login="octocat",
                 head_branch="feature",
+                label_name=label,
                 labeler_login=sender,
                 labeled_by_bot=sender_type == "Bot",
             )
@@ -509,9 +511,15 @@ class TestLabelReviewTask(BaseTest):
             trigger_source="label",
         )
 
-    @parameterized.expand([("another_bot", "renovate[bot]", False), ("stamphog_hands_off", "stamphog[bot]", True)])
-    def test_only_stamphog_may_label_as_a_bot(self, _name: str, sender: str, starts: bool) -> None:
-        self._run(_label_payload(sender=sender, sender_type="Bot"))
+    @parameterized.expand(
+        [
+            ("another_bot", "posthog-review", "renovate[bot]", False),
+            ("another_bot_legacy_label", "reviewhog", "renovate[bot]", False),
+            ("stamphog_hands_off", "posthog-review", "stamphog[bot]", True),
+        ]
+    )
+    def test_only_stamphog_may_label_as_a_bot(self, _name: str, label: str, sender: str, starts: bool) -> None:
+        self._run(_label_payload(label=label, sender=sender, sender_type="Bot"))
 
         assert self.start.called == starts
         calls = [(call.args[0], call.args[1]) for call in self.github.call_args_list]
@@ -519,7 +527,7 @@ class TestLabelReviewTask(BaseTest):
             assert calls == []
         else:
             assert calls == [
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
+                ("DELETE", f"/repos/PostHog/posthog/issues/42/labels/{label}"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
 
