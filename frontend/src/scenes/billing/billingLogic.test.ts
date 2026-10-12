@@ -257,6 +257,32 @@ describe('billingLogic', () => {
         }
     )
 
+    // A companion has no billing limit, so its usage percentage must not raise a limit banner.
+    it.each([
+        ['reached', 1.5],
+        ['approaching', 0.9],
+    ])('raises no %s usage limit banner for a companion', async (_name, percentageUsage) => {
+        billingState = billingWithProducts([
+            productWithUsage(0),
+            productWithUsage(percentageUsage, {
+                type: 'logs_retention_custom',
+                usage_key: 'logs_retention_custom_gb_months',
+                name: 'Logs custom retention',
+                companion_of: 'logs',
+                inclusion_only: true,
+                no_billing_limit: true,
+            }),
+        ])
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billingAlert).toBeNull()
+    })
+
     it('clears a stale usage limit alert when refreshed billing data no longer qualifies', async () => {
         billingState = billingWithProducts([productWithUsage(1)])
         billingLogic.mount()

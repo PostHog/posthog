@@ -42,6 +42,7 @@ import {
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
+    isCompanionProduct,
     isUsageApproachingLimit,
     isUsageAtOrOverLimit,
     isMemberUsageSpendReadAccessEnabled,
@@ -1600,7 +1601,8 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsAtOrOverLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key) {
+                    // Companions have no billing limit, so their usage percentage is not a limit.
+                    if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key || isCompanionProduct(x)) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
@@ -1646,7 +1648,10 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsApproachingLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (!isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT)) {
+                    if (
+                        !isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT) ||
+                        isCompanionProduct(x)
+                    ) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
