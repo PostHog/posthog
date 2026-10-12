@@ -12,19 +12,14 @@ export interface ExpandedLogContentProps {
 }
 
 export function ExpandedLogContent({ log }: ExpandedLogContentProps): JSX.Element {
-    const { openLogDetails, setActiveTab, setRelatedErrorsInitialScope } = useActions(logDetailsModalLogic)
+    const { openLogRelatedErrors } = useActions(logDetailsModalLogic)
 
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
             <LogContextLinks
                 log={log}
                 surface="row"
-                onOpenRelatedErrors={(scope) => {
-                    // openLogDetails resets the tab and the scope, so both have to follow it.
-                    openLogDetails(log)
-                    setRelatedErrorsInitialScope(scope)
-                    setActiveTab('related-errors')
-                }}
+                onOpenRelatedErrors={(scope) => openLogRelatedErrors(log, scope)}
             />
             <LogAttributes
                 attributes={log.attributes}
