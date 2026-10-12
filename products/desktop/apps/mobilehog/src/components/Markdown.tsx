@@ -1,5 +1,6 @@
+import type { ObjectTagRef } from "@posthog/core/inbox/objectTags";
 import { isSafeExternalUrl } from "@posthog/shared";
-import { type MarkedToken, marked, type Token, type Tokens } from "marked";
+import type { MarkedToken, Token, Tokens } from "marked";
 import { type ReactNode, useMemo, useState } from "react";
 import {
   type ColorValue,
@@ -12,8 +13,18 @@ import {
   View,
 } from "react-native";
 import { MermaidDiagram } from "@/components/MermaidDiagram";
-import { splitImageRuns } from "@/lib/markdown";
+import {
+  ObjectCard,
+  openObjectUrl,
+  useObjectUrl,
+} from "@/components/ObjectCard";
+import { lexMarkdown, splitImageRuns } from "@/lib/markdown";
 import { isClosedFence, isMermaidLang } from "@/lib/mermaid";
+import {
+  isObjectCardToken,
+  isObjectRefToken,
+  isObjectTagMarkup,
+} from "@/lib/objectTags";
 import { colors, fonts } from "@/lib/theme";
 
 interface MarkdownProps {
@@ -25,14 +36,29 @@ function openLink(href: string): void {
   if (isSafeExternalUrl(href)) Linking.openURL(href).catch(() => {});
 }
 
+// Kinds without a page in PostHog read as plain text.
+function ObjectChip({ target }: { target: ObjectTagRef }) {
+  const url = useObjectUrl(target.kind, target.id);
+  return url ? (
+    <Text style={styles.chip} onPress={() => openObjectUrl(url)}>
+      {target.label}
+    </Text>
+  ) : (
+    target.label
+  );
+}
+
 function renderInline(
   tokens: Token[] | undefined,
   color: ColorValue,
   linked = false,
 ): ReactNode[] {
   return (tokens ?? []).map((raw, index) => {
-    const token = raw as MarkedToken;
     const key = String(index);
+    if (isObjectRefToken(raw)) {
+      return <ObjectChip key={key} target={raw.ref} />;
+    }
+    const token = raw as MarkedToken;
     switch (token.type) {
       case "strong":
         return (
@@ -82,6 +108,8 @@ function renderInline(
         );
       case "br":
         return "\n";
+      case "html":
+        return isObjectTagMarkup(token.text) ? null : token.text;
       case "text":
         return token.tokens ? (
           <Text key={key}>{renderInline(token.tokens, color, linked)}</Text>
@@ -238,8 +266,11 @@ function renderBlocks(
   color: ColorValue,
 ): ReactNode[] {
   return (tokens ?? []).map((raw, index) => {
+    const key = `${index}-${raw.type}`;
+    if (isObjectCardToken(raw)) {
+      return <ObjectCard key={key} spec={raw.spec} />;
+    }
     const token = raw as MarkedToken;
-    const key = `${index}-${token.type}`;
     switch (token.type) {
       case "code":
         return isMermaidLang(token.lang) && isClosedFence(token.raw) ? (
@@ -292,7 +323,7 @@ function renderBlocks(
 }
 
 export function Markdown({ text, color = colors.ink }: MarkdownProps) {
-  const tokens = useMemo(() => marked.lexer(text), [text]);
+  const tokens = useMemo(() => lexMarkdown(text), [text]);
   return <View style={styles.root}>{renderBlocks(tokens, color)}</View>;
 }
 
@@ -350,6 +381,11 @@ const styles = StyleSheet.create({
   },
   imagePending: { aspectRatio: 16 / 9 },
   link: { color: colors.accent, textDecorationLine: "underline" },
+  chip: {
+    fontFamily: fonts.sansMedium,
+    color: colors.accent,
+    backgroundColor: colors.fill,
+  },
   table: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
