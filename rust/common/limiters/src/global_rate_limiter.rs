@@ -897,7 +897,9 @@ impl GlobalRateLimiterImpl {
         self.pending_sync.insert(key.to_string());
     }
 
-    /// Queue an update to be batched and sent to Redis
+    /// Queue an update to be batched and sent to Redis. The hot path does not
+    /// wait: a full channel drops the update, which fails open, and the drop is
+    /// counted. No log line, for the same reason as in `absorb_update`.
     fn enqueue_update(&self, key: &str, count: u64, timestamp: DateTime<Utc>) {
         let update = UpdateRequest {
             key: key.to_string(),
@@ -905,7 +907,7 @@ impl GlobalRateLimiterImpl {
             timestamp,
         };
 
-        if let Some(Err(e)) = self.update_tx.as_ref().map(|tx| tx.try_send(update)) {
+        if let Some(Err(_)) = self.update_tx.as_ref().map(|tx| tx.try_send(update)) {
             metrics::counter!(
                 GLOBAL_RATE_LIMITER_ERROR_COUNTER,
                 "scope" => self.scope,
@@ -914,11 +916,6 @@ impl GlobalRateLimiterImpl {
                 "cause" => "channel_full",
             )
             .increment(1);
-            error!(
-                key = key,
-                error = %e,
-                "Failed to queue rate limit update, channel may be full"
-            );
         }
     }
 
@@ -1001,8 +998,9 @@ impl GlobalRateLimiterImpl {
 
     /// Spawn the background loop that handles both reads and writes.
     ///
-    /// Between ticks it merges each update into the write batch, and every
-    /// tick_interval it runs `tick`. The channel is not read while a tick runs.
+    /// It merges each update into the write batch, and every tick_interval it
+    /// runs a tick. The loop keeps reading the channel while the tick's Redis
+    /// commands run, so slow Redis delays counts instead of filling the channel.
     fn spawn_background_task(
         config: GlobalRateLimiterConfig,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -1022,17 +1020,7 @@ impl GlobalRateLimiterImpl {
                 tokio::select! {
                     result = update_rx.recv() => {
                         match result {
-                            Some(req) => {
-                                let epoch = epoch_from_timestamp(req.timestamp, config.window_interval);
-                                Self::absorb_update(
-                                    &mut write_batch,
-                                    req.key,
-                                    epoch,
-                                    req.count,
-                                    config.max_write_batch_entries,
-                                    scope,
-                                );
-                            }
+                            Some(req) => Self::absorb_request(&config, &mut write_batch, req, scope),
                             None => {
                                 // Channel closed: run one last bounded tick and exit
                                 if !write_batch.is_empty() {
@@ -1047,14 +1035,44 @@ impl GlobalRateLimiterImpl {
                     }
                     _ = tick.tick() => {
                         tick_n = tick_n.wrapping_add(1);
-                        Self::tick(
+                        let (sync_keys, writes) =
+                            Self::take_tick_work(&config, &pending_sync, &mut write_batch, scope);
+                        let run = Self::run_tick(
                             &config, &redis_instances, &cache,
-                            &pending_sync, &mut write_batch, &read_health, scope, tick_n,
-                        ).await;
+                            &sync_keys, writes, &read_health, scope, tick_n,
+                        );
+                        tokio::pin!(run);
+                        // A closed channel disables the recv branch, so the tick
+                        // finishes and the outer loop runs the final flush.
+                        loop {
+                            tokio::select! {
+                                _ = &mut run => break,
+                                Some(req) = update_rx.recv() => {
+                                    Self::absorb_request(&config, &mut write_batch, req, scope);
+                                }
+                            }
+                        }
                     }
                 }
             }
         });
+    }
+
+    fn absorb_request(
+        config: &GlobalRateLimiterConfig,
+        write_batch: &mut HashMap<(String, i64), u64>,
+        req: UpdateRequest,
+        scope: &'static str,
+    ) {
+        let epoch = epoch_from_timestamp(req.timestamp, config.window_interval);
+        Self::absorb_update(
+            write_batch,
+            req.key,
+            epoch,
+            req.count,
+            config.max_write_batch_entries,
+            scope,
+        );
     }
 
     /// Merge one update into the deferred write batch, enforcing the entry cap.
@@ -1094,10 +1112,7 @@ impl GlobalRateLimiterImpl {
         }
     }
 
-    /// Execute one tick of the background pipeline.
-    ///
-    /// Takes bounded slices of the pending syncs and the write batch, purges
-    /// stale epochs, then sends chunked writes before chunked reads per instance.
+    /// Execute one tick of the background pipeline: `take_tick_work`, then `run_tick`.
     #[allow(clippy::too_many_arguments)]
     async fn tick(
         config: &GlobalRateLimiterConfig,
@@ -1109,12 +1124,28 @@ impl GlobalRateLimiterImpl {
         scope: &'static str,
         tick_n: u64,
     ) {
-        let tick_start = Instant::now();
+        let (sync_keys, writes) = Self::take_tick_work(config, pending_sync, write_batch, scope);
+        Self::run_tick(
+            config,
+            redis_instances,
+            cache,
+            &sync_keys,
+            writes,
+            read_health,
+            scope,
+            tick_n,
+        )
+        .await;
+    }
 
-        // Cache-size gauge every tick (O(1)); per-tier distribution via a
-        // throttled full scan (slow-moving, see TIER_SCAN_INTERVAL_TICKS).
-        Self::emit_cache_gauges(cache, scope, tick_n, config.window_interval);
-
+    /// Take bounded slices of the pending syncs and the write batch, and purge
+    /// stale epochs. Updates that arrive later stay in `write_batch` for the next tick.
+    fn take_tick_work(
+        config: &GlobalRateLimiterConfig,
+        pending_sync: &Arc<DashSet<String>>,
+        write_batch: &mut HashMap<(String, i64), u64>,
+        scope: &'static str,
+    ) -> (Vec<String>, HashMap<(String, i64), u64>) {
         // Take a bounded slice of the pending set rather than all of it. The
         // remainder stays queued, so a backlog surfaces as sync staleness instead
         // of a tick that overruns its own interval and starves every other key.
@@ -1168,6 +1199,27 @@ impl GlobalRateLimiterImpl {
         metrics::gauge!(GLOBAL_RATE_LIMITER_WRITE_DEFERRED_GAUGE, "scope" => scope)
             .set(write_batch.len() as f64);
 
+        (sync_keys, writes)
+    }
+
+    /// Send chunked writes before chunked reads per instance.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_tick(
+        config: &GlobalRateLimiterConfig,
+        redis_instances: &[Arc<dyn Client + Send + Sync>],
+        cache: &Cache<String, CacheEntry>,
+        sync_keys: &[String],
+        writes: HashMap<(String, i64), u64>,
+        read_health: &ReadHealth,
+        scope: &'static str,
+        tick_n: u64,
+    ) {
+        let tick_start = Instant::now();
+
+        // Cache-size gauge every tick (O(1)); per-tier distribution via a
+        // throttled full scan (slow-moving, see TIER_SCAN_INTERVAL_TICKS).
+        Self::emit_cache_gauges(cache, scope, tick_n, config.window_interval);
+
         let read_count = sync_keys.len();
         let write_count = writes.len();
 
@@ -1190,7 +1242,7 @@ impl GlobalRateLimiterImpl {
                 &redis_instances[0],
                 0,
                 cache,
-                &sync_keys,
+                sync_keys,
                 &writes,
                 read_health,
                 scope,
@@ -1201,7 +1253,7 @@ impl GlobalRateLimiterImpl {
                 config,
                 redis_instances,
                 cache,
-                &sync_keys,
+                sync_keys,
                 &writes,
                 read_health,
                 scope,
@@ -2756,6 +2808,41 @@ mod tests {
 
     fn limited(result: EvalResult) -> bool {
         matches!(result, EvalResult::Limited(_))
+    }
+
+    #[tokio::test]
+    async fn test_updates_sent_during_slow_tick_are_not_dropped() {
+        let mock = Arc::new(
+            MockRedisClient::new().batch_incr_by_expire_at_block(Duration::from_millis(300)),
+        );
+        let config = GlobalRateLimiterConfig {
+            channel_capacity: 5,
+            tick_interval: Duration::from_millis(10),
+            global_write_timeout: Duration::from_secs(1),
+            ..config_with_floor(0)
+        };
+        let limiter = GlobalRateLimiterImpl::new(config, vec![mock.clone()]).unwrap();
+        let written = |key: &str| {
+            let needle = format!("{key}:");
+            mock.get_calls()
+                .iter()
+                .any(|c| c.op == "batch_incr_by_expire_at" && c.key.contains(&needle))
+        };
+
+        limiter.check_limit("first", 1, None).await;
+        wait_until!("first write never started", written("first"));
+
+        let keys: Vec<String> = (0..50).map(|i| format!("during{i}")).collect();
+        for key in &keys {
+            limiter.check_limit(key, 1, None).await;
+            // The test runtime has one thread: yield so the background task can read the channel.
+            tokio::task::yield_now().await;
+        }
+
+        wait_until!(
+            "updates sent while a tick waited on Redis overflowed the channel and were lost",
+            keys.iter().all(|k| written(k))
+        );
     }
 
     fn failing_reads() -> Arc<dyn Client + Send + Sync> {

@@ -200,14 +200,15 @@ The background task uses `tokio::select!` over two sources:
 │    key, count, timestamp  │     │  → take bounded slices of    │
 │  }                        │     │    pending_sync and writes   │
 │                           │     │  → send writes, then reads   │
-│  Merged between ticks     │     │  → apply read results        │
+│  Merged as they arrive    │     │  → apply read results        │
 │  into:                    │     │                              │
 │  HashMap<(key, epoch),    │     │                              │
 │           count>          │     │                              │
 └───────────────────────────┘     └──────────────────────────────┘
 ```
 
-The channel is not read while a tick runs, so updates wait in it until the tick ends.
+The loop keeps reading the channel while a tick's Redis commands run. Updates that arrive during a tick go into the write batch for the next tick, so slow Redis delays counts instead of filling the channel.
+A full channel drops the update and increments `global_rate_limiter_error_total` with `cause=channel_full`. The drop writes no log line.
 
 Each tick, per Redis instance:
 
