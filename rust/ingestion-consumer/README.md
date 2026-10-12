@@ -11,7 +11,7 @@ Each guarantee has a violation counter that must stay flat and a denominator tha
 
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
-| Commits are contiguous, monotonic, non-empty per partition | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
+| Commits are contiguous, monotonic, non-empty per partition, and cover only completed offsets | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty\|uncredited}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
 | Async commits actually succeed | `ingestion_consumer_commit_confirmation_lag{topic,partition}` persistently > 0 | `ingestion_consumer_broker_committed_offset{topic,partition}`, `ingestion_consumer_last_successful_commit_timestamp_seconds`, `ingestion_consumer_commit_monitor_errors_total` |
 | Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
