@@ -6147,6 +6147,9 @@
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
+                "colorBy": {
+                    "type": ["string", "null"]
+                },
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/BIField"
@@ -6274,6 +6277,10 @@
                 "dateBucket": {
                     "$ref": "#/definitions/BIDateBucket"
                 },
+                "datePart": {
+                    "enum": ["month", "quarter", "day_of_week"],
+                    "type": "string"
+                },
                 "expression": {
                     "type": "string"
                 },
@@ -6282,6 +6289,9 @@
                 },
                 "localDefinition": {
                     "$ref": "#/definitions/BILocalFieldDefinition"
+                },
+                "localFieldId": {
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -6346,6 +6356,23 @@
         },
         "BILocalFieldDefinition": {
             "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "aggregate": {
+                            "type": "boolean"
+                        },
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "expression",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "aggregate"],
+                    "type": "object"
+                },
                 {
                     "additionalProperties": false,
                     "properties": {
@@ -6527,6 +6554,11 @@
                     "$ref": "#/definitions/ChartSettingsFormatting"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "shelf": {
+                    "description": "Measures in older worksheets belong to rows.",
+                    "enum": ["rows", "columns"],
                     "type": "string"
                 },
                 "tableCalculation": {
