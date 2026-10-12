@@ -14,6 +14,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.instance_setting import override_instance_config
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
@@ -32,6 +33,8 @@ from products.review_hog.backend.temporal.activities import PublishInput, _publi
 _PUBLISH = "products.review_hog.backend.reviewer.tools.publish_review.publish_review"
 _SNAPSHOT = "products.review_hog.backend.reviewer.tools.publish_review.load_pr_snapshot"
 _AUTH = "products.review_hog.backend.temporal.activities._installation_auth"
+pytestmark = pytest.mark.django_db
+
 _PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_api_get_paginated"
 _ACTIVITIES = "products.review_hog.backend.temporal.activities"
 
@@ -69,11 +72,11 @@ def test_review_already_posted_detects_our_own_markered_review() -> None:
     )
     assert _review_posted(marker, [{"body": f"no user field: {marker}"}]) is False
     # With the app's bot login configured, another installed bot's pasted marker must not match either.
-    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="posthog[bot]"):
+    with override_instance_config("GITHUB_APP_SLUG", "posthog"):
         assert _review_posted(marker, [{"body": marker, **bot}]) is True
         assert _review_posted(marker, [{"body": marker, "user": {"login": "rogue[bot]", "type": "Bot"}}]) is False
     # Unconfigured in production, no bot is trusted, because any installed bot could paste the marker.
-    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="", DEBUG=False, TEST=False):
+    with override_instance_config("GITHUB_APP_SLUG", ""), override_settings(DEBUG=False, TEST=False):
         assert _review_posted(marker, [{"body": marker, **bot}]) is False
 
 
