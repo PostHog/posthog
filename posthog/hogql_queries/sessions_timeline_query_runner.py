@@ -1,5 +1,4 @@
 import json
-from functools import cached_property
 from typing import cast
 
 from posthog.schema import (
@@ -17,7 +16,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.element import ElementSerializer
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.element.element import chain_to_elements
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.utils import relative_date_parse
 
 
@@ -41,10 +39,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
 
     query: SessionsTimelineQuery
     cached_response: CachedSessionsTimelineQueryResponse
-
-    @cached_property
-    def _use_new_events_schema(self) -> bool:
-        return use_new_events_schema(self.team.pk, self.modifiers)
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)

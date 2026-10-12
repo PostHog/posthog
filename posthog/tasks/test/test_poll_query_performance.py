@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 
 import posthog.tasks.tasks
 from posthog.redis import get_client
@@ -9,6 +11,34 @@ from posthog.tasks.tasks import Polling
 
 
 class TestPollQueryPerformance(SimpleTestCase):
+    @parameterized.expand([(None,), ("legacy",), ("native",)])
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_progress_includes_native_queries_and_survives_one_unavailable_cluster(self, failed: str | None) -> None:
+        legacy_id = "44_550e8400-e29b-41d4-a716-446655440001_example"
+        native_id = "44_550e8400-e29b-41d4-a716-446655440002_example"
+
+        def execute(
+            _query: str, _parameters: dict[str, str], **kwargs: object
+        ) -> list[tuple[str, int, int, int, int, int, str]]:
+            native = kwargs.get("sync_client") is not None
+            if failed == ("native" if native else "legacy"):
+                raise RuntimeError("cluster unavailable")
+            return [(native_id if native else legacy_id, 2, 3, 4, 5, 6, "example-query")]
+
+        with (
+            patch("posthog.tasks.poll_query_performance.sync_execute", side_effect=execute),
+            patch("posthog.tasks.poll_query_performance.QueryStatusManager") as manager,
+            patch("posthog.tasks.poll_query_performance.default_client") as client,
+        ):
+            poll_query_performance()
+        self.assertEqual(manager.call_count, 1 if failed else 2)
+        query_ids = {call.args[0] for call in manager.call_args_list}
+        if failed != "legacy":
+            self.assertIn("550e8400-e29b-41d4-a716-446655440001", query_ids)
+        if failed != "native":
+            self.assertIn("550e8400-e29b-41d4-a716-446655440002", query_ids)
+        self.assertEqual(client.call_args.kwargs["send_receive_timeout"], 15)
+
     def test_query_manager_from_initial_query_id_succeeds(self) -> None:
         self.assertIsNotNone(query_manager_from_initial_query_id("1_00008400-e29b-41d4-a716-446655440000_fwefwef"))
         self.assertIsNotNone(query_manager_from_initial_query_id("123123_550e8400-e29b-41d4-a716-446655440000_fwefwef"))

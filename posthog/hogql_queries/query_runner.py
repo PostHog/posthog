@@ -16,6 +16,7 @@ from typing import (
     NamedTuple,
     Optional,
     Protocol,
+    TypeAliasType,
     TypeGuard,
     TypeVar,
     Union,
@@ -24,6 +25,7 @@ from typing import (
     get_origin,
 )
 
+from django.conf import settings
 from django.db import OperationalError
 
 import orjson
@@ -53,6 +55,7 @@ from posthog.schema import (
     EndpointsUsageTrendsQuery,
     EventsQuery,
     EventTaxonomyQuery,
+    ExperimentActorsQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
@@ -92,6 +95,7 @@ from posthog.schema import (
     MetricsQuery,
     NodeKind,
     PathsQuery,
+    PathsV2ActorsQuery,
     PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -105,6 +109,7 @@ from posthog.schema import (
     SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
+    StickinessActorsQuery,
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
@@ -137,7 +142,6 @@ from posthog.hogql.query_stats import (
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
-from posthog import settings
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BudgetSpec,
@@ -360,9 +364,7 @@ class QueryRun:
             "cache_key": self.cache_key,
             "request_trigger": self.trigger,
             "query": self.query,
-            # The modifiers in effect for the run, set keys only, the same dict the ClickHouse log
-            # comment carries. Passed in rather than stored, because the fresh path adds the user's
-            # modifiers after the cache key, and the event has to say what the run actually used.
+            # Report the effective modifiers from this run, matching the ClickHouse log comment.
             "modifiers": {k: v for k, v in modifiers.model_dump(mode="json").items() if v is not None},
         }
 
@@ -1820,12 +1822,40 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
     return None
 
 
+def query_node_modifiers_path(query: BaseModel) -> tuple[str, ...]:
+    if isinstance(
+        query,
+        (
+            ActorsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            FunnelsActorsQuery,
+            FunnelCorrelationQuery,
+            FunnelCorrelationActorsQuery,
+            StickinessActorsQuery,
+            ExperimentActorsQuery,
+            PathsV2ActorsQuery,
+        ),
+    ) and isinstance(source := getattr(query, "source", None), BaseModel):
+        return ("source", *query_node_modifiers_path(source))
+    return ()
+
+
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
-    # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
-    # so that the correlation reads the same events table and person data as that funnel.
-    if isinstance(query, FunnelCorrelationQuery):
-        return query.source.source.modifiers
-    return getattr(query, "modifiers", None)
+    explicit_schema_choice = None
+    sources = [query]
+    for field in query_node_modifiers_path(query):
+        query = getattr(query, field)
+        sources.append(query)
+    for source in sources:
+        source_modifiers = getattr(source, "modifiers", None)
+        if source_modifiers is not None and source_modifiers.useNewEventsSchema is not None:
+            explicit_schema_choice = source_modifiers.useNewEventsSchema
+            break
+    modifiers = getattr(query, "modifiers", None)
+    if explicit_schema_choice is not None:
+        return (modifiers or HogQLQueryModifiers()).model_copy(update={"useNewEventsSchema": explicit_schema_choice})
+    return modifiers
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -1918,6 +1948,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers.useNewEventsSchema = use_new_events_schema(self.team.pk, self.modifiers)
 
     @property
+    def _use_new_events_schema(self) -> bool:
+        return use_new_events_schema(self.team.pk, self.modifiers)
+
+    def _serialized_modifier_sources(self, query_json: dict[str, Any]) -> list[dict[str, Any]]:
+        sources = [query_json]
+        for field in query_node_modifiers_path(self.query):
+            query_json = query_json[field]
+            sources.append(query_json)
+        return sources
+
+    @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
         AnalyticsQueryRunner with a lazily built, per-run instance so the cache fingerprint and
@@ -1979,7 +2020,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     @property
     def query_type(self) -> Any:
-        return self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
+        query_type = self._class_annotation("query")
+        while isinstance(query_type, TypeAliasType):
+            query_type = query_type.__value__
+        return query_type
 
     @property
     def cached_response_type(self) -> type[CR]:
@@ -2056,14 +2100,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
         query_json = self.query.model_dump()
-        modifier_source = (
-            query_json["source"]["source"] if isinstance(self.query, FunnelCorrelationQuery) else query_json
+        modifier_sources = self._serialized_modifier_sources(query_json)
+        modifier_source = modifier_sources[-1]
+        explicit_schema_choice = self._use_new_events_schema_without_user is not None or any(
+            isinstance(source.get("modifiers"), dict) and source["modifiers"].get("useNewEventsSchema") is not None
+            for source in modifier_sources
         )
         if (
             "modifiers" in modifier_source
             and self.modifiers.useNewEventsSchema is not None
-            and (self.modifiers.useNewEventsSchema or settings.CLICKHOUSE_NATIVE_EVENTS_HOST)
+            and (self.modifiers.useNewEventsSchema or settings.CLICKHOUSE_NATIVE_EVENTS_HOST or explicit_schema_choice)
         ):
+            for source in modifier_sources:
+                if isinstance(source.get("modifiers"), dict):
+                    source["modifiers"].pop("useNewEventsSchema", None)
             modifier_source["modifiers"] = {
                 **(modifier_source["modifiers"] or {}),
                 "useNewEventsSchema": self.modifiers.useNewEventsSchema,
@@ -3113,11 +3163,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
         # Queued queries carry the effective table choice; the resolved modifiers already key it.
-        modifier_source = query["source"]["source"] if isinstance(self.query, FunnelCorrelationQuery) else query
-        if isinstance(modifier_source.get("modifiers"), dict):
-            modifier_source["modifiers"].pop("useNewEventsSchema", None)
-            if not modifier_source["modifiers"]:
-                modifier_source.pop("modifiers")
+        for modifier_source in self._serialized_modifier_sources(query):
+            if isinstance(modifier_source.get("modifiers"), dict):
+                modifier_source["modifiers"].pop("useNewEventsSchema", None)
+                if not modifier_source["modifiers"]:
+                    modifier_source.pop("modifiers")
 
         cache_modifiers = to_dict(self.modifiers)
         if cache_modifiers.get("useNewEventsSchema") is False:
@@ -3133,6 +3183,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
+        if self.modifiers.useNewEventsSchema and settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+            payload["native_events_host"] = settings.CLICKHOUSE_NATIVE_EVENTS_HOST
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.
@@ -3216,8 +3268,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         payload = self.get_cache_payload()
         variant = self.get_cache_key_variant()
-        # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
-        # fresh run agree, and the payload is built once per run.
+        # Use the same payload for the key and identity so cache hits and fresh runs agree.
         self._query_identity = self._query_identity_for(payload, variant)
         self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"

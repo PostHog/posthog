@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -6,17 +7,43 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from pydantic import BaseModel
 
-from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import (
+    ActorsQuery,
+    EventsNode,
+    ExperimentExposureQuery,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    FunnelCorrelationQuery,
+    FunnelCorrelationResultsType,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    PersonsOnEventsMode,
+    TrendsQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_user
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.workload import Workload
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Organization, Team, User
+
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
@@ -142,6 +169,170 @@ class TestNewEventsSchemaUserRollout(SimpleTestCase):
         ):
             self.assertEqual(request.get_cache_payload(), worker.get_cache_payload())
 
+    def _nested_query(self, kind: str, native: bool | None = None) -> BaseModel:
+        modifiers = self.modifiers.model_copy(update={"useNewEventsSchema": native})
+        trends = TrendsQuery(series=[EventsNode(event="example")], modifiers=modifiers)
+        actors = InsightActorsQuery(source=trends)
+        if kind == "ActorsQuery":
+            return ActorsQuery(source=actors)
+        if kind == "InsightActorsQueryOptions":
+            return InsightActorsQueryOptions(source=actors)
+        if kind == "FunnelCorrelationQuery":
+            return FunnelCorrelationQuery(
+                funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
+                source=FunnelsActorsQuery(
+                    funnelStep=1,
+                    source=FunnelsQuery(
+                        series=[EventsNode(event="example"), EventsNode(event="finished")], modifiers=modifiers
+                    ),
+                ),
+            )
+        return actors
+
+    @parameterized.expand(
+        [("InsightActorsQuery",), ("InsightActorsQueryOptions",), ("ActorsQuery",), ("FunnelCorrelationQuery",)]
+    )
+    def test_nested_async_choice_survives_enrollment_change_and_preserves_cache_identity(self, kind: str) -> None:
+        query = self._nested_query(kind)
+        original = query.model_dump()
+        request = get_query_runner(query, self.team, user=self.user)
+        cache = MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None)
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            request.enqueue_async_calculation(cache_manager=cache, user=self.user)
+        with patch("posthog.models.event.new_events_schema.get_instance_setting", return_value=False):
+            worker = get_query_runner(enqueue.call_args.kwargs["query_json"], self.team, user=self.user)
+        self.assertIs(worker.modifiers.useNewEventsSchema, True)
+        self.assertEqual(query.model_dump(), original)
+        with (
+            patch.object(request, "_get_property_access_restrictions", return_value=None),
+            patch.object(worker, "_get_property_access_restrictions", return_value=None),
+            patch.object(request, "_products_modifiers_for_cache", return_value={}),
+            patch.object(worker, "_products_modifiers_for_cache", return_value={}),
+            patch("posthog.hogql_queries.query_runner.events_retention_months_for_team", return_value=None),
+        ):
+            self.assertEqual(request.get_cache_payload(), worker.get_cache_payload())
+
+    @parameterized.expand([(False,), (True,)])
+    def test_actor_source_explicit_choice_survives_late_user(self, native: bool) -> None:
+        runner = get_query_runner(self._nested_query("ActorsQuery", native), self.team)
+        with patch.object(runner, "get_cache_key", side_effect=RuntimeError("cache boundary")):
+            with self.assertRaisesRegex(RuntimeError, "cache boundary"):
+                runner.run(user=self.user)
+        self.assertIs(runner.modifiers.useNewEventsSchema, native)
+
+    @parameterized.expand(
+        [("InsightActorsQuery", False), ("InsightActorsQuery", True), ("ActorsQuery", False), ("ActorsQuery", True)]
+    )
+    def test_async_constructor_override_beats_conflicting_wrapper_after_worker_reconstruction(
+        self, kind: str, native: bool
+    ) -> None:
+        query = self._nested_query(kind)
+        assert isinstance(query, (ActorsQuery, InsightActorsQuery))
+        query.modifiers = self.modifiers.model_copy(update={"useNewEventsSchema": not native})
+        original = query.model_dump()
+        with override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com" if native else None):
+            runner = get_query_runner(
+                query,
+                self.team,
+                modifiers=self.modifiers.model_copy(update={"useNewEventsSchema": native}),
+                user=self.user,
+            )
+            cache = MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None)
+            with (
+                patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+                patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+                patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+            ):
+                runner.enqueue_async_calculation(cache_manager=cache, user=self.user)
+            worker = get_query_runner(enqueue.call_args.kwargs["query_json"], self.team, user=self.user)
+        self.assertIs(worker.modifiers.useNewEventsSchema, native)
+        self.assertEqual(query.model_dump(), original)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_native_cache_identity_tracks_host_configuration_without_changing_legacy_namespace(
+        self, native: bool
+    ) -> None:
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(
+                query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsSchema": native})
+            ),
+            team=self.team,
+        )
+        with (
+            patch.object(runner, "_get_property_access_restrictions", return_value=None),
+            patch.object(runner, "_products_modifiers_for_cache", return_value={}),
+            patch("posthog.hogql_queries.query_runner.events_retention_months_for_team", return_value=None),
+        ):
+            keys = []
+            for host in (None, "native.example.com", "replacement.example.com"):
+                with override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST=host):
+                    keys.append(runner.get_cache_key())
+        self.assertEqual(len(set(keys)), 3 if native else 1)
+
+    @parameterized.expand([("HogQLQuery",), ("InsightActorsQuery",), ("ActorsQuery",)])
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST=None)
+    def test_async_constructor_false_survives_without_a_raw_schema_choice(self, kind: str) -> None:
+        query = (
+            HogQLQuery(query="SELECT 1", modifiers=self.modifiers) if kind == "HogQLQuery" else self._nested_query(kind)
+        )
+        original = query.model_dump()
+        runner = get_query_runner(
+            query, self.team, modifiers=self.modifiers.model_copy(update={"useNewEventsSchema": False}), user=self.user
+        )
+        self.assertIs(runner.modifiers.useNewEventsSchema, False)
+        cache = MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None)
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            runner.enqueue_async_calculation(cache_manager=cache, user=self.user)
+        worker = get_query_runner(enqueue.call_args.kwargs["query_json"], self.team, user=self.user)
+        self.assertIs(worker.modifiers.useNewEventsSchema, False)
+        self.assertEqual(query.model_dump(), original)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_explicit_wrapper_schema_choice_takes_precedence_over_source_and_staff_default(self, native: bool) -> None:
+        query = self._nested_query("ActorsQuery", not native)
+        assert isinstance(query, ActorsQuery)
+        query.modifiers = self.modifiers.model_copy(update={"useNewEventsSchema": native})
+        runner = get_query_runner(query, self.team, user=self.user)
+        assert isinstance(runner, ActorsQueryRunner)
+        with patch.object(runner, "get_cache_key", side_effect=RuntimeError("cache boundary")):
+            with self.assertRaisesRegex(RuntimeError, "cache boundary"):
+                runner.run(user=self.user)
+        self.assertIs(runner.modifiers.useNewEventsSchema, native)
+        assert runner.source_query_runner is not None
+        self.assertIs(runner.source_query_runner.modifiers.useNewEventsSchema, native)
+
+    @parameterized.expand(
+        [
+            ("EventTaxonomyQuery", {"event": "example"}),
+            ("PropertyValuesQuery", {"property_key": "example", "property_type": "event"}),
+            ("SessionsTimelineQuery", {}),
+            ("FunnelCorrelationQuery", {}),
+        ]
+    )
+    def test_schema_sensitive_runner_follows_late_user_before_execution(
+        self, kind: str, fields: dict[str, object]
+    ) -> None:
+        query = self._nested_query(kind) if kind == "FunnelCorrelationQuery" else {"kind": kind, **fields}
+        runner = get_query_runner(query, self.team, modifiers=self.modifiers)
+        self.assertIs(runner._use_new_events_schema, False)
+        with patch.object(runner, "get_cache_key", side_effect=RuntimeError("cache boundary")):
+            with self.assertRaisesRegex(RuntimeError, "cache boundary"):
+                runner.run(user=self.user)
+        self.assertIs(runner.modifiers.useNewEventsSchema, True)
+        self.assertIs(runner._use_new_events_schema, True)
+        if kind == "FunnelCorrelationQuery":
+            assert isinstance(runner, FunnelCorrelationQueryRunner)
+            self.assertIs(runner.context.modifiers.useNewEventsSchema, True)
+            self.assertIs(runner.context.user, self.user)
+
     def test_legacy_default_retains_cache_namespace_when_choice_is_resolved(self) -> None:
         runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1", modifiers=self.modifiers), team=self.team)
         with (
@@ -210,6 +401,80 @@ class TestNewEventsSchemaUserRollout(SimpleTestCase):
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
 class TestNativeEventsUserQueryRouting(APIBaseTest):
+    @parameterized.expand([("metric", False), ("metric", True), ("exposures", False), ("exposures", True)])
+    def test_experiment_execution_preserves_selected_table_and_debug_sql(self, kind: str, native: bool) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="example-experiment",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Example experiment",
+            feature_flag=flag,
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 7, tzinfo=UTC),
+        )
+        assert experiment.start_date is not None and experiment.end_date is not None
+        modifiers = HogQLQueryModifiers(useNewEventsSchema=native)
+        runner: ExperimentQueryRunner | ExperimentExposuresQueryRunner
+        if kind == "metric":
+            runner = ExperimentQueryRunner(
+                query=ExperimentQuery(
+                    experiment_id=experiment.id, metric=ExperimentMeanMetric(source=EventsNode(event="example"))
+                ),
+                team=self.team,
+                user=self.user,
+                modifiers=modifiers,
+            )
+            builder = "_get_experiment_query"
+        else:
+            runner = ExperimentExposuresQueryRunner(
+                query=ExperimentExposureQuery(
+                    experiment_id=experiment.id,
+                    experiment_name=experiment.name,
+                    feature_flag={"key": flag.key},
+                    start_date=experiment.start_date.isoformat(),
+                    end_date=experiment.end_date.isoformat(),
+                ),
+                team=self.team,
+                user=self.user,
+                modifiers=modifiers,
+            )
+            builder = "_get_exposure_query"
+        cache_key = runner.get_cache_key()
+        enrollment = "{}" if native else json.dumps({str(self.team.id): [self.user.id]})
+        with (
+            patch(
+                "posthog.models.event.new_events_schema.get_instance_setting",
+                side_effect=lambda key: enrollment if key == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_USERS" else False,
+            ),
+            patch.object(runner, builder, return_value=parse_select("SELECT count() FROM events")),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [("count()", "UInt64")])) as execute,
+        ):
+            if kind == "metric":
+                assert isinstance(runner, ExperimentQueryRunner)
+                runner._evaluate_experiment_query()
+            else:
+                assert isinstance(runner, ExperimentExposuresQueryRunner)
+                runner._calculate()
+        self.assertEqual("events_json" in execute.call_args.args[0], native)
+        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NATIVE_EVENTS, native)
+        self.assertEqual(runner.get_cache_key(), cache_key)
+        if kind == "metric":
+            assert isinstance(runner, ExperimentQueryRunner)
+            assert runner.clickhouse_sql is not None
+            self.assertEqual("events_json" in runner.clickhouse_sql, native)
+
     def test_user_opt_in_and_explicit_legacy_control_reach_the_correct_workloads(self) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])

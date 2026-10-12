@@ -3,10 +3,12 @@ import math
 from itertools import groupby
 from typing import Any, Optional
 
+from django.conf import settings
+
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, default_client
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -53,9 +55,31 @@ def get_query_results() -> list[Any]:
         SETTINGS skip_unavailable_shards=1
         """
 
-    raw_results = sync_execute(
-        SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE, ch_user=ClickHouseUser.OPS
-    )
+    try:
+        raw_results = sync_execute(
+            SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE, ch_user=ClickHouseUser.OPS
+        )
+    except Exception:
+        if not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+            raise
+        logger.exception("Failed to poll legacy query progress")
+        raw_results = []
+    if settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+        try:
+            with default_client(
+                workload=Workload.NATIVE_EVENTS,
+                ch_user=ClickHouseUser.OPS,
+                send_receive_timeout=15,
+            ) as client:
+                raw_results.extend(
+                    sync_execute(
+                        SYSTEM_PROCESSES_SQL + ", max_execution_time=2",
+                        {"cluster": CLICKHOUSE_CLUSTER},
+                        sync_client=client,
+                    )
+                )
+        except Exception:
+            logger.exception("Failed to poll native query progress")
 
     noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
 

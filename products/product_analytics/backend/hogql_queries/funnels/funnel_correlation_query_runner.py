@@ -36,7 +36,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
@@ -116,7 +115,6 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         user: Optional[User] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
-        self._use_new_events_schema = use_new_events_schema(team.pk, self.modifiers)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 
@@ -124,13 +122,20 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         if self.actors_query.funnelStep is None:
             self.actors_query.funnelStep = 1
 
+        self._build_funnel_context()
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self._build_funnel_context()
+
+    def _build_funnel_context(self) -> None:
         self.context = FunnelQueryContext(
             query=self.funnels_query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,
             # i.e. successful
