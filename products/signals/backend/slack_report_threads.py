@@ -68,19 +68,24 @@ def record_report_slack_thread(
 
 
 def scout_report_slack_message(
-    *, team_id: int, report_id: str, slack_workspace_id: str, target: str
+    *, team_id: int, report_id: str, slack_workspace_id: str, target: str | None = None, thread_ts: str | None = None
 ) -> ScoutReportSlackMessage | None:
-    """The latest scout report message for this report at this destination, or None.
+    """The latest scout report message for this report at `target`, or the one rooted at `thread_ts`.
 
     Fails open: an unreadable link means post, since a duplicate message beats a lost report."""
+    filters: dict[str, str] = {}
+    if target is not None:
+        filters["target"] = target
+    if thread_ts is not None:
+        filters["thread_ts"] = thread_ts
     try:
         row = (
             SignalReportSlackThread.objects.for_team(team_id)
             .filter(
                 report_id=report_id,
                 slack_workspace_id=slack_workspace_id,
-                target=target,
                 kind=SignalReportSlackThread.Kind.SCOUT_REPORT,
+                **filters,
             )
             .order_by("-created_at")
             .values_list("channel", "thread_ts", "reply_ts")
@@ -89,35 +94,6 @@ def scout_report_slack_message(
     except Exception:
         logger.exception(
             "Failed to read the Slack message for signal report %s",
-            report_id,
-            extra={"team_id": team_id, "report_id": report_id},
-        )
-        return None
-    if row is None:
-        return None
-    channel, thread_ts, reply_ts = row
-    return ScoutReportSlackMessage(channel=channel, thread_ts=thread_ts, reply_ts=_reply_ts_list(reply_ts))
-
-
-def scout_report_slack_message_for_thread(
-    *, team_id: int, report_id: str, slack_workspace_id: str, thread_ts: str
-) -> ScoutReportSlackMessage | None:
-    """The scout report message whose thread is `thread_ts`, for a delayed reply delivery."""
-    try:
-        row = (
-            SignalReportSlackThread.objects.for_team(team_id)
-            .filter(
-                report_id=report_id,
-                slack_workspace_id=slack_workspace_id,
-                thread_ts=thread_ts,
-                kind=SignalReportSlackThread.Kind.SCOUT_REPORT,
-            )
-            .values_list("channel", "thread_ts", "reply_ts")
-            .first()
-        )
-    except Exception:
-        logger.exception(
-            "Failed to read the Slack thread for signal report %s",
             report_id,
             extra={"team_id": team_id, "report_id": report_id},
         )

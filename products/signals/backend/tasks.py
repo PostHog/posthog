@@ -69,10 +69,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     slack_api_error_code,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
-from products.signals.backend.slack_report_threads import (
-    record_scout_report_slack_replies,
-    scout_report_slack_message_for_thread,
-)
+from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
@@ -382,7 +379,7 @@ def deliver_scout_slack_thread_replies(
     # The earlier attempt recorded the replies it reached, so this one updates those instead of
     # posting them again.
     message = (
-        scout_report_slack_message_for_thread(
+        scout_report_slack_message(
             team_id=team_id,
             report_id=report_id,
             slack_workspace_id=integration.integration_id,
