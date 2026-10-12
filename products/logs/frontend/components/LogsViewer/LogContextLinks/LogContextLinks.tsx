@@ -34,9 +34,16 @@ export interface LogContextLinksProps {
     surface: LogContextLinksSurface
     /** Called when the error count is clicked, with the scope the count was taken on. */
     onOpenRelatedErrors: (scope: ErrorScope) => void
+    /** Closes the surface holding these links, so the AI side panel opened from them is not covered. */
+    onLeave?: () => void
 }
 
-export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContextLinksProps): JSX.Element | null {
+export function LogContextLinks({
+    log,
+    surface,
+    onOpenRelatedErrors,
+    onLeave,
+}: LogContextLinksProps): JSX.Element | null {
     const { configuredSessionIdKeys, configuredDistinctIdKeys } = useValues(logsConfigLogic)
 
     const traceId = usableId(log.trace_id)
@@ -97,7 +104,9 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
                     data-attr={`logs-${surface}-context-recording`}
                 />
             )}
-            {missing.length > 0 && <MissingLinkInvestigate log={log} missing={missing} surface={surface} />}
+            {missing.length > 0 && (
+                <MissingLinkInvestigate log={log} missing={missing} surface={surface} onLeave={onLeave} />
+            )}
         </div>
     )
 }

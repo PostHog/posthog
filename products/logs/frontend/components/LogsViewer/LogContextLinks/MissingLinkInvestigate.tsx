@@ -9,14 +9,13 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { humanList } from 'lib/utils/strings'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { SidePanelTab } from '~/types'
 
 import { getServiceName } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/logContextUtils'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import type { LogContextLinksSurface } from './LogContextLinks'
+import { missingLinkInvestigateLogic } from './missingLinkInvestigateLogic'
 import { MissingLink, buildMissingLinkPrompt } from './missingLinkPrompt'
 
 type InvestigateOption = AgentPromptDestination | 'posthog-ai-task'
@@ -46,14 +45,17 @@ export function MissingLinkInvestigate({
     log,
     missing,
     surface,
+    onLeave,
 }: {
     log: ParsedLogMessage
     missing: MissingLink[]
     surface: LogContextLinksSurface
+    onLeave?: () => void
 }): JSX.Element {
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { launching } = useValues(missingLinkInvestigateLogic)
+    const { startTask } = useActions(missingLinkInvestigateLogic)
     // Only the new PostHog AI side panel turns a run prompt into a task; the legacy view would start a chat.
     const canStartTask = isMaxAvailable && effectivePhaiView === 'new' && !todayRailEnabled
 
@@ -87,10 +89,10 @@ export function MissingLinkInvestigate({
                     size="xsmall"
                     type="tertiary"
                     icon={<IconSparkles />}
+                    loading={launching}
                     onClick={() => {
                         captureInvestigate('clicked', log, missing, surface, 'posthog-ai-task')
-                        // A leading "!" makes the side panel start the task, behind the AI data consent gate.
-                        openSidePanel(SidePanelTab.Max, `!${buildMissingLinkPrompt(log, missing)}`)
+                        startTask(buildMissingLinkPrompt(log, missing), onLeave ?? (() => {}))
                     }}
                     data-attr={`logs-${surface}-missing-link-posthog-ai`}
                 >
