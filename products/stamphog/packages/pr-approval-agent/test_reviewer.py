@@ -150,6 +150,8 @@ _COMPLETED_REVIEW = {
     "findings_count": 0,
     "published": False,
     "head_sha": "abc123",
+    "base_ref": "master",
+    "skipped_paths": [],
 }
 
 
@@ -272,6 +274,24 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
             False,
             "APPROVE",
             id="completed-automated-review-assures",
+        ),
+        pytest.param(
+            _RISKY_FACTS,
+            {
+                "assurance": {
+                    "head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["posthog/models/team.py"]}]
+                }
+            },
+            False,
+            "ESCALATE",
+            id="automated-review-skipped-the-risky-file",
+        ),
+        pytest.param(
+            _RISKY_FACTS,
+            {"assurance": {"head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["pnpm-lock.yaml"]}]}},
+            False,
+            "APPROVE",
+            id="automated-review-skipped-only-other-files",
         ),
     ],
 )

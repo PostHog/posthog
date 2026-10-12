@@ -90,7 +90,7 @@ _EVIDENCE = {
     "findings_count": 0,
     "published": False,
 }
-_COMPLETED_ON_HEAD = {**_EVIDENCE, "state": "completed", "head_sha": "abc123"}
+_COMPLETED_ON_HEAD = {**_EVIDENCE, "state": "completed", "head_sha": "abc123", "base_ref": "master"}
 
 
 @pytest.mark.parametrize(
@@ -98,6 +98,9 @@ _COMPLETED_ON_HEAD = {**_EVIDENCE, "state": "completed", "head_sha": "abc123"}
     [
         pytest.param([_COMPLETED_ON_HEAD], [_COMPLETED_ON_HEAD], id="completed-on-the-head"),
         pytest.param([{**_EVIDENCE, "state": "completed", "head_sha": "old999"}], [], id="completed-on-an-older-head"),
+        # A retarget keeps the head SHA, so only the base shows that the reviewed diff is stale.
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_ref": "feat/parent"}], [], id="completed-against-another-base"),
+        pytest.param([{**_COMPLETED_ON_HEAD, "base_ref": ""}], [], id="completed-against-an-unknown-base"),
         pytest.param([{**_EVIDENCE, "state": "pending", "head_sha": "abc123"}], [], id="pending"),
         pytest.param([{**_EVIDENCE, "state": "failed", "head_sha": "abc123"}], [], id="failed"),
         pytest.param(

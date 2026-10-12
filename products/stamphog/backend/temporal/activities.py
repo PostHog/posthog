@@ -709,6 +709,8 @@ def _read_review_evidence(run: ReviewRun) -> list[dict]:
                 "findings_count": item.findings_count,
                 "published": item.published,
                 "head_sha": item.head_sha,
+                "base_ref": item.base_ref,
+                "skipped_paths": list(item.skipped_paths),
             }
         )
     return evidence

@@ -581,7 +581,7 @@ class Pipeline:
             "discussion": len(pr.discussion),
             # A completed external review of this head counts like a current-head review. Its
             # published findings are review threads, so unresolved_threads above already holds them.
-            "head_review_evidence": pr.head_review_evidence("completed"),
+            "head_review_evidence": pr.completed_review_evidence(),
         }
 
     def _maybe_compute_familiarity(self) -> None:

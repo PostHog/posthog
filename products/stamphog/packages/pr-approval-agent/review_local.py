@@ -664,7 +664,7 @@ def run(context: dict) -> dict:
 
         # The server waited for these reviews too, so a review still pending here outlasted the
         # server's budget. Same answer as an in-flight bot: WAIT, never approve over it.
-        if gate_verdict != "DENIED" and (pending := pipeline.pr.head_review_evidence("pending")):
+        if gate_verdict != "DENIED" and (pending := pipeline.pr.pending_review_evidence()):
             reviewers = " and ".join(str(item.get("reviewer")) for item in pending)
             verb = "are" if len(pending) > 1 else "is"
             pipeline.final_verdict = "WAIT"
