@@ -37,7 +37,7 @@ request
   │     range ≤ 90d, filters events-evaluable
   │     (restricted teams: single exact $host only)
   │   freshness: all day-buckets fresh per TTL band ──▶ serve *_lazy_query (~80–200ms)
-  │     expired within 6h SWR grace ──▶ serve stale + enqueue revalidation
+  │     expired within the SWR grace (default 4h) ──▶ serve stale + enqueue revalidation
   │ miss (NEVER builds inline — enqueues debounced background warm)
   ▼
 [2] Preaggregated tables (deprecated)
@@ -68,6 +68,11 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
 ## Marketing search performance
 
+Search metrics and PostHog landing-page conversions load in separate requests.
+The table shows search metrics while conversion columns load, and a conversion error leaves those metrics visible with its own query ID and retry action.
+Both requests use the same normalized landing URLs and filters.
+The conversion request still uses the search query runner, so it repeats the source aggregation before calculating attribution.
+
 `MarketingAnalyticsSearchQuery` reads synced ad-platform tables through HogQL and the query result cache, independently of the web-event serving tiers above.
 Google Ads requires the `keyword` and `keyword_stats` tables for keywords, and `landing_page_stats` for landing pages; Bing Ads supports keywords through `keyword_performance_report`.
 Google Search Console uses `search_analytics_by_query` or `search_analytics_by_page` for aggregate views, with `search_analytics_by_query_page` as a fallback and for exact query-to-page and page-to-query details.
@@ -82,7 +87,16 @@ The Search performance section sits below the campaign table in Ad performance, 
 It shares the integration, date and comparison filters with the campaign table.
 The integration filter and Add source menu list Google Search Console separately under Organic search.
 Empty filtered results offer Clear filters; unfiltered views suggest connecting missing Google Ads or Google Search Console sources.
-Connected sources with missing tables show a sync setup action instead of a reconnect prompt.
+Connected sources show separate setup messages for disabled tables, tables awaiting a first successful sync, failed or paused syncs, and stale data.
+Search performance excludes a table when its last successful sync is older than twice its configured sync interval.
+The source list includes each table's sync frequency so this check uses the table's schedule.
+An unrecognized sync interval is returned as null, which keeps the source list available and skips the cadence check for that table.
+GSC prefers the dedicated query or page table, then falls back to a ready query-and-page table with a notice that totals can differ.
+If neither table is ready, the source is excluded instead of displaying zero traffic and misleading period comparisons.
+Query and page details use the same readiness checks.
+New Google Ads connections preselect `keyword`, `keyword_stats`, and `landing_page_stats`; Bing Ads preselects `keyword_performance_report`.
+New GSC connections preselect the web query, page, and query-and-page tables; non-web search types remain opt-in.
+These defaults do not change the saved table selection of an existing source.
 Source discovery loads every page of connected integrations before applying the filter.
 The date and comparison controls select the current and comparison periods.
 Organic query and page details retain the selected integration sources.
@@ -149,7 +163,7 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 | 22–35d         | 12–14d |
 | 36d+           | 21d    |
 
-- Stale-while-revalidate: 6h grace; user reads inside it get the stale row instantly (tagged `precompute_stale=true`) with a Celery revalidation enqueued (10-min debounce). Background warmers are never served stale — they are the refresh.
+- Stale-while-revalidate: 4h grace by default, set by `WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS` (read per call, so a new env value applies once the process restarts; must stay under the framework's 48h ClickHouse expiry buffer, which the executor enforces). User reads inside the grace get the stale row instantly (tagged `precompute_stale=true`) with a Celery revalidation enqueued (10-min debounce). Background warmers and forced refreshes are never served stale — they are the refresh.
 - Session settling: 24h forward pad on event scans, matching the SDK session length cap.
 - OOM protection: a team that OOMs during a build gets Redis-pinned for 14 days to 1-day insert windows.
 - Max range: 90 days; wider requests are permanently live.
@@ -279,3 +293,8 @@ Join the attributed `source_id` to source sync usage and the project's billing c
 Use billable usage and actual invoice amounts, including free allowances and adjustments; a created source or a click is not revenue.
 Deduplicate source IDs before allocating revenue and keep acquisition (`has_connected_sources = false`) separate from expansion.
 This is click attribution, not proof of incremental revenue. Measure incrementality with a randomized holdout at the billing-customer level so projects from one customer do not appear in both groups.
+
+## Campaign breakdown display
+
+Campaign breakdown results have a maximum height of 36rem and scroll within the table area.
+The search, grouping, and column controls remain above the scroll area.

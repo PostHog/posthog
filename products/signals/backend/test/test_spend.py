@@ -110,6 +110,18 @@ class TestSignalSpend(BaseTest):
             assert not entry.needs_refresh
             producer.produce.assert_not_called()
 
+            def concurrent_update(**kwargs: object) -> bool:
+                mark_spend_metadata_dirty(team_id=self.team.id, signal_id=driver)
+                return True
+
+            mark_spend_metadata_dirty(team_id=self.team.id, signal_id=driver)
+            with patch(
+                "products.signals.backend.spend_tasks.refresh_signal_spend_metadata", side_effect=concurrent_update
+            ):
+                reconcile_signal_spend()
+            entry.refresh_from_db()
+            assert entry.needs_refresh
+
             if source == "generation":
                 record_llm_request("later", team_id=self.team.id, signal_id=driver, stage="report_safety_judge")
                 expected = 0.0246

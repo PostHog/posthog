@@ -115,7 +115,7 @@ export function MetricFromInsightModal({ insightShortId, insightName }: MetricFr
                     <LemonField.Pure
                         label="Description"
                         error={descriptionError}
-                        info="1-3 sentences: what the metric means and what it serves."
+                        info="One or two short sentences: what the number is and what it counts."
                     >
                         <LemonInput
                             value={description}

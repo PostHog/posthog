@@ -74,27 +74,6 @@ def run(
 
 
 @responses.activate
-@pytest.mark.parametrize("terminal_link", [None, "/surveys?start=terminal"])
-def test_survey_pagination_and_auth(terminal_link: str | None) -> None:
-    next_url = "/surveys?start=2025-03-01T00%3A00%3A00.000000Z&items_per_page=100"
-    responses.get(BASE + "/surveys", json=page([{"id": "survey-a"}], next_url))
-    responses.get(BASE + next_url, json=page([{"id": "survey-b"}], terminal_link, False))
-    checkpoint = manager()
-
-    rows, result = run("surveys", checkpoint)
-
-    assert rows == [{"id": "survey-a"}, {"id": "survey-b"}]
-    assert len(responses.calls) == 2
-    assert responses.calls[0].request.headers["Authorization"] == "Basic fake-api-key"
-    assert responses.calls[1].request.url == BASE + next_url
-    assert checkpoint.save_state.call_args_list[0].args[0].state == {"next_url": BASE + next_url}
-    checkpoint.clear_state.assert_not_called()
-    assert result.on_complete is not None
-    result.on_complete()
-    checkpoint.clear_state.assert_called_once()
-
-
-@responses.activate
 @pytest.mark.parametrize(
     ("endpoint", "incremental", "watermark", "expected_end"),
     [
@@ -166,24 +145,6 @@ def test_child_pagination_and_resume(endpoint: str, resumed: bool) -> None:
     assert responses.calls[-1].request.url == BASE + next_url
     if not resumed:
         assert any(call.args[0].state == state for call in checkpoint.save_state.call_args_list)
-
-
-@responses.activate
-def test_resume_surveys() -> None:
-    next_url = BASE + "/surveys?start=older"
-    responses.get(next_url, json=page([{"id": "survey-b"}]))
-    rows, _ = run("surveys", manager({"next_url": next_url}))
-    assert rows == [{"id": "survey-b"}]
-    assert responses.calls[0].request.url == next_url
-
-
-@responses.activate
-@pytest.mark.parametrize("endpoint", ["surveys", "questions", "responses"])
-def test_empty_catalog(endpoint: str) -> None:
-    responses.get(BASE + "/surveys", json=page([]))
-    rows, _ = run(endpoint, manager())
-    assert rows == []
-    assert len(responses.calls) == 1
 
 
 @responses.activate

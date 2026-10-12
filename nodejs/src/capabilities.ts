@@ -181,6 +181,12 @@ export function getPluginServerCapabilities(
             return {
                 cdpRerunWorker: true,
             }
+        // Deliberately absent from CAPABILITIES_CDP: a replay is a bounded, operator-triggered run,
+        // not something a local or combined stack should start on its own.
+        case PluginServerMode.cdp_dlq_replay:
+            return {
+                cdpDlqReplay: true,
+            }
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)

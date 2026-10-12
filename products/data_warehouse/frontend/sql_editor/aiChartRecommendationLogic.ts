@@ -52,6 +52,7 @@ import type {
     TraceSpansQueryResponse,
     TraceSpansTreeQueryResponse,
 } from '../../../../frontend/src/queries/schema/schema-general'
+import type { AnyResponseType } from '../../../../frontend/src/queries/schema/schema-general'
 import type { PreflightStatus } from '../../../../frontend/src/types'
 import { ChartRecommendation, buildChartDecision, readChartDecision } from './chartRecommendation'
 
@@ -148,22 +149,7 @@ export interface aiChartRecommendationLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     columns: Column[] // dataVisualizationLogic
     query: VisualizationNode // dataVisualizationLogic
-    response:
-        | ErrorTrackingQueryResponse
-        | HogQLAutocompleteResponse
-        | HogQLMetadataResponse
-        | HogQLQueryResponse<any[]>
-        | HogQueryResponse
-        | LogAttributesQueryResponse
-        | LogValuesQueryResponse
-        | MetricsQueryResponse
-        | Record<string, any>
-        | SessionsQueryResponse
-        | TraceSpansAggregationQueryResponse
-        | TraceSpansAttributeBreakdownQueryResponse
-        | TraceSpansQueryResponse
-        | TraceSpansTreeQueryResponse
-        | null // dataVisualizationLogic
+    response: AnyResponseType | null // dataVisualizationLogic
     responseLoading: boolean // dataVisualizationLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeTab: OutputTab // outputPaneLogic

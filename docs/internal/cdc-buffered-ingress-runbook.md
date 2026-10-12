@@ -245,6 +245,13 @@ same positions with differently-shaped files. Before its first write per schema,
 file that reaches the position it restarted from (`end_seq >= restart_seq`), because it is about to
 re-emit all of those positions.
 
+A worker that shuts down does not kill the attempt.
+Capture stops at the next page boundary, after the slot has advanced past every change in the buffer, and records the run as completed.
+If backlog is left and a retry remains, it raises `WorkerShuttingDownError` so Temporal continues the read on another worker.
+That retry starts at the first unread change, so it has no files to remove.
+On the last attempt it returns instead, and the next scheduled run reads the backlog.
+The log line is `cdc_read_stopped_for_worker_shutdown`.
+
 One file can straddle that position. A micro-flush is cut per event, so it can carry the head of a
 transaction; the slot then advances only to the previous transaction's end, and the retry re-reads
 the straddled transaction from its first row. That file holds settled positions the WAL no longer

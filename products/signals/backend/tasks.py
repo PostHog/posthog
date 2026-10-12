@@ -70,6 +70,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.spend_tasks import reconcile_signal_spend as reconcile_signal_spend
+from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
@@ -376,6 +377,29 @@ def deliver_scout_slack_thread_replies(
         )
         return
 
+    # The earlier attempt recorded the replies it reached, so this one updates those instead of
+    # posting them again.
+    message = (
+        scout_report_slack_message(
+            team_id=team_id,
+            report_id=report_id,
+            slack_workspace_id=integration.integration_id,
+            thread_ts=thread_ts,
+        )
+        if report_id is not None
+        else None
+    )
+
+    def _record_reply_ts(posted: list[str]) -> None:
+        if message is not None:
+            record_scout_report_slack_replies(
+                team_id=team_id,
+                slack_workspace_id=integration.integration_id,
+                channel=message.channel,
+                thread_ts=thread_ts,
+                reply_ts=posted,
+            )
+
     _post_scout_report_thread_replies(
         slack.client,
         channel_id=channel_id,
@@ -385,6 +409,9 @@ def deliver_scout_slack_thread_replies(
         fallback=fallback,
         schedule_retry=_schedule_retry,
         chunk_offset=chunk_offset,
+        conversation=message.channel if message is not None else None,
+        reply_ts=message.reply_ts if message is not None else None,
+        record_reply_ts=_record_reply_ts,
     )
 
 

@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -38,8 +37,8 @@ export class CdpEventsConsumer<
         config: TConfig,
         deps: CdpConsumerBaseDeps,
         jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
-        topic: string = KAFKA_EVENTS_JSON,
-        groupId: string = 'cdp-processed-events-consumer'
+        topic: string = config.CDP_EVENTS_CONSUMER_TOPIC,
+        groupId: string = config.CDP_EVENTS_CONSUMER_GROUP_ID
     ) {
         super(config, deps)
         this.hogQueue = jobQueues.hogQueue

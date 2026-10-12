@@ -49,11 +49,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiGateway": {
-        "template": "/ai-gateway",
-        "params": [],
-        "scope": "project"
-    },
     "aiHistory": {
         "template": "/ai/history",
         "params": [],
@@ -302,6 +297,16 @@
     "businessIntelligence": {
         "template": "/bi",
         "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceNew": {
+        "template": "/bi/new",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceWorksheet": {
+        "template": "/bi/{insightShortId}",
+        "params": ["insightShortId"],
         "scope": "project"
     },
     "businessKnowledge": {
@@ -674,6 +679,11 @@
         "params": [],
         "scope": "project"
     },
+    "engineeringAnalyticsCIExplorer": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}/ci-explorer",
+        "params": ["repoOwner", "repoName", "number"],
+        "scope": "project"
+    },
     "engineeringAnalyticsDeploys": {
         "template": "/engineering-analytics/deploys",
         "params": [],
@@ -945,7 +955,7 @@
         "scope": "project"
     },
     "inboxScoutTrials": {
-        "template": "/scout-trials",
+        "template": "/inbox/scout-trials",
         "params": [],
         "scope": "project"
     },
@@ -1334,6 +1344,16 @@
         "params": [],
         "scope": "project"
     },
+    "platformAlert": {
+        "template": "/platform-alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "platformAlerts": {
+        "template": "/platform-alerts",
+        "params": [],
+        "scope": "project"
+    },
     "precomputeDebug": {
         "template": "/debug/precompute",
         "params": [],
@@ -1454,11 +1474,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerSelfDriving": {
-        "template": "/replay-vision/{id}/self-driving",
-        "params": ["id"],
-        "scope": "project"
-    },
     "replayVisionScannerTemplate": {
         "template": "/replay-vision/{id}/template",
         "params": ["id"],
@@ -1467,6 +1482,11 @@
     "replayVisionScannerTriggers": {
         "template": "/replay-vision/{id}/triggers",
         "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionTab": {
+        "template": "/replay-vision",
+        "params": [],
         "scope": "project"
     },
     "replayVisionTemplates": {

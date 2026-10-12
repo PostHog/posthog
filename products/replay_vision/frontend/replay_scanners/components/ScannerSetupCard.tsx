@@ -12,6 +12,8 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab } from '../replayScannerSceneLogic'
+import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { SCANNER_TYPE_OPTIONS, modelName, scannerTypeLabel } from '../types'
 import { PromptPreview } from './PromptPreview'
 import { ScannerRecordingFilters } from './ScannerRecordingFilters'
@@ -38,7 +40,7 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    to={urls.replayVisionScannerConfigure(scannerId)}
+                    to={scannerEditUrl(scannerId, ReplayScannerTab.Overview)}
                     disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
                     data-attr="vision-setup-edit"
                 >

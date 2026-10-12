@@ -36,7 +36,7 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                 {config.source ? (
                     <LemonInput
                         type="search"
-                        size="small"
+                        size="xsmall"
                         value={dataPaneSearch}
                         onChange={setDataPaneSearch}
                         placeholder="Search fields"
@@ -92,7 +92,7 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
             <div className="border-t p-2">
                 <LemonButton
                     icon={<IconPlus />}
-                    size="small"
+                    size="xsmall"
                     fullWidth
                     type="secondary"
                     onClick={() => editCalculatedMeasure()}

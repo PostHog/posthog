@@ -468,7 +468,7 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | ----------------------------------- | ------ |
 | `ci-frontend.yml`                   | 7      |
 | `ci-nodejs.yml`                     | 13     |
-| `ci-backend.yml`                    | 23     |
+| `.depot/workflows/ci-backend.yml`   | 23     |
 | `ci-dagster.yml`                    | 33     |
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
@@ -488,7 +488,6 @@ group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled'
 ```
 
 That keeps hourly runs queueing behind each other rather than stacking, and leaves push behavior untouched.
-`ci-backend.yml` reaches the same place from the other side: its push arm is already keyed per SHA, so pushes never share a group with the cron.
 Prefer the `'scheduled'` key when the push lane still runs real per-commit work, because a per-SHA push arm also gives up the deduplication that collapses a burst of master pushes into one run.
 
 **The paths filter must be skipped on `schedule`, and every output it feeds must default to `true`.**
@@ -501,6 +500,10 @@ Any _step_ that reads a filter output needs the same `schedule` arm.
 
 A lane that stops producing runs is invisible to the master-red alerter: it reads run completions, so a dropped cron reads as unreadable and drops out of evaluation rather than paging.
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
+
+Backend CI's hourly run is the one test suite whose cron is on Depot CI: `.depot/workflows/ci-backend.yml` has the `schedule` trigger and `.github/workflows/ci-backend.yml` has none.
+GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter names it in `DEPOT_SCHEDULED_GATING_WORKFLOW`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
+The master run trace reporter reads the same Depot lane. Depot's public API exposes workflow and job timestamps, so those traces omit step and job-queue spans.
 
 ## Backwards-compat with unrebased PRs
 

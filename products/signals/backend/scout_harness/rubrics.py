@@ -176,7 +176,8 @@ def default_criteria() -> list[ScoutRubricCriterion]:
             "Useful next step",
             "Check whether a finding gives its reader a practical way to proceed.",
             "The output names a concrete next action or decision, with enough context to carry it out.",
-            "When the scout is expected to recommend action; informational updates may be not applicable.",
+            "When the assignment or finding calls for a next action or decision. Purely informational updates are "
+            "not applicable unless the assignment requires an action or decision.",
         ),
         (
             "priority",

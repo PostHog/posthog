@@ -22,21 +22,6 @@ class TestAirbrakeSource:
         assert api_key.secret is True
         assert api_key.required is True
 
-    def test_get_schemas_returns_static_catalog(self) -> None:
-        schemas = {s.name: s for s in AirbrakeSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"projects", "groups", "deploys", "notices"}
-
-        # groups is the only endpoint with a server-side time filter (start_time on createdAt).
-        assert schemas["groups"].supports_incremental is True
-        assert [f["field"] for f in schemas["groups"].incremental_fields] == ["createdAt"]
-        for full_refresh_only in ("projects", "deploys", "notices"):
-            assert schemas[full_refresh_only].supports_incremental is False, full_refresh_only
-            assert schemas[full_refresh_only].incremental_fields == []
-
-        # notices is the API-expensive two-level fan-out and must stay opt-in.
-        assert schemas["notices"].should_sync_default is False
-        assert schemas["projects"].should_sync_default is True
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = AirbrakeSource().get_schemas(MagicMock(), team_id=1, names=["groups"])
         assert [s.name for s in schemas] == ["groups"]

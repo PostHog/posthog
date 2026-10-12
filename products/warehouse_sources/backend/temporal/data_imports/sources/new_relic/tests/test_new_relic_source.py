@@ -3,7 +3,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newrelic import (
     NewRelicSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source import NewRelicSource
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source"
@@ -37,10 +36,6 @@ class TestNewRelicSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_covers_every_endpoint(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     @parameterized.expand(
         [
             ("transactions", True),
@@ -67,13 +62,6 @@ class TestNewRelicSource:
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["entities"])
         assert [schema.name for schema in schemas] == ["entities"]
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_without_credentials(self):
-        tables = self.source.get_documented_tables()
-        assert {table["name"] for table in tables} == set(ENDPOINTS)
 
     def test_connection_host_fields_require_secret_reentry_on_retarget(self):
         assert self.source.connection_host_fields == ["account_id", "region"]

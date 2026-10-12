@@ -65,12 +65,12 @@ const descriptions: Record<string, string> = {
  * Every other sidebar product must have one — `sidebarProductMeta.test.ts` fails when a new product has neither.
  */
 export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
-    'AI gateway',
     'Apps',
     'Autoresearch',
     'Broadcasts',
     'Business intelligence',
     'Business knowledge',
+    'Code review',
     'Engineering analytics',
     'Identity matching',
     'Product tours',
@@ -95,7 +95,6 @@ const examples: Record<string, string> = {
     'LLM analytics': 'Find the model calls making an assistant slow or expensive.',
     Persons: 'Review a user’s recent events while investigating a support question.',
     Cohorts: 'Compare people who tried a feature with those who have not.',
-    'AI gateway': 'Compare model usage across projects through a shared API.',
     Apps: 'Build an internal Python dashboard using your project data.',
     Broadcasts: 'Send an announcement to a cohort of beta testers.',
     'Business knowledge': 'Give your AI assistant context about how your business works.',

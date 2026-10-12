@@ -35,6 +35,18 @@ logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "conversations_events"
 
+# Events that can carry message text or a customer email. The ticket purge files
+# an event-removal request for this set, scoped to one ticket id.
+CONVERSATION_ANALYTICS_EVENTS = (
+    "$conversation_ticket_created",
+    "$conversation_ticket_status_changed",
+    "$conversation_ticket_priority_changed",
+    "$conversation_ticket_assigned",
+    "$conversation_message_sent",
+    "$conversation_private_message_sent",
+    "$conversation_message_received",
+)
+
 ActorType = Literal["user", "system", "external", "customer"]
 
 

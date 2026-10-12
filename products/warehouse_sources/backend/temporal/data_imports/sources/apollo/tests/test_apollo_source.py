@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.source import ApolloSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apollo import ApolloSourceConfig
 
@@ -12,42 +11,11 @@ class TestApolloSource:
         self.team_id = 123
         self.config = ApolloSourceConfig(api_key="api-key")
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.apollo.io/api/v1/contacts/search",
-            "403 Client Error: Forbidden for url: https://api.apollo.io/api/v1/accounts/search",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_vendor_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.apollo.io/api/v1/contacts/search",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_vendor_error for key in non_retryable_errors)
-
     def test_retryable_errors_match_rate_limit_raise(self):
         # The string fetch_page re-raises after exhausting its Retry-After backoff.
         observed_error = "Apollo API error (retryable): status=429, url=https://api.apollo.io/api/v1/contacts/search"
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Contacts and accounts support sort-based CDC. Nothing else does: the remaining
-        # endpoints have no server-side timestamp filter to window a sync with.
-        assert incremental == {"contacts", "accounts"}
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

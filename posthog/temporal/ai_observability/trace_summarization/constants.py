@@ -63,7 +63,9 @@ AI_EVENT_TYPES = (
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
+# Max teams to process in parallel. A peak-hour run must finish within COORDINATOR_EXECUTION_TIMEOUT_MINUTES,
+# because a run that stops early drops the window for the teams it did not reach.
+DEFAULT_MAX_CONCURRENT_TEAMS = 30
 
 # The patch id keeps coordinator executions that started with fixed batches deterministic on replay.
 SLIDING_WINDOW_PATCH_ID = "llma-summarization-sliding-window-2026-09"

@@ -7,7 +7,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import ANY, MagicMock, PropertyMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.management import call_command
 from django.db import connection
@@ -37,6 +37,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -584,6 +585,16 @@ class TestHogFlowAPI(APIBaseTest):
     def test_list_filter_by_broadcast_status_rejects_unknown_values(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_status=paused")
         assert response.status_code == 400
+
+    def test_list_field_filter_rejection_keeps_the_validation_code(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?status=invalid-status")
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_choice",
+            "detail": "Select a valid choice. invalid-status is not one of the available choices.",
+            "attr": "status",
+        }
 
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
@@ -3728,21 +3739,21 @@ class TestHogFlowAPI(APIBaseTest):
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch(
-            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
-        ) as mock_get_user_blast_radius:
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
         assert response.status_code == 400, response.json()
         assert response.json().get("attr") == "filters"
-        mock_get_user_blast_radius.assert_not_called()
+        mock_get_person_audience_count.assert_not_called()
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
         with patch(
-            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
-        ) as mock_get_user_blast_radius:
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
-            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=4, total=10)
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=4, total=10)
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
@@ -3756,9 +3767,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert "limit" in body
         assert body["limit"] > 0
 
-    def test_hog_flow_user_blast_radius_routes_to_v2_when_flag_enabled(self):
+    def test_hog_flow_user_blast_radius_routes_by_audience_kind(self):
         with (
-            patch("products.workflows.backend.services.blast_radius.use_audience_query_v2", return_value=True),
             patch("products.workflows.backend.services.blast_radius.get_person_audience_count_v2") as mock_v2,
             patch("products.workflows.backend.services.blast_radius.get_dedupe_audience_count_v2") as mock_dedupe_v2,
             patch("products.workflows.backend.services.blast_radius.get_user_blast_radius") as mock_v1,
@@ -3792,8 +3802,7 @@ class TestHogFlowAPI(APIBaseTest):
             mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
             mock_v1.assert_not_called()
 
-            # Group audiences stay on the v1 query even with the flag on: the v2
-            # sampled count only covers person audiences.
+            # Group audiences stay on the exact query: the sampled count only covers person audiences.
             mock_v1.return_value = BlastRadiusResult(affected=1, total=2)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
@@ -3804,25 +3813,6 @@ class TestHogFlowAPI(APIBaseTest):
             mock_v1.assert_called_once()
             mock_v2.assert_called_once()
 
-    def test_hog_flow_user_blast_radius_ignores_the_feature_flags_gate(self):
-        # Workflows counts follow workflows-audience-query-v2 only. The flags product gates its
-        # own sampled count on a separate flag, and that gate must not reach this endpoint: a
-        # sampled count here would move workflows numbers outside the workflows rollout.
-        # The routing test above mocks get_user_blast_radius away, so it cannot see this.
-        with (
-            patch("products.workflows.backend.services.blast_radius.use_audience_query_v2", return_value=False),
-            patch("products.feature_flags.backend.user_blast_radius.use_blast_radius_query_v2", return_value=True),
-            patch("products.feature_flags.backend.user_blast_radius.sampled_person_blast_radius") as mock_sampled,
-        ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": []}},
-            )
-
-        assert response.status_code == 200, response.json()
-        assert response.json()["total"] == self.team.persons_seen_so_far
-        mock_sampled.assert_not_called()
-
     @override_settings(
         HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
         HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
@@ -3830,11 +3820,11 @@ class TestHogFlowAPI(APIBaseTest):
     )
     def test_hog_flow_user_blast_radius_returns_default_limit_for_unlisted_team(self):
         with patch(
-            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
-        ) as mock_get_user_blast_radius:
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
-            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=0, total=0)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": []}},
@@ -3851,12 +3841,12 @@ class TestHogFlowAPI(APIBaseTest):
                 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
             ),
             patch(
-                "products.workflows.backend.services.blast_radius.get_user_blast_radius"
-            ) as mock_get_user_blast_radius,
+                "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+            ) as mock_get_person_audience_count,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
-            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=0, total=0)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": []}},
@@ -3889,11 +3879,11 @@ class TestHogFlowAPI(APIBaseTest):
             scopes=["hog_flow:read", "person:read"],
         )
         with patch(
-            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
-        ) as mock_get_user_blast_radius:
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
-            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=1, total=10)
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=1, total=10)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": []}},
@@ -3921,8 +3911,8 @@ class TestHogFlowAPI(APIBaseTest):
         # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
         # the condition reaches the blast-radius query (where it would otherwise 500).
         with patch(
-            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
-        ) as mock_get_user_blast_radius:
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
                 {"filters": {"properties": properties}},
@@ -3930,13 +3920,13 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
-        mock_get_user_blast_radius.assert_not_called()
+        mock_get_person_audience_count.assert_not_called()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_rejects_flag_condition(self):
         with patch(
-            "products.workflows.backend.services.blast_radius.get_user_blast_radius"
-        ) as mock_get_user_blast_radius:
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
                 {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
@@ -3946,7 +3936,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
-        mock_get_user_blast_radius.assert_not_called()
+        mock_get_person_audience_count.assert_not_called()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
@@ -3964,21 +3954,12 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_batch_audience_person_ids.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("gate off", False, None),
-            ("gate on", True, "throw"),
-        ]
-    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_uses_workflows_query(self, _name, gate_on, expected_timeout_mode):
-        with (
-            patch("products.workflows.backend.services.blast_radius.use_audience_query_v2", return_value=gate_on),
-            patch(
-                "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
-                return_value=["id-1"],
-            ) as mock_workflows_query,
-        ):
+    def test_internal_user_blast_radius_persons_uses_workflows_query(self):
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
+            return_value=["id-1"],
+        ) as mock_workflows_query:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
                 {"filters": {"properties": []}, "dedupe_key": "email"},
@@ -3991,10 +3972,10 @@ class TestHogFlowAPI(APIBaseTest):
         mock_workflows_query.assert_called_once_with(
             self.team, {"properties": []}, None, None, dedupe_key="email", settings=ANY
         )
-        # Gated on, a timed-out page has to raise instead of coming back short. A short page
-        # reads as the end of the audience, so the batch send skips every recipient after it.
+        # A timed-out page has to raise instead of coming back short. A short page reads as
+        # the end of the audience, so the batch send skips every recipient after it.
         passed_settings = mock_workflows_query.call_args.kwargs["settings"]
-        assert getattr(passed_settings, "timeout_overflow_mode", None) == expected_timeout_mode
+        assert getattr(passed_settings, "timeout_overflow_mode", None) == "throw"
 
     @parameterized.expand(
         [
@@ -4011,17 +3992,13 @@ class TestHogFlowAPI(APIBaseTest):
 
         with (
             patch(
-                "products.workflows.backend.services.blast_radius.get_user_blast_radius",
+                "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
                 return_value=BlastRadiusResult(affected=5, total=10),
-            ) as mock_legacy_count,
+            ) as mock_person_count,
             patch(
-                "products.workflows.backend.services.blast_radius.get_batch_audience_count", return_value=3
+                "products.workflows.backend.services.blast_radius.get_dedupe_audience_count_v2",
+                return_value=BlastRadiusResult(affected=3, total=10),
             ) as mock_deduped_count,
-            patch(
-                "posthog.models.team.team.Team.persons_seen_so_far",
-                new_callable=PropertyMock,
-                return_value=10,
-            ),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
@@ -4036,10 +4013,10 @@ class TestHogFlowAPI(APIBaseTest):
         if dedupe_key is not None:
             # The person-count query is skipped — only the deduped count runs
             mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
-            mock_legacy_count.assert_not_called()
+            mock_person_count.assert_not_called()
         else:
             mock_deduped_count.assert_not_called()
-            mock_legacy_count.assert_called_once()
+            mock_person_count.assert_called_once()
 
     def test_user_blast_radius_rejects_unsupported_dedupe_key(self):
         response = self.client.post(
@@ -4306,6 +4283,153 @@ class TestHogFlowAPI(APIBaseTest):
         action_types = [action["type"] for action in flow.actions]
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
+
+    def test_metadata_update_derives_trigger_and_billable_types_from_the_locked_graph(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        webhook_action = {
+            "id": "a1",
+            "name": "webhook",
+            "type": "function",
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Locked graph", "actions": [trigger_action, webhook_action]},
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        concurrent_trigger = {
+            "type": "event",
+            "filters": {"events": [{"id": "$autocapture", "name": "$autocapture", "type": "events", "order": 0}]},
+        }
+
+        def update_after_concurrent_graph_write(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(
+                actions=[{**trigger_action, "config": concurrent_trigger}],
+                trigger=concurrent_trigger,
+                billable_action_types=[],
+            )
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_graph_write,
+        ):
+            rename = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
+
+        assert rename.status_code == 200, rename.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.name == "Renamed"
+        assert flow.trigger == concurrent_trigger
+        assert flow.billable_action_types == []
+
+    @parameterized.expand(
+        [
+            (
+                "locked_trigger_becomes_row_scoped",
+                "event",
+                "data-warehouse-table",
+                "exit_only_at_end",
+                {"exit_condition": "exit_on_conversion"},
+                "exit_only_at_end",
+            ),
+            (
+                "locked_trigger_stops_being_row_scoped",
+                "data-warehouse-table",
+                "event",
+                "exit_on_conversion",
+                {"name": "Renamed"},
+                "exit_on_conversion",
+            ),
+        ]
+    )
+    def test_update_without_actions_derives_exit_condition_from_the_locked_trigger(
+        self, _name, initial_trigger_type, concurrent_trigger_type, concurrent_exit_condition, payload, expected
+    ):
+        trigger_configs = {
+            "event": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+            "data-warehouse-table": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+        trigger_action = {"id": "trigger_node", "name": "trigger_1", "type": "trigger"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Locked trigger",
+                "actions": [{**trigger_action, "config": trigger_configs[initial_trigger_type]}],
+            },
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        def update_after_concurrent_trigger_change(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(
+                actions=[{**trigger_action, "config": trigger_configs[concurrent_trigger_type]}],
+                trigger=trigger_configs[concurrent_trigger_type],
+                exit_condition=concurrent_exit_condition,
+            )
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_trigger_change,
+        ):
+            update = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+
+        assert update.status_code == 200, update.json()
+        assert HogFlow.objects.get(pk=flow_id).exit_condition == expected
+
+    def test_draft_content_save_that_races_an_activation_is_rejected(self):
+        event_trigger = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Racing draft", "status": "draft", "actions": [event_trigger]},
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        def update_after_concurrent_activation(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(status=HogFlow.State.ACTIVE)
+            return update_workflow(**kwargs)
+
+        # A Slack trigger with no channel passes draft validation but must never run live.
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_activation,
+        ):
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": [self._slack_trigger_action([])]},
+            )
+
+        assert update.status_code == 409, update.json()
+        assert update.json()["code"] == "stale_update"
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.status == HogFlow.State.ACTIVE
+        assert flow.actions[0]["config"]["type"] == "event"
 
     @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
@@ -4841,6 +4965,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert name_change["before"] == original_name
         assert name_change["after"] == new_name
 
+    def test_update_activity_excludes_a_write_committed_after_the_lock_releases(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flow_id = response.json()["id"]
+        original_name = response.json()["name"]
+
+        def update_then_concurrent_rename(**kwargs):
+            result = update_workflow(**kwargs)
+            HogFlow.objects.filter(pk=flow_id).update(name="Renamed elsewhere")
+            return result
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_then_concurrent_rename,
+        ):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"description": "New description"}
+            )
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        assert update_response.json()["name"] == original_name
+
+        latest = self._get_hog_flow_activity(flow_id)[0]
+        assert latest["detail"]["name"] == original_name
+        assert {change["field"] for change in latest["detail"]["changes"]} == {"description"}
+
     def test_hog_flow_draft_allows_incomplete_actions(self):
         trigger_action = {
             "id": "trigger_node",
@@ -4918,6 +5073,20 @@ class TestHogFlowAPI(APIBaseTest):
         self.client.force_login(self.user)
         response = self.client.get(f"/api/projects/{another_team.id}/hog_flows/{flow_id}")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("another_projects_workflow",), ("sibling_environment_workflow",), ("malformed_id",)])
+    def test_hog_flow_retrieve_404s_for_an_id_outside_the_team(self, case: str):
+        if case == "malformed_id":
+            workflow_id = "not-a-uuid"
+        else:
+            project = self.project if case == "sibling_environment_workflow" else None
+            other_team = Team.objects.create(organization=self.organization, project=project)
+            workflow_id = str(HogFlow.objects.create(team=other_team, name="Other team's flow").id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert response.json()["detail"] == "Not found."
 
     def test_hog_flow_create_does_not_leak_between_teams(self):
         another_org = Organization.objects.create(name="other org")
@@ -5148,12 +5317,16 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 400
 
-    def test_bulk_delete_does_not_leak_between_teams(self):
-        another_org = Organization.objects.create(name="other org")
-        another_team = Team.objects.create(organization=another_org)
-        another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+    @parameterized.expand([("other_organization",), ("sibling_environment_in_same_project",)])
+    def test_bulk_delete_does_not_leak_between_teams(self, other_team_kind):
+        if other_team_kind == "other_organization":
+            another_org = Organization.objects.create(name="other org")
+            another_team = Team.objects.create(organization=another_org)
+            another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+            self.client.force_login(another_user)
+        else:
+            another_team = Team.objects.create(organization=self.organization, project=self.project)
 
-        self.client.force_login(another_user)
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
         )

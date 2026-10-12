@@ -24,6 +24,7 @@
 !frontend/*.*
 !frontend/.storybook
 !frontend/bin
+!frontend/plugins
 !frontend/public
 !frontend/src
 !frontend/types

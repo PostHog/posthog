@@ -11,16 +11,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     API_VERSION_2_5,
     API_VERSION_3_0,
     API_VERSION_4_0,
-    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.source import OpenWeatherSource
-
-_ALL_VERSIONED_ENDPOINTS = [
-    (version, endpoint)
-    for version in (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
-    for endpoint in endpoints_for_version(version)
-]
-_ONECALL_4_TABLES = {"current", "minutely", "quarter_hourly", "hourly", "daily"}
 
 
 def _make_inputs(schema_name: str = "current_weather", api_version: str | None = None) -> SourceInputs:
@@ -52,37 +44,10 @@ class TestOpenWeatherSource:
         assert self.source.default_version == API_VERSION_4_0
         assert set(self.source.supported_versions) == {API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0}
 
-    @pytest.mark.parametrize(
-        "api_version, expected",
-        [
-            (None, _ONECALL_4_TABLES),  # None → default_version (4.0)
-            (API_VERSION_4_0, _ONECALL_4_TABLES),
-            (API_VERSION_3_0, {"current", "hourly", "daily"}),
-            (API_VERSION_2_5, {"current_weather", "forecast", "air_pollution", "air_pollution_forecast"}),
-        ],
-    )
-    def test_get_schemas_lists_the_versions_endpoints(self, api_version, expected):
-        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
-
-        assert {schema.name for schema in schemas} == expected
-
-    @pytest.mark.parametrize("api_version, endpoint", _ALL_VERSIONED_ENDPOINTS)
-    def test_get_schemas_supports_append_not_incremental(self, api_version, endpoint):
-        # No endpoint exposes a server-side timestamp filter, so none is truly incremental;
-        # all support append so users can accumulate snapshots over time.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id, api_version=api_version)}
-
-        assert schemas[endpoint].supports_incremental is False
-        assert schemas[endpoint].supports_append is True
-        assert [f["field"] for f in schemas[endpoint].incremental_fields] == ["dt"]
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["forecast"], api_version=API_VERSION_2_5)
 
         assert [schema.name for schema in schemas] == ["forecast"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

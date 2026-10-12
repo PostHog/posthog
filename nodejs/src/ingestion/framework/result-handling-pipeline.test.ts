@@ -261,6 +261,24 @@ describe('ResultHandlingPipeline', () => {
             expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(config.outputs, messages[1], testError, 'unknown')
         })
 
+        it('passes rethrowOnFailure to the DLQ produce when rejectOnDlqFailure is set', async () => {
+            const dlqError = new Error('broker down')
+            mockProduceMessageToDLQ.mockRejectedValueOnce(dlqError)
+            const message = { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 1 } as Message
+            const testError = new Error('test error')
+
+            const resultPipeline = new ResultHandlingPipeline(
+                createMockPipeline([createContext(dlq('test dlq reason', testError), { message })]),
+                { ...config, rejectOnDlqFailure: true }
+            )
+            const results = await resultPipeline.next()
+
+            await expect(Promise.all(results![0].context.sideEffects)).rejects.toBe(dlqError)
+            expect(mockProduceMessageToDLQ).toHaveBeenCalledWith(config.outputs, message, testError, 'unknown', {
+                rethrowOnFailure: true,
+            })
+        })
+
         it('should send DLQ messages with event and uuid headers', async () => {
             mockProduceMessageToDLQ.mockResolvedValue(undefined)
 

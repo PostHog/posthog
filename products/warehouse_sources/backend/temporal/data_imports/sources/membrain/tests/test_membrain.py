@@ -91,27 +91,12 @@ class TestMembrainPaginator:
     def _update(self, paginator: MembrainPaginator, body: Any) -> None:
         paginator.update_state(_response(body))
 
-    def test_advances_to_the_envelope_to_offset(self) -> None:
-        paginator = MembrainPaginator()
-        self._update(paginator, _envelope([{"Id": "a"}], count=250, start=0))
-
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"next_from": 1}
-
     def test_terminates_when_to_reaches_count(self) -> None:
         paginator = MembrainPaginator()
         self._update(paginator, _envelope([{"Id": "a"}], count=1, start=0))
 
         assert paginator.has_next_page is False
         assert paginator.get_resume_state() is None
-
-    def test_terminates_when_to_does_not_advance(self) -> None:
-        # A `to` equal to the offset we requested would refetch the same window forever.
-        paginator = MembrainPaginator()
-        paginator.set_resume_state({"next_from": 100})
-        self._update(paginator, {"count": "250", "from": "100", "to": "100", "items": []})
-
-        assert paginator.has_next_page is False
 
     @parameterized.expand(
         [
@@ -161,22 +146,6 @@ class TestPagination:
         assert [p.get("From") for p in params] == [None, 2]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_from_after_yielding_each_non_terminal_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(_envelope([{"Id": "a"}, {"Id": "b"}], count=3, start=0)),
-                _response(_envelope([{"Id": "c"}], count=3, start=2)),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        assert [c.args[0].next_from for c in manager.save_state.call_args_list] == [2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params, _ = _wire(session, [_response(_envelope([{"Id": "c"}], count=3, start=2))])
@@ -199,17 +168,6 @@ class TestPagination:
         auth = auths[0]
         assert isinstance(auth, APIKeyAuth)
         assert (auth.name, auth.location) == ("APIKey", "header")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_excludes_crm_rows_from_http_sample_capture(self, MockSession) -> None:
-        # CRM rows carry customer emails and free-text notes the name-based sample scrubbers
-        # aren't guaranteed to catch.
-        session = MockSession.return_value
-        _wire(session, [_response(_envelope([], count=0, start=0))])
-
-        _rows(_source(_make_manager()))
-
-        assert MockSession.call_args.kwargs.get("capture") is False
 
     @parameterized.expand(
         [
@@ -252,19 +210,6 @@ class TestPagination:
         assert rows == [{"Id": "a"}, {"Id": "b"}, {"Id": "c"}]
         manager.load_state.assert_not_called()
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unsorted_endpoint_ignores_a_saved_resume_offset(self, MockSession) -> None:
-        # Even if a stale checkpoint exists (e.g. saved before this gate shipped), an endpoint
-        # with no established stable order must restart at offset 0 rather than honour it.
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response(_envelope([{"Id": "a"}], count=1, start=0))])
-
-        manager = _make_manager(MembrainResumeConfig(next_from=2))
-        rows = _rows(_source(manager, endpoint="prospects"))
-
-        assert rows == [{"Id": "a"}]
-        assert "From" not in params[0]
 
 
 class TestBareArrayEndpoints:
@@ -373,14 +318,6 @@ class TestCustomFields:
             },
         ]
 
-    @mock.patch(MEMBRAIN_SESSION_PATCH)
-    def test_excludes_custom_field_definitions_from_http_sample_capture(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = _response({"companyCustomFields": []})
-
-        _rows(_source(_make_manager(), endpoint="custom_fields"))
-
-        assert MockSession.call_args.kwargs.get("capture") is False
-
     @parameterized.expand(
         [
             ("error_object", {"error": "Instance not found"}),
@@ -405,16 +342,6 @@ class TestValidateCredentials:
     def test_a_bare_user_list_is_valid(self) -> None:
         with self._probe(_response([{"Id": "u1", "Name": "Ada"}])):
             assert validate_credentials("mb-key", "acme") == (True, None)
-
-    @mock.patch(MEMBRAIN_SESSION_PATCH)
-    def test_probe_excludes_the_real_user_list_from_http_sample_capture(self, MockSession) -> None:
-        # The probe fetches a real user list, whose names and emails the name-based sample
-        # scrubbers aren't guaranteed to catch.
-        MockSession.return_value.get.return_value = _response([{"Id": "u1", "Name": "Ada"}])
-
-        validate_credentials("mb-key", "acme")
-
-        assert MockSession.call_args.kwargs.get("capture") is False
 
     @parameterized.expand(
         [

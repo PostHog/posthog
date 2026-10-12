@@ -1630,7 +1630,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
     labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
     assert labels == expected_labels
     if failure is asyncio.CancelledError:
-        session.end.assert_awaited_once_with(status="failed", error=str(verification_error))
+        session.end.assert_awaited_once_with(status="failed", error=str(verification_error), error_type=None)
     else:
         session.end.assert_awaited_once_with()
     if failure is not None and failure is not asyncio.CancelledError:

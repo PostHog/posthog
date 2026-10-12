@@ -39,6 +39,7 @@ products/mcp_analytics/backend/tests/test_protocol_version_breakdown.py
 products/mcp_analytics/backend/tests/test_tool_quality_tables.py
 products/mcp_analytics/backend/tests/test_tool_tables.py
 products/product_analytics/backend/hogql_queries
+products/replay_vision/backend/tests/test_session_identity.py
 products/web_analytics/backend/hogql_queries
 
 # Code outside HogQL that builds events SQL itself and branches on the schema

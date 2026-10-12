@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,12 +21,17 @@ import {
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
+    leaveScannerEditor,
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
-import { consumeScannerHandoffIntent, markScannerHandoffIntent } from './scannerHandoffIntent'
+import {
+    consumeScannerHandoffIntent,
+    markScannerGoalDraftIntent,
+    markScannerHandoffIntent,
+} from './scannerHandoffIntent'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
@@ -392,6 +398,34 @@ describe('replayScannerLogic', () => {
 
         // A ?goal= link (e.g. crafted or shared) must not spend the user's AI allowance on its own;
         // it only prefills the box for an explicit click.
+        it('an in-session draft intent starts the draft once, while a ?draft= link never does', async () => {
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'crafted', draft: true })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(draftSpy).not.toHaveBeenCalled()
+
+            markScannerGoalDraftIntent('tell me what to watch')
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(logic.values.goalDraftInput).toEqual('tell me what to watch')
+            expect(draftSpy).toHaveBeenCalledTimes(1)
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(draftSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('a draft intent older than a minute is dropped', async () => {
+            const now = Date.now()
+            const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+            markScannerGoalDraftIntent('tell me what to watch')
+            nowSpy.mockReturnValue(now + 61_000)
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            nowSpy.mockRestore()
+
+            expect(logic.values.goalDraftInput).toBeFalsy()
+            expect(draftSpy).not.toHaveBeenCalled()
+        })
+
         it('a bare ?goal= param prefills the input without auto-starting the draft', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
 
@@ -1182,6 +1216,7 @@ describe('replayScannerLogic', () => {
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
             observationBackfillFilter: null as string | null,
+            observationVariantFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
@@ -1515,12 +1550,22 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('leaveScannerEditor', () => {
+        it.each([
+            ['the saved scanner’s editor is open', 'scanner-a', urls.replayVision('scanner-a')],
+            ['another scanner’s editor is open', 'scanner-b', urls.replayVisionScannerConfigure('scanner-b')],
+        ])('when %s', (_, openScannerId, expectedPathname) => {
+            router.actions.push(urls.replayVisionScannerConfigure(openScannerId))
+            leaveScannerEditor('scanner-a', urls.replayVision('scanner-a'))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
+        })
+    })
+
     describe('shouldGuardScannerNavigation', () => {
         const scannerId = 'abc-123'
         const configure = urls.replayVisionScannerConfigure(scannerId)
         const triggers = urls.replayVisionScannerTriggers(scannerId)
         const template = urls.replayVisionScannerTemplate(scannerId)
-        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
         const base = {
             hasUnsavedChanges: true,
@@ -1545,11 +1590,17 @@ describe('replayScannerLogic', () => {
             ['out to an unrelated scene', { ...base, nextPathname: '/insights' }, true],
             ['closing the tab (no next location)', { ...base, nextPathname: undefined }, true],
             [
+                'browser back to the previous step',
+                { ...base, currentPathname: triggers, browserPathname: `/project/123${configure}` },
+                false,
+            ],
+            ['browser back out to the detail page', { ...base, browserPathname: detail }, true],
+            ['closing the tab while the window still shows the step', { ...base, browserPathname: configure }, true],
+            [
                 'over to a different scanner’s editor',
                 { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
                 true,
             ],
-            ['out from the self-driving step', { ...base, currentPathname: selfDriving, nextPathname: detail }, true],
             // The router stores pathnames with the `/project/:id` prefix; `urls.*` are unprefixed.
             [
                 'out to settings from a project-prefixed URL',
@@ -1653,6 +1704,25 @@ describe('replayScannerLogic', () => {
                 expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
                 expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
                 expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
+            }
+        })
+
+        // The Variants tab links each variant, and the unattributed row, into the list this way.
+        it('restores a variant link and sends the variant to the list endpoint', async () => {
+            const listSpy = jest.fn(() => [200, { results: [] }])
+            useMocks({ get: { '/api/projects/:team/vision/scanners/:id/observations/': listSpy } })
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                router.actions.push(urls.replayVision('sid'), { tab: 'observations', variant: '__unattributed__' })
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationVariantFilter).toBe('__unattributed__')
+
+                await expectLogic(sidLogic, () => sidLogic.actions.loadObservations()).toFinishAllListeners()
+                const url = new URL((listSpy.mock.calls.at(-1) as any)[0].request.url)
+                expect(url.searchParams.get('variant')).toBe('__unattributed__')
             } finally {
                 sidLogic.unmount()
             }

@@ -8,6 +8,7 @@ import json
 import time
 import shutil
 import tempfile
+import functools
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Literal
 
 import yaml
 from hogli.manifest import REPO_ROOT
+from hogli.telemetry import is_ci
 
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.size_lint import _rename_map
@@ -141,9 +143,20 @@ SEMGREP_SCOPE = [
 # CI excludes this tree from its blocking pass over ERROR rules, and from no other pass.
 SEMGREP_ERROR_EXCLUDED = ["products/desktop/*"]
 _SEMGREP_TIMEOUT_SECONDS = 15
+_SEMGREP_DOWNLOAD_RETRY_SECONDS = 600
 
 # The rule, the file, and the source text the rule matched.
 Finding = tuple[str, str, str]
+
+
+def _semgrep_spec() -> str | None:
+    """The semgrep version CI pins, as a requirement. None when the workflow pins none."""
+    try:
+        workflow = (REPO_ROOT / SEMGREP_WORKFLOW).read_text()
+    except OSError:
+        return None
+    pin = re.search(r"^\s*SEMGREP_IMAGE:\s*semgrep/semgrep:(\d+\.\d+\.\d+)@", workflow, re.MULTILINE)
+    return f"semgrep=={pin.group(1)}" if pin else None
 
 
 def _semgrep_command(*, offline: bool = True) -> list[str] | None:
@@ -152,20 +165,18 @@ def _semgrep_command(*, offline: bool = True) -> list[str] | None:
     uv runs that version from its cache, in an environment of its own, so the scan does not
     depend on a semgrep the developer installed. Only preparation downloads the package.
     """
-    if shutil.which("uv") is None:
+    spec = _semgrep_spec()
+    if spec is None or shutil.which("uv") is None:
         return None
-    try:
-        workflow = (REPO_ROOT / SEMGREP_WORKFLOW).read_text()
-    except OSError:
-        return None
-    pin = re.search(r"^\s*SEMGREP_IMAGE:\s*semgrep/semgrep:(\d+\.\d+\.\d+)@", workflow, re.MULTILINE)
-    if pin is None:
-        return None
-    return ["uv", "tool", "run", *(["--offline"] if offline else []), "--from", f"semgrep=={pin.group(1)}", "semgrep"]
+    return ["uv", "tool", "run", *(["--offline"] if offline else []), "--from", spec, "semgrep"]
 
 
 class SemgrepUnavailable(RuntimeError):
     pass
+
+
+class SemgrepExited(SemgrepUnavailable):
+    """The command exited non-zero, which is how a tool missing from the offline cache shows."""
 
 
 def _semgrep_remaining(deadline: float) -> float:
@@ -200,9 +211,49 @@ def _run_semgrep(command: list[str], *, cwd: Path, timeout: float) -> subprocess
             raise SemgrepUnavailable(f"semgrep could not start: {error}") from error
     if result.returncode != 0:
         lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
-        detail = " · ".join(lines[-2:])[:240].rstrip(".") or f"exit {result.returncode}"
-        raise SemgrepUnavailable(f"{detail}. Run `hogli ci:preflight --prepare-semgrep` to prepare the pinned tool")
+        raise SemgrepExited(" · ".join(lines[-2:])[:240].rstrip(".") or f"exit {result.returncode}")
     return result
+
+
+def _download_missing_semgrep(command: list[str], *, deadline: float) -> str | None:
+    """Start caching the pinned semgrep when it is absent, without waiting for the download.
+
+    Returns the reason the scan is skipped, or None when the tool is already cached.
+    """
+    try:
+        _run_semgrep([*command, "--version"], cwd=REPO_ROOT, timeout=min(5, _semgrep_remaining(deadline)))
+        return None
+    except SemgrepExited:
+        pass
+    except SemgrepUnavailable:
+        return None
+    spec = _semgrep_spec()
+    manual = f"{spec} is not cached. Run `hogli ci:preflight --prepare-semgrep` to cache it"
+    # A cloud task or CI job starts with an empty cache, so it would download on every session.
+    if is_ci() or os.environ.get("POSTHOG_TASK_RUN_ID"):
+        return manual
+    hogli = shutil.which("hogli")
+    marker = _git("rev-parse", "--git-path", f"hogli-preflight-{spec}")
+    if hogli is None or marker is None:
+        return manual
+    started = REPO_ROOT / marker.decode().strip()
+    # The marker stops a machine that cannot download from starting one on every run.
+    if started.exists() and time.time() - started.stat().st_mtime < _SEMGREP_DOWNLOAD_RETRY_SECONDS:
+        return f"{manual} if the background download that started recently does not finish"
+    try:
+        # A child that holds the hook's output or its session keeps `git push` waiting.
+        subprocess.Popen(
+            [hogli, "ci:preflight", "--prepare-semgrep"],
+            cwd=REPO_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        started.touch()
+    except OSError:
+        return manual
+    return f"{spec} is not cached, so its download started in the background and the next run scans"
 
 
 def prepare_semgrep() -> Outcome:
@@ -324,6 +375,9 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
     deadline = time.monotonic() + _SEMGREP_TIMEOUT_SECONDS
     try:
         return _check_semgrep_devex(scope, command, deadline=deadline)
+    except SemgrepExited as error:
+        reason = _download_missing_semgrep(command, deadline=deadline)
+        return "skipped", reason or f"{error}; CI will run the check"
     except SemgrepUnavailable as error:
         return "skipped", str(error)
     except subprocess.TimeoutExpired:
@@ -348,14 +402,37 @@ def _node(script: str, files: list[str], env: dict[str, str]) -> object:
     return json.loads(result.stdout)
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Lane:
+    """The diff's lane as CI computes it, shared by both lane checks. Unchecked script output."""
+
+    changed: list[str]
+    targets: object
+    summary: object
+
+
+def _lane(scope: Scope) -> Lane:
+    # CI lists a rename as its old path and its new one, and the old path can widen the lane.
+    changed = tuple(sorted({*scope.changed, *_renamed_from(scope).values()}))
+    return _lane_for(changed, scope.merge_base)
+
+
+@functools.cache
+def _lane_for(changed: tuple[str, ...], merge_base: str) -> Lane:
+    env = {**os.environ, "LANE_MERGE_BASE": merge_base}
+    targets = _node(LANE_TARGETS_SCRIPT, list(changed), env)
+    summary = _node(
+        LANE_SUMMARY_SCRIPT, list(changed), {**env, "IMPACTED_TARGETS": json.dumps({"impactedTargets": targets})}
+    )
+    return Lane(changed=list(changed), targets=targets, summary=summary)
+
+
 def check_merge_queue_lane(scope: Scope) -> Outcome:
     if shutil.which("node") is None:
         return "skipped", "node not found"
-    # CI lists a rename as its old path and its new one, and the old path can widen the lane.
-    changed = sorted({*scope.changed, *_renamed_from(scope).values()})
+    computed = _lane(scope)
+    changed, targets, lane = computed.changed, computed.targets, computed.summary
     env = {**os.environ, "LANE_MERGE_BASE": scope.merge_base}
-    targets = _node(LANE_TARGETS_SCRIPT, changed, env)
-    lane = _node(LANE_SUMMARY_SCRIPT, changed, {**env, "IMPACTED_TARGETS": json.dumps({"impactedTargets": targets})})
     if not isinstance(lane, dict) or not isinstance(targets, list):
         return "skipped", "could not compute the merge queue lane"
     if not lane.get("is_all"):
@@ -379,4 +456,35 @@ def check_merge_queue_lane(scope: Scope) -> Outcome:
         "claims every merge queue lane, so the whole queue merges in series behind this PR. "
         f"Without these {len(suspects)} file(s) the other changes claim {len(narrowed)} of {len(targets)} "
         f"lane targets: {', '.join(suspects[:3])}{more}",
+    )
+
+
+CROSS_LANE_LABEL = "cross-lane-change"
+
+
+def _first(files: list[str], total: int) -> str:
+    count = max(total, len(files))
+    more = f" (+{count - 2} more)" if count > 2 else ""
+    return ", ".join(files[:2]) + more
+
+
+def check_cross_lane(scope: Scope) -> Outcome:
+    if shutil.which("node") is None:
+        return "skipped", "node not found"
+    lane = _lane(scope).summary
+    verdict = lane.get("cross_lane") if isinstance(lane, dict) else None
+    if verdict is False:
+        return "pass", "stays on one side of the merge queue lanes"
+    if verdict is not True:
+        return "skipped", "could not classify the diff by lane side"
+    assert isinstance(lane, dict)
+    mixed = (
+        f"mixes Python or frontend files "
+        f"({_first(lane.get('cross_lane_heavy_files') or [], lane.get('cross_lane_heavy_file_count') or 0)}) "
+        f"with Node or Rust files "
+        f"({_first(lane.get('cross_lane_light_files') or [], lane.get('cross_lane_light_file_count') or 0)})"
+    )
+    return (
+        "warning",
+        f"{mixed}, which fails CI. Split the PR, or add the {CROSS_LANE_LABEL} label if the halves must land together",
     )

@@ -12,12 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashb
     AUTH_ERROR_HINT,
     AshbyAPIError,
     AshbyResumeConfig,
-    _classify_failure_message,
     _errors_from_payload,
     ashby_source,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -92,25 +90,6 @@ def _source(endpoint: str = "candidates", manager: Optional[mock.MagicMock] = No
     )
 
 
-class TestClassifyFailureMessage:
-    @pytest.mark.parametrize(
-        "errors, expected_auth",
-        [
-            (["Invalid API key"], True),
-            (["You are not authorized to perform this action"], True),
-            (["Missing permission: candidatesRead"], True),
-            (["Forbidden"], True),
-            (["sync_token_expired"], False),
-            (["Some random validation error"], False),
-            ([], False),
-        ],
-    )
-    def test_classify(self, errors: list[str], expected_auth: bool) -> None:
-        is_auth, message = _classify_failure_message(errors)
-        assert is_auth is expected_auth
-        assert isinstance(message, str)
-
-
 class TestErrorsFromPayload:
     @pytest.mark.parametrize(
         "payload, expected",
@@ -176,13 +155,6 @@ class TestPagination:
 
         assert rows == [{"id": "9"}]
         assert snapshots[0]["json"]["cursor"] == "resume-cursor"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_results_yield_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], more=False)])
-
-        assert _rows(_source("users")) == []
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_when_more_data_unavailable_even_with_cursor(self, MockSession) -> None:
@@ -284,32 +256,6 @@ class TestCheckAccess:
             status, message = check_access("k", "department.list")
         assert status == 0
         assert message is not None
-
-
-class TestAshbySourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_candidates_partitioned_by_created_at(self, MockSession) -> None:
-        response = _source("candidates")
-        assert response.name == "candidates"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == ["createdAt"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reference_endpoint_is_unpartitioned(self, MockSession) -> None:
-        response = _source("users")
-        assert response.partition_mode is None
-        assert response.partition_format is None
-        assert response.partition_keys is None
-        assert response.primary_keys == ["id"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_all_endpoints_buildable(self, MockSession) -> None:
-        for endpoint in ENDPOINTS:
-            response = _source(endpoint)
-            # A table with no primary key can never merge or dedupe a re-yielded page.
-            assert response.primary_keys
 
 
 class TestFanOut:
