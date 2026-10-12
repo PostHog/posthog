@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA_JSON = Path("frontend/src/queries/schema.json")
@@ -58,8 +59,15 @@ def _discriminated_members(node: dict) -> tuple[str, list[str]] | None:
     return prop, members
 
 
-def _find_nested_unions(schema: dict) -> list[tuple[str, str]]:
-    """Return (inner union text, inner discriminator) for every discriminated union nested in another."""
+@dataclass(frozen=True)
+class NestedUnion:
+    """A discriminated union that sits inside another one, as its members appear in schema.py."""
+
+    union_text: str
+    discriminator: str
+
+
+def _find_nested_unions(schema: dict) -> list[NestedUnion]:
     definitions = schema.get("definitions", {})
     sites: dict[str, str] = {}
     for node in definitions.values():
@@ -72,17 +80,22 @@ def _find_nested_unions(schema: dict) -> list[tuple[str, str]]:
             if inner is None or inner[0] == outer[0]:
                 continue
             sites[" | ".join(inner[1])] = inner[0]
-    return sorted(sites.items())
+    return [NestedUnion(union_text, prop) for union_text, prop in sorted(sites.items())]
 
 
-def _patch_schema_py(sites: list[tuple[str, str]]) -> int:
+def _patch_schema_py(sites: list[NestedUnion]) -> int:
     source = SCHEMA_PY.read_text()
     replacements = 0
-    for union_text, prop in sites:
+    for site in sites:
+        union_text, prop = site.union_text, site.discriminator
         members = union_text.split(" | ")
         sequence = r"\s*\|\s*".join(r"\b" + re.escape(member) + r"\b" for member in members)
         patched = f"Annotated[{union_text}, Field(discriminator={prop!r})]"
-        source, n = re.subn(r"(?<!Annotated\[)" + sequence, patched, source)
+        # Also match an already wrapped sequence, so re-running on a patched file is a no-op.
+        wrapped = (
+            r"(?:Annotated\[\s*)?" + sequence + r"(?:\s*,\s*Field\(\s*discriminator=['\"]\w+['\"]\s*\)\s*,?\s*\])?"
+        )
+        source, n = re.subn(wrapped, patched, source)
         replacements += n
     if replacements and "Annotated" not in source.split("from pydantic")[0]:
         source = re.sub(
