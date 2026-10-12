@@ -48,7 +48,11 @@ export function findSelectedProvider(
     }
     // Fall back to matching by model id alone (e.g., playground mode where providerKeyId is null)
     const modelMatch = groups.find((g) => g.models.some((m) => m.id === model))
-    return modelMatch?.provider ?? null
+    if (modelMatch) {
+        return modelMatch.provider
+    }
+    const customModelGroup = groups.find((g) => g.providerKeyId === providerKeyId && g.allowsCustomModel)
+    return model && customModelGroup ? customModelGroup.provider : null
 }
 
 export function filterGroups(groups: ProviderModelGroup[], search: string): ProviderModelGroup[] {
@@ -63,7 +67,37 @@ export function filterGroups(groups: ProviderModelGroup[], search: string): Prov
                 (m) => m.name.toLowerCase().includes(lower) || m.id.toLowerCase().includes(lower)
             ),
         }))
-        .filter((group) => group.models.length > 0)
+        .filter((group) => group.models.length > 0 || group.allowsCustomModel)
+}
+
+function customModelItems(
+    group: ProviderModelGroup,
+    search: string,
+    onSelect: (modelId: string, providerKeyId: string) => void
+): LemonMenuItem[] {
+    const deployment = search.trim()
+    if (!deployment) {
+        return [
+            {
+                label: () => (
+                    <div className="px-2 py-1.5 text-xs text-secondary">
+                        Type a deployment name in the search box to use it.
+                    </div>
+                ),
+            },
+        ]
+    }
+    if (group.models.some((m) => m.id === deployment)) {
+        return []
+    }
+    return [
+        {
+            icon: <LLMProviderIcon provider={group.provider} />,
+            label: `Use deployment "${deployment}"`,
+            onClick: () => onSelect(deployment, group.providerKeyId),
+            'data-attr': 'model-picker-custom-deployment',
+        },
+    ]
 }
 
 export function ModelPicker({
@@ -108,7 +142,11 @@ export function ModelPicker({
                 <div className="px-1 py-1" onClick={(e) => e.stopPropagation()}>
                     <LemonInput
                         type="search"
-                        placeholder="Find a model..."
+                        placeholder={
+                            groups.some((group) => group.allowsCustomModel)
+                                ? 'Find a model or type a deployment name...'
+                                : 'Find a model...'
+                        }
                         value={search}
                         onChange={setSearch}
                         fullWidth
@@ -160,7 +198,10 @@ export function ModelPicker({
                     icon: <LLMProviderIcon provider={group.provider} />,
                     label: group.label,
                     active: isActiveGroup && group.models.some((m) => m.id === model),
-                    items: group.models.map(buildModelItem),
+                    items: [
+                        ...group.models.map(buildModelItem),
+                        ...(group.allowsCustomModel ? customModelItems(group, search, onSelect) : []),
+                    ],
                 }
             }
 

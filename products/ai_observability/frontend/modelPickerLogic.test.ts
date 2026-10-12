@@ -314,6 +314,12 @@ describe('modelPickerLogic', () => {
                 BYOK_ANTHROPIC_MODELS,
                 null,
             ],
+            [
+                'an Azure key that lists no deployments',
+                [{ id: 'key-1', provider: 'azure_openai', name: 'Production', state: 'ok' }],
+                [],
+                { kind: 'deployments-unlisted', keys: [expect.objectContaining({ id: 'key-1' })] },
+            ],
         ])('with %s', async (_, keys, models, expected) => {
             useMocks({
                 get: {
@@ -551,6 +557,17 @@ describe('filterGroups', () => {
 
     it('removes groups with no matching models', () => {
         expect(filterGroups(GROUPS, 'nonexistent')).toHaveLength(0)
+    })
+
+    it('keeps groups that accept a typed model id', () => {
+        const azureGroup: ProviderModelGroup = {
+            provider: 'azure_openai',
+            providerKeyId: 'key-azure',
+            label: 'Azure OpenAI',
+            models: [],
+            allowsCustomModel: true,
+        }
+        expect(filterGroups([...GROUPS, azureGroup], 'my-deployment')).toEqual([azureGroup])
     })
 })
 
