@@ -2150,29 +2150,40 @@ export interface EmailDraftApi {
     template_reason: EmailDraftFallbackReasonEnumApi | null
 }
 
-export type PeopleImportCreateApiRowsItem = { [key: string]: string }
+export interface RecipientListColumnsApi {
+    /** The recipient list. */
+    id: string
+    /** The static cohort that holds the list's people. */
+    cohort_id: number
+    /** Columns a broadcast template reads as {{ variables.<column> }}. */
+    columns: string[]
+}
 
-export interface PeopleImportCreateApi {
+export type RecipientListCreateApiRowsItem = { [key: string]: string }
+
+export interface RecipientListCreateApi {
     /**
-     * Name of the static cohort that holds the imported people.
+     * Name of the static cohort that holds the list's people.
      * @maxLength 400
      */
     name: string
     /**
-     * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create; without it, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
+     * One object per person. Each needs "email". An optional "distinct_id" picks the person, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row matches the person with that email, or creates one keyed by the email. Every other key is kept on the list, and a broadcast to the list's cohort reads it as {{ variables.<key> }}. Keys are never set as person properties.
      * @maxItems 50000
      */
-    rows: PeopleImportCreateApiRowsItem[]
+    rows: RecipientListCreateApiRowsItem[]
 }
 
-export interface PeopleImportApi {
-    /** The static cohort that fills with the imported people. */
+export interface RecipientListApi {
+    /** The recipient list. */
+    id: string
+    /** The static cohort that fills with the list's people. */
     cohort_id: number
-    /** People created or updated. */
+    /** People in the list. */
     row_count: number
     /** Rows that create a person who isn't in PostHog yet. */
     new_people: number
-    /** Person properties the rows set. */
+    /** Columns a broadcast template reads as {{ variables.<column> }}. */
     columns: string[]
     /** Rows dropped for a missing or invalid email. */
     dropped_invalid_email: number
@@ -2691,4 +2702,12 @@ export type HogFlowsReputationRetrieveParams = {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
+}
+
+export type WorkflowRecipientListsListParams = {
+    /**
+     * Comma-separated IDs of the cohorts to find uploaded lists for.
+     * @minLength 1
+     */
+    cohort_ids: string
 }

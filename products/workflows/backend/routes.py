@@ -9,7 +9,7 @@ from products.workflows.backend.presentation.views import (
     email_drafts,
     hog_flow,
     hog_flow_template,
-    people_imports,
+    recipient_lists,
     workflow_scout_runs,
     workflow_tasks,
 )
@@ -42,9 +42,9 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
-        r"workflow_people_imports",
-        people_imports.WorkflowPeopleImportViewSet,
-        "project_workflow_people_imports",
+        r"workflow_recipient_lists",
+        recipient_lists.WorkflowRecipientListViewSet,
+        "project_workflow_recipient_lists",
         ["team_id"],
     )
     routers.projects.register(

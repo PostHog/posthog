@@ -86223,38 +86223,6 @@ export namespace Schemas {
       timestamp: string;
     }
 
-    export interface PeopleImport {
-      /** The static cohort that fills with the imported people. */
-      cohort_id: number;
-      /** People created or updated. */
-      row_count: number;
-      /** Rows that create a person who isn't in PostHog yet. */
-      new_people: number;
-      /** Person properties the rows set. */
-      columns: string[];
-      /** Rows dropped for a missing or invalid email. */
-      dropped_invalid_email: number;
-      /** Rows dropped because an earlier row had the email or distinct ID. */
-      dropped_duplicate_email: number;
-      /** Rows dropped for holding more than 4KB of data. */
-      dropped_too_large: number;
-    }
-
-    export type PeopleImportCreateRowsItem = {[key: string]: string};
-
-    export interface PeopleImportCreate {
-      /**
-         * Name of the static cohort that holds the imported people.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create; without it, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
-         * @maxItems 50000
-         */
-      rows: PeopleImportCreateRowsItem[];
-    }
-
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];
@@ -93591,6 +93559,49 @@ export namespace Schemas {
       blurb: string;
       /** Hex accent color for rendering the persona card. */
       color: string;
+    }
+
+    export interface RecipientList {
+      /** The recipient list. */
+      id: string;
+      /** The static cohort that fills with the list's people. */
+      cohort_id: number;
+      /** People in the list. */
+      row_count: number;
+      /** Rows that create a person who isn't in PostHog yet. */
+      new_people: number;
+      /** Columns a broadcast template reads as {{ variables.<column> }}. */
+      columns: string[];
+      /** Rows dropped for a missing or invalid email. */
+      dropped_invalid_email: number;
+      /** Rows dropped because an earlier row had the email or distinct ID. */
+      dropped_duplicate_email: number;
+      /** Rows dropped for holding more than 4KB of data. */
+      dropped_too_large: number;
+    }
+
+    export interface RecipientListColumns {
+      /** The recipient list. */
+      id: string;
+      /** The static cohort that holds the list's people. */
+      cohort_id: number;
+      /** Columns a broadcast template reads as {{ variables.<column> }}. */
+      columns: string[];
+    }
+
+    export type RecipientListCreateRowsItem = {[key: string]: string};
+
+    export interface RecipientListCreate {
+      /**
+         * Name of the static cohort that holds the list's people.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * One object per person. Each needs "email". An optional "distinct_id" picks the person, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row matches the person with that email, or creates one keyed by the email. Every other key is kept on the list, and a broadcast to the list's cohort reads it as {{ variables.<key> }}. Keys are never set as person properties.
+         * @maxItems 50000
+         */
+      rows: RecipientListCreateRowsItem[];
     }
 
     export interface RecomputeResult {
@@ -130558,6 +130569,14 @@ export namespace Schemas {
      * @minLength 1
      */
     workflow_id: string;
+    };
+
+    export type WorkflowRecipientListsListParams = {
+    /**
+     * Comma-separated IDs of the cohorts to find uploaded lists for.
+     * @minLength 1
+     */
+    cohort_ids: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {

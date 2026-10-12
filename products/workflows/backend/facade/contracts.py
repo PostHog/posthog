@@ -161,14 +161,15 @@ class AudiencePage:
     has_more: bool
 
 
-class PeopleImportInvalid(Exception):
+class RecipientListInvalid(Exception):
     """The upload cannot be used. The message is shown to the person who sent it."""
 
 
 @frozen
-class PeopleImportSummary:
-    """What an uploaded people list kept, and how many rows it dropped and why."""
+class RecipientListSummary:
+    """What an uploaded recipient list kept, and how many rows it dropped and why."""
 
+    id: UUID
     cohort_id: int
     row_count: int
     new_people: int
@@ -176,6 +177,15 @@ class PeopleImportSummary:
     dropped_invalid_email: int
     dropped_duplicate_email: int
     dropped_too_large: int
+
+
+@frozen
+class RecipientListColumns:
+    """The columns of an uploaded recipient list, which a broadcast to its cohort reads as variables."""
+
+    id: UUID
+    cohort_id: int
+    columns: list[str]
 
 
 @frozen

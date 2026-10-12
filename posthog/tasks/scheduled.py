@@ -152,6 +152,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    delete_expired_recipient_lists,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
@@ -349,6 +350,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="7", minute="15"),
         recompute_workflows_email_sending_tiers.s(),
         name="workflows email sending tier recomputation",
+    )
+
+    # Uploaded broadcast lists of cohorts deleted over a week ago - daily at 7:30 AM UTC.
+    sender.add_periodic_task(
+        crontab(hour="7", minute="30"),
+        delete_expired_recipient_lists.s(),
+        name="workflows recipient lists of deleted cohorts cleanup",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13

@@ -1,12 +1,13 @@
-"""Uploaded people lists: each row creates or updates a person, and the people form a static cohort."""
+"""Uploaded recipient lists: each row joins a static cohort, and its columns stay with the list for broadcast templates."""
 
 import re
 import json
-import uuid
-from typing import TypedDict
+from datetime import timedelta
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -23,21 +24,24 @@ from posthog.models import PropertyDefinition
 from posthog.models.person.util import get_person_uuids_and_matched_distinct_ids
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.storage import object_storage
 
 from products.access_control.backend.property_access_control import get_non_writable_property_names
 from products.cohorts.backend.models.cohort import Cohort
-from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
+from products.workflows.backend.facade.contracts import RecipientListColumns, RecipientListInvalid, RecipientListSummary
+from products.workflows.backend.models.recipient_list import RecipientList, RecipientListRow
 
 logger = get_logger(__name__)
 
-MAX_PEOPLE_IMPORT_ROWS = 50_000
-# Person properties are stored per person, so one row must not grow a profile without bound.
-MAX_PEOPLE_IMPORT_ROW_BYTES = 4096
+MAX_RECIPIENT_LIST_ROWS = 50_000
+# A soft-deleted cohort can be restored, so its list's rows are kept this long before they are deleted.
+DELETED_COHORT_RETENTION = timedelta(days=7)
+# Each row becomes the variables of one broadcast run, so one row must not grow a run's state without bound.
+MAX_RECIPIENT_LIST_ROW_BYTES = 4096
 # Bounds each HogQL email lookup, so a full file takes five queries.
 EMAIL_LOOKUP_CHUNK_SIZE = 10_000
 # Bounds each personhog lookup of distinct IDs.
 PERSON_LOOKUP_CHUNK_SIZE = 1000
+ROW_WRITE_BATCH_SIZE = 1000
 
 # Capture rejects longer distinct IDs (CAPTURE_V1_DISTINCT_ID_MAX_SIZE in rust/capture).
 MAX_DISTINCT_ID_BYTES = 200
@@ -66,18 +70,12 @@ ILLEGAL_DISTINCT_IDS = frozenset(
         "user",
     }
 )
-# Only these headers are matched loosely. Every other header is a person property name, kept as written.
+# Only these headers are matched loosely. Every other header is a variable name, kept as written.
 _IDENTITY_HEADERS = ("email", "distinct_id")
+# Customer.io exports name the person's ID "id", so it names the distinct ID when the file has no distinct_id column.
+_ID_HEADER = "id"
 
-_STORAGE_FOLDER = "workflows_people_imports"
 _HEADER_SEPARATORS = re.compile(r"[^a-z0-9]+")
-
-
-class StagedPerson(TypedDict):
-    """One person as the import stores it for the capture task."""
-
-    distinct_id: str
-    properties: dict[str, str]
 
 
 @frozen
@@ -89,49 +87,64 @@ class _CleanedRows:
     dropped_too_large: int
 
 
-def start_people_import(*, team: Team, user: User | None, name: str, rows: list[dict[str, str]]) -> PeopleImportSummary:
-    if len(rows) > MAX_PEOPLE_IMPORT_ROWS:
-        raise PeopleImportInvalid(
-            f"This file has {len(rows):,} rows. A file can have up to {MAX_PEOPLE_IMPORT_ROWS:,}."
+def start_recipient_list_import(
+    *, team: Team, user: User | None, name: str, rows: list[dict[str, str]]
+) -> RecipientListSummary:
+    if len(rows) > MAX_RECIPIENT_LIST_ROWS:
+        raise RecipientListInvalid(
+            f"This file has {len(rows):,} rows. A file can have up to {MAX_RECIPIENT_LIST_ROWS:,}."
         )
 
     cleaned = _clean_rows(rows)
     if not cleaned.rows:
-        raise PeopleImportInvalid("No row has a valid email address.")
-    _check_writable_columns(team, user, cleaned.columns)
+        raise RecipientListInvalid("No row has a valid email address.")
 
     distinct_ids = _resolve_distinct_ids(team, user, cleaned.rows)
-    people: list[StagedPerson] = []
-    seen_distinct_ids: set[str] = set()
+    kept: dict[str, dict[str, str]] = {}
     dropped_duplicate_distinct_id = 0
     for row, distinct_id in zip(cleaned.rows, distinct_ids):
-        # A row with no person yet becomes one, keyed by the CSV's distinct_id or else its email.
+        # A row with no person yet becomes one, keyed by the file's distinct ID or else its email.
         resolved = distinct_id or row["email"]
-        if resolved in seen_distinct_ids:
+        if resolved in kept:
             dropped_duplicate_distinct_id += 1
             continue
-        seen_distinct_ids.add(resolved)
-        people.append({"distinct_id": resolved, "properties": row})
+        kept[resolved] = row
 
-    existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
-    cohort = Cohort.objects.create(team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user)
-    storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{cohort.pk}-{uuid.uuid4()}.json"
+    new_people = len(kept) - len(existing_distinct_ids(team.id, list(kept)))
+    if new_people:
+        _check_email_writable(team, user)
+
+    with transaction.atomic():
+        cohort = Cohort.objects.create(team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user)
+        recipient_list = RecipientList.objects.for_team(team.id).create(
+            team=team, cohort_id=cohort.pk, columns=cleaned.columns, created_by=user
+        )
+        RecipientListRow.objects.for_team(team.id).bulk_create(
+            [
+                # bulk_create skips save(), which moves the team to its parent, so the rows take the list's team.
+                RecipientListRow(
+                    team_id=recipient_list.team_id, recipient_list=recipient_list, distinct_id=distinct_id, data=row
+                )
+                for distinct_id, row in kept.items()
+            ],
+            batch_size=ROW_WRITE_BATCH_SIZE,
+        )
 
     # The task module imports this one, so a module-level import would be circular.
-    from products.workflows.backend.tasks.people_import import capture_people_import  # noqa: PLC0415
+    from products.workflows.backend.tasks.recipient_lists import capture_recipient_list_people  # noqa: PLC0415
 
     try:
-        object_storage.write(storage_key, json.dumps(people))
-        capture_people_import.delay(team_id=team.id, cohort_id=cohort.pk, storage_key=storage_key)
+        capture_recipient_list_people.delay(team_id=team.id, recipient_list_id=str(recipient_list.id))
     except Exception:
         # No task would finish this cohort, and the stuck-cohort sweep skips uploads.
-        fail_people_import(team.id, cohort.pk, storage_key)
+        fail_recipient_list_import(team.id, recipient_list.id)
         raise
 
-    return PeopleImportSummary(
+    return RecipientListSummary(
+        id=recipient_list.id,
         cohort_id=cohort.pk,
-        row_count=len(people),
-        new_people=sum(1 for person in people if person["distinct_id"] not in existing),
+        row_count=len(kept),
+        new_people=new_people,
         columns=cleaned.columns,
         dropped_invalid_email=cleaned.dropped_invalid_email,
         dropped_duplicate_email=cleaned.dropped_duplicate_email + dropped_duplicate_distinct_id,
@@ -139,24 +152,59 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
     )
 
 
-def read_people(storage_key: str) -> list[StagedPerson]:
-    content = object_storage.read(storage_key, missing_ok=True)
-    return json.loads(content) if content else []
+def get_recipient_list(team_id: int, recipient_list_id: UUID | str) -> RecipientList | None:
+    return RecipientList.objects.for_team(team_id).filter(pk=recipient_list_id).first()
 
 
-def delete_people(storage_key: str) -> None:
-    object_storage.delete(storage_key)
+def recipient_lists_for_cohorts(team_id: int, cohort_ids: list[int]) -> list[RecipientListColumns]:
+    recipient_lists = RecipientList.objects.for_team(team_id).filter(cohort_id__in=cohort_ids).order_by("created_at")
+    return [
+        RecipientListColumns(id=recipient_list.id, cohort_id=recipient_list.cohort_id, columns=recipient_list.columns)
+        for recipient_list in recipient_lists
+    ]
 
 
-def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
-    """Ends an import that can't finish: the cohort stops calculating and shows an error."""
-    Cohort.objects.filter(pk=cohort_id, team_id=team_id).update(
+def mark_recipient_list_cohort_deleted(team_id: int, cohort_id: int, deleted: bool) -> None:
+    recipient_lists = RecipientList.objects.for_team(team_id).filter(cohort_id=cohort_id)
+    if deleted:
+        recipient_lists.filter(cohort_deleted_at__isnull=True).update(cohort_deleted_at=timezone.now())
+    else:
+        recipient_lists.filter(cohort_deleted_at__isnull=False).update(cohort_deleted_at=None)
+
+
+def delete_recipient_list_for_cohort(team_id: int, cohort_id: int) -> None:
+    RecipientList.objects.for_team(team_id).filter(cohort_id=cohort_id).delete()
+
+
+def delete_recipient_lists_of_deleted_cohorts() -> int:
+    """A deleted cohort can't be sent to, so its list's rows have no use and are personal data to remove."""
+    # Cross-team by design: one sweep covers every team.
+    expired = RecipientList.objects.unscoped().filter(cohort_deleted_at__lt=timezone.now() - DELETED_COHORT_RETENTION)
+    deleted, _ = expired.delete()
+    return deleted
+
+
+def list_emails_by_distinct_id(team_id: int, recipient_list_id: UUID | str) -> dict[str, str]:
+    rows = (
+        RecipientListRow.objects.for_team(team_id)
+        .filter(recipient_list_id=recipient_list_id)
+        .values_list("distinct_id", "data__email")
+    )
+    return {distinct_id: str(email) for distinct_id, email in rows}
+
+
+def fail_recipient_list_import(team_id: int, recipient_list_id: UUID | str) -> None:
+    """Ends an import that can't finish: the cohort stops calculating and shows an error, and the rows go."""
+    recipient_list = get_recipient_list(team_id, recipient_list_id)
+    if recipient_list is None:
+        return
+    Cohort.objects.filter(pk=recipient_list.cohort_id, team_id=team_id).update(
         is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=timezone.now()
     )
     try:
-        delete_people(storage_key)
+        recipient_list.delete()
     except Exception:
-        logger.exception("people_import_cleanup_failed", team_id=team_id, cohort_id=cohort_id)
+        logger.exception("recipient_list_cleanup_failed", team_id=team_id, recipient_list_id=str(recipient_list_id))
 
 
 def existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
@@ -170,6 +218,7 @@ def existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
 
 
 def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
+    id_names_distinct_id = "distinct_id" not in {_loose_header(header) for raw in rows for header in raw}
     kept: list[dict[str, str]] = []
     columns: dict[str, None] = {}
     seen_emails: set[str] = set()
@@ -178,15 +227,15 @@ def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
     for line, raw in enumerate(rows, start=2):
         row: dict[str, str] = {}
         for header, value in raw.items():
-            key = _column_key(header)
+            key = _column_key(header, id_names_distinct_id)
             if not key:
                 # Skipping a column that holds data would lose that data without saying so.
                 if str(value).strip():
-                    raise PeopleImportInvalid("A column with data in it has no name. Name it and try again.")
+                    raise RecipientListInvalid("A column with data in it has no name. Name it and try again.")
                 continue
             if key in row:
-                # Keeping either value would set the wrong property without saying so.
-                raise PeopleImportInvalid(f'Two columns are both named "{key}". Rename one and try again.')
+                # Keeping either value would give the template the wrong one without saying so.
+                raise RecipientListInvalid(f'Two columns are both named "{key}". Rename one and try again.')
             row[key] = str(value).strip()
         has_email_column = has_email_column or "email" in row
         _check_distinct_id(row.get("distinct_id", ""), line)
@@ -203,14 +252,14 @@ def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
         if email.lower() in seen_emails:
             dropped_duplicate_email += 1
             continue
-        if len(json.dumps(row).encode()) > MAX_PEOPLE_IMPORT_ROW_BYTES:
+        if len(json.dumps(row).encode()) > MAX_RECIPIENT_LIST_ROW_BYTES:
             dropped_too_large += 1
             continue
         seen_emails.add(email.lower())
         columns.update(dict.fromkeys(key for key in row if key != "distinct_id"))
         kept.append(row)
     if not has_email_column:
-        raise PeopleImportInvalid('Add a column named "email" with each person\'s address.')
+        raise RecipientListInvalid('Add a column named "email" with each person\'s address.')
     return _CleanedRows(
         rows=kept,
         columns=list(columns),
@@ -224,29 +273,29 @@ def _check_distinct_id(distinct_id: str, line: int) -> None:
     if not distinct_id:
         return
     if len(distinct_id.encode()) > MAX_DISTINCT_ID_BYTES:
-        raise PeopleImportInvalid(
+        raise RecipientListInvalid(
             f"The distinct_id on row {line} is longer than {MAX_DISTINCT_ID_BYTES} bytes. Shorten it and try again."
         )
     if distinct_id.lower() in ILLEGAL_DISTINCT_IDS:
-        raise PeopleImportInvalid(
+        raise RecipientListInvalid(
             f'Row {line} has the distinct_id "{distinct_id}", which PostHog can\'t use for a person. '
             "Use the person's ID from your app, or leave it empty to match by email."
         )
 
 
-def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -> None:
+def _check_email_writable(team: Team, user: User | None) -> None:
     non_writable = get_non_writable_property_names(
         team_id=team.id, user=user, property_type=PropertyDefinition.Type.PERSON
     )
-    blocked = sorted(set(columns) & non_writable)
-    if blocked:
-        raise PeopleImportInvalid(
-            f"You can't change these person properties: {', '.join(blocked)}. Remove those columns and try again."
+    if "email" in non_writable:
+        raise RecipientListInvalid(
+            "Some people in this file aren't in PostHog yet. Creating them sets the email person property, "
+            "which you can't change. Remove those rows, or ask an admin for edit access to email."
         )
 
 
 def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, str]]) -> list[str | None]:
-    """The distinct ID each row writes to: its own column first, then an existing person with the email."""
+    """The distinct ID each row belongs to: its own column first, then an existing person with the email."""
     emails = [row["email"].lower() for row in rows if not row.get("distinct_id")]
     by_email: dict[str, str] = {}
     for start in range(0, len(emails), EMAIL_LOOKUP_CHUNK_SIZE):
@@ -280,8 +329,15 @@ def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> 
     return {email: str(distinct_id) for email, distinct_id in response.results}
 
 
-def _column_key(header: object) -> str:
-    """The identity column a header names, or else the header itself as the person property name."""
-    name = str(header).strip()
-    loose = _HEADER_SEPARATORS.sub("_", name.lower()).strip("_")
-    return loose if loose in _IDENTITY_HEADERS else name
+def _loose_header(header: object) -> str:
+    return _HEADER_SEPARATORS.sub("_", str(header).strip().lower()).strip("_")
+
+
+def _column_key(header: object, id_names_distinct_id: bool) -> str:
+    """The identity column a header names, or else the header itself as the variable name."""
+    loose = _loose_header(header)
+    if loose in _IDENTITY_HEADERS:
+        return loose
+    if loose == _ID_HEADER and id_names_distinct_id:
+        return "distinct_id"
+    return str(header).strip()

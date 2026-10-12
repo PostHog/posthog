@@ -3192,21 +3192,21 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * @summary Create or update people from rows and add them to a new static cohort
+ * @summary Upload a recipient list: its people join a new static cohort, and its columns become broadcast variables
  */
-export const workflowPeopleImportsCreateBodyNameMax = 400
+export const workflowRecipientListsCreateBodyNameMax = 400
 
-export const workflowPeopleImportsCreateBodyRowsMax = 50000
+export const workflowRecipientListsCreateBodyRowsMax = 50000
 
-export const WorkflowPeopleImportsCreateBody = /* @__PURE__ */ zod.object({
+export const WorkflowRecipientListsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
-        .max(workflowPeopleImportsCreateBodyNameMax)
-        .describe('Name of the static cohort that holds the imported people.'),
+        .max(workflowRecipientListsCreateBodyNameMax)
+        .describe("Name of the static cohort that holds the list's people."),
     rows: zod
         .array(zod.record(zod.string(), zod.string()))
-        .max(workflowPeopleImportsCreateBodyRowsMax)
+        .max(workflowRecipientListsCreateBodyRowsMax)
         .describe(
-            'One object per person. Each needs \"email\". An optional \"distinct_id\" picks the person to update or create; without it, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.'
+            'One object per person. Each needs \"email\". An optional \"distinct_id\" picks the person, and an \"id\" column counts as the distinct_id when there is no \"distinct_id\" column. Without either, the row matches the person with that email, or creates one keyed by the email. Every other key is kept on the list, and a broadcast to the list\'s cohort reads it as {{ variables.<key> }}. Keys are never set as person properties.'
         ),
 })

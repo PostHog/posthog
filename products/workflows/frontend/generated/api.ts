@@ -62,8 +62,9 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
-    PeopleImportApi,
-    PeopleImportCreateApi,
+    RecipientListApi,
+    RecipientListColumnsApi,
+    RecipientListCreateApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -71,6 +72,7 @@ import type {
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
     WorkflowProposalRejectRequestApi,
+    WorkflowRecipientListsListParams,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -1338,23 +1340,53 @@ export const workflowEmailDraftsCreate = async (
     })
 }
 
-export const getWorkflowPeopleImportsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/workflow_people_imports/`
+export const getWorkflowRecipientListsListUrl = (projectId: string, params: WorkflowRecipientListsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_recipient_lists/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_recipient_lists/`
 }
 
 /**
- * @summary Create or update people from rows and add them to a new static cohort
+ * @summary Find the uploaded recipient lists behind cohorts, with the columns a broadcast can use
  */
-export const workflowPeopleImportsCreate = async (
+export const workflowRecipientListsList = async (
     projectId: string,
-    peopleImportCreateApi: PeopleImportCreateApi,
+    params: WorkflowRecipientListsListParams,
     options?: RequestInit
-): Promise<PeopleImportApi> => {
-    return apiMutator<PeopleImportApi>(getWorkflowPeopleImportsCreateUrl(projectId), {
+): Promise<RecipientListColumnsApi[]> => {
+    return apiMutator<RecipientListColumnsApi[]>(getWorkflowRecipientListsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowRecipientListsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_recipient_lists/`
+}
+
+/**
+ * @summary Upload a recipient list: its people join a new static cohort, and its columns become broadcast variables
+ */
+export const workflowRecipientListsCreate = async (
+    projectId: string,
+    recipientListCreateApi: RecipientListCreateApi,
+    options?: RequestInit
+): Promise<RecipientListApi> => {
+    return apiMutator<RecipientListApi>(getWorkflowRecipientListsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(peopleImportCreateApi),
+        body: JSON.stringify(recipientListCreateApi),
     })
 }
 
