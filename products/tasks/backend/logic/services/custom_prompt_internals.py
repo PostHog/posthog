@@ -46,7 +46,7 @@ MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
 # finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
 # rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
-# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# Signals scout passes 1200s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
