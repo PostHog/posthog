@@ -34,6 +34,9 @@ When a saved condition refers to a deleted property, the list keeps the valid co
 
 The toolbar keeps a Filters button with a spaced, theme-aware accent count. The button highlights while the compact groups are open in a bordered area below it.
 Restored filters start collapsed. Relationship pills show member names using the same member list as the value picker. Adding the first condition opens the groups, and removing the last group restores the Filter button.
+Each expanded group has a duplicate button beside its remove button.
+Duplication appends an independent copy of all conditions in that group as a new OR group.
+The duplicate button is disabled for empty groups and when the list already has 10 groups.
 Empty OR groups do not affect results. Search, tags, and assignment controls remain outside the editor.
 
 ### Saved-view links and restoration

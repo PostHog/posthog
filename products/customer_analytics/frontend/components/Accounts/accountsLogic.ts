@@ -439,6 +439,9 @@ export interface accountsLogicActions {
     addAccountFilterGroup: () => {
         value: true
     }
+    duplicateAccountFilterGroup: (index: number) => {
+        index: number
+    }
     addTagToFilter: (tag: string) => {
         tag: string
     }
@@ -805,6 +808,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         setAccountFilterGroups: (groups: AccountFilter[][]) => ({ groups }),
         addAccountFilterGroup: true,
+        duplicateAccountFilterGroup: (index: number) => ({ index }),
         removeFirstAccountFilterGroup: true,
         removeAccountFilterGroup: (index: number) => ({ index }),
         updateAccountFilterGroup: (index: number, filters: AccountFilter[]) => ({ index, filters }),
@@ -1556,6 +1560,15 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         addAccountFilterGroup: () => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.reportFilterChange('or_group')
+        },
+        duplicateAccountFilterGroup: ({ index }) => {
+            const groups = [values.accountFilters, ...values.accountFilterGroups]
+            const filters = groups[index]
+            if (!filters?.length || groups.length >= 10) {
+                return
+            }
+            actions.setAccountFilterGroups([...values.accountFilterGroups, structuredClone(filters)])
             actions.reportFilterChange('or_group')
         },
         removeFirstAccountFilterGroup: () => {
