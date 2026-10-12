@@ -475,6 +475,24 @@ describe('API helper', () => {
             expect(error.status).toBeUndefined()
         })
 
+        it.each([
+            ['a user-facing request', 'api/environments/2/insights', undefined, false],
+            ['the wizard session poll', 'api/projects/2/wizard/sessions/latest/?workflow_id=sdk', undefined, true],
+            ['a request marked background', 'api/environments/2/insights', { background: true }, true],
+        ])('tells the connection banner whether %s is background', async (_, url, options, background) => {
+            const onApiResponse = jest.fn()
+            const apiStatusLogicSpy = jest
+                .spyOn(apiStatusLogic, 'findMounted')
+                .mockReturnValue({ actions: { onApiResponse } } as any)
+            const connectionError = new TypeError('Failed to fetch')
+            fakeFetch.mockRejectedValue(connectionError)
+
+            await api.get(url, options).catch(() => null)
+
+            expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError, false, background)
+            apiStatusLogicSpy.mockRestore()
+        })
+
         it('classifies a fetch rejection during page teardown as navigating', async () => {
             window.dispatchEvent(new Event('pagehide'))
             fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
