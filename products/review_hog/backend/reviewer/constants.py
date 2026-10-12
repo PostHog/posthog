@@ -180,9 +180,6 @@ def flash_max_findings(lens_part_count: int) -> int:
 # Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
 FLASH_LENS_CHUNK_MAX_LINES = 600
 FLASH_LENS_MAX_CHUNKS = 4
-# Codex runs at most 4 agent threads per session by default, the coordinator included. One lens part
-# needs 3 sub-agents (the main review and both lenses), so a PR with more parts keeps separate sessions.
-COORDINATOR_MAX_LENS_PARTS = 1
 # Shorter than the sandbox timeout, so a slow lens session cannot hold the main findings back for long.
 FLASH_LENS_SESSION_TIMEOUT = timedelta(minutes=10)
 
@@ -212,6 +209,10 @@ FLASH_LENSES: dict[str, FlashLens] = {
         source="flash-lens-contracts-security",
     ),
 }
+
+# The coordinator plus one sub-agent per review unit: the main review and every lens part. Codex
+# starts only 4 threads per session by default, so a larger PR would lose the lenses past that.
+COORDINATOR_CODEX_MAX_THREADS = 2 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
 
 
 def is_single_agent_pass(pass_number: int) -> bool:

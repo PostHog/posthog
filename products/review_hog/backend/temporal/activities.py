@@ -47,7 +47,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
-    COORDINATOR_MAX_LENS_PARTS,
+    COORDINATOR_CODEX_MAX_THREADS,
     FLASH_LENSES,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
@@ -862,10 +862,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
-        coordinator=lens_plan is not None
-        and len(lens_plan.chunks) <= COORDINATOR_MAX_LENS_PARTS
-        and pr_number is not None
-        and standard_coordinator_on(input.repository, pr_number),
+        coordinator=single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number),
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
         skip_agent_review=skip_agent_review,
     )
@@ -1572,6 +1569,7 @@ async def coordinator_review_activity(input: CoordinatorReviewInput) -> Coordina
                 reasoning_effort=arm.reasoning_effort,
                 initial_permission_mode=arm.initial_permission_mode,
                 files=[SessionFile(name=unit.file_name, content=unit.prompt) for unit in units],
+                codex_max_threads=COORDINATOR_CODEX_MAX_THREADS,
             )
         except AgentTurnFailed as exc:
             _raise_if_non_retryable_unit_failure(exc)

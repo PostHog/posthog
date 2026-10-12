@@ -82,6 +82,7 @@ async def run_sandbox_review(
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
     files: Sequence[SessionFile] = (),
+    codex_max_threads: int | None = None,
 ) -> _ModelT:
     """Run one review step in a sandbox and return its validated output.
 
@@ -99,7 +100,8 @@ async def run_sandbox_review(
     default (Claude). ``model_to_validate`` is the output *schema*, unrelated to ``model``.
     ``initial_permission_mode`` sets the agent's approval mode — a headless step that calls MCP tools
     under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
-    not auto-approve MCP tool calls). ``files`` go into the sandbox before the first turn.
+    not auto-approve MCP tool calls). ``files`` go into the sandbox before the first turn, and
+    ``codex_max_threads`` lets a step that starts Codex sub-agents run more of them at once.
     """
     full_prompt = "\n\n".join(part for part in (system_prompt, prompt) if part)
     context = CustomPromptSandboxContext(
@@ -109,6 +111,7 @@ async def run_sandbox_review(
         model=model,
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
+        codex_max_threads=codex_max_threads,
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,

@@ -92,7 +92,7 @@ class TestFetchDecidesTheTier(BaseTest):
     @parameterized.expand(
         [
             ("flash", REVIEW_MODE_FLASH, [10], 1, True),
-            ("flash_two_parts", REVIEW_MODE_FLASH, [600, 600], 2, False),
+            ("flash_two_parts", REVIEW_MODE_FLASH, [600, 600], 2, True),
             ("full", REVIEW_MODE_FULL, [10], 0, False),
         ]
     )
@@ -116,7 +116,6 @@ class TestFetchDecidesTheTier(BaseTest):
         # default runs every Flash turn without its lenses and no error shows it. Only the
         # single-agent design fetches test and `.txt` files, so the design must be known first.
         # Its prompt reads a left-out diff against the merge base, so the snapshot must keep it.
-        # A coordinator for more parts would start more sub-agents than Codex runs at once, so those lenses fail.
         pr_files = [
             PRFile(filename=f"d{index}/a.py", status="modified", additions=count, deletions=0)
             for index, count in enumerate(additions)
