@@ -127,7 +127,6 @@ export function withLatestVersion<T extends SeriesNode>(node: T): T {
     return setLatestVersionsOnQuery(node)
 }
 
-/** Defaults with no `kind`, or an events kind, fill in over the project's default event. */
 export function createDefaultSeriesNode(defaults?: Partial<SeriesNode>): SeriesNode {
     if (defaults?.kind && defaults.kind !== NodeKind.EventsNode) {
         return withLatestVersion({ ...defaults } as SeriesNode)
