@@ -1205,6 +1205,8 @@ export const getHogFlowsSharePreviewToSlackUrl = (projectId: string, id: string)
 
 /**
  * Post a preview of this workflow, its steps and rendered emails, to a Slack channel or thread.
+ *
+ * Signed-in people only: it has no API scope, so personal API keys and OAuth apps cannot post.
  */
 export const hogFlowsSharePreviewToSlack = async (
     projectId: string,

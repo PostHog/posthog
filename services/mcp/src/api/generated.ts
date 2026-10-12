@@ -38446,16 +38446,6 @@ export namespace Schemas {
       name: string;
     }
 
-    export interface EmailPreviewImage {
-      /**
-         * Caption shown under the image in Slack.
-         * @maxLength 300
-         */
-      title: string;
-      /** The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded. */
-      image_base64: string;
-    }
-
     /**
      * How much workflow email this project may send, and how much of that it has used.
      */
@@ -38503,6 +38493,16 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
+    }
+
+    export interface EmailStepImage {
+      /**
+         * ID of the workflow's email step this image renders. Its subject becomes the caption.
+         * @maxLength 200
+         */
+      action_id: string;
+      /** The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded. */
+      image_base64: string;
     }
 
     /**
@@ -99105,16 +99105,10 @@ export namespace Schemas {
          */
       note?: string;
       /**
-         * The workflow's steps, one line each, in the order they run.
-         * @maxItems 200
-         * @items.maxLength 500
-         */
-      outline?: string[];
-      /**
-         * Rendered previews of the workflow's emails, attached to the Slack message in order.
+         * Rendered previews of the workflow's email steps, at most one per step.
          * @maxItems 10
          */
-      emails?: EmailPreviewImage[];
+      emails?: EmailStepImage[];
     }
 
     export interface SharePreviewToSlackResponse {

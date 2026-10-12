@@ -1,4 +1,5 @@
 export const MAX_SHARED_EMAILS = 10
+export const UNSAVED_CHANGES_REASON = 'Save your changes to share a preview'
 
 const SLACK_MESSAGE_LINK = /^https:\/\/([a-z0-9-]+\.)*slack\.com\/archives\/[A-Z0-9]+\/p\d{7,}/
 

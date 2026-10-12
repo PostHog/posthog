@@ -2741,17 +2741,15 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Post a preview of this workflow, its steps and rendered emails, to a Slack channel or thread.
+ *
+ * Signed-in people only: it has no API scope, so personal API keys and OAuth apps cannot post.
  */
 export const hogFlowsSharePreviewToSlackBodyThreadLinkMax = 1000
 
 export const hogFlowsSharePreviewToSlackBodyNoteDefault = ``
 export const hogFlowsSharePreviewToSlackBodyNoteMax = 3000
 
-export const hogFlowsSharePreviewToSlackBodyOutlineItemMax = 500
-
-export const hogFlowsSharePreviewToSlackBodyOutlineMax = 200
-
-export const hogFlowsSharePreviewToSlackBodyEmailsItemTitleMax = 300
+export const hogFlowsSharePreviewToSlackBodyEmailsItemActionIdMax = 200
 
 export const hogFlowsSharePreviewToSlackBodyEmailsMax = 10
 
@@ -2773,18 +2771,13 @@ export const HogFlowsSharePreviewToSlackBody = /* @__PURE__ */ zod.object({
         .max(hogFlowsSharePreviewToSlackBodyNoteMax)
         .default(hogFlowsSharePreviewToSlackBodyNoteDefault)
         .describe('Message to the team.'),
-    outline: zod
-        .array(zod.string().max(hogFlowsSharePreviewToSlackBodyOutlineItemMax))
-        .max(hogFlowsSharePreviewToSlackBodyOutlineMax)
-        .optional()
-        .describe("The workflow's steps, one line each, in the order they run."),
     emails: zod
         .array(
             zod.object({
-                title: zod
+                action_id: zod
                     .string()
-                    .max(hogFlowsSharePreviewToSlackBodyEmailsItemTitleMax)
-                    .describe('Caption shown under the image in Slack.'),
+                    .max(hogFlowsSharePreviewToSlackBodyEmailsItemActionIdMax)
+                    .describe("ID of the workflow's email step this image renders. Its subject becomes the caption."),
                 image_base64: zod
                     .string()
                     .describe('The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded.'),
@@ -2792,7 +2785,7 @@ export const HogFlowsSharePreviewToSlackBody = /* @__PURE__ */ zod.object({
         )
         .max(hogFlowsSharePreviewToSlackBodyEmailsMax)
         .optional()
-        .describe("Rendered previews of the workflow's emails, attached to the Slack message in order."),
+        .describe("Rendered previews of the workflow's email steps, at most one per step."),
 })
 
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400

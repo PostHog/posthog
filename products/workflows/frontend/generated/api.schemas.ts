@@ -1734,12 +1734,12 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
-export interface EmailPreviewImageApi {
+export interface EmailStepImageApi {
     /**
-     * Caption shown under the image in Slack.
-     * @maxLength 300
+     * ID of the workflow's email step this image renders. Its subject becomes the caption.
+     * @maxLength 200
      */
-    title: string
+    action_id: string
     /** The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded. */
     image_base64: string
 }
@@ -1764,16 +1764,10 @@ export interface SharePreviewToSlackRequestApi {
      */
     note?: string
     /**
-     * The workflow's steps, one line each, in the order they run.
-     * @maxItems 200
-     * @items.maxLength 500
-     */
-    outline?: string[]
-    /**
-     * Rendered previews of the workflow's emails, attached to the Slack message in order.
+     * Rendered previews of the workflow's email steps, at most one per step.
      * @maxItems 10
      */
-    emails?: EmailPreviewImageApi[]
+    emails?: EmailStepImageApi[]
 }
 
 export interface SharePreviewToSlackResponseApi {

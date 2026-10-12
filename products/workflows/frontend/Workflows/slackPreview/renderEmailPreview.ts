@@ -1,8 +1,8 @@
 import { BLANK_IMAGE, captureElementImage } from 'lib/utils/captureElementImage'
 
+import type { EmailStep } from './emailSteps'
 import { inlineSameOriginResources } from './inlineSameOriginResources'
 import { sanitizeEmailForPreview } from './sanitizeEmailForPreview'
-import type { EmailStep } from './workflowPreviewOutline'
 
 const PREVIEW_WIDTH_PX = 640
 const MAX_PREVIEW_HEIGHT_PX = 6000

@@ -15,10 +15,29 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.presentation.views.hog_flow_slack_preview import SharePreviewToSlackRequestSerializer
+from products.workflows.backend.presentation.views.hog_flow_slack_preview import (
+    SharePreviewToSlackRequestSerializer,
+    WorkflowSlackPreviewUserThrottle,
+)
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-image-data"
 PNG_BASE64 = base64.b64encode(PNG_BYTES).decode()
+
+
+def _workflow_content(subject: str) -> dict:
+    return {
+        "trigger": {"type": "event"},
+        "actions": [
+            {"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "event"}},
+            {
+                "id": "welcome",
+                "name": "<b>Welcome</b>",
+                "type": "function_email",
+                "config": {"inputs": {"email": {"value": {"subject": subject}}}},
+            },
+        ],
+        "edges": [{"from": "trigger", "to": "welcome", "type": "continue"}],
+    }
 
 
 class TestHogFlowSlackPreview(APIBaseTest):
@@ -28,9 +47,7 @@ class TestHogFlowSlackPreview(APIBaseTest):
             team=self.team,
             name="Onboarding drip",
             status="draft",
-            trigger={"type": "event"},
-            edges=[],
-            actions=[],
+            **_workflow_content("Welcome to PostHog"),
         )
         self.integration = Integration.objects.create(
             team=self.team,
@@ -45,8 +62,7 @@ class TestHogFlowSlackPreview(APIBaseTest):
             "integration_id": self.integration.id,
             "channel": "C0PREVIEW|#workflow-previews",
             "note": "Feedback welcome <!channel>",
-            "outline": ["Trigger: Event `signed up`", "Send email: <b>Welcome</b>"],
-            "emails": [{"title": "Welcome to PostHog", "image_base64": PNG_BASE64}],
+            "emails": [{"action_id": "welcome", "image_base64": PNG_BASE64}],
             **overrides,
         }
         return self.client.post(
@@ -99,8 +115,50 @@ class TestHogFlowSlackPreview(APIBaseTest):
         assert "*Onboarding drip*" in message
         assert f"/project/{self.team.id}/workflows/{self.flow.id}" in message
         assert "Feedback welcome &lt;!channel&gt;" in message
-        assert "Send email: &lt;b&gt;Welcome&lt;/b&gt;" in message
+        assert '&lt;b&gt;Welcome&lt;/b&gt;: email "Welcome to PostHog"' in message
         assert "<!channel>" not in message
+
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
+    def test_shares_the_staged_draft_the_editor_shows(self, mock_slack: MagicMock) -> None:
+        self.flow.status = "active"
+        self.flow.draft = _workflow_content("Welcome back to PostHog")
+        self.flow.save()
+        slack_client = mock_slack.return_value
+        slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
+
+        response = self._share()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        upload = slack_client.files_upload_v2.call_args.kwargs
+        assert upload["file_uploads"][0]["title"] == "Welcome back to PostHog"
+        assert 'email "Welcome back to PostHog"' in upload["initial_comment"]
+
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
+    def test_rejects_an_image_for_a_step_that_is_not_an_email_of_this_workflow(self, mock_slack: MagicMock) -> None:
+        response = self._share(emails=[{"action_id": "trigger", "image_base64": PNG_BASE64}])
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not an email" in response.json()["detail"]
+        mock_slack.assert_not_called()
+
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
+    def test_rejects_personal_api_keys(self, mock_slack: MagicMock) -> None:
+        api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self._share()
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_slack.assert_not_called()
+
+    @patch.object(WorkflowSlackPreviewUserThrottle, "rate", "1/hour")
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
+    def test_limits_how_often_a_person_can_share(self, mock_slack: MagicMock) -> None:
+        mock_slack.return_value.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
+
+        assert self._share().status_code == status.HTTP_200_OK
+        assert self._share().status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_uploads_jpeg_previews_with_a_jpg_name(self, mock_slack: MagicMock) -> None:
@@ -108,11 +166,11 @@ class TestHogFlowSlackPreview(APIBaseTest):
         slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
         jpeg = b"\xff\xd8\xff\xe0" + b"fake-jpeg-data"
 
-        response = self._share(emails=[{"title": "Photo email", "image_base64": base64.b64encode(jpeg).decode()}])
+        response = self._share(emails=[{"action_id": "welcome", "image_base64": base64.b64encode(jpeg).decode()}])
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert slack_client.files_upload_v2.call_args.kwargs["file_uploads"] == [
-            {"content": jpeg, "filename": "email-1.jpg", "title": "Photo email"}
+            {"content": jpeg, "filename": "email-1.jpg", "title": "Welcome to PostHog"}
         ]
 
     @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
@@ -200,16 +258,24 @@ class TestSharePreviewToSlackRequestValidation(SimpleTestCase):
             ),
             (
                 "image_is_not_png",
-                {"emails": [{"title": "Hi", "image_base64": base64.b64encode(b"GIF89a").decode()}]},
+                {"emails": [{"action_id": "welcome", "image_base64": base64.b64encode(b"GIF89a").decode()}]},
                 "emails",
             ),
-            ("image_is_not_base64", {"emails": [{"title": "Hi", "image_base64": "%%%"}]}, "emails"),
-            ("too_many_emails", {"emails": [{"title": "Hi", "image_base64": PNG_BASE64}] * 11}, "emails"),
+            ("image_is_not_base64", {"emails": [{"action_id": "welcome", "image_base64": "%%%"}]}, "emails"),
+            (
+                "too_many_emails",
+                {"emails": [{"action_id": f"email_{n}", "image_base64": PNG_BASE64} for n in range(11)]},
+                "emails",
+            ),
+            ("same_email_twice", {"emails": [{"action_id": "welcome", "image_base64": PNG_BASE64}] * 2}, "emails"),
             (
                 "image_over_one_megabyte",
                 {
                     "emails": [
-                        {"title": "Hi", "image_base64": base64.b64encode(PNG_BYTES + b"0" * 1024 * 1024).decode()}
+                        {
+                            "action_id": "welcome",
+                            "image_base64": base64.b64encode(PNG_BYTES + b"0" * 1024 * 1024).decode(),
+                        }
                     ]
                 },
                 "emails",
@@ -236,7 +302,6 @@ class TestSharePreviewToSlackRequestValidation(SimpleTestCase):
             data={
                 "integration_id": 1,
                 "channel": "C0PREVIEW|#workflow-previews",
-                "outline": [],
                 "emails": [],
                 **overrides,
             }

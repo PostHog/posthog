@@ -1,5 +1,5 @@
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from urllib.parse import parse_qs, urlparse
 
 from slack_sdk import WebClient
@@ -11,9 +11,11 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import absolute_uri
 
-from products.workflows.backend.facade.contracts import WorkflowRef
+from products.workflows.backend.facade.contracts import Workflow
+from products.workflows.backend.services.workflow_outline import WorkflowOutline, outline_workflow
 
 SLACK_REQUEST_TIMEOUT_SECONDS = 15
+MAX_OUTLINE_LINES = 100
 FILE_UPLOAD_SCOPE = "files:write"
 SLACK_ERROR_MESSAGES = {
     "not_in_channel": "PostHog is not in this Slack channel. Add it with /invite @PostHog, then share again.",
@@ -43,10 +45,9 @@ class EmailPreviewImage:
 
 
 @frozen
-class WorkflowPreview:
-    note: str
-    outline: Sequence[str]
-    emails: Sequence[EmailPreviewImage]
+class EmailStepImage:
+    action_id: str
+    content: bytes
 
 
 def parse_slack_thread_link(link: str) -> SlackDestination | None:
@@ -82,13 +83,20 @@ def find_team_slack_integration(team: Team, integration_id: int) -> Integration 
 def share_workflow_preview_to_slack(
     *,
     integration: Integration,
-    workflow: WorkflowRef,
+    workflow: Workflow,
     shared_by: User,
     destination: SlackDestination,
-    preview: WorkflowPreview,
+    note: str,
+    email_images: Sequence[EmailStepImage],
 ) -> None:
+    """Post the workflow's outline, as the editor shows it, with the given rendered emails.
+
+    The message text comes from the stored workflow, so a caller only adds its note and an image
+    for each of the workflow's own email steps."""
+    outline = _outline_of(workflow)
+    emails = _attach_to_email_steps(outline, email_images)
     slack = SlackIntegration(integration, source="workflows_preview")
-    if preview.emails and slack.missing_scopes({FILE_UPLOAD_SCOPE}):
+    if emails and slack.missing_scopes({FILE_UPLOAD_SCOPE}):
         raise WorkflowPreviewShareError(
             "This Slack connection cannot upload images. Reconnect Slack to share the emails, or deselect them."
         )
@@ -96,7 +104,7 @@ def share_workflow_preview_to_slack(
     client.timeout = SLACK_REQUEST_TIMEOUT_SECONDS
     try:
         _ensure_sharer_may_post_to(client, integration, shared_by, destination.channel)
-        _post_preview(client, destination, _preview_message(workflow, shared_by, preview), preview.emails)
+        _post_preview(client, destination, _preview_message(workflow, shared_by, note, outline, len(emails)), emails)
     except SlackApiError as error:
         slack_error = (error.response.get("error") if error.response else None) or "unknown error"
         raise WorkflowPreviewShareError(
@@ -104,6 +112,24 @@ def share_workflow_preview_to_slack(
         ) from error
     except (SlackClientError, OSError) as error:
         raise WorkflowPreviewShareError("Couldn't reach Slack. Try again in a moment.") from error
+
+
+def _outline_of(workflow: Workflow) -> WorkflowOutline:
+    staged = workflow.draft or {}
+    return outline_workflow(staged.get("actions", workflow.actions), staged.get("edges", workflow.edges))
+
+
+def _attach_to_email_steps(outline: WorkflowOutline, email_images: Sequence[EmailStepImage]) -> list[EmailPreviewImage]:
+    images_by_step: Mapping[str, bytes] = {image.action_id: image.content for image in email_images}
+    if not images_by_step.keys() <= {step.action_id for step in outline.email_steps}:
+        raise WorkflowPreviewShareError(
+            "One of the shared images is not an email of this workflow. Reload the workflow, then share again."
+        )
+    return [
+        EmailPreviewImage(title=step.title, content=images_by_step[step.action_id])
+        for step in outline.email_steps
+        if step.action_id in images_by_step
+    ]
 
 
 def _ensure_sharer_may_post_to(client: WebClient, integration: Integration, user: User, channel_id: str) -> None:
@@ -143,21 +169,28 @@ def _post_preview(
     )
 
 
-def _preview_message(workflow: WorkflowRef, shared_by: User, preview: WorkflowPreview) -> str:
+def _preview_message(workflow: Workflow, shared_by: User, note: str, outline: WorkflowOutline, email_count: int) -> str:
     workflow_url = absolute_uri(f"/project/{workflow.team_id}/workflows/{workflow.id}/workflow")
     sharer = escape_slack_mrkdwn(shared_by.first_name or shared_by.email)
     sections = [f"{sharer} shared a preview of the workflow *{escape_slack_mrkdwn(workflow.name or 'Untitled')}*"]
     if workflow.description:
         sections.append(f"> {escape_slack_mrkdwn(workflow.description)}")
-    if preview.note.strip():
-        sections.append(escape_slack_mrkdwn(preview.note.strip()))
-    if preview.outline:
-        steps = "\n".join(escape_slack_mrkdwn(line) for line in preview.outline)
-        sections.append(f"*Steps*\n{steps}")
-    if preview.emails:
-        sections.append(f"_{_email_count(len(preview.emails))} attached below as rendered previews._")
+    if note.strip():
+        sections.append(escape_slack_mrkdwn(note.strip()))
+    if outline.lines:
+        sections.append(f"*Steps*\n{_steps(outline.lines)}")
+    if email_count:
+        sections.append(f"_{_email_count(email_count)} attached below as rendered previews._")
     sections.append(f"<{workflow_url}|Open the workflow in PostHog>")
     return "\n\n".join(sections)
+
+
+def _steps(lines: Sequence[str]) -> str:
+    shown = [escape_slack_mrkdwn(line) for line in lines[:MAX_OUTLINE_LINES]]
+    hidden = len(lines) - len(shown)
+    if hidden:
+        shown.append(f"• …and {hidden} more {'step' if hidden == 1 else 'steps'}")
+    return "\n".join(shown)
 
 
 def _email_count(count: int) -> str:

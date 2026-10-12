@@ -7,10 +7,11 @@ import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { workflowLogic } from '../workflowLogic'
+import { UNSAVED_CHANGES_REASON } from './shareDisabledReason'
 import { ShareWorkflowPreviewLogicProps, shareWorkflowPreviewLogic } from './shareWorkflowPreviewLogic'
 
 export function ShareWorkflowPreviewMenuBarItem({ id }: ShareWorkflowPreviewLogicProps): JSX.Element {
-    const { workflow, workflowUserAccessLevel } = useValues(workflowLogic)
+    const { workflow, workflowUserAccessLevel, hasUnsavedChanges } = useValues(workflowLogic)
     const { openModal } = useActions(shareWorkflowPreviewLogic({ id }))
 
     return (
@@ -19,18 +20,21 @@ export function ShareWorkflowPreviewMenuBarItem({ id }: ShareWorkflowPreviewLogi
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={workflowUserAccessLevel ?? undefined}
         >
-            {({ disabledReason }) => (
-                <SceneMenuBarItem
-                    opensFloatingUi
-                    onClick={() => openModal(workflow)}
-                    disabled={!!disabledReason}
-                    tooltip={disabledReason ?? undefined}
-                    data-attr="workflow-menubar-share-preview"
-                >
-                    <IconSlack />
-                    Share preview to Slack
-                </SceneMenuBarItem>
-            )}
+            {({ disabledReason: accessDisabledReason }) => {
+                const disabledReason = accessDisabledReason ?? (hasUnsavedChanges ? UNSAVED_CHANGES_REASON : null)
+                return (
+                    <SceneMenuBarItem
+                        opensFloatingUi
+                        onClick={() => openModal(workflow)}
+                        disabled={!!disabledReason}
+                        tooltip={disabledReason ?? undefined}
+                        data-attr="workflow-menubar-share-preview"
+                    >
+                        <IconSlack />
+                        Share preview to Slack
+                    </SceneMenuBarItem>
+                )
+            }}
         </AccessControlAction>
     )
 }
