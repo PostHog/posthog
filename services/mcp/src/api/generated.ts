@@ -13714,6 +13714,11 @@ export namespace Schemas {
       status: AutoresearchIterationStatusEnum;
       agent_description?: string;
       /**
+         * Plain-language sentence on what this experiment tried and what happened, for people.
+         * @nullable
+         */
+      summary?: string | null;
+      /**
          * Agent's self-assessed confidence 0–1
          * @nullable
          */
@@ -13740,6 +13745,11 @@ export namespace Schemas {
       readonly best_holdout_score: number | null;
       /** The agent's rationale for its newest experiment. */
       readonly latest_agent_description: string;
+      /**
+         * Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.
+         * @nullable
+         */
+      readonly latest_summary: string | null;
     }
 
     /**
@@ -14444,6 +14454,11 @@ export namespace Schemas {
       train_score?: number | null;
       /** The agent's one-line rationale for what it tried and why. */
       agent_description?: string;
+      /**
+         * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+         * @nullable
+         */
+      readonly summary: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailModelSpec;
     }
@@ -14490,6 +14505,16 @@ export namespace Schemas {
       readonly best_holdout_score: number | null;
       /** Distilled cross-run learning summary written on completion. Null until the run completes. */
       readonly summary: TrainingRunSummary | null;
+      /**
+         * One or two plain sentences on what this run learned, for people. Null if not written.
+         * @nullable
+         */
+      readonly reader_summary: string | null;
+      /**
+         * Short plain-language next steps for people, at most 5. Null if not written.
+         * @nullable
+         */
+      readonly next_steps: readonly string[] | null;
       /** Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number. */
       readonly iterations: readonly IterationTrail[];
       /** Error message if the run failed. */
@@ -24452,6 +24477,19 @@ export namespace Schemas {
          * @maxLength 2000
          */
       distillation?: string;
+      /**
+         * One or two plain sentences for people on what this run learned. Max 600 characters.
+         * @maxLength 600
+         * @nullable
+         */
+      reader_summary?: string | null;
+      /**
+         * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
+         * @maxItems 5
+         * @nullable
+         * @items.maxLength 80
+         */
+      next_steps?: string[] | null;
       /** Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion. */
       report_notebook_short_id?: string;
     }
@@ -59713,6 +59751,11 @@ export namespace Schemas {
       train_score?: number | null;
       /** The agent's one-line rationale for what it tried and why. */
       agent_description?: string;
+      /**
+         * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+         * @nullable
+         */
+      readonly summary: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailWithRecipeModelSpec;
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -93603,6 +93646,12 @@ export namespace Schemas {
          * @maxLength 2000
          */
       agent_description?: string;
+      /**
+         * One plain sentence for people on what this experiment tried and what happened. Max 300 characters.
+         * @maxLength 300
+         * @nullable
+         */
+      summary?: string | null;
       /**
          * Agent's self-assessed confidence (0-1) that this iteration helps.
          * @minimum 0
