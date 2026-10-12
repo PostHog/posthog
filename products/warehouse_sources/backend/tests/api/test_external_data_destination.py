@@ -37,7 +37,10 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
     CheckFailure,
     DestinationConnectionCheckError,
 )
-from products.warehouse_sources.backend.presentation.destination_connection_test import CONNECTION_TEST_TABLE
+from products.warehouse_sources.backend.presentation.destination_connection_test import (
+    CONNECTION_TEST_TABLE_PREFIX,
+    new_connection_test_table,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
     ExternalDataDestinationViewSet,
 )
@@ -81,6 +84,12 @@ class DestinationAPITestBase(APIBaseTest):
         run_patcher = patch(f"{facade}.run_destination_test_step", side_effect=_step_results("Passed"))
         self.run_test_step = run_patcher.start()
         self.addCleanup(run_patcher.stop)
+        table_patcher = patch(
+            "products.warehouse_sources.backend.presentation.destination_connection_test.new_connection_test_table",
+            return_value=f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
+        )
+        table_patcher.start()
+        self.addCleanup(table_patcher.stop)
         self.base = f"/api/projects/{self.team.pk}/external_data_destinations"
         self.source = ExternalDataSource.objects.create(
             team=self.team,
@@ -196,7 +205,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                 {
                     "project_id": "acme-project",
                     "dataset_id": "analytics",
-                    "table_id": CONNECTION_TEST_TABLE,
+                    "table_id": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
                     "create_dataset_if_missing": True,
                 },
             ),
@@ -209,7 +218,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                 {
                     "project_id": None,
                     "dataset_id": "analytics",
-                    "table_id": CONNECTION_TEST_TABLE,
+                    "table_id": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
                     "create_dataset_if_missing": True,
                 },
             ),
@@ -255,7 +264,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                     "catalog": "main",
                     "schema": "default",
                     "http_path": "/sql/1.0/warehouses/abc",
-                    "table_name": CONNECTION_TEST_TABLE,
+                    "table_name": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
                 },
             ),
         ]
@@ -290,6 +299,12 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
             for step in range(2)
         ]
         self.check_connection.assert_not_called()
+
+    def test_each_connection_test_run_uses_its_own_scratch_table(self) -> None:
+        names = {new_connection_test_table() for _ in range(5)}
+
+        assert len(names) == 5
+        assert all(name.startswith(f"{CONNECTION_TEST_TABLE_PREFIX}_") for name in names)
 
     @parameterized.expand(
         [

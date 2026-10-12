@@ -1,6 +1,7 @@
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any, Literal
+from uuid import uuid4
 
 from django.db import models
 
@@ -20,9 +21,14 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
     check_postgres_destination,
 )
 
-# The BigQuery and Databricks steps create and then drop scratch objects named `<this>_test` in the
-# customer's warehouse, so the name must not clash with a real table.
-CONNECTION_TEST_TABLE = "posthog_destination_check"
+# The BigQuery and Databricks steps create and then drop scratch objects named `<table>_test` in the
+# customer's warehouse. Each run gets its own random table name, so the cleanup can never drop an
+# object the customer already has.
+CONNECTION_TEST_TABLE_PREFIX = "posthog_destination_check"
+
+
+def new_connection_test_table() -> str:
+    return f"{CONNECTION_TEST_TABLE_PREFIX}_{uuid4().hex[:12]}"
 
 
 class DestinationConnectionTestStepStatus(models.TextChoices):
@@ -53,30 +59,30 @@ def _strip_slashes(value: Any) -> str | None:
     return str(value).strip("/") or None
 
 
-def _bigquery_config(config: Mapping[str, Any]) -> dict[str, object]:
+def _bigquery_config(config: Mapping[str, Any], test_table: str) -> dict[str, object]:
     # The facade merges the integration's config over this, so `project_id` is always the
     # integration's project. The writer also uses that project when the destination names none.
     return {
         "project_id": config.get("project") or config.get("project_id") or None,
         "dataset_id": config.get("dataset") or config.get("dataset_id") or None,
-        "table_id": CONNECTION_TEST_TABLE,
+        "table_id": test_table,
         # The writer creates a missing dataset, so the test must accept one it is allowed to create.
         "create_dataset_if_missing": True,
     }
 
 
-def _s3_config(config: Mapping[str, Any]) -> dict[str, object]:
+def _s3_config(config: Mapping[str, Any], _test_table: str) -> dict[str, object]:
     return {
         "bucket_name": _strip_slashes(config.get("bucket") or config.get("bucket_name")),
         "region": (config.get("region") or "").strip() or None,
     }
 
 
-def _azure_blob_config(config: Mapping[str, Any]) -> dict[str, object]:
+def _azure_blob_config(config: Mapping[str, Any], _test_table: str) -> dict[str, object]:
     return {"container_name": _strip_slashes(config.get("container_name") or config.get("container"))}
 
 
-def _snowflake_config(config: Mapping[str, Any]) -> dict[str, object]:
+def _snowflake_config(config: Mapping[str, Any], _test_table: str) -> dict[str, object]:
     return {
         "database": config.get("database") or None,
         "schema": config.get("schema") or "PUBLIC",
@@ -85,18 +91,18 @@ def _snowflake_config(config: Mapping[str, Any]) -> dict[str, object]:
     }
 
 
-def _databricks_config(config: Mapping[str, Any]) -> dict[str, object]:
+def _databricks_config(config: Mapping[str, Any], test_table: str) -> dict[str, object]:
     return {
         "catalog": config.get("catalog") or "main",
         "schema": config.get("schema") or "default",
         "http_path": config.get("http_path") or None,
-        "table_name": CONNECTION_TEST_TABLE,
+        "table_name": test_table,
     }
 
 
 # Defaults and key aliases mirror each warehouse writer, so the test checks the same target the
 # sync writes to.
-_CONFIG_ADAPTERS: dict[str, Callable[[Mapping[str, Any]], dict[str, object]]] = {
+_CONFIG_ADAPTERS: dict[str, Callable[[Mapping[str, Any], str], dict[str, object]]] = {
     str(ExternalDataDestination.Type.BIGQUERY): _bigquery_config,
     str(ExternalDataDestination.Type.S3): _s3_config,
     str(ExternalDataDestination.Type.AZURE_BLOB): _azure_blob_config,
@@ -147,7 +153,9 @@ def run_connection_test(
     except UnsupportedDestinationTestError:
         return None
 
-    test_config = _CONFIG_ADAPTERS[destination_type](config if isinstance(config, Mapping) else {})
+    test_config = _CONFIG_ADAPTERS[destination_type](
+        config if isinstance(config, Mapping) else {}, new_connection_test_table()
+    )
     steps = list(described.steps)
     for index in range(len(steps)):
         step = batch_exports_api.run_destination_test_step(
