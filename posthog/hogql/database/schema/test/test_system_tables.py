@@ -31,6 +31,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import ExecutionMode, RequestStatus, RequestType
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
@@ -893,6 +894,10 @@ def _create_tag(team: Team, label: str) -> Tag:
     return Tag.objects.create(team=team, name=f"tag_{label}")
 
 
+def _create_revenue_analytics_config(team: Team, label: str) -> TeamRevenueAnalyticsConfig:
+    return team.revenue_analytics_config
+
+
 def _create_team(team: Team, label: str) -> Team:
     return team
 
@@ -1019,6 +1024,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("replay_scanners", _create_replay_scanner),
+    ("revenue_analytics_config", _create_revenue_analytics_config),
     ("logs_views", _create_logs_view),
     ("message_categories", _create_message_category),
     ("message_recipient_preferences", _create_message_recipient_preference),
