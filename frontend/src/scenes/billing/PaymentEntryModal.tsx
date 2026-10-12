@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { SupportFormFields, supportLogic } from 'lib/components/Support/supportLogic'
 import { urls } from 'scenes/urls'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
@@ -17,10 +18,21 @@ const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await 
 const STRIPE_UNAVAILABLE_MESSAGE =
     "We couldn't load the payment form. Disable any ad blocker and reload the page. If it keeps failing, contact support."
 
+// The support panel offers a ticket only to plans entitled to one, and a failed upgrade is the case
+// where the person cannot buy that entitlement. Billing issues are answered on every plan, so that
+// flag is what keeps this path reachable. See `canCreateTicket` in sidepanelTicketsLogic.
+const supportRequestForError = (error: string): Partial<SupportFormFields> => ({
+    kind: 'support',
+    billing_issue: true,
+    isEmailFormOpen: true,
+    message: `I couldn't complete my upgrade. The error shown was:\n\n${error}`,
+})
+
 export const PaymentForm = (): JSX.Element => {
     const { stripeError, isLoading, redirectPath } = useValues(paymentEntryLogic)
     const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
         useActions(paymentEntryLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const stripe = useStripe()
     const elements = useElements()
@@ -68,6 +80,18 @@ export const PaymentForm = (): JSX.Element => {
             </p>
             {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
             <div className="flex justify-end deprecated-space-x-2 mt-2">
+                {stripeError && (
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => {
+                            hidePaymentEntryModal()
+                            openSupportForm(supportRequestForError(stripeError))
+                        }}
+                        data-attr="payment-entry-stripe-error-contact-support"
+                    >
+                        Contact support
+                    </LemonButton>
+                )}
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
@@ -82,6 +106,7 @@ export const PaymentForm = (): JSX.Element => {
 export const PaymentEntryModal = (): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
 
     useEffect(() => {
@@ -126,10 +151,25 @@ export const PaymentEntryModal = (): JSX.Element => {
                 ) : apiError ? (
                     <div className="flex flex-col gap-2 my-2">
                         <p className="text-md">
-                            We could not complete your upgrade at this time. Please review the error below and contact
-                            support if you need help.
+                            We could not complete your upgrade at this time. Review the error below, and contact us if
+                            you need help. We answer billing questions on every plan.
                         </p>
                         <LemonBanner type="error">{apiError}</LemonBanner>
+                        <div className="flex justify-end deprecated-space-x-2 mt-2">
+                            <LemonButton type="secondary" onClick={hidePaymentEntryModal}>
+                                Close
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    hidePaymentEntryModal()
+                                    openSupportForm(supportRequestForError(apiError))
+                                }}
+                                data-attr="payment-entry-api-error-contact-support"
+                            >
+                                Contact support
+                            </LemonButton>
+                        </div>
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
