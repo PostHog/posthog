@@ -217,21 +217,29 @@ class TestDataSuggestions(SimpleTestCase):
                 "liquid in an email",
                 step(email_paragraphs=["Hi {{ person.properties.secret }} there {% if x %}"]),
                 lambda inputs: inputs["email"]["value"]["html"],
+                "person.properties.secret",
             ),
             (
                 "hog in a slack message",
                 step("ping", type="slack", slack_message="New sign-up {person.properties.secret} here"),
                 lambda inputs: inputs["text"]["value"],
+                "{person",
+            ),
+            (
+                "nested braces in a slack message",
+                step("ping", type="slack", slack_message="New sign-up {{x}person.properties.secret} here"),
+                lambda inputs: inputs["text"]["value"],
+                "{person",
             ),
         ]
     )
     def test_build_workflow_strips_template_tags_from_model_copy(
-        self, _name: str, planned: PlannedStep, copy_of: Any
+        self, _name: str, planned: PlannedStep, copy_of: Any, leftover: str
     ) -> None:
         built = build_workflow(IDEA, plan(planned), context())
         assert built is not None
         copy = copy_of(built.workflow["actions"][1]["config"]["inputs"])
-        assert "person.properties.secret" not in copy
+        assert leftover not in copy
         assert "{%" not in copy
 
     @parameterized.expand(
