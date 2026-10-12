@@ -2,9 +2,11 @@ import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
 
 import type { Node } from '~/queries/schema/schema-general'
 
+export type ExpandedRowKey = string | number
+
 const NO_TAB = '__no_tab__'
 
-export type ExpandedRowsByTabAndVizKey = Record<string, Record<string, number[]>>
+export type ExpandedRowsByTabAndVizKey = Record<string, Record<string, ExpandedRowKey[]>>
 export type SavedQueriesByTabAndScene = Record<string, Record<string, Node>>
 export type ChatDraftsByTab = Record<string, string>
 
@@ -13,7 +15,7 @@ export interface tabUiStateLogicValues {
     chatDraftFor: (tabId: string | undefined) => string
     chatDraftsByTab: ChatDraftsByTab
     expandedRowsByTabAndVizKey: ExpandedRowsByTabAndVizKey
-    expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[]
+    expandedRowsFor: (tabId: string | undefined, vizKey: string) => ExpandedRowKey[]
     savedQueriesByTabAndScene: SavedQueriesByTabAndScene
     savedQueryFor: (tabId: string | undefined, sceneKey: string) => Node | null
 }
@@ -42,9 +44,9 @@ export interface tabUiStateLogicActions {
     toggleExpandedRow: (
         tabId: string | undefined,
         vizKey: string,
-        rowIndex: number
+        rowIndex: ExpandedRowKey
     ) => {
-        rowIndex: number
+        rowIndex: ExpandedRowKey
         tabId: string
         vizKey: string
     }
@@ -55,7 +57,7 @@ export interface tabUiStateLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         expandedRowsFor: (
             expandedRowsByTabAndVizKey: ExpandedRowsByTabAndVizKey
-        ) => (tabId: string | undefined, vizKey: string) => number[]
+        ) => (tabId: string | undefined, vizKey: string) => ExpandedRowKey[]
         savedQueryFor: (
             savedQueriesByTabAndScene: SavedQueriesByTabAndScene
         ) => (tabId: string | undefined, sceneKey: string) => Node | null
@@ -73,7 +75,7 @@ export type tabUiStateLogicType = MakeLogicType<
 export const tabUiStateLogic = kea<tabUiStateLogicType>([
     path(['lib', 'logic', 'tabUiStateLogic']),
     actions({
-        toggleExpandedRow: (tabId: string | undefined, vizKey: string, rowIndex: number) => ({
+        toggleExpandedRow: (tabId: string | undefined, vizKey: string, rowIndex: ExpandedRowKey) => ({
             tabId: tabId ?? NO_TAB,
             vizKey,
             rowIndex,
@@ -97,7 +99,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
                     const tabState = state[tabId] ?? {}
                     const existing = tabState[vizKey] ?? []
                     const next = existing.includes(rowIndex)
-                        ? existing.filter((r: number) => r !== rowIndex)
+                        ? existing.filter((r: ExpandedRowKey) => r !== rowIndex)
                         : [...existing, rowIndex]
                     return { ...state, [tabId]: { ...tabState, [vizKey]: next } }
                 },
@@ -173,7 +175,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
     selectors({
         expandedRowsFor: [
             (s) => [s.expandedRowsByTabAndVizKey],
-            (state: ExpandedRowsByTabAndVizKey): ((tabId: string | undefined, vizKey: string) => number[]) =>
+            (state: ExpandedRowsByTabAndVizKey): ((tabId: string | undefined, vizKey: string) => ExpandedRowKey[]) =>
                 (tabId, vizKey) =>
                     state[tabId ?? NO_TAB]?.[vizKey] ?? [],
         ],
