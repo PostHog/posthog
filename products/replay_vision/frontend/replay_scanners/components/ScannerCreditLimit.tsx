@@ -5,8 +5,13 @@ import { LemonCard, LemonInput, LemonSegmentedButton, LemonSwitch } from '@posth
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { CreditLimitUnit, replayScannerLogic } from '../replayScannerLogic'
+import { creditsToUsd, formatCredits } from '../../utils/credits'
+import {
+    CreditLimitUnit,
+    creditsToObservations,
+    observationsToCredits,
+    replayScannerLogic,
+} from '../replayScannerLogic'
 import { MAX_CREDIT_LIMIT } from '../types'
 
 interface ScannerCreditLimitProps {
@@ -27,9 +32,23 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
         cannotAffordOneScan,
         seedValue,
     } = creditLimitState
-    const inObservations = unit === 'observations' && creditsPerObservation != null
-    const toCredits = (amount: number): number =>
-        inObservations ? Math.min(amount * creditsPerObservation, MAX_CREDIT_LIMIT) : amount
+    const observationPrice = unit === 'observations' ? creditsPerObservation : null
+    const input =
+        observationPrice != null
+            ? {
+                  value: observationLimit,
+                  max: creditsToObservations(MAX_CREDIT_LIMIT, observationPrice),
+                  suffix: 'observations',
+                  toCredits: (amount: number) => observationsToCredits(amount, observationPrice),
+                  summary: limit != null ? `${formatCredits(limit)} per period` : null,
+              }
+            : {
+                  value: limit,
+                  max: MAX_CREDIT_LIMIT,
+                  suffix: 'credits',
+                  toCredits: (amount: number) => amount,
+                  summary: limit != null ? `≈ ${creditsToUsd(limit)} per period` : null,
+              }
 
     return (
         <LemonField name="credit_limit">
@@ -58,7 +77,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                                 <LemonSegmentedButton<CreditLimitUnit>
                                     size="small"
-                                    value={inObservations ? 'observations' : 'credits'}
+                                    value={unit}
                                     onChange={setCreditLimitUnit}
                                     options={[
                                         {
@@ -80,7 +99,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                 <div className="w-48">
                                     <LemonInput
                                         type="number"
-                                        value={(inObservations ? observationLimit : limit) ?? undefined}
+                                        value={input.value ?? undefined}
                                         onChange={(v) =>
                                             // The toggle is materialized on edit too, so clearing a loaded limit blocks the save.
                                             setScannerValues({
@@ -88,25 +107,18 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                                 credit_limit:
                                                     v == null || !Number.isFinite(v)
                                                         ? null
-                                                        : toCredits(Math.max(1, Math.round(v))),
+                                                        : input.toCredits(Math.max(1, Math.round(v))),
                                             })
                                         }
                                         min={1}
-                                        max={
-                                            inObservations
-                                                ? Math.floor(MAX_CREDIT_LIMIT / creditsPerObservation)
-                                                : MAX_CREDIT_LIMIT
-                                        }
+                                        max={input.max}
                                         step={1}
-                                        suffix={<span>{inObservations ? 'observations' : 'credits'}</span>}
+                                        suffix={<span>{input.suffix}</span>}
                                     />
                                 </div>
                                 <span className="text-sm text-muted">
-                                    {limit != null &&
-                                        (inObservations
-                                            ? `${formatCreditCount(limit)} (≈ ${creditsToUsd(limit)}) per period`
-                                            : `≈ ${creditsToUsd(limit)} per period`)}
-                                    {limit != null && estimatedMonthly != null && ' · '}
+                                    {input.summary}
+                                    {input.summary != null && estimatedMonthly != null && ' · '}
                                     {estimatedMonthly != null &&
                                         `Estimated usage: ${creditsToUsd(estimatedMonthly)} a month`}
                                 </span>
@@ -124,7 +136,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                     </div>
                                 )
                             )}
-                            {inObservations && (
+                            {observationPrice != null && (
                                 <div className="text-xs text-muted">
                                     If you change the model, the credit limit changes to keep the same number of
                                     observations.
