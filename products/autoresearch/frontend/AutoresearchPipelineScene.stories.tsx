@@ -141,6 +141,12 @@ const onlinePerformance = {
             calibration_error: 0.04,
             lift_at_10: 3.4,
             lift_at_20: 2.6,
+            average_precision: 0.21,
+            confusion: {
+                top_10: { tp: 480, fp: 4220, fn: 930, tn: 41370, n_flagged: 4700, precision: 0.1021, recall: 0.3404 },
+                top_20: { tp: 735, fp: 8665, fn: 675, tn: 36925, n_flagged: 9400, precision: 0.0782, recall: 0.5213 },
+                likely: { tp: 0, fp: 0, fn: 1410, tn: 45590, n_flagged: 0, precision: null, recall: 0 },
+            },
             calibration_bins: [
                 { n: 37600, mean_p_y: 0.01, positive_rate: 0.008 },
                 { n: 4700, mean_p_y: 0.08, positive_rate: 0.07 },
@@ -268,5 +274,21 @@ export const Accuracy: Story = {
     parameters: {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,
         testOptions: { viewportWidths: ['wide', 'narrow'] },
+    },
+}
+
+export const AccuracyBeforePrecisionRecall: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: {
+                    rows: onlinePerformance.rows.map((row) => ({ ...row, average_precision: null, confusion: null })),
+                },
+            },
+        }),
+    ],
+    parameters: {
+        pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,
+        testOptions: { viewportWidths: ['wide'] },
     },
 }

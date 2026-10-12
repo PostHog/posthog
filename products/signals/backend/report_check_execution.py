@@ -16,6 +16,7 @@ a breach the same way and there is one place where "is this value out of bounds?
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import partial
 from typing import cast
@@ -348,7 +349,11 @@ def record_check_verdict(
             .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
             .first()
         )
-        if current is None:
+        if (
+            current is None
+            or current.measurement_start_at != check.measurement_start_at
+            or current.dispatched_at != check.dispatched_at
+        ):
             return
         transition = _next_state(current, verdict, now)
         current.status = transition.status
@@ -565,6 +570,43 @@ def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
         logger.exception("signals.report_check.expired_report_failed")
 
 
+def _park_checks(active: Iterable[SignalReportCheck], now: datetime) -> int:
+    parked = 0
+    for check in active:
+        soak_minutes = check.soak_minutes
+        if soak_minutes is None:
+            # A legacy row's retry or recurring date no longer identifies its initial soak.
+            soak_minutes = (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if check.last_run_at is not None or check.dispatched_at is not None
+                else soak_minutes_from_gap(check.next_run_at, check.created_at)
+            )
+        parked += (
+            SignalReportCheck.objects.for_team(check.team_id)
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .exclude(report__status=SignalReport.Status.RESOLVED)
+            .update(
+                status=SignalReportCheck.Status.PENDING,
+                soak_minutes=soak_minutes,
+                measurement_start_at=None,
+                next_run_at=now + timedelta(minutes=soak_minutes),
+                expires_at=now + MAX_CHECK_HORIZON,
+                consecutive_errors=0,
+                consecutive_inconclusive=0,
+                dispatched_at=None,
+                updated_at=now,
+            )
+        )
+    return parked
+
+
+def park_report_checks_on_reopen(*, team_id: int, report_id: str, now: datetime) -> int:
+    return _park_checks(
+        SignalReportCheck.objects.for_team(team_id).filter(report_id=report_id, status=SignalReportCheck.Status.ACTIVE),
+        now,
+    )
+
+
 def park_checks_on_unresolved_reports(now: datetime) -> int:
     """Move active checks whose report is not resolved back to `pending`. Returns how many moved.
 
@@ -585,30 +627,7 @@ def park_checks_on_unresolved_reports(now: datetime) -> int:
             :MAX_CHECK_PARKS_PER_TICK
         ]
     )
-    parked = 0
-    for check in active:
-        soak_minutes = check.soak_minutes
-        if soak_minutes is None:
-            # A legacy row's retry or recurring date no longer identifies its initial soak.
-            soak_minutes = (
-                DEFAULT_CHECK_SOAK_HOURS * 60
-                if check.last_run_at is not None or check.dispatched_at is not None
-                else soak_minutes_from_gap(check.next_run_at, check.created_at)
-            )
-        parked += (
-            SignalReportCheck.all_teams.filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
-            .exclude(report__status=SignalReport.Status.RESOLVED)
-            .update(
-                status=SignalReportCheck.Status.PENDING,
-                soak_minutes=soak_minutes,
-                measurement_start_at=None,
-                next_run_at=now + timedelta(minutes=soak_minutes),
-                expires_at=now + MAX_CHECK_HORIZON,
-                consecutive_errors=0,
-                dispatched_at=None,
-                updated_at=now,
-            )
-        )
+    parked = _park_checks(active, now)
     if parked:
         logger.info("signals.report_check.parked_on_unresolved_report", parked=parked)
     return parked

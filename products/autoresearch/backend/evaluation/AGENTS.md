@@ -19,6 +19,8 @@ It is the only honest number in the product. A holdout AUC of 0.93 says the mode
   - **expected calibration error** (`_expected_calibration_error`, 10 equal-width bins) — whether "0.8" really means 80%; kept unchanged so old and new dates compare
   - **calibration bins** (`_quantile_calibration_bins`) — up to 10 bins cut at score quantiles, each with `n`, `mean_p_y` and `positive_rate`; equal scores share a bin. Equal-width bins put nearly every person in the first bin for a rare target, so read these instead
   - **lift@k** (`_lift_at_k`) — how much better than random the top slice is; ties at the boundary score are split fractionally so the number does not depend on row order
+  - **average precision** — area under the precision-recall curve; null when the date has no positives
+  - **confusion counts** (`confusion`, `_confusion_counts`) — `tp`, `fp`, `fn`, `tn`, `n_flagged`, `precision` and `recall` for three cutoffs: `top_10`, `top_20`, and `likely` (score at or above `LIKELY_THRESHOLD`). Top-k cutoffs flag every person tied at the boundary score, so the counts are whole people and `n_flagged` can be a little above k. `LIKELY_THRESHOLD` comes from `frontend/predictionSegmentThresholds.json`, the same file the frontend segments read
   - **weekday** — the ISO weekday of the prediction date
 
   Every model that emitted predictions on the date is scored, whatever its role now. Inference shadow-scores every model in the shadow set on the champion's people, and each records its own inference run, so their realized numbers land here. That is what makes challenger promotion decidable on evidence rather than on holdout alone. A shadow model's events carry the emitted role `shadow`.
@@ -57,7 +59,7 @@ All the heavy work — the HogQL queries and the sklearn metrics — happens ins
 - **Backdated events are refused by scoring when the team sets `drop_events_older_than_seconds`**, so no inference run is recorded and validation has nothing to look for.
 - **A deleted model takes its evidence with it.** Its inference runs lose their model and drop out of the candidates, and its prediction events are not fetched. A model deleted mid-validation is recorded in the run's `per_model` as `deleted` and skipped for the model update, and its absence does not reopen the group.
 - **A completed date is never revisited.** An outcome event that reaches ClickHouse more than `OUTCOME_INGESTION_GRACE` after the window closed (an offline SDK buffer flushed days late) reads as a negative in the stored metrics.
-- **Only the AUC and its interval need both classes.** An all-negative day still records Brier, calibration error, calibration bins, and lift, which is where calibration matters for a rare target.
+- **Only the AUC and its interval need both classes.** An all-negative day still records Brier, calibration error, calibration bins, lift, and confusion counts, which is where calibration matters for a rare target.
 
 ## Where the rest of the system meets this package
 

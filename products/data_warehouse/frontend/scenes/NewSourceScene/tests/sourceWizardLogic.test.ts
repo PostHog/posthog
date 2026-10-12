@@ -10,7 +10,7 @@ import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { AvailableColumn, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -18,6 +18,7 @@ import {
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
+    isPrefixRequired,
     mergeRestoredSourceFormValues,
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
@@ -271,6 +272,21 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
+    describe('isPrefixRequired', () => {
+        const source = (source_type: string, prefix: string | null): ExternalDataSource =>
+            ({ source_type, prefix }) as ExternalDataSource
+
+        test.each([
+            ['no sources yet', [], false],
+            ['an unprefixed source of the same type', [source('Stripe', null)], true],
+            ['an empty-string prefix on the same type', [source('Stripe', '')], true],
+            ['only prefixed sources of the same type', [source('Stripe', 'eu')], false],
+            ['an unprefixed source of another type', [source('Hubspot', null)], false],
+        ])('with %s', (_, sources, expected) => {
+            expect(isPrefixRequired(sources, 'Stripe')).toBe(expected)
+        })
     })
 
     describe('resolveConnectErrorMessage', () => {

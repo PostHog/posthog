@@ -11,12 +11,14 @@ import type { CohortFiltersApi, PersonFilterApi } from 'products/cohorts/fronten
 import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 import type { AutoresearchPipelineApi } from './generated/api.schemas'
+import thresholds from './predictionSegmentThresholds.json'
 
 /**
  * Probability cut points between the segments. Both sit on a histogram decile boundary,
- * so every histogram bar belongs to exactly one segment.
+ * so every histogram bar belongs to exactly one segment. Online validation reads the same
+ * JSON file for its Likely cutoff.
  */
-export const PREDICTION_SEGMENT_THRESHOLDS = { high: 0.6, low: 0.2 } as const
+export const PREDICTION_SEGMENT_THRESHOLDS: { readonly high: number; readonly low: number } = thresholds
 
 export type PredictionSegmentKey = 'likely' | 'possible' | 'unlikely'
 

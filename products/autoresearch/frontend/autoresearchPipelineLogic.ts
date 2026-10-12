@@ -56,12 +56,16 @@ import {
     type ModelExplanationFieldApi,
     type OnlinePerformanceRowApi,
 } from './generated/api.schemas'
+import type { ConfusionByCutoffApi } from './generated/api.schemas'
 import {
+    type AccuracyCutoff,
+    type PooledConfusion,
     RealizedAucPoint,
     SegmentCalibration,
     calibrationBySegment,
     firstCheckDate,
     latestChampionRow,
+    pooledConfusion,
     realizedAucSeries,
     validatedPredictionDates,
 } from './onlinePerformance'
@@ -267,6 +271,7 @@ export interface autoresearchPipelineLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
+    accuracyCutoff: AccuracyCutoff
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
     agentNotes: AgentNotes | null
@@ -275,6 +280,7 @@ export interface autoresearchPipelineLogicValues {
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
     champion: AutoresearchModelApi | null
+    championConfusion: PooledConfusion | null
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
@@ -630,6 +636,9 @@ export interface autoresearchPipelineLogicActions {
     searchPointClicked: (point: SearchPoint) => {
         point: SearchPoint
     }
+    setAccuracyCutoff: (cutoff: AccuracyCutoff) => {
+        cutoff: keyof ConfusionByCutoffApi
+    }
     setActiveScoreRun: (run: AutoresearchRunApi | null) => {
         run: AutoresearchRunApi | null
     }
@@ -743,6 +752,10 @@ export interface autoresearchPipelineLogicMeta {
         latestChampionPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => OnlinePerformanceRowApi | null
         realizedAucPoints: (onlinePerformance: OnlinePerformanceRowApi[]) => RealizedAucPoint[]
         segmentCalibration: (latestChampionPerformance: OnlinePerformanceRowApi | null) => SegmentCalibration[]
+        championConfusion: (
+            onlinePerformance: OnlinePerformanceRowApi[],
+            accuracyCutoff: keyof ConfusionByCutoffApi
+        ) => PooledConfusion | null
         firstCheck: (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null) => dayjs.Dayjs | null
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
         hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
@@ -786,6 +799,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
+        setAccuracyCutoff: (cutoff: AccuracyCutoff) => ({ cutoff }),
         setTabFromUrl: (tab: AutoresearchPipelineTab | null) => ({ tab }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
@@ -823,6 +837,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'most_likely' as PredictionsPeopleView,
             {
                 setPredictionsPeopleView: (_, { view }) => view,
+            },
+        ],
+        accuracyCutoff: [
+            'top_10' as AccuracyCutoff,
+            {
+                setAccuracyCutoff: (_, { cutoff }) => cutoff,
             },
         ],
         activeScoreRun: [
@@ -1296,6 +1316,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (latestChampionPerformance: OnlinePerformanceRowApi | null): SegmentCalibration[] =>
                 calibrationBySegment(latestChampionPerformance?.calibration_bins ?? []),
         ],
+        championConfusion: [
+            (s) => [s.onlinePerformance, s.accuracyCutoff],
+            (onlinePerformance: OnlinePerformanceRowApi[], accuracyCutoff: AccuracyCutoff): PooledConfusion | null =>
+                pooledConfusion(onlinePerformance, accuracyCutoff),
+        ],
         firstCheck: [
             (s) => [s.runs, s.pipeline],
             (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null): dayjs.Dayjs | null =>
@@ -1580,6 +1605,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         setPredictionsPeopleView: ({ view }) => {
             posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
+        },
+        setAccuracyCutoff: ({ cutoff }) => {
+            posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff })
         },
         saveSegmentCohort: async ({ segment }) => {
             const { pipeline, currentProjectId } = values

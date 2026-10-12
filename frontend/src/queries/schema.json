@@ -13098,6 +13098,32 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -36537,6 +36563,44 @@
             "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
             "type": "string"
         },
+        "MarketingAnalyticsSearchConversion": {
+            "additionalProperties": false,
+            "properties": {
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "costPerConversion": {
+                    "type": ["number", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "previousConversions": {
+                    "type": ["number", "null"]
+                },
+                "previousCostPerConversion": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["conversions", "costPerConversion", "id", "name"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
@@ -36589,6 +36653,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includePostHogConversions": {
+                    "type": "boolean"
+                },
                 "keyword": {
                     "type": "string"
                 },
@@ -36599,6 +36666,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "normalizePageUrls": {
+                    "type": "boolean"
                 },
                 "page": {
                     "type": "string"
@@ -36640,6 +36710,32 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -36737,6 +36833,19 @@
                 },
                 "position": {
                     "type": ["number", "null"]
+                },
+                "posthogConversions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "previous": {
                     "anyOf": [
@@ -39486,6 +39595,7 @@
             "additionalProperties": false,
             "properties": {
                 "clauses": {
+                    "description": "Empty when `language` is `promql` or `sql`.",
                     "items": {
                         "$ref": "#/definitions/MetricsQueryClause"
                     },
@@ -39511,12 +39621,24 @@
                     "const": "MetricsQuery",
                     "type": "string"
                 },
+                "language": {
+                    "$ref": "#/definitions/MetricsQueryLanguage",
+                    "description": "How the query is written; the builder when unset."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "promql": {
+                    "description": "PromQL expression, run as a range query. Used when `language` is `promql`.",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/MetricsQueryResponse"
+                },
+                "sql": {
+                    "description": "HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval.",
+                    "type": "string"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -39602,6 +39724,11 @@
             },
             "required": ["key"],
             "type": "object"
+        },
+        "MetricsQueryLanguage": {
+            "description": "How a metrics query is written. All three run through the metrics query runner, with its caching and limits.",
+            "enum": ["builder", "promql", "sql"],
+            "type": "string"
         },
         "MetricsQueryPoint": {
             "additionalProperties": false,
@@ -45073,6 +45200,32 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "posthogAttributionMode": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/AttributionMode"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionGoals": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionsWarning": {
+                            "type": ["string", "null"]
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",

@@ -332,7 +332,6 @@ def _bound_run(launch: TrialLaunch) -> SignalScoutRun | None:
         or not isinstance(marker, dict)
         or marker.get("version") != 1
         or marker.get("context_id") != str(launch.context_id)
-        or (task_run.state or {}).get("scout_trial") != marker
     ):
         raise TrialEvaluationError("The trial does not match its private task and operator.")
     return run

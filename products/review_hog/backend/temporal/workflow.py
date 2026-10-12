@@ -686,7 +686,6 @@ class ReviewPRWorkflow:
                 review_mode=inputs.review_mode,
                 flash_reasoning_effort=acting.flash_reasoning_effort,
                 review_design=review_design,
-                dedupe_against_pr_comments=inputs.dedupe_against_pr_comments,
             )
 
             if review_design == REVIEW_DESIGN_SINGLE_AGENT:
@@ -861,11 +860,8 @@ class ReviewPRWorkflow:
                         celebrate_clean_reviews=acting.celebrate_clean_reviews,
                         marker=marker,
                         capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
-                        already_raised=(
-                            dedup.flash_stats.dropped.get("dedup_comment", 0)
-                            if dedup is not None and dedup.flash_stats is not None
-                            else 0
-                        ),
+                        raised_elsewhere=dedup.raised_elsewhere if dedup is not None else [],
+                        raised_elsewhere_count=dedup.raised_elsewhere_count if dedup is not None else 0,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

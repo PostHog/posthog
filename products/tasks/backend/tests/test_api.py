@@ -45,7 +45,6 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
 from products.tasks.backend.constants import DEV_STACK_PREVIEW_PORT
@@ -405,14 +404,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             )
             for index in range(2)
         ]
-        self.trial_runs = [
-            TaskRun.objects.create(
-                team=self.team,
-                task=task,
-                state={"scout_trial": {"id": "private"}, "scout_trial_private": {"reports": []}},
-            )
-            for task in self.trial_tasks
-        ]
+        self.trial_runs = [TaskRun.objects.create(team=self.team, task=task) for task in self.trial_tasks]
         for task in self.trial_tasks:
             TaskPin.objects.create(user=self.user, task=task)
             TaskSearchDocument.objects.for_team(self.team.id).create(
@@ -460,144 +452,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         client_id: str = ARRAY_APP_CLIENT_ID_DEV,
         scopes: str = "task:read internal_run:read scout_experiment_internal:read",
     ) -> APIClient:
-        task, run = self.trial_tasks[0], self.trial_runs[0]
-        assert task.origin_key is not None
-        marker = {"version": 1, "launch_id": task.origin_key.removeprefix("scout-trial:")}
-        run.state = {"scout_trial": marker, "scout_trial_private": {"reports": []}}
-        run.save(update_fields=["state"])
-        config = SignalScoutConfig.objects.for_team(self.team.id).create(
-            team=self.team, skill_name="signals-scout-synthetic-log"
-        )
-        SignalScoutRun.objects.for_team(self.team.id).create(
-            team=self.team,
-            task_run=run,
-            scout_config=config,
-            skill_name=config.skill_name,
-            skill_version=1,
-            metadata={"scout_trial": marker},
-        )
+        task = self.trial_tasks[0]
         return self._sandbox_oauth_client(
             task.id,
             bound=bound,
             client_id=client_id,
             scopes=scopes,
         )
-
-    def test_judge_token_can_only_read_inputs_and_record_its_own_run(self) -> None:
-        task, run = self.trial_tasks[0], self.trial_runs[0]
-        marker = {
-            "version": 1,
-            "user_id": self.user.id,
-            **{
-                key: str(uuid.uuid4())
-                for key in (
-                    "evaluation_id",
-                    "launch_id",
-                    "context_id",
-                    "source_task_id",
-                    "source_task_run_id",
-                    "source_scout_run_id",
-                )
-            },
-        }
-        task.origin_key = f"scout-trial-judge:{marker['evaluation_id']}:{marker['launch_id']}"
-        task.save(update_fields=["origin_key"])
-        run.state = {
-            "scout_trial_judge": marker,
-            "pending_user_message": "Use the attached synthetic run log",
-            "pending_user_artifact_ids": [],
-            "pending_user_message_id": str(uuid.uuid4()),
-            "pending_user_message_ts": "123456789.000000",
-        }
-        storage_path = f"tasks/{task.id}/runs/{run.id}/artifacts/run-log.jsonl"
-        run.artifacts = [
-            build_task_artifact_entry(
-                artifact_id=str(uuid.uuid4()),
-                name="run-log.jsonl",
-                storage_path=storage_path,
-                artifact_type="file",
-                source="internal",
-                size=21,
-                content_type="application/x-ndjson",
-            )
-        ]
-        run.save(update_fields=["state", "artifacts"])
-        client = self._sandbox_oauth_client(task.id, scopes="scout_experiment_internal:read")
-        base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
-
-        assert client.get(f"/api/projects/@current/tasks/{task.id}/").status_code == status.HTTP_200_OK
-        assert client.get(base).status_code == status.HTTP_200_OK
-        with patch.object(object_storage, "read_bytes", return_value=b'{"tool":"synthetic"}\n'):
-            response = client.post(f"{base}artifacts/download/", {"storage_path": storage_path}, format="json")
-            assert response.status_code == status.HTTP_200_OK, response.content
-            assert (
-                client.post(
-                    f"{base}artifacts/download/", {"storage_path": "other-run/private-log.jsonl"}, format="json"
-                ).status_code
-                == status.HTTP_404_NOT_FOUND
-            )
-        with patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"):
-            response = client.patch(
-                base, {"status": "in_progress", "state": {"agent_version": "test-judge"}}, format="json"
-            )
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        pending_keys = [
-            "pending_user_message",
-            "pending_user_artifact_ids",
-            "pending_user_message_id",
-            "pending_user_message_ts",
-        ]
-        assert client.patch(base, {"state_remove_keys": pending_keys}, format="json").status_code == status.HTTP_200_OK
-        assert (
-            client.patch(base, {"state_remove_keys": [*pending_keys, "scout_trial_judge"]}, format="json").status_code
-            == status.HTTP_403_FORBIDDEN
-        )
-        assert (
-            client.patch(
-                base, {"state": {"pending_user_message": "Replace the trusted prompt"}}, format="json"
-            ).status_code
-            == status.HTTP_403_FORBIDDEN
-        )
-        assert (
-            client.patch(f"{base}set_summary/", {"summary": "Saved a rubric assessment"}, format="json").status_code
-            == status.HTTP_200_OK
-        )
-        response = client.patch(
-            f"{base}set_output/",
-            {"output": {"summary": "Synthetic rubric assessment", "criteria": []}},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        for path in (
-            "/api/projects/@current/tasks/",
-            f"/api/projects/@current/tasks/{self.ordinary_task.id}/",
-            f"/api/projects/@current/tasks/{self.trial_tasks[1].id}/runs/{self.trial_runs[1].id}/",
-            "/api/projects/@current/insights/",
-        ):
-            assert client.get(path).status_code == status.HTTP_403_FORBIDDEN, path
-        assert (
-            client.patch(base, {"state": {"scout_trial_judge": {}}}, format="json").status_code
-            == status.HTTP_403_FORBIDDEN
-        )
-        assert client.post(f"{base}cancel/", {}, format="json").status_code == status.HTTP_403_FORBIDDEN
-        assert (
-            client.patch(
-                f"/api/projects/@current/tasks/{self.trial_tasks[1].id}/runs/{self.trial_runs[1].id}/set_output/",
-                {"output": {"summary": "Cannot change another run"}},
-                format="json",
-            ).status_code
-            == status.HTTP_403_FORBIDDEN
-        )
-        with patch.object(tasks_facade, "resume_task_run_in_cloud") as resume:
-            assert (
-                self.client.post(f"{base}resume_in_cloud/", {}, format="json").status_code
-                == status.HTTP_400_BAD_REQUEST
-            )
-        resume.assert_not_called()
-        run.refresh_from_db()
-        assert run.state["scout_trial_judge"] == marker
-        assert all(key not in run.state for key in pending_keys)
-        assert not SignalScoutRun.objects.for_team(self.team.id).filter(task_run=run).exists()
 
     def test_trial_can_append_own_log_without_general_task_write_access(self) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
@@ -615,7 +476,6 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             response = client.post(f"{base}append_log/", {"entries": [entry]}, format="json")
             logs = client.get(f"{base}session_logs/")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "scout_trial_private" not in response.json()["state"]
         assert logs.status_code == status.HTTP_200_OK
         assert logs.json()[0]["message"] == entry["message"]
         usage = {"input_tokens": 12, "output_tokens": 4}
@@ -637,8 +497,6 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert run.state is not None
         assert run.state["token_usage"] == usage
         assert run.state["agent_version"] == "test-agent"
-        marker = run.state["scout_trial"]
-        assert run.state["scout_trial_private"] == {"reports": []}
         response = client.patch(
             f"{base}set_summary/",
             {"summary": "Reviewed recent exports", "tags": ["synthetic-trial-tag"]},
@@ -646,8 +504,6 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["task_summary"] == "Reviewed recent exports"
-        assert "scout_trial" not in response.json()["state"]
-        assert "scout_trial_private" not in response.json()["state"]
         run.refresh_from_db()
         assert run.state is not None and run.state["task_summary"] == "Reviewed recent exports"
         assert run.state["task_tags"] == ["synthetic-trial-tag"]
@@ -672,20 +528,16 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert run.state is not None
         assert run.state["agent_version"] == "test-agent"
         assert run.state["token_usage"] == usage
-        assert run.state["scout_trial"] == marker
-        assert run.state["scout_trial_private"] == {"reports": []}
 
     @parameterized.expand(
         [
             ("model", {"state": {"model": "other"}}),
             ("effort", {"state": {"reasoning_effort": "low"}}),
-            ("marker", {"state": {"scout_trial": {}}}),
-            ("private", {"state": {"scout_trial_private": {}}}),
             ("other_state", {"state": {"custom_key": "value"}}),
             ("mixed_state", {"status": "failed", "state": {"agent_version": "test-agent", "model": "other"}}),
             ("state_type", {"status": "failed", "state": ["agent_version"]}),
             ("state_null", {"status": "failed", "state": None}),
-            ("remove", {"state_remove_keys": ["scout_trial"]}),
+            ("remove", {"state_remove_keys": ["model"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
             ("status_type", {"status": {"value": "failed"}}),
@@ -708,9 +560,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("unbound",),
             ("sibling_task",),
             ("other_run",),
-            ("missing_bridge",),
-            ("wrong_origin",),
-            ("wrong_marker",),
+            ("unregistered_token",),
             ("foreign_client",),
             ("gateway_only",),
         ]
@@ -730,13 +580,8 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             task, run = self.trial_tasks[1], self.trial_runs[1]
         elif case == "other_run":
             run = TaskRun.objects.create(task=task, team=self.team)
-        elif case == "missing_bridge":
-            SignalScoutRun.objects.for_team(self.team.id).filter(task_run=run).delete()
-        elif case == "wrong_origin":
-            task.origin_key = f"scout-trial:{uuid.uuid4()}"
-            task.save(update_fields=["origin_key"])
-        elif case == "wrong_marker":
-            run.state = {"scout_trial": {"version": 1, "launch_id": str(uuid.uuid4())}}
+        elif case == "unregistered_token":
+            run.state = {"sandbox_oauth_token_ids": [str(uuid.uuid4())]}
             run.save(update_fields=["state"])
 
         run.refresh_from_db()
@@ -10177,7 +10022,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("session", None, status.HTTP_200_OK),
             ("read_scope", "task:read", status.HTTP_200_OK),
             ("unrelated_scope", "query:read", status.HTTP_403_FORBIDDEN),
-            ("judge_scope", "scout_experiment_internal:read", status.HTTP_403_FORBIDDEN),
+            ("internal_scope_only", "scout_experiment_internal:read", status.HTTP_403_FORBIDDEN),
         ]
     )
     @patch("posthog.storage.object_storage.read_bytes")

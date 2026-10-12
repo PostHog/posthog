@@ -85,6 +85,7 @@ from products.autoresearch.backend.inference.sandbox import (
     count_inference_anchors,
     count_training_anchors,
     features_sql_digest,
+    measure_prediction_coverage,
     measure_training_sample,
     score_via_sandbox,
     validate_runnable_feature_sql,
@@ -362,6 +363,7 @@ def run_inference_for_pipeline(
         raise
 
     if not window.is_backfill:
+        _record_coverage(team=team, pipeline=pipeline, run=run, scored=scored, window=window, user=acting_user)
         try:
             outcome = _score_shadow_set(
                 team=team,
@@ -380,6 +382,34 @@ def run_inference_for_pipeline(
                 run.metrics["shadow_models"] = outcome.as_metrics()
                 run.save(update_fields=["metrics"])
     return run
+
+
+def _record_coverage(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    run: AutoresearchRun,
+    scored: ScoredPopulation,
+    window: ScoringWindow,
+    user: User,
+) -> None:
+    """
+    Store ``metrics["coverage"]`` on a completed live champion run.
+
+    The measure binds the run's cutoff, so it describes the population that the run selected from.
+    The run is already complete, so a failed measure only logs.
+    """
+    if scored.rows_eligible is None:
+        return
+    try:
+        coverage = measure_prediction_coverage(
+            team=team, pipeline=pipeline, cutoff_ts=window.cutoff_ts, eligible=scored.rows_eligible, user=user
+        )
+    except Exception:
+        logger.exception("autoresearch_coverage_failed", pipeline_id=str(pipeline.pk), run_id=str(run.pk))
+        return
+    run.metrics["coverage"] = coverage
+    run.save(update_fields=["metrics"])
 
 
 def _acting_user(*, team: Team, pipeline: AutoresearchPipeline, user: User | None) -> User:

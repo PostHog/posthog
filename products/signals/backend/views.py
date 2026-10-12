@@ -3228,6 +3228,20 @@ class SignalReportViewSet(
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
 
+            # A merged report has no signals of its own left: they moved to the survivor, and
+            # so did its work log. Restoring it would put an empty duplicate back in the inbox
+            # and start it collecting again alongside the report it was folded into.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status in {SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED}
+                and was_merged_away(report)
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "This report was merged into another one and can't be restored. Open the report it was "
+                    "merged into instead.",
+                )
+
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
             # through the archive into RESOLVED from candidate/in_progress with no title or summary.
@@ -3255,15 +3269,6 @@ class SignalReportViewSet(
                     return (
                         SignalReportBulkStateOutcome.SKIPPED,
                         "This report is archived. Refresh it before continuing.",
-                    )
-                # A merged report has no signals of its own left: they moved to the survivor, and
-                # so did its work log. Restoring it would put an empty duplicate back in the inbox
-                # and start it collecting again alongside the report it was folded into.
-                if was_merged_away(report):
-                    return (
-                        SignalReportBulkStateOutcome.SKIPPED,
-                        "This report was merged into another one and can't be restored. Open the report it was "
-                        "merged into instead.",
                     )
                 effective_target = report.restore_target_status()
 

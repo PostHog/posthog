@@ -25,6 +25,7 @@ from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
+    SignalScoutRun,
     SignalScratchpad,
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
@@ -42,7 +43,6 @@ from products.signals.backend.scout_harness.tools.report_author import ScoutRunR
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_harness.trial_state import (
-    SCOUT_TRIAL_STATE_KEY,
     ScoutTrialStateError,
     ScoutTrialStore,
     TrialReport,
@@ -83,6 +83,8 @@ class TestScoutTrialState(APIBaseTest):
 
         assert own.search_memory(key=original.key)[0].content == "First candidate"
         assert sibling.search_memory(key=original.key)[0].content == "Second candidate"
+        self.scout_run.task_run.refresh_from_db()
+        assert "scout_trial_private" not in (self.scout_run.task_run.state or {})
         assert sibling.search_memory(key="finding:new") == []
         original.refresh_from_db()
         assert original.content == "Production changed after capture"
@@ -96,12 +98,19 @@ class TestScoutTrialState(APIBaseTest):
         first = ScoutTrialStore(self.scout_run, initial_memory=[])
         second = ScoutTrialStore(self.scout_run, initial_memory=[])
         first.remember(key="first", content="First value")
+        latest = SignalScoutRun.objects.for_team(self.team.id).get(pk=self.scout_run.pk)
+        assert latest.metadata is not None
+        latest.metadata["derived"] = {"has_emit_report": False}
+        latest.save(update_fields=["metadata"])
         TaskRun.update_state_atomic(self.scout_run.task_run_id, updates={"sandbox_id": "existing-sandbox"})
         second.remember(key="second", content="Second value")
 
         assert {entry.key for entry in first.search_memory()} == {"first", "second"}
         self.scout_run.task_run.refresh_from_db()
         assert self.scout_run.task_run.state["sandbox_id"] == "existing-sandbox"
+        self.scout_run.refresh_from_db()
+        assert self.scout_run.metadata is not None
+        assert self.scout_run.metadata["derived"] == {"has_emit_report": False}
 
     @parameterized.expand(["completed", "cancelled", "failed"])
     def test_terminal_runs_reject_mutation(self, status: str) -> None:
@@ -110,17 +119,27 @@ class TestScoutTrialState(APIBaseTest):
 
         with self.assertRaisesMessage(ScoutTrialStateError, "no longer in progress"):
             store.remember(key="key", content="value")
-        self.scout_run.task_run.refresh_from_db()
-        assert SCOUT_TRIAL_STATE_KEY not in self.scout_run.task_run.state
         store.invalidate("The runner observed different settings.", allow_terminal=True)
         store.invalidate("Do not replace the first failure.", allow_terminal=True)
         assert store.invalid_reason() == "The runner observed different settings."
 
     def test_private_state_does_not_enable_trial_permissions(self) -> None:
         ordinary = _make_run(self.team)
-        TaskRun.update_state_atomic(ordinary.task_run_id, updates={SCOUT_TRIAL_STATE_KEY: {}})
+        assert ordinary.trial_state is None
+        ordinary.trial_state = {}
+        ordinary.save(update_fields=["trial_state"])
         with self.assertRaisesMessage(ScoutTrialStateError, "does not have a private context"):
             ScoutTrialStore(ordinary, initial_memory=[])
+
+    def test_missing_trial_state_rejects_reads_and_writes(self) -> None:
+        self.scout_run.trial_state = None
+        self.scout_run.save(update_fields=["trial_state"])
+        store = ScoutTrialStore(self.scout_run, initial_memory=[])
+
+        with self.assertRaisesMessage(ScoutTrialStateError, "no private state"):
+            store.export()
+        with self.assertRaisesMessage(ScoutTrialStateError, "no private state"):
+            store.remember(key="key", content="value")
 
     def test_limit_invalidates_trial_without_losing_accepted_content(self) -> None:
         store = ScoutTrialStore(self.scout_run, initial_memory=[])
@@ -182,8 +201,6 @@ class TestScoutTrialReportCapture(APIBaseTest):
         task.created_by = self.user
         task.origin_key = f"scout-trial:{marker['launch_id']}"
         task.save(update_fields=["created_by", "origin_key"])
-        self.scout_run.task_run.state = {**(self.scout_run.task_run.state or {}), "scout_trial": marker}
-        self.scout_run.task_run.save(update_fields=["state"])
         self.gateway_mint = self.enterContext(
             patch(
                 "products.signals.backend.scout_harness.trial_gateway.mint_private_gateway_token",
@@ -254,8 +271,9 @@ class TestScoutTrialReportCapture(APIBaseTest):
     @parameterized.expand(["untrusted_run", "revoked_actor", "revoked_membership"])
     def test_gateway_credential_rejects_invalid_trial_identity(self, condition: str) -> None:
         if condition == "untrusted_run":
-            self.scout_run.task_run.state = {}
-            self.scout_run.task_run.save(update_fields=["state"])
+            assert self.scout_run.metadata is not None
+            self.scout_run.metadata["scout_trial"] = {}
+            self.scout_run.save(update_fields=["metadata"])
         elif condition == "revoked_actor":
             self.user.is_active = False
             self.user.save(update_fields=["is_active"])

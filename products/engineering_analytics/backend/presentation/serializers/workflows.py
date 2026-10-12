@@ -1,6 +1,6 @@
 """Payloads for workflow/run/job-scoped reads: health, activity, jobs, costs, and master state."""
 
-from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
@@ -29,7 +29,7 @@ from products.engineering_analytics.backend.presentation.serializers._shared imp
 )
 
 
-class WorkflowRunDetailSerializer(LabeledChoicesDataclassSerializer):
+class WorkflowRunDetailSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
     class Meta:
@@ -79,7 +79,7 @@ class WorkflowRunDetailSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class WorkflowRunActivityPointSerializer(LabeledChoicesDataclassSerializer):
+class WorkflowRunActivityPointSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowRunActivityPoint
         extra_kwargs = {
@@ -104,7 +104,7 @@ class WorkflowRunActivityPointSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class WorkflowRunActivitySerializer(LabeledChoicesDataclassSerializer):
+class WorkflowRunActivitySerializer(DataclassSerializer):
     points = WorkflowRunActivityPointSerializer(
         many=True, help_text="Per-run chart points, newest first, capped at `limit`."
     )
@@ -120,7 +120,7 @@ class WorkflowRunActivitySerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class WorkflowJobSerializer(LabeledChoicesDataclassSerializer):
+class WorkflowJobSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {
@@ -158,7 +158,7 @@ class WorkflowJobSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class WorkflowRunnerCostSerializer(LabeledChoicesDataclassSerializer):
+class WorkflowRunnerCostSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowRunnerCost
         extra_kwargs = {
@@ -173,7 +173,7 @@ class WorkflowRunnerCostSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class WorkflowHealthBucketSerializer(LabeledChoicesDataclassSerializer):
+class WorkflowHealthBucketSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowHealthBucket
         extra_kwargs = {
@@ -190,7 +190,7 @@ class WorkflowHealthBucketSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class WorkflowHealthItemSerializer(LabeledChoicesDataclassSerializer):
+class WorkflowHealthItemSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
     buckets = WorkflowHealthBucketSerializer(
         many=True, help_text="Run history across the whole window, oldest first, zero-filled, bucketed by granularity."
@@ -274,7 +274,7 @@ class WorkflowHealthItemSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class CostPerMergeBucketSerializer(LabeledChoicesDataclassSerializer):
+class CostPerMergeBucketSerializer(DataclassSerializer):
     class Meta:
         dataclass = CostPerMergeBucket
         extra_kwargs = {
@@ -296,7 +296,7 @@ class CostPerMergeBucketSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class TimeToGreenBucketSerializer(LabeledChoicesDataclassSerializer):
+class TimeToGreenBucketSerializer(DataclassSerializer):
     class Meta:
         dataclass = TimeToGreenBucket
         extra_kwargs = {
@@ -313,7 +313,7 @@ class TimeToGreenBucketSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class PassRateBucketSerializer(LabeledChoicesDataclassSerializer):
+class PassRateBucketSerializer(DataclassSerializer):
     class Meta:
         dataclass = PassRateBucket
         extra_kwargs = {
@@ -329,7 +329,7 @@ class PassRateBucketSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class OpenToMergeBucketSerializer(LabeledChoicesDataclassSerializer):
+class OpenToMergeBucketSerializer(DataclassSerializer):
     class Meta:
         dataclass = OpenToMergeBucket
         extra_kwargs = {
@@ -344,7 +344,7 @@ class OpenToMergeBucketSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class ReadyToMergeBucketSerializer(LabeledChoicesDataclassSerializer):
+class ReadyToMergeBucketSerializer(DataclassSerializer):
     class Meta:
         dataclass = ReadyToMergeBucket
         extra_kwargs = {
@@ -360,7 +360,7 @@ class ReadyToMergeBucketSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class DeliveryStageTimingSerializer(LabeledChoicesDataclassSerializer):
+class DeliveryStageTimingSerializer(DataclassSerializer):
     class Meta:
         dataclass = DeliveryStageTiming
         extra_kwargs = {
@@ -386,7 +386,7 @@ class DeliveryStageTimingSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class DeliveryPipelineSerializer(LabeledChoicesDataclassSerializer):
+class DeliveryPipelineSerializer(DataclassSerializer):
     stages = DeliveryStageTimingSerializer(
         many=True,
         help_text="The legs, ordered open to merge. A leg with nothing observed still appears, "
@@ -404,7 +404,7 @@ class DeliveryPipelineSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class RepoOverviewSerializer(LabeledChoicesDataclassSerializer):
+class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
@@ -646,7 +646,7 @@ class RepoOverviewSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class CurrentBranchHealthSerializer(LabeledChoicesDataclassSerializer):
+class CurrentBranchHealthSerializer(DataclassSerializer):
     class Meta:
         dataclass = CurrentBranchHealth
         extra_kwargs = {
@@ -664,7 +664,7 @@ class CurrentBranchHealthSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class MasterFailureGroupSerializer(LabeledChoicesDataclassSerializer):
+class MasterFailureGroupSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
 
     class Meta:
@@ -684,7 +684,7 @@ class MasterFailureGroupSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class RunFailureLogsSerializer(LabeledChoicesDataclassSerializer):
+class RunFailureLogsSerializer(DataclassSerializer):
     jobs = CIJobFailureLogSerializer(
         many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
     )
@@ -702,7 +702,7 @@ class RunFailureLogsSerializer(LabeledChoicesDataclassSerializer):
         }
 
 
-class WorkflowJobAggregateSerializer(LabeledChoicesDataclassSerializer):
+class WorkflowJobAggregateSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowJobAggregate
         extra_kwargs = {

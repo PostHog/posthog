@@ -18,7 +18,6 @@ from django.utils import timezone
 
 import posthoganalytics
 from croniter import CroniterError, croniter
-from pydantic import JsonValue
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
@@ -69,11 +68,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     load_trial_launch,
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
-from products.signals.backend.scout_harness.trial_state import (
-    SCOUT_TRIAL_METADATA_KEY,
-    SCOUT_TRIAL_STATE_KEY,
-    initial_trial_state,
-)
+from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1009,8 +1004,8 @@ async def _spawn_and_run(
         },
     )
 
-    def _create_bridge_row(task_run_id: UUID) -> dict[str, JsonValue] | None:
-        scout_run = _create_run_row(
+    def _create_bridge_row(task_run_id: UUID) -> None:
+        _create_run_row(
             run_id=run_id,
             task_run_id=task_run_id,
             team=team,
@@ -1048,12 +1043,6 @@ async def _spawn_and_run(
                 service_tier=service_tier,
             )
         )
-        if trial is not None:
-            return {
-                SCOUT_TRIAL_METADATA_KEY: (scout_run.metadata or {})[SCOUT_TRIAL_METADATA_KEY],
-                SCOUT_TRIAL_STATE_KEY: initial_trial_state(),
-            }
-        return None
 
     session, result = await MultiTurnSession.start(
         prompt=prompt,
@@ -1405,6 +1394,7 @@ def _create_run_row(
         skill_name=skill.name,
         skill_version=skill.version,
         metadata=metadata,
+        trial_state=initial_trial_state() if trial is not None else None,
     )
 
 

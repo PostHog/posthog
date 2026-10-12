@@ -20,6 +20,7 @@ from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.reviewer.constants import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.github_client import (
     GITHUB_API_BASE,
     GitHubAPIError,
@@ -47,12 +48,6 @@ _MAX_THREAD_PAGES = 20
 _RANK_HUMAN = 0
 _RANK_REVIEW_HOG = 1
 _RANK_OTHER_BOT = 2
-
-# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
-# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
-# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
-# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
-REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
 
 
 class ThreadComment(BaseModel):

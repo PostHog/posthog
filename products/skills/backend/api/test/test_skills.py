@@ -2758,9 +2758,7 @@ class TestScoutTrialSkillAPI(APIBaseTest):
             origin_key=f"scout-trial:{self.launch.id}",
             created_by=self.operator,
         )
-        self.task_run = TaskRun.objects.create(
-            task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"scout_trial": marker}
-        )
+        self.task_run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         SignalScoutRun.objects.for_team(self.team.id).create(
             team=self.team,
             task_run=self.task_run,
@@ -2786,6 +2784,8 @@ class TestScoutTrialSkillAPI(APIBaseTest):
             scoped_teams=[self.team.id],
             sandbox_task_id=self.task.id,
         )
+        self.task_run.state = {"sandbox_oauth_token_ids": [str(self.token.pk)]}
+        self.task_run.save(update_fields=["state"])
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token.token}")
 
@@ -2872,13 +2872,23 @@ class TestScoutTrialSkillAPI(APIBaseTest):
             response = self.client.get(self._url())
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @parameterized.expand([("different_task",), ("untrusted_state",)])
+    @parameterized.expand([("different_task",), ("unregistered_token",), ("different_run",), ("wrong_origin",)])
     def test_private_prompt_rejects_unbound_identity(self, mismatch: str) -> None:
         if mismatch == "different_task":
             self.token.sandbox_task_id = uuid.uuid4()
             self.token.save(update_fields=["sandbox_task_id"])
+        elif mismatch == "wrong_origin":
+            self.task.origin_key = "ordinary-task"
+            self.task.save(update_fields=["origin_key"])
         else:
-            self.task_run.state = {"scout_trial": {"version": 1}}
+            if mismatch == "different_run":
+                TaskRun.objects.create(
+                    task=self.task,
+                    team=self.team,
+                    status=TaskRun.Status.IN_PROGRESS,
+                    state={"sandbox_oauth_token_ids": [str(self.token.pk)]},
+                )
+            self.task_run.state = {}
             self.task_run.save(update_fields=["state"])
         with patch("posthog.storage.object_storage.read") as storage_read:
             response = self.client.get(self._url())

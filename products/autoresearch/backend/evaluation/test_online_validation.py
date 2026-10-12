@@ -81,6 +81,57 @@ class TestComputeValidationMetrics(SimpleTestCase):
         assert 0.0 <= metrics["brier_score"] <= 1.0
         assert 0.0 <= metrics["calibration_error"] <= 1.0
         assert "lift_at_10" in metrics
+        for counts in metrics["confusion"].values():
+            assert counts["tp"] + counts["fp"] + counts["fn"] + counts["tn"] == 2
+        if labels:
+            assert metrics["average_precision"] == 1.0
+            assert metrics["confusion"]["likely"]["recall"] == 0.5
+        else:
+            assert metrics["average_precision"] is None
+            assert metrics["confusion"]["likely"] == {
+                "tp": 0,
+                "fp": 1,
+                "fn": 0,
+                "tn": 1,
+                "n_flagged": 1,
+                "precision": 0.0,
+                "recall": None,
+            }
+
+    def test_confusion_counts_flag_every_tie_at_the_top_k_boundary(self):
+        scores = [0.9, 0.7, 0.7, 0.7, 0.5, 0.3, 0.2, 0.1, 0.1, 0.05]
+        preds = {f"user-{i}": score for i, score in enumerate(scores)}
+        positives = frozenset(["user-0", "user-3", "user-5"])
+
+        metrics = _compute_validation_metrics(preds, positives, prediction_date=date(2026, 9, 1))
+        reversed_metrics = _compute_validation_metrics(
+            dict(reversed(list(preds.items()))), positives, prediction_date=date(2026, 9, 1)
+        )
+
+        assert metrics["confusion"] == reversed_metrics["confusion"]
+        assert metrics["confusion"]["top_10"] == {
+            "tp": 1,
+            "fp": 0,
+            "fn": 2,
+            "tn": 7,
+            "n_flagged": 1,
+            "precision": 1.0,
+            "recall": 0.3333,
+        }
+        assert metrics["confusion"]["top_20"] == {
+            "tp": 2,
+            "fp": 2,
+            "fn": 1,
+            "tn": 5,
+            "n_flagged": 4,
+            "precision": 0.5,
+            "recall": 0.6667,
+        }
+        assert metrics["confusion"]["likely"] == metrics["confusion"]["top_20"]
+        for counts in metrics["confusion"].values():
+            assert counts["tp"] + counts["fp"] + counts["fn"] + counts["tn"] == metrics["n_scored"]
+            assert counts["tp"] + counts["fn"] == metrics["n_positive"]
+        assert 0.0 < metrics["average_precision"] <= 1.0
 
 
 class TestAucConfidenceInterval(SimpleTestCase):

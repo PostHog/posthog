@@ -20,12 +20,16 @@ export function insightQueryProperties(query: unknown): InsightQueryProperties {
     const node = query as Record<string, unknown>
     const hasSource = typeof node.source === 'object' && node.source !== null
     const source = (hasSource ? node.source : node) as Record<string, any>
-    const defaultDisplay =
-        source.kind === 'TrendsQuery' || source.kind === 'StickinessQuery' ? 'ActionsLineGraph' : undefined
     return {
         queryKind: typeof node.kind === 'string' ? node.kind : undefined,
         querySourceKind: hasSource && typeof source.kind === 'string' ? source.kind : undefined,
-        display: source.trendsFilter?.display ?? source.stickinessFilter?.display ?? defaultDisplay,
+        // Only what the query set, so an unset display stays empty instead of looking like a pick.
+        // SQL insights keep their display on the wrapper node, not on the HogQL source.
+        display:
+            source.trendsFilter?.display ??
+            source.stickinessFilter?.display ??
+            source.retentionFilter?.display ??
+            (node.kind === 'DataVisualizationNode' && typeof node.display === 'string' ? node.display : undefined),
         funnelVizType: source.funnelsFilter?.funnelVizType,
     }
 }

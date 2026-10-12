@@ -150,7 +150,7 @@ logger = structlog.get_logger(__name__)
     }
 )
 class RunMetadataField(serializers.DictField):
-    """The run row's whole `metadata` column: runner-stamped keys at the top level plus the nested
+    """The run row's public `metadata`: runner-stamped keys at the top level plus the nested
     `derived` map of harness-computed booleans.
 
     The known keys are spelled out so generated TypeScript and MCP consumers get real types

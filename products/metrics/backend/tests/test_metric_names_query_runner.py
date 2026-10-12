@@ -9,6 +9,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client import sync_execute
+
 from products.metrics.backend.facade.api import list_metric_picker_names
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
 from products.metrics.backend.metric_names_query_runner import (
@@ -158,11 +162,11 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(run.call_count, 4)
 
     def test_picker_names_do_not_cache(self):
-        with patch.object(MetricNamesQueryRunner, "run") as run:
-            run.return_value = [{"name": "m1", "metric_type": "gauge"}]
-            self.assertEqual(list_metric_picker_names(team=self.team), run.return_value)
-            self.assertEqual(list_metric_picker_names(team=self.team), run.return_value)
-            self.assertEqual(run.call_count, 2)
+        with patch.object(MetricNamesQueryRunner, "run_picker") as run_picker:
+            run_picker.return_value = [{"name": "m1", "metric_type": "gauge"}]
+            self.assertEqual(list_metric_picker_names(team=self.team), run_picker.return_value)
+            self.assertEqual(list_metric_picker_names(team=self.team), run_picker.return_value)
+            self.assertEqual(run_picker.call_count, 2)
 
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -312,9 +316,14 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/metrics/names/")
+        with patch(
+            "products.metrics.backend.metric_names_query_runner.execute_hogql_query", wraps=execute_hogql_query
+        ) as execute:
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/names/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": [{"name": "m1", "metric_type": "gauge"}]})
+        self.assertEqual(execute.call_count, 1)
+        self.assertNotIn("metric_series", str(execute.call_args.kwargs["query"]))
 
     def test_values_search_param(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -442,6 +451,26 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(sparkline), 1)
         self.assertLess(sparkline[0], sparkline[-1])
 
+    def test_catalog_page_is_not_cut_at_the_default_query_limit(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for i in range(101):
+            _seed_point(team_id=self.team.id, metric_name=f"m{i:03d}", value=1.0, timestamp=anchor)
+
+        rows = MetricNamesQueryRunner(team=self.team, limit=150, include_sparklines=False).run()
+
+        self.assertEqual(len(rows), 101)
+
+    def test_every_name_in_a_batch_gets_a_sparkline(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(hours=6)
+        names = [f"busy.{i:02d}" for i in range(MAX_SPARKLINE_BATCH_SIZE)]
+        for name in names:
+            points = [(anchor + dt.timedelta(minutes=15 * i + 1), float(i)) for i in range(24)]
+            seed_metric_event(team_id=self.team.id, metric_name=name, points=points, metric_type="gauge")
+
+        rows = MetricNamesQueryRunner(team=self.team, names=names).run()
+
+        self.assertEqual({row["name"]: len(row["sparkline"]) > 1 for row in rows}, dict.fromkeys(names, True))
+
     def test_sparkline_is_bounded(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=120)
         points = [(anchor + dt.timedelta(minutes=i), float(i % 7)) for i in range(120)]
@@ -531,11 +560,20 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
 
         with patch("products.metrics.backend.metric_names_query_runner.execute_hogql_query") as execute:
-            execute.side_effect = [
-                MagicMock(results=[("m1", 1)]),
-                MagicMock(results=[("m1", "gauge", "", timezone.now())]),
-            ]
+            execute.return_value = MagicMock(results=[("m1", "gauge", "", timezone.now())])
             rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
 
-        self.assertEqual(execute.call_count, 2)
+        self.assertEqual(execute.call_count, 1)
         self.assertEqual(rows[0]["sparkline"], [])
+
+    def test_name_without_a_series_row_keeps_empty_details(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics4_series")
+
+        rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
+
+        self.assertEqual(
+            [(row["name"], row["metric_type"], row["unit"], row["last_seen"]) for row in rows],
+            [("m1", "", "", None)],
+        )

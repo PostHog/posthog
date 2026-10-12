@@ -32,6 +32,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     status_marker,
     update_resolution_status_comment,
 )
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 from products.review_hog.backend.temporal.activities import _fail_run
 
 _MODULE = "products.review_hog.backend.reviewer.status_comment"
@@ -241,21 +242,14 @@ class TestRenderFinalBody:
 
     @parameterized.expand(
         [
-            # A clean turn posts no review, so the status comment is the only place a note can appear.
-            ("clean_large_pr", 0, 4, 0, True, False),
-            ("large_pr_with_findings", 2, 4, 0, True, False),
-            ("normal_pr", 2, None, 0, False, False),
-            ("clean_additional_review", 0, None, 2, False, True),
+            # A clean turn posts no review, so the status comment is the only place the note can appear.
+            ("clean_large_pr", 0, 4, True),
+            ("large_pr_with_findings", 2, 4, True),
+            ("normal_pr", 2, None, False),
         ]
     )
-    def test_turn_notes_show_whether_or_not_a_review_posts(
-        self,
-        _name: str,
-        must_fix: int,
-        capped_lens_parts: int | None,
-        already_raised: int,
-        expect_large_note: bool,
-        expect_skipped_note: bool,
+    def test_large_pr_note_shows_whether_or_not_a_review_posts(
+        self, _name: str, must_fix: int, capped_lens_parts: int | None, expect_note: bool
     ) -> None:
         body = render_final_body(
             "rid",
@@ -266,12 +260,39 @@ class TestRenderFinalBody:
             review_url=None,
             review_mode=REVIEW_MODE_FLASH,
             capped_lens_parts=capped_lens_parts,
-            already_raised=already_raised,
         )
 
-        large_note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
-        skipped_note = "Skipped 2 findings that other comments on this pull request already raise."
-        assert ((large_note in body), (skipped_note in body)) == (expect_large_note, expect_skipped_note)
+        note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
+        assert (note in body) is expect_note
+
+    @parameterized.expand([("clean_turn", 0, "Nothing new to raise."), ("turn_with_findings", 1, "Found ")])
+    def test_full_lists_what_other_comments_already_raise(self, _name: str, must_fix: int, opening: str) -> None:
+        raised = [
+            AlreadyRaised(title=f"Problem {n}", level="P2", comment_id=100 + n, commenter="greptile-apps[bot]")
+            for n in range(12)
+        ]
+
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: must_fix, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=must_fix,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+            raised_elsewhere=raised[:10],
+            raised_elsewhere_count=len(raised),
+            pr_url="https://github.com/o/r/pull/7",
+        )
+
+        # A Full turn that only repeated other reviewers must say so instead of celebrating a clean PR.
+        assert opening in body
+        assert "Enjoy the moment" not in body
+        assert (
+            "- **P2 · Problem 0**, raised by `greptile-apps[bot]` ([comment](https://github.com/o/r/pull/7#discussion_r100))"
+            in body
+        )
+        assert "Problem 10" not in body
+        assert "- and 2 more" in body
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
@@ -454,6 +475,7 @@ class TestFinalizeStatusComment(BaseTest):
         for issue, validation in verdicts:
             persist_verdict(team_id=self.team.id, report_id=report_id, issue=issue, validation=validation, run_index=1)
 
+        leaked = "ghs_" + "a" * 36
         finalize_status_comment(
             FinalizeStatusCommentInput(
                 team_id=self.team.id,
@@ -461,12 +483,19 @@ class TestFinalizeStatusComment(BaseTest):
                 run_index=1,
                 urgency_threshold=IssuePriority.SHOULD_FIX.value,
                 review_url="https://g/review",
+                raised_elsewhere=[
+                    AlreadyRaised(title=f"Token {leaked} leaks", level="P1", comment_id=9, commenter="other[bot]")
+                ],
+                raised_elsewhere_count=1,
             )
         )
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
         assert "Found **1 must fix**, **0 should fix**, **2 consider**" in body
+        # Titles in the already-raised list are model text, so a token quoted from sandbox output must not post.
+        assert leaked not in body
+        assert "**P1 · Token [redacted] leaks**" in body
         assert "Published 1 finding ([view the review](https://g/review))" in body
         assert '2 findings stayed below the author\'s "Should fix" urgency threshold' in body
         # The held-back link into the app. `?review=<report id>` is a permanent public contract

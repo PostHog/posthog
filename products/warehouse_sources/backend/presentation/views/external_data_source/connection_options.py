@@ -309,6 +309,7 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
             team_id=self.team_id,
             source_id=source.id,
             destination_ids=serializer.validated_data["destination_ids"],
+            authorize_resume=self._assert_can_write_schemas,
         )
         return Response(
             status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data

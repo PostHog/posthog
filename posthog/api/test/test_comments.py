@@ -707,11 +707,11 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             ("unbound_trial", "scout-trial:", "unbound", False, False),
             ("sibling_judge", "scout-trial-judge:", "other", False, False),
             ("ordinary_task", "", "other", False, True),
-            ("judge_token", "scout-trial-judge:", "own", True, False),
+            ("internal_only_token", "scout-trial-judge:", "own", True, False),
         ]
     )
     def test_generic_task_comment_reads_respect_trial_task_binding(
-        self, _name: str, origin_prefix: str, binding: str, judge_token: bool, visible: bool
+        self, _name: str, origin_prefix: str, binding: str, internal_only_token: bool, visible: bool
     ) -> None:
         task = self._task_artifact_target(public=False)
         if origin_prefix:
@@ -748,7 +748,9 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         bound_task_id = task.id if binding == "own" else other_task.id if binding == "other" else None
         client = self._sandbox_task_comment_client(
             task_id=bound_task_id,
-            scopes=" ".join(resolve_scopes("signals_scout_judge" if judge_token else "signals_scout_experiment")),
+            scopes="scout_experiment_internal:read"
+            if internal_only_token
+            else " ".join(resolve_scopes("signals_scout_experiment")),
         )
 
         listed = client.get(url, query)
@@ -756,7 +758,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         retrieved = client.get(f"{url}/{root.id}")
         thread = client.get(f"{url}/{root.id}/thread")
 
-        if judge_token:
+        if internal_only_token:
             assert [response.status_code for response in (listed, counted, retrieved, thread)] == [
                 status.HTTP_403_FORBIDDEN
             ] * 4
