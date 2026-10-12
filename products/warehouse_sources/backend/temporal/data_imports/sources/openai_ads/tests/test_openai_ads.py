@@ -188,6 +188,23 @@ class TestInsights:
         window = json.loads(sent["time_ranges[]"])
         assert (window["since"], window["until"]) == ("2026-06-01", "2026-07-19")
 
+    @parameterized.expand(
+        [
+            ("first_sync", None),
+            ("stale_watermark", datetime(2025, 1, 1, tzinfo=UTC)),
+        ]
+    )
+    @time_machine.travel("2026-10-08", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_window_starts_within_the_reporting_history(self, _name: str, last_value: Any, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"currency_code": "EUR"}), _page([], has_more=False)])
+
+        _rows(_source("campaign_insights", _make_manager(), last_value=last_value))
+
+        window = json.loads(params[1]["params"]["time_ranges[]"])
+        assert (window["since"], window["until"]) == ("2025-10-10", "2026-10-08")
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_account_currency_stops_sync(self, MockSession) -> None:
         session = MockSession.return_value
