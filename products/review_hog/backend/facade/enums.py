@@ -62,3 +62,62 @@ class ReviewSkillKind(StrEnum):
     VALIDATION = "validation"
     BLIND_SPOTS = "blind_spots"
     RESOLUTION = "resolution"
+
+
+class AutomaticFlashFor(LabeledStrEnum):
+    """Who gets automatic Flash reviews under a project rule or a repository exception."""
+
+    EVERYONE = "everyone", "Automatic Flash for everyone"
+    LISTED = "listed", "Automatic Flash for these people"
+    OFF = "off", "Automatic Flash opt-in only"
+
+
+class ReviewProjectSettingsBotPullRequests(LabeledStrEnum):
+    SKIP = "skip", "Not reviewed"
+    RUN = "run", "Automatic Flash"
+
+
+class ReviewInstallationClaimScope(LabeledStrEnum):
+    ALL = "all", "All repositories"
+    SELECTED = "selected", "Only selected repositories"
+
+
+class ReviewRepositoryPersonKind(LabeledStrEnum):
+    LISTED = "listed", "Listed"
+    EXCEPTED = "excepted", "Excepted"
+
+
+class ReviewUserRepositoryChoiceMode(LabeledStrEnum):
+    FLASH = "flash", "Flash"
+    OFF = "off", "Off"
+
+
+class AutomaticReviewReason(LabeledStrEnum):
+    OWN_REPOSITORY_CHOICE = "own_repository_choice", "Own choice for this repository"
+    OWN_DEFAULT = "own_default", "Own default"
+    REPOSITORY_EVERYONE = "repository_everyone", "The repository exception reviews everyone"
+    REPOSITORY_EXCEPTED = "repository_excepted", "Excepted by the repository exception"
+    REPOSITORY_LISTED = "repository_listed", "Listed by the repository exception"
+    REPOSITORY_NOT_LISTED = "repository_not_listed", "Not listed by the repository exception"
+    REPOSITORY_OPT_IN = "repository_opt_in", "The repository exception reviews only people who opt in"
+    PROJECT_EVERYONE = "project_everyone", "The project reviews everyone"
+    PROJECT_EXCEPTED = "project_excepted", "Excepted by the project"
+    PROJECT_LISTED = "project_listed", "Listed by the project"
+    PROJECT_NOT_LISTED = "project_not_listed", "Not listed by the project"
+    PROJECT_OPT_IN = "project_opt_in", "The project reviews only people who opt in"
+    BOT_REVIEWED = "bot_reviewed", "The project reviews bot pull requests"
+    BOT_SKIPPED = "bot_skipped", "The project does not review bot pull requests"
+    NOT_IN_PROJECT = "not_in_project", "This project does not review the repository"
+
+
+class RepositoryOwnerKind(LabeledStrEnum):
+    THIS_PROJECT = "this_project", "This project"
+    OTHER_PROJECT = "other_project", "Another project"
+    NONE = "none", "No project"
+
+
+class RepositoryOverviewView(LabeledStrEnum):
+    ALL = "all", "All repositories"
+    IN_PROJECT = "in_project", "In this project"
+    EXCEPTIONS = "exceptions", "With exceptions"
+    MINE = "mine", "My choices"
