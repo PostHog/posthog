@@ -93,17 +93,19 @@ describe('ReportFeedbackFooter', () => {
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
     })
 
-    it('sends a note with Enter after a rating and shows what went through', async () => {
+    it('asks why only on thumbs-down, sends the note with Enter, and shows what went through', async () => {
         setCelebrationFlag(false)
-        expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
 
         await user.click(screen.getByLabelText('This report was useful'))
-        await user.type(screen.getByLabelText('Add a note about this report'), 'The repro steps were right{Enter}')
+        expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
+
+        await user.click(screen.getByLabelText('This report was not useful'))
+        await user.type(screen.getByLabelText('Add a note about this report'), 'The repro steps were wrong{Enter}')
 
         expect(captureInboxReportFeedbackNote).toHaveBeenCalledWith(
-            expect.objectContaining({ sentiment: 'positive', note: 'The repro steps were right' })
+            expect.objectContaining({ sentiment: 'negative', note: 'The repro steps were wrong' })
         )
-        expect(screen.getByText('Note added: The repro steps were right')).toBeVisible()
+        expect(screen.getByText('Note added: The repro steps were wrong')).toBeVisible()
         expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
     })
 

@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconArrowRight, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
+import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -17,9 +18,9 @@ const FEEDBACK_NOTE_MAX_LENGTH = 4000
 
 /**
  * Thumbs rating at the end of the report body, where someone has just finished reading. The rating
- * submits on the first click, so there's no text field to mistake for the dismissal reason. Only
- * once it's recorded does an optional one-line note field appear under the row, so the note can
- * never gate the rating, and ignoring it leaves the flow exactly as it was.
+ * submits on the first click, so there's no text field to mistake for the dismissal reason. Only a
+ * thumbs-down asks a follow-up question, the way PostHog AI's answer rating does: that is where
+ * readers write notes, and the note can never gate the rating.
  */
 export function ReportFeedbackFooter({
     report,
@@ -35,6 +36,11 @@ export function ReportFeedbackFooter({
     const { rateReport, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
 
     const { celebrate, celebration } = useReportFeedbackCelebration()
+    // Focus the question only in the instance that was clicked: the row is rendered on more than one
+    // tab, and `LemonTabs` remounts tab content, so an unconditional `autoFocus` would grab focus on
+    // every tab switch.
+    const [askedHere, setAskedHere] = useState(false)
+    const [questionDismissed, setQuestionDismissed] = useState(false)
     const sendNote = (): void => {
         if (feedbackNoteDraft.trim()) {
             submitFeedbackNote(feedbackNoteDraft)
@@ -49,10 +55,13 @@ export function ReportFeedbackFooter({
             return
         }
         rateReport(sentiment)
+        setQuestionDismissed(false)
+        setAskedHere(sentiment === 'negative')
         if (sentiment === 'positive') {
             celebrate()
         }
     }
+    const askingWhy = feedbackSentiment === 'negative' && !feedbackNoteSent && !questionDismissed
 
     return (
         <div className={align === 'end' ? 'flex flex-col items-end gap-2 pt-1' : 'flex flex-col gap-2 pt-1'}>
@@ -100,37 +109,53 @@ export function ReportFeedbackFooter({
                     />
                 </div>
             </div>
-            {/* The note lives under the row so it never pushes the thumbs sideways. */}
-            {feedbackSentiment && !feedbackNoteSent && (
-                <LemonInput
-                    size="xsmall"
-                    value={feedbackNoteDraft}
-                    onChange={setFeedbackNoteDraft}
-                    onPressEnter={sendNote}
-                    placeholder="What was useful or off?"
-                    // The placeholder is the only visible prompt and it disappears on the first
-                    // keystroke, so the field carries its own name for screen readers.
-                    aria-label="Add a note about this report"
-                    maxLength={FEEDBACK_NOTE_MAX_LENGTH}
-                    className="w-full max-w-64"
-                    suffix={
+            {/* The question lives under the row so it never pushes the thumbs sideways. */}
+            {askingWhy && (
+                <div
+                    className="flex w-full max-w-80 flex-col gap-1.5 rounded border border-primary p-2"
+                    data-attr="inbox-report-feedback-question"
+                >
+                    <div className="flex items-center gap-1">
+                        <span className="grow text-xs font-medium text-primary">What was off?</span>
                         <LemonButton
                             size="xsmall"
-                            type="primary"
-                            icon={<IconArrowRight />}
-                            tooltip="Send note"
-                            aria-label="Send note"
-                            loading={feedbackNoteSubmitting}
-                            disabledReason={feedbackNoteDraft.trim() ? undefined : 'Write a note first'}
-                            onClick={sendNote}
-                            data-attr="inbox-report-feedback-note-send"
+                            type="tertiary"
+                            icon={<IconX />}
+                            aria-label="Dismiss"
+                            onClick={() => setQuestionDismissed(true)}
+                            data-attr="inbox-report-feedback-question-dismiss"
                         />
-                    }
-                    data-attr="inbox-report-feedback-note"
-                />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <LemonInput
+                            size="small"
+                            fullWidth
+                            value={feedbackNoteDraft}
+                            onChange={setFeedbackNoteDraft}
+                            onPressEnter={sendNote}
+                            placeholder="Your note goes to the scout that wrote this"
+                            aria-label="Add a note about this report"
+                            maxLength={FEEDBACK_NOTE_MAX_LENGTH}
+                            autoFocus={askedHere}
+                            data-attr="inbox-report-feedback-note"
+                        />
+                        {/* Shown only once there is text, so there is never a disabled button to look at. */}
+                        {feedbackNoteDraft.trim() && (
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                loading={feedbackNoteSubmitting}
+                                onClick={sendNote}
+                                data-attr="inbox-report-feedback-note-send"
+                            >
+                                Send
+                            </LemonButton>
+                        )}
+                    </div>
+                </div>
             )}
             {feedbackNoteSent && (
-                <p className={clsx('m-0 max-w-64 text-xs text-tertiary', align === 'end' && 'text-end')}>
+                <p className={clsx('m-0 max-w-80 text-xs text-tertiary', align === 'end' && 'text-end')}>
                     Note added: {feedbackSentNote}
                 </p>
             )}

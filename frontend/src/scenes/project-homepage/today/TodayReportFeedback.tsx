@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { type ChangeEvent, type KeyboardEvent } from 'react'
+import { type ChangeEvent, type KeyboardEvent, useState } from 'react'
 
-import { IconArrowRight, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
+import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { Input, Text } from '@posthog/quill'
 
 import { useReportFeedbackCelebration } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackCelebration'
@@ -21,11 +21,13 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
     const { celebrate, celebration } = useReportFeedbackCelebration()
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
+    const [questionDismissed, setQuestionDismissed] = useState(false)
     const sendNote = (): void => {
         if (feedbackNoteDraft.trim()) {
             submitFeedbackNote(feedbackNoteDraft, 'today')
         }
     }
+    const askingWhy = isNegative && !feedbackNoteSent && !questionDismissed
 
     return (
         <div className="flex flex-col gap-2" data-attr="today-report-feedback">
@@ -68,47 +70,72 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     aria-label="This report was not useful"
                     aria-pressed={isNegative}
                     tooltip="No, this wasn't useful"
-                    onClick={() => !isNegative && rateReport('negative', 'today')}
+                    onClick={() => {
+                        if (!isNegative) {
+                            rateReport('negative', 'today')
+                            setQuestionDismissed(false)
+                        }
+                    }}
                     data-attr="today-report-feedback-down"
                 >
                     {isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                 </TodayActionButton>
             </div>
-            {/* The note lives under the row so it never pushes the thumbs sideways. */}
-            {feedbackSentiment && !feedbackNoteSent && (
-                <div className="flex w-full max-w-64 items-center gap-1">
-                    <Input
-                        value={feedbackNoteDraft}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) => setFeedbackNoteDraft(event.target.value)}
-                        onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                                event.preventDefault()
-                                sendNote()
+            {/* The question lives under the row so it never pushes the thumbs sideways. */}
+            {askingWhy && (
+                <div
+                    className="flex w-full max-w-80 flex-col gap-1.5 rounded-md border border-primary p-2"
+                    data-attr="today-report-feedback-question"
+                >
+                    <div className="flex items-center gap-1">
+                        <Text size="xs" weight="medium" render={<span />} className="grow">
+                            What was off?
+                        </Text>
+                        <TodayActionButton
+                            size="icon-sm"
+                            aria-label="Dismiss"
+                            onClick={() => setQuestionDismissed(true)}
+                            data-attr="today-report-feedback-question-dismiss"
+                        >
+                            <IconX />
+                        </TodayActionButton>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <Input
+                            value={feedbackNoteDraft}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                setFeedbackNoteDraft(event.target.value)
                             }
-                        }}
-                        placeholder="What was useful or off?"
-                        aria-label="Add a note about this report"
-                        maxLength={NOTE_MAX_LENGTH}
-                        // Same height as the icon-sm thumbs next to it.
-                        className="h-6 min-w-0 flex-1"
-                        data-attr="today-report-feedback-note"
-                    />
-                    <TodayActionButton
-                        variant="primary"
-                        size="icon-sm"
-                        aria-label="Send note"
-                        tooltip="Send note"
-                        loading={feedbackNoteSubmitting}
-                        disabledReason={feedbackNoteDraft.trim() ? null : 'Write a note first'}
-                        onClick={sendNote}
-                        data-attr="today-report-feedback-note-send"
-                    >
-                        <IconArrowRight />
-                    </TodayActionButton>
+                            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                                    event.preventDefault()
+                                    sendNote()
+                                }
+                            }}
+                            placeholder="Your note goes to the scout that wrote this"
+                            aria-label="Add a note about this report"
+                            maxLength={NOTE_MAX_LENGTH}
+                            autoFocus
+                            className="min-w-0 flex-1"
+                            data-attr="today-report-feedback-note"
+                        />
+                        {/* Shown only once there is text, so there is never a disabled button to look at. */}
+                        {feedbackNoteDraft.trim() && (
+                            <TodayActionButton
+                                variant="primary"
+                                size="sm"
+                                loading={feedbackNoteSubmitting}
+                                onClick={sendNote}
+                                data-attr="today-report-feedback-note-send"
+                            >
+                                Send
+                            </TodayActionButton>
+                        )}
+                    </div>
                 </div>
             )}
             {feedbackNoteSent && (
-                <Text size="xs" variant="muted" render={<p className="m-0 max-w-64" />}>
+                <Text size="xs" variant="muted" render={<p className="m-0 max-w-80" />}>
                     Note added: {feedbackSentNote}
                 </Text>
             )}
