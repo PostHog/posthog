@@ -34,7 +34,13 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         systemTabId: 'system:tasks',
         featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
     },
-    { kind: 'users', tagName: 'Users', label: 'Users', systemTabId: 'system:users' },
+    {
+        kind: 'users',
+        tagName: 'Users',
+        label: 'Users',
+        systemTabId: 'system:users',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+    },
     {
         kind: 'relationships',
         tagName: 'Relationships',

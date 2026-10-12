@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { getVisibleAccountExpansionTab } from '../../components/Accounts/accountsExpansionLogic'
 import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
 import type { AccountDetailTabsConfigApi, AccountViewApi } from '../../generated/api.schemas'
 import {
@@ -34,6 +37,15 @@ describe('account tabs', () => {
     it.each(['properties', 'session_replays'])('offers %s tiles without adding a system tab', (kind) => {
         expect(listAvailableAccountViewComponents({}).map((component) => component.kind)).toContain(kind)
         expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain(kind)
+    })
+
+    it.each(['users', 'meetings'])('offers the %s tab only with the CSP flag', (kind) => {
+        const cspFlags = { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true }
+
+        expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain(kind)
+        expect(getVisibleAccountExpansionTab(kind, {})).toBe('notes')
+        expect(listAccountTabs(cspFlags, []).map((tab) => tab.routeKey)).toContain(kind)
+        expect(getVisibleAccountExpansionTab(kind, cspFlags)).toBe(kind)
     })
 
     it('falls back from an unavailable system route but keeps an unknown view route', () => {
