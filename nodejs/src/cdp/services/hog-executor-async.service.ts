@@ -164,6 +164,9 @@ export class HogExecutorAsyncService {
                         nextInvocation,
                         options?.isTest ?? false
                     )
+                    if (invocation.queue === 'email' && !result.finished) {
+                        this.keepPushRetryInEmailQueueOrder(result, invocation)
+                    }
                 } else if (queueParamsType === 'email') {
                     // Route to the email queue unless this is a test run: tests execute in-process and
                     // never enqueue, so routing would leave the job unworked.
@@ -324,6 +327,16 @@ export class HogExecutorAsyncService {
         cdpEmailQueuedTotal.labels(priorityClass).inc()
 
         return result
+    }
+
+    private keepPushRetryInEmailQueueOrder(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        entryInvocation: CyclotronJobInvocationHogFunction
+    ): void {
+        const { originQueue, originPriority } = entryInvocation.queueMetadata ?? {}
+        result.invocation.queueMetadata = { ...result.invocation.queueMetadata, originQueue, originPriority }
+        result.invocation.queuePriority =
+            EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(result.invocation.hogFunction.metadata)]
     }
 
     private routeToQueue(
