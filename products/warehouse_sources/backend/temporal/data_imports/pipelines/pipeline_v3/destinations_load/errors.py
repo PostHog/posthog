@@ -55,7 +55,7 @@ def is_configuration_failure_of(reason: str, destination_name: str) -> bool:
 def destination_named_in_failure(reason: str, destination_names: Iterable[str]) -> str | None:
     """Return the longest destination name that matches a failure prefix."""
     return max(
-        (name for name in destination_names if reason.startswith(f"{name}: ") or f": {name}: " in reason),
+        (name for name in destination_names if name and (reason.startswith(f"{name}: ") or f": {name}: " in reason)),
         key=len,
         default=None,
     )

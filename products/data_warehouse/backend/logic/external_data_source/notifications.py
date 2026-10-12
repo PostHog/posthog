@@ -144,10 +144,13 @@ def notify_external_data_sync_failures(
         destinations_by_name: dict[str, str] = {}
         if any(schema.latest_error for schema in listed_schemas):
             destinations = (
-                ExternalDataDestination.objects.for_team(team_id).exclude(deleted=True).order_by("created_at")
+                ExternalDataDestination.objects.for_team(team_id)
+                .exclude(deleted=True)
+                .order_by("created_at")
+                .values_list("name", "id")
             )
-            for destination in destinations:
-                destinations_by_name.setdefault(destination.name, str(destination.id))
+            for name, destination_pk in destinations:
+                destinations_by_name.setdefault(name, str(destination_pk))
 
         items = []
         for schema in listed_schemas:

@@ -1,7 +1,7 @@
 import uuid
 
 from posthog.test.base import BaseTest
-from unittest import mock
+from unittest import TestCase, mock
 
 from django.db import OperationalError
 
@@ -515,7 +515,7 @@ class TestDestinationHealth(DeliveryTestCase):
                 assert delivery.deliver_batch_to_destinations(signal, destinations=[destination]) == 1
 
 
-class TestDestinationNamedInFailure(BaseTest):
+class TestDestinationNamedInFailure(TestCase):
     @parameterized.expand(
         [
             ("prefix", "Prod: boom", ["Prod"], "Prod"),
@@ -524,6 +524,7 @@ class TestDestinationNamedInFailure(BaseTest):
             ("substring_of_other_name", "My Prod: boom", ["Prod"], None),
             ("no_separator", "Prod went away", ["Prod"], None),
             ("no_destinations", "Prod: boom", [], None),
+            ("empty_name_ignored", "Charge: : boom", [""], None),
         ]
     )
     def test_matches(self, _name, reason, names, expected):
