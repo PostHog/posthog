@@ -65,6 +65,8 @@ The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 
+When an implementation pull request reaches the report, each suggested reviewer with a connected GitHub account receives a GitHub review request. The worker skips existing assignees and existing requested reviewers. Under the DRI rule, one assignee remains responsible for the pull request.
+
 ## Report links
 
 Only scouts and the signals pipeline create and manage typed, directed report links.

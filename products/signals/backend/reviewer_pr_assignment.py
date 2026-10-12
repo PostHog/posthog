@@ -1,4 +1,4 @@
-"""Put a person on a report's implementation PR as its GitHub assignee.
+"""Assign ownership and request reviews on a report's implementation PR.
 
 Somebody whose workflow is GitHub's "Assigned to me" never sees an inbox PR otherwise, because
 every self-driving pull request opens with no assignee.
@@ -12,8 +12,8 @@ nobody picks up, and a wrong owner costs one reassignment.
 Without the flag the older rule stands: every suggested reviewer who opted in through
 `SignalUserAutonomyConfig.github_assign_on_pull_request` is added, and there is no DRI.
 
-Reviewers, in GitHub's sense of a review request, are never written here. This module only ever
-writes assignees.
+Suggested reviewers with a connected GitHub account receive review requests. Existing assignees
+and existing requested reviewers are left alone.
 
 Best effort throughout: a GitHub failure must never break the claim, sync, or reviewer edit that
 triggered it.
@@ -316,6 +316,37 @@ def _add_assignees(
     return assigned
 
 
+def _request_reviews(
+    github: GitHubIntegration,
+    *,
+    team_id: int,
+    report_id: str,
+    parsed: PullRequestRef,
+    pr: dict[str, Any],
+    reviewers: list[str],
+) -> list[str]:
+    existing = {
+        str(login).lower() for login in [*(pr.get("assignees") or []), *(pr.get("requested_reviewers") or [])] if login
+    }
+    wanted = [login for login in reviewers if login.lower() not in existing]
+    if not wanted:
+        return []
+
+    log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
+    try:
+        result = github.request_pull_request_reviews(parsed.repository, parsed.number, wanted)
+    except Exception:
+        log.exception("signals.reviewer_pr_assignment.review_request_failed")
+        return []
+    if not result.get("success"):
+        log.warning("signals.reviewer_pr_assignment.review_request_failed", error=result.get("error"))
+        return []
+
+    requested = list(result.get("requested_reviewers") or [])
+    log.info("signals.reviewer_pr_assignment.reviews_requested", requested=len(wanted), accepted=len(requested))
+    return requested
+
+
 def _first_assignable_login(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, candidates: list[str]
 ) -> str | None:
@@ -402,7 +433,7 @@ def dri_candidate_logins(
 
 
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
-    """Assign the report's pull request: one DRI under the flag, else every opted-in reviewer.
+    """Request reviews and assign one DRI under the flag, else every opted-in reviewer.
 
     Returns the assignees GitHub accepted. Never unassigns: the add-assignees endpoint is additive,
     so a person somebody assigned by hand stays on the pull request. Returns an empty list when
@@ -412,8 +443,9 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         return []
 
     logins = opted_in_assignee_logins(team_id=team_id, report_id=report_id)
+    reviewers = ranked_reviewer_logins(team_id=team_id, report_id=report_id)
     dri_enabled = _pr_dri_enabled(team_id)
-    if not logins and not dri_enabled:
+    if not reviewers and not logins and not dri_enabled:
         return []
 
     parsed = GitHubIntegration.parse_pull_request_url(pr_url)
@@ -428,8 +460,27 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     if pr is None:
         return []
 
+    _request_reviews(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        pr=pr,
+        reviewers=reviewers,
+    )
+
     if dri_enabled:
-        return _assign_one_dri(github, team_id=team_id, report_id=report_id, parsed=parsed, pr=pr, opted_in=set(logins))
+        return _assign_one_dri(
+            github,
+            team_id=team_id,
+            report_id=report_id,
+            parsed=parsed,
+            pr=pr,
+            opted_in=set(logins),
+            reviewers=reviewers,
+        )
+    if not logins:
+        return []
     return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins) or []
 
 
@@ -441,6 +492,7 @@ def _assign_one_dri(
     parsed: PullRequestRef,
     pr: dict[str, Any],
     opted_in: set[str],
+    reviewers: list[str],
 ) -> list[str]:
     """Put exactly one directly responsible individual on a pull request that has none.
 
@@ -456,7 +508,7 @@ def _assign_one_dri(
         claimant=human_claimant_login(team_id=team_id, report_id=report_id),
         opted_in=opted_in,
         team=_owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed),
-        reviewers=ranked_reviewer_logins(team_id=team_id, report_id=report_id),
+        reviewers=reviewers,
     )
     dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
     if dri is None:

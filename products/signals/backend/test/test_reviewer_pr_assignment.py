@@ -79,8 +79,19 @@ def _make_report(team: Team, *reviewer_rows: list[str]) -> SignalReport:
 
 def _open_pr_github() -> MagicMock:
     github = MagicMock()
-    github.get_pull_request.return_value = {"success": True, "state": "open", "draft": False, "merged": False}
+    github.get_pull_request.return_value = {
+        "success": True,
+        "state": "open",
+        "draft": False,
+        "merged": False,
+        "assignees": [],
+        "requested_reviewers": [],
+    }
     github.add_pull_request_assignees.return_value = {"success": True, "assignees": ["opted-in"]}
+    github.request_pull_request_reviews.return_value = {
+        "success": True,
+        "requested_reviewers": ["opted-in"],
+    }
     return github
 
 
@@ -149,16 +160,38 @@ class TestAssignReviewersToPullRequest:
         github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
 
     @pytest.mark.django_db
-    def test_no_opted_in_reviewers_skips_github_entirely(self, org_and_team):
-        org, team = org_and_team
-        _make_reviewer(org, "opted-out", opted_in=False)
-        report = _make_report(team, ["opted-out"])
+    def test_no_reviewers_or_assignment_work_skips_github_entirely(self, org_and_team):
+        _, team = org_and_team
+        report = _make_report(team)
 
         with patch(
             "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository"
         ) as mock_lookup:
             assert assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) == []
         mock_lookup.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_suggested_reviewers_receive_review_requests(self, org_and_team):
+        org, team = org_and_team
+        for login in ("assigned", "requested", "new-reviewer"):
+            _make_reviewer(org, login, opted_in=False)
+        report = _make_report(team, ["assigned", "requested", "new-reviewer"])
+        github = _open_pr_github()
+        github.get_pull_request.return_value.update({"assignees": ["Assigned"], "requested_reviewers": ["Requested"]})
+        github.request_pull_request_reviews.return_value = {
+            "success": True,
+            "requested_reviewers": ["requested", "new-reviewer"],
+        }
+
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assigned = assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+        assert assigned == []
+        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["new-reviewer"])
+        github.add_pull_request_assignees.assert_not_called()
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -182,19 +215,33 @@ class TestAssignReviewersToPullRequest:
         ):
             assert assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) == []
         github.add_pull_request_assignees.assert_not_called()
+        github.request_pull_request_reviews.assert_not_called()
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        ("failing_call", "outcome"),
+        ("failing_call", "outcome", "expected"),
         [
-            ("get_pull_request", Exception("boom")),
-            ("get_pull_request", {"success": False, "error": "Failed to fetch pull request"}),
-            ("add_pull_request_assignees", Exception("boom")),
-            ("add_pull_request_assignees", {"success": False, "error": "Failed to assign pull request"}),
+            ("get_pull_request", Exception("boom"), []),
+            ("get_pull_request", {"success": False, "error": "Failed to fetch pull request"}, []),
+            ("request_pull_request_reviews", Exception("boom"), ["opted-in"]),
+            (
+                "request_pull_request_reviews",
+                {"success": False, "error": "Failed to request pull request reviews"},
+                ["opted-in"],
+            ),
+            ("add_pull_request_assignees", Exception("boom"), []),
+            ("add_pull_request_assignees", {"success": False, "error": "Failed to assign pull request"}, []),
         ],
-        ids=["pr_read_raises", "pr_read_reports_failure", "assign_raises", "assign_reports_failure"],
+        ids=[
+            "pr_read_raises",
+            "pr_read_reports_failure",
+            "review_request_raises",
+            "review_request_reports_failure",
+            "assign_raises",
+            "assign_reports_failure",
+        ],
     )
-    def test_a_github_failure_is_swallowed(self, org_and_team, failing_call: str, outcome: object):
+    def test_a_github_failure_is_swallowed(self, org_and_team, failing_call: str, outcome: object, expected: list[str]):
         org, team = org_and_team
         _make_reviewer(org, "opted-in", opted_in=True)
         report = _make_report(team, ["opted-in"])
@@ -208,7 +255,9 @@ class TestAssignReviewersToPullRequest:
             "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
             return_value=github,
         ):
-            assert assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) == []
+            assert (
+                assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) == expected
+            )
 
     @pytest.mark.django_db
     def test_a_url_that_is_not_a_pull_request_is_not_assigned(self, org_and_team):
