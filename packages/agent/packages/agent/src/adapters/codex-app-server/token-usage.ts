@@ -1,5 +1,5 @@
-/** One turn's counts from codex's `thread/tokenUsage/updated`. */
-interface CodexTokenCounts {
+/** Counts for one model request or the whole thread. Cached/reasoning counts are subsets. */
+export interface CodexTokenCounts {
   inputTokens?: number;
   cachedInputTokens?: number;
   outputTokens?: number;
@@ -16,8 +16,9 @@ interface CodexTokenUsagePayload {
 }
 
 export interface TokenUsageReading {
-  /** This turn's counts: `last`, falling back to cumulative `total` for pre-`last` builds. */
+  /** Latest model request: `last`, falling back to cumulative `total` for pre-`last` builds. */
   context: CodexTokenCounts;
+  total: CodexTokenCounts | undefined;
   /** Context-window occupancy: `totalTokens`, falling back to `inputTokens`. */
   used: number;
   /** The model context window, when the protocol reports it. */
@@ -31,11 +32,16 @@ export interface TokenUsageReading {
  */
 export function readTokenUsage(params: unknown): TokenUsageReading | null {
   const tu = (params as CodexTokenUsagePayload | undefined)?.tokenUsage;
-  // This turn's `last`, not cumulative `total` (which over-reports and pegs the
+  // Latest request's `last`, not cumulative `total` (which over-reports and pegs the
   // gauge); `total` is the fallback for pre-`last` builds.
   const context = tu?.last ?? tu?.total;
   if (!context) return null;
   const used = context.totalTokens ?? context.inputTokens;
   if (used == null) return null;
-  return { context, used, size: tu?.modelContextWindow ?? undefined };
+  return {
+    context,
+    total: tu?.total,
+    used,
+    size: tu?.modelContextWindow ?? undefined,
+  };
 }

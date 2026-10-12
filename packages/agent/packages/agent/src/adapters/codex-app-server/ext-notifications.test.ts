@@ -15,7 +15,7 @@ describe("ext-notifications builders", () => {
     });
   });
 
-  it("buildTurnCompleteParams derives totalTokens from all four counts", () => {
+  it("buildTurnCompleteParams does not count cached input twice", () => {
     const params = buildTurnCompleteParams("sess-1", "end_turn", {
       inputTokens: 100,
       outputTokens: 20,
@@ -31,7 +31,7 @@ describe("ext-notifications builders", () => {
         outputTokens: 20,
         cachedReadTokens: 5,
         cachedWriteTokens: 3,
-        totalTokens: 128,
+        totalTokens: 120,
       },
     });
   });

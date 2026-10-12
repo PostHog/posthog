@@ -59,7 +59,7 @@ type TurnCompleteUsageInput = {
 
 /**
  * `_posthog/turn_complete` — fired when a prompt turn finishes. `totalTokens` is the
- * sum of all four component counts.
+ * sum of input and output; cached input is already included in Codex input tokens.
  */
 export function buildTurnCompleteParams(
   sessionId: string,
@@ -78,8 +78,7 @@ export function buildTurnCompleteParams(
       outputTokens,
       cachedReadTokens,
       cachedWriteTokens,
-      totalTokens:
-        inputTokens + outputTokens + cachedReadTokens + cachedWriteTokens,
+      totalTokens: inputTokens + outputTokens,
     },
   };
 }

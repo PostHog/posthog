@@ -678,6 +678,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       additionalDirectories?: string[];
     },
   ): Promise<{ threadId: string; thread: AppServerThread | undefined }> {
+    this.usage.resetForThread();
     this.cancelNextGoalTurn = false;
     this.nativeGoalTurnId = undefined;
     this.subagentParents.clear();
@@ -1201,7 +1202,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         }
         return steerDeclined("continuation_failed");
       }
-      this.usage.carryForNativeTurn();
       if (this.session.cancelled) {
         const orphanId = this.turns.markInterrupted(started?.turn?.id);
         this.logger.warn(
@@ -2152,7 +2152,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       this.emitCompactionBoundary();
     }
     const message = this.lastAgentMessage;
-    // Per-turn usage is codex's own `tokenUsage.last` (not a reconstructed delta).
     const usage = this.usage.perTurnUsage();
     const contextUsed = this.usage.contextTokens();
 

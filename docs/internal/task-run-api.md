@@ -45,6 +45,10 @@ The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.
 
+Codex run token totals count every model request in each completed agent turn, including requests between tool calls.
+Input tokens include cached input, and output tokens include reasoning; these subsets are not added again to the total.
+The live context-window gauge still shows the latest request, not accumulated run usage. Previously saved run totals are not recalculated.
+
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
