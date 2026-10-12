@@ -98,9 +98,10 @@ Grant the key read access to the data you want to sync (Contacts, Campaigns, Tem
             has_incremental_field = bool(INCREMENTAL_FIELDS.get(endpoint))
             return SourceSchema(
                 name=endpoint,
-                # Events are immutable, so they sync append-only via the server-side `from` filter. No
-                # other list endpoint exposes a server-side timestamp filter, so they are full refresh only.
-                supports_incremental=False,
+                # Events are immutable, so they sync append-only via the server-side `from` filter. Daily
+                # statistics merge on Date via the `from`/`to` range. No other list endpoint exposes a
+                # server-side timestamp filter, so they are full refresh only.
+                supports_incremental=has_incremental_field and not endpoint_config.append_only,
                 supports_append=has_incremental_field and endpoint_config.append_only,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
@@ -123,6 +124,9 @@ Grant the key read access to the data you want to sync (Contacts, Campaigns, Tem
         # that endpoint's path so we surface a per-endpoint permission problem early.
         if schema_name is not None and schema_name in ELASTICEMAIL_ENDPOINTS:
             endpoint_config = ELASTICEMAIL_ENDPOINTS[schema_name]
+            # A fan-out child's path has a placeholder, so probe the parent listing it reads first.
+            if endpoint_config.fanout is not None:
+                endpoint_config = ELASTICEMAIL_ENDPOINTS[endpoint_config.fanout.parent_name]
             valid = validate_elasticemail_credentials(
                 config.api_key, endpoint_config.path, endpoint_config.extra_params
             )

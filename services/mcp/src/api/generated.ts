@@ -13714,6 +13714,11 @@ export namespace Schemas {
       status: AutoresearchIterationStatusEnum;
       agent_description?: string;
       /**
+         * Plain-language sentence on what this experiment tried and what happened, for people.
+         * @nullable
+         */
+      summary?: string | null;
+      /**
          * Agent's self-assessed confidence 0–1
          * @nullable
          */
@@ -13740,6 +13745,11 @@ export namespace Schemas {
       readonly best_holdout_score: number | null;
       /** The agent's rationale for its newest experiment. */
       readonly latest_agent_description: string;
+      /**
+         * Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.
+         * @nullable
+         */
+      readonly latest_summary: string | null;
     }
 
     /**
@@ -14444,6 +14454,11 @@ export namespace Schemas {
       train_score?: number | null;
       /** The agent's one-line rationale for what it tried and why. */
       agent_description?: string;
+      /**
+         * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+         * @nullable
+         */
+      readonly summary: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailModelSpec;
     }
@@ -14490,6 +14505,16 @@ export namespace Schemas {
       readonly best_holdout_score: number | null;
       /** Distilled cross-run learning summary written on completion. Null until the run completes. */
       readonly summary: TrainingRunSummary | null;
+      /**
+         * One or two plain sentences on what this run learned, for people. Null if not written.
+         * @nullable
+         */
+      readonly reader_summary: string | null;
+      /**
+         * Short plain-language next steps for people, at most 5. Null if not written.
+         * @nullable
+         */
+      readonly next_steps: readonly string[] | null;
       /** Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number. */
       readonly iterations: readonly IterationTrail[];
       /** Error message if the run failed. */
@@ -20275,7 +20300,7 @@ export namespace Schemas {
       status: string | null;
       tags: unknown[];
       score: string | null;
-      voteCount: string | null;
+      vote_count: string | null;
       url: string | null;
       created: string | null;
     }
@@ -24457,6 +24482,19 @@ export namespace Schemas {
          * @maxLength 2000
          */
       distillation?: string;
+      /**
+         * One or two plain sentences for people on what this run learned. Max 600 characters.
+         * @maxLength 600
+         * @nullable
+         */
+      reader_summary?: string | null;
+      /**
+         * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
+         * @maxItems 5
+         * @nullable
+         * @items.maxLength 80
+         */
+      next_steps?: string[] | null;
       /** Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion. */
       report_notebook_short_id?: string;
     }
@@ -27868,6 +27906,200 @@ export namespace Schemas {
       date_to?: string | null;
       /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
       properties?: unknown;
+    }
+
+    /**
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot
+     */
+    export type DashboardImportSourceEnum = typeof DashboardImportSourceEnum[keyof typeof DashboardImportSourceEnum];
+
+
+    export const DashboardImportSourceEnum = {
+      Grafana: 'grafana',
+      Screenshot: 'screenshot',
+    } as const;
+
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type DashboardImportStatusEnum = typeof DashboardImportStatusEnum[keyof typeof DashboardImportStatusEnum];
+
+
+    export const DashboardImportStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `starting` - Starting
+     * * `matching` - Matching
+     * * `building` - Building
+     * * `checking_layout` - Checking Layout
+     */
+    export type DashboardImportPhaseEnum = typeof DashboardImportPhaseEnum[keyof typeof DashboardImportPhaseEnum];
+
+
+    export const DashboardImportPhaseEnum = {
+      Starting: 'starting',
+      Matching: 'matching',
+      Building: 'building',
+      CheckingLayout: 'checking_layout',
+    } as const;
+
+    /**
+     * * `waiting` - Waiting
+     * * `working` - Working
+     * * `done` - Done
+     * * `skipped` - Skipped
+     */
+    export type PanelProgressStateEnum = typeof PanelProgressStateEnum[keyof typeof PanelProgressStateEnum];
+
+
+    export const PanelProgressStateEnum = {
+      Waiting: 'waiting',
+      Working: 'working',
+      Done: 'done',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface DashboardImportPanelProgress {
+      /** Panel key in the import. */
+      key: string;
+      /** Panel title. */
+      title: string;
+      /** 'waiting' before the agent checked the panel, 'working' while its checks fail, 'done' once a check passed, 'skipped' when PostHog has no equivalent.
+       *
+       * * `waiting` - Waiting
+       * * `working` - Working
+       * * `done` - Done
+       * * `skipped` - Skipped */
+      state: PanelProgressStateEnum;
+    }
+
+    export interface DashboardImportSummary {
+      /** Number of panels in the input. */
+      total: number;
+      /** Panels imported with the same meaning. */
+      imported: number;
+      /** Panels imported with a change in what they show. */
+      approximated: number;
+      /** Panels that have no working query. */
+      failed: number;
+      /** Panels with no PostHog equivalent. */
+      skipped: number;
+    }
+
+    /**
+     * * `imported` - Imported
+     * * `approximated` - Approximated
+     * * `failed` - Failed
+     * * `skipped` - Skipped
+     */
+    export type PanelImportOutcomeEnum = typeof PanelImportOutcomeEnum[keyof typeof PanelImportOutcomeEnum];
+
+
+    export const PanelImportOutcomeEnum = {
+      Imported: 'imported',
+      Approximated: 'approximated',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface DashboardImportPanel {
+      /** Panel key in the import, for example 'p12' for Grafana panel 12. */
+      key: string;
+      /** Panel title. */
+      title: string;
+      /** What happened to the panel.
+       *
+       * * `imported` - Imported
+       * * `approximated` - Approximated
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      outcome: PanelImportOutcomeEnum;
+      /** What changed, or why the panel failed or was skipped. */
+      reason: string;
+    }
+
+    export interface DashboardImport {
+      /**
+         * Id to poll for the status. Null when the import finished in the request, with no agent.
+         * @nullable
+         */
+      id: string | null;
+      /** What the import reads.
+       *
+       * * `grafana` - Grafana
+       * * `screenshot` - Screenshot */
+      source: DashboardImportSourceEnum;
+      /** Where the import is.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: DashboardImportStatusEnum;
+      /** Name of the new dashboard. */
+      dashboard_name: string;
+      /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard, or 'checking_layout' against the screenshot.
+       *
+       * * `starting` - Starting
+       * * `matching` - Matching
+       * * `building` - Building
+       * * `checking_layout` - Checking Layout */
+      phase: DashboardImportPhaseEnum | null;
+      /** Where each panel is, while the import runs. */
+      panel_progress: DashboardImportPanelProgress[];
+      /**
+         * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
+         * @nullable
+         */
+      layout_rounds: number | null;
+      /**
+         * The comparison that runs, from 1, while the phase is 'checking_layout'.
+         * @nullable
+         */
+      layout_round: number | null;
+      /**
+         * Id of the new dashboard, when it exists.
+         * @nullable
+         */
+      dashboard_id: number | null;
+      /**
+         * Why the import failed, when it failed.
+         * @nullable
+         */
+      error: string | null;
+      /** Panel counts, when the import ended. */
+      summary: DashboardImportSummary | null;
+      /** The outcome for each panel, when the import ended. */
+      panels: DashboardImportPanel[];
+    }
+
+    export interface DashboardImportCreate {
+      /** What to import: 'grafana' reads a Grafana dashboard JSON model, 'screenshot' reads an image of a dashboard.
+       *
+       * * `grafana` - Grafana
+       * * `screenshot` - Screenshot */
+      source: DashboardImportSourceEnum;
+      /**
+         * Name of the new dashboard. Defaults to the Grafana dashboard title, or to 'Imported dashboard'.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * The Grafana dashboard JSON model as text, from Dashboard settings > JSON Model or from an export. Required when source is 'grafana'.
+         * @maxLength 5242880
+         */
+      grafana_json?: string;
+      /**
+         * The screenshot as base64, without a data URL prefix. PNG, JPEG, WebP or GIF, at most 5 MB. Required when source is 'screenshot'.
+         * @maxLength 7340032
+         */
+      image_base64?: string;
     }
 
     export interface _DashboardPatchTileLayoutBoxOpenApi {
@@ -31891,6 +32123,11 @@ export namespace Schemas {
      * * `Userback` - Userback
      * * `Rewardful` - Rewardful
      * * `Tracklution` - Tracklution
+     * * `StackAdapt` - StackAdapt
+     * * `CheckHQ` - CheckHQ
+     * * `RainforestPay` - RainforestPay
+     * * `Wise` - Wise
+     * * `LaravelCloud` - LaravelCloud
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33272,6 +33509,11 @@ export namespace Schemas {
       Userback: 'Userback',
       Rewardful: 'Rewardful',
       Tracklution: 'Tracklution',
+      StackAdapt: 'StackAdapt',
+      CheckHQ: 'CheckHQ',
+      RainforestPay: 'RainforestPay',
+      Wise: 'Wise',
+      LaravelCloud: 'LaravelCloud',
     } as const;
 
     /**
@@ -34666,7 +34908,12 @@ export namespace Schemas {
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
        * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution */
+       * * `Tracklution` - Tracklution
+       * * `StackAdapt` - StackAdapt
+       * * `CheckHQ` - CheckHQ
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37305,7 +37552,12 @@ export namespace Schemas {
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
        * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution */
+       * * `Tracklution` - Tracklution
+       * * `StackAdapt` - StackAdapt
+       * * `CheckHQ` - CheckHQ
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -41624,6 +41876,46 @@ export namespace Schemas {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
     }
+
+    /**
+     * * `agent_reported` - agent_reported
+     * * `agent_server_crash` - agent_server_crash
+     * * `agent_declined` - agent_declined
+     * * `output_parse_failed` - output_parse_failed
+     * * `poll_timeout` - poll_timeout
+     * * `pi_runtime_error` - pi_runtime_error
+     * * `upstream_stream_terminated` - upstream_stream_terminated
+     * * `upstream_connection_error` - upstream_connection_error
+     * * `upstream_timeout` - upstream_timeout
+     * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_request_rejected` - upstream_request_rejected
+     * * `content_block_rejection` - content_block_rejection
+     * * `turn_ended_without_response` - turn_ended_without_response
+     * * `subscription_usage_limit` - subscription_usage_limit
+     * * `task_spend_limit` - task_spend_limit
+     * * `agent_error` - agent_error
+     */
+    export type ErrorTypeEnum = typeof ErrorTypeEnum[keyof typeof ErrorTypeEnum];
+
+
+    export const ErrorTypeEnum = {
+      AgentReported: 'agent_reported',
+      AgentServerCrash: 'agent_server_crash',
+      AgentDeclined: 'agent_declined',
+      OutputParseFailed: 'output_parse_failed',
+      PollTimeout: 'poll_timeout',
+      PiRuntimeError: 'pi_runtime_error',
+      UpstreamStreamTerminated: 'upstream_stream_terminated',
+      UpstreamConnectionError: 'upstream_connection_error',
+      UpstreamTimeout: 'upstream_timeout',
+      UpstreamProviderFailure: 'upstream_provider_failure',
+      UpstreamRequestRejected: 'upstream_request_rejected',
+      ContentBlockRejection: 'content_block_rejection',
+      TurnEndedWithoutResponse: 'turn_ended_without_response',
+      SubscriptionUsageLimit: 'subscription_usage_limit',
+      TaskSpendLimit: 'task_spend_limit',
+      AgentError: 'agent_error',
+    } as const;
 
     export interface EstimateExperimentScope {
       /**
@@ -48977,7 +49269,12 @@ export namespace Schemas {
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
        * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution */
+       * * `Tracklution` - Tracklution
+       * * `StackAdapt` - StackAdapt
+       * * `CheckHQ` - CheckHQ
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -50392,7 +50689,12 @@ export namespace Schemas {
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
        * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution */
+       * * `Tracklution` - Tracklution
+       * * `StackAdapt` - StackAdapt
+       * * `CheckHQ` - CheckHQ
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -51732,7 +52034,7 @@ export namespace Schemas {
       status: string | null;
       tags: unknown[];
       upvotes: string | null;
-      createdAt: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -59818,6 +60120,11 @@ export namespace Schemas {
       train_score?: number | null;
       /** The agent's one-line rationale for what it tried and why. */
       agent_description?: string;
+      /**
+         * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+         * @nullable
+         */
+      readonly summary: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailWithRecipeModelSpec;
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -60242,7 +60549,7 @@ export namespace Schemas {
       status: string | null;
       priority: string | null;
       tags: unknown[];
-      createdAt: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -71494,6 +71801,13 @@ export namespace Schemas {
       readonly limit_reached: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor: number;
+      /**
+         * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+         * @nullable
+         */
+      readonly dashboard_id: number | null;
+      /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+      readonly dashboard_suggested: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -76913,6 +77227,187 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WorkflowProposal[];
+    }
+
+    /**
+     * * `sum` - Sum
+     * * `avg` - Avg
+     * * `count` - Count
+     * * `min` - Min
+     * * `max` - Max
+     * * `p95` - P95
+     * * `rate` - Rate
+     * * `increase` - Increase
+     * * `histogram_quantile` - Histogram Quantile
+     */
+    export type PanelBuilderAggregationEnum = typeof PanelBuilderAggregationEnum[keyof typeof PanelBuilderAggregationEnum];
+
+
+    export const PanelBuilderAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    export interface PanelFilter {
+      /**
+         * Attribute name, for example 'service.name'.
+         * @maxLength 255
+         */
+      key: string;
+      /** Comparison. Regex operators use RE2.
+       *
+       * * `eq` - eq
+       * * `neq` - neq
+       * * `regex` - regex
+       * * `not_regex` - not_regex */
+      op: OpEnum;
+      /**
+         * Value or regex to compare against.
+         * @maxLength 1024
+         */
+      value: string;
+    }
+
+    export interface PanelBuilderClause {
+      /**
+         * Alias that a formula uses, for example 'a'.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Exact metric name.
+         * @maxLength 255
+         */
+      metric_name: string;
+      /** Aggregation for each bucket, with the same meaning as in the metrics query API.
+       *
+       * * `sum` - Sum
+       * * `avg` - Avg
+       * * `count` - Count
+       * * `min` - Min
+       * * `max` - Max
+       * * `p95` - P95
+       * * `rate` - Rate
+       * * `increase` - Increase
+       * * `histogram_quantile` - Histogram Quantile */
+      aggregation: PanelBuilderAggregationEnum;
+      /**
+         * Quantile between 0 and 1. Required for 'histogram_quantile'. The other aggregations ignore it.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Attribute filters, joined with AND. */
+      filters?: PanelFilter[];
+      /**
+         * Attribute names that split the result into series.
+         * @items.maxLength 255
+         */
+      group_by?: string[];
+    }
+
+    export interface PanelBuilderQuery {
+      /** One clause for each series. */
+      clauses: PanelBuilderClause[];
+      /**
+         * Arithmetic over clause aliases, for example 'a / b'.
+         * @nullable
+         */
+      formula?: string | null;
+    }
+
+    /**
+     * * `promql` - Promql
+     * * `builder` - Builder
+     * * `histogram` - Histogram
+     * * `hogql` - Hogql
+     */
+    export type PanelQueryLanguageEnum = typeof PanelQueryLanguageEnum[keyof typeof PanelQueryLanguageEnum];
+
+
+    export const PanelQueryLanguageEnum = {
+      Promql: 'promql',
+      Builder: 'builder',
+      Histogram: 'histogram',
+      Hogql: 'hogql',
+    } as const;
+
+    export interface PanelQueryCheck {
+      /**
+         * Panel key. The result for the panel carries the same key.
+         * @maxLength 64
+         */
+      key: string;
+      /**
+         * Panel title, shown in the import progress.
+         * @maxLength 200
+         */
+      title?: string;
+      /** 'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.
+       *
+       * * `promql` - Promql
+       * * `builder` - Builder
+       * * `histogram` - Histogram
+       * * `hogql` - Hogql */
+      language: PanelQueryLanguageEnum;
+      /**
+         * PromQL expression. Used when language is 'promql'.
+         * @nullable
+         */
+      promql?: string | null;
+      /** Builder query. Used when language is 'builder'. */
+      builder?: PanelBuilderQuery | null;
+      /**
+         * Histogram metric name. Used when language is 'histogram'.
+         * @nullable
+         */
+      histogram_metric?: string | null;
+      /**
+         * SQL SELECT over logs or posthog.trace_spans with {filters} in the WHERE clause. Used when language is 'hogql'.
+         * @nullable
+         */
+      hogql?: string | null;
+    }
+
+    export interface PanelQueryCheckRequest {
+      /**
+         * Up to 20 panel queries to check.
+         * @minItems 1
+         * @maxItems 20
+         */
+      panels: PanelQueryCheck[];
+      /**
+         * The import that these panels belong to, from the import instructions. The import progress shows which panels pass.
+         * @nullable
+         */
+      import_id?: string | null;
+    }
+
+    export interface PanelQueryCheckResult {
+      /** Panel key from the request. */
+      key: string;
+      /** True when the query can go on a dashboard. */
+      valid: boolean;
+      /**
+         * Why the query cannot go on a dashboard.
+         * @nullable
+         */
+      error: string | null;
+      /** Warnings that do not block the query, such as no recent data. */
+      notes: string[];
+    }
+
+    export interface PanelQueryCheckResponse {
+      /** One result for each checked panel. */
+      results: PanelQueryCheckResult[];
     }
 
     export interface PassRateBucket {
@@ -83324,6 +83819,13 @@ export namespace Schemas {
       readonly limit_reached?: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor?: number;
+      /**
+         * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+         * @nullable
+         */
+      readonly dashboard_id?: number | null;
+      /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+      readonly dashboard_suggested?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -83593,7 +84095,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the reviewhog label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -83605,7 +84107,7 @@ export namespace Schemas {
       urgency_threshold?: UrgencyThresholdEnum;
       /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
-      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
@@ -85160,6 +85662,25 @@ export namespace Schemas {
          * @nullable
          */
       error_message?: string | null;
+      /** Why the run failed, set by the caller that marked it failed.
+       *
+       * * `agent_reported` - agent_reported
+       * * `agent_server_crash` - agent_server_crash
+       * * `agent_declined` - agent_declined
+       * * `output_parse_failed` - output_parse_failed
+       * * `poll_timeout` - poll_timeout
+       * * `pi_runtime_error` - pi_runtime_error
+       * * `upstream_stream_terminated` - upstream_stream_terminated
+       * * `upstream_connection_error` - upstream_connection_error
+       * * `upstream_timeout` - upstream_timeout
+       * * `upstream_provider_failure` - upstream_provider_failure
+       * * `upstream_request_rejected` - upstream_request_rejected
+       * * `content_block_rejection` - content_block_rejection
+       * * `turn_ended_without_response` - turn_ended_without_response
+       * * `subscription_usage_limit` - subscription_usage_limit
+       * * `task_spend_limit` - task_spend_limit
+       * * `agent_error` - agent_error */
+      error_type?: ErrorTypeEnum | null;
     }
 
     /**
@@ -85187,6 +85708,7 @@ export namespace Schemas {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -85216,6 +85738,7 @@ export namespace Schemas {
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
+      MetricsImport: 'metrics_import',
     } as const;
 
     /**
@@ -85275,7 +85798,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `metrics_import` - Metrics Import */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -86726,7 +87250,7 @@ export namespace Schemas {
       status: string | null;
       priority: string | null;
       labels: unknown[];
-      createdAt: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -87241,8 +87765,8 @@ export namespace Schemas {
     export interface ProductboardFeedbackSignalExtra {
       state: string | null;
       tags: unknown[];
-      displayUrl: string | null;
-      createdAt: string | null;
+      display_url: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -93511,9 +94035,9 @@ export namespace Schemas {
 
     export interface RaygunErrorGroupSignalExtra {
       status: string | null;
-      applicationUrl: string | null;
-      lastOccurredAt: string | null;
-      createdAt: string | null;
+      application_url: string | null;
+      last_occurred_at: string | null;
+      created_at: string | null;
     }
 
     export interface ReadyToMergeBucket {
@@ -93722,6 +94246,12 @@ export namespace Schemas {
          * @maxLength 2000
          */
       agent_description?: string;
+      /**
+         * One plain sentence for people on what this experiment tried and what happened. Max 300 characters.
+         * @maxLength 300
+         * @nullable
+         */
+      summary?: string | null;
       /**
          * Agent's self-assessed confidence (0-1) that this iteration helps.
          * @minimum 0
@@ -94689,8 +95219,8 @@ export namespace Schemas {
       level: string | null;
       status: string | null;
       permalink: string | null;
-      shortId: string | null;
-      firstSeen: string | null;
+      short_id: string | null;
+      first_seen: string | null;
     }
 
     export interface RollbarItemSignalExtra {
@@ -94714,7 +95244,7 @@ export namespace Schemas {
       status: string | null;
       component: string | null;
       rule: string | null;
-      creationDate: string | null;
+      creation_date: string | null;
     }
 
     export interface SemgrepScannerFindingSignalExtra {
@@ -94734,10 +95264,10 @@ export namespace Schemas {
 
     export interface RetentlyFeedbackSignalExtra {
       score: string | null;
-      ratingCategory: string | null;
-      feedbackTopics: unknown[];
+      rating_category: string | null;
+      feedback_topics: unknown[];
       resolved: string | null;
-      createdDate: string | null;
+      created_date: string | null;
     }
 
     export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
@@ -96857,7 +97387,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the reviewhog label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -96869,7 +97399,7 @@ export namespace Schemas {
       urgency_threshold?: UrgencyThresholdEnum;
       /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
-      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
@@ -97458,6 +97988,15 @@ export namespace Schemas {
     export interface ScannerCreatorsResponse {
       /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
       creators: UserBasic[];
+    }
+
+    export interface ScannerDashboardResponse {
+      /** Id of the scanner's dashboard. */
+      dashboard_id: number;
+      /** Name of the dashboard. */
+      name: string;
+      /** True when this call created the dashboard. False when the scanner already had one, which is returned instead. */
+      created: boolean;
     }
 
     /**
@@ -103113,7 +103652,12 @@ export namespace Schemas {
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
        * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution */
+       * * `Tracklution` - Tracklution
+       * * `StackAdapt` - StackAdapt
+       * * `CheckHQ` - CheckHQ
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -104559,7 +105103,12 @@ export namespace Schemas {
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
        * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution */
+       * * `Tracklution` - Tracklution
+       * * `StackAdapt` - StackAdapt
+       * * `CheckHQ` - CheckHQ
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -105972,7 +106521,12 @@ export namespace Schemas {
        * * `ChessCom` - ChessCom
        * * `Userback` - Userback
        * * `Rewardful` - Rewardful
-       * * `Tracklution` - Tracklution */
+       * * `Tracklution` - Tracklution
+       * * `StackAdapt` - StackAdapt
+       * * `CheckHQ` - CheckHQ
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -107988,7 +108542,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `metrics_import` - Metrics Import */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -109671,7 +110226,8 @@ export namespace Schemas {
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
-       * * `business_knowledge` - Business Knowledge */
+       * * `business_knowledge` - Business Knowledge
+       * * `metrics_import` - Metrics Import */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -117234,7 +117790,9 @@ export namespace Schemas {
 
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @minLength 1
+     * @maxLength 255
      */
     context_name: string;
     };
@@ -128710,6 +129268,7 @@ export namespace Schemas {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -128855,6 +129414,7 @@ export namespace Schemas {
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
+      MetricsImport: 'metrics_import',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

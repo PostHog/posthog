@@ -98,7 +98,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/boldsign/tests/
 products/warehouse_sources/backend/temporal/data_imports/sources/braintree/tests/test_braintree.py
 products/warehouse_sources/backend/temporal/data_imports/sources/braze/tests/test_braze.py
 products/warehouse_sources/backend/temporal/data_imports/sources/breezometer/tests/test_breezometer.py
-products/warehouse_sources/backend/temporal/data_imports/sources/brevo/tests/test_brevo.py
 products/warehouse_sources/backend/temporal/data_imports/sources/brex/tests/test_brex.py
 products/warehouse_sources/backend/temporal/data_imports/sources/browser_use/tests/test_browser_use.py
 products/warehouse_sources/backend/temporal/data_imports/sources/browserbase/tests/test_browserbase.py
@@ -112,7 +111,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/buzzsprout/test
 products/warehouse_sources/backend/temporal/data_imports/sources/cal_com/tests/test_cal_com.py
 products/warehouse_sources/backend/temporal/data_imports/sources/calendarific/tests/test_calendarific.py
 products/warehouse_sources/backend/temporal/data_imports/sources/calendly/tests/test_calendly.py
-products/warehouse_sources/backend/temporal/data_imports/sources/callrail/tests/test_callrail.py
 products/warehouse_sources/backend/temporal/data_imports/sources/campaign_monitor/tests/test_campaign_monitor.py
 products/warehouse_sources/backend/temporal/data_imports/sources/campayn/tests/test_campayn.py
 products/warehouse_sources/backend/temporal/data_imports/sources/campfire/tests/test_campfire.py
@@ -130,7 +128,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/chargify/tests/
 products/warehouse_sources/backend/temporal/data_imports/sources/charthop/tests/test_charthop.py
 products/warehouse_sources/backend/temporal/data_imports/sources/chartmogul/tests/test_chartmogul.py
 products/warehouse_sources/backend/temporal/data_imports/sources/chatwoot/tests/test_chatwoot.py
-products/warehouse_sources/backend/temporal/data_imports/sources/checkly/tests/test_checkly.py
 products/warehouse_sources/backend/temporal/data_imports/sources/checkmarx/tests/test_checkmarx.py
 products/warehouse_sources/backend/temporal/data_imports/sources/checkout_com/tests/test_checkout_com.py
 products/warehouse_sources/backend/temporal/data_imports/sources/checkout_com/tests/test_checkout_com_payments.py
@@ -145,7 +142,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/circleci_insigh
 products/warehouse_sources/backend/temporal/data_imports/sources/cisco_duo/tests/test_cisco_duo.py
 products/warehouse_sources/backend/temporal/data_imports/sources/clari/tests/test_clari.py
 products/warehouse_sources/backend/temporal/data_imports/sources/clay/tests/test_clay.py
-products/warehouse_sources/backend/temporal/data_imports/sources/clerk/tests/test_clerk.py
 products/warehouse_sources/backend/temporal/data_imports/sources/clever/tests/test_clever.py
 products/warehouse_sources/backend/temporal/data_imports/sources/clickhouse_cloud/tests/test_clickhouse_cloud.py
 products/warehouse_sources/backend/temporal/data_imports/sources/clickup/tests/test_clickup.py
@@ -189,7 +185,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/coveralls/tests
 products/warehouse_sources/backend/temporal/data_imports/sources/crates_io/tests/test_crates_io.py
 products/warehouse_sources/backend/temporal/data_imports/sources/crossref/tests/test_crossref.py
 products/warehouse_sources/backend/temporal/data_imports/sources/crunchbase/tests/test_crunchbase.py
-products/warehouse_sources/backend/temporal/data_imports/sources/culture_amp/tests/test_culture_amp.py
 products/warehouse_sources/backend/temporal/data_imports/sources/cursor/tests/test_cursor.py
 products/warehouse_sources/backend/temporal/data_imports/sources/custom/test_custom_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/customerly/tests/test_customerly.py
@@ -270,7 +265,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/fly_io/tests/te
 products/warehouse_sources/backend/temporal/data_imports/sources/folk/tests/test_folk.py
 products/warehouse_sources/backend/temporal/data_imports/sources/formbricks/tests/test_formbricks.py
 products/warehouse_sources/backend/temporal/data_imports/sources/fourthwall/tests/test_fourthwall.py
-products/warehouse_sources/backend/temporal/data_imports/sources/fred/tests/test_fred.py
 products/warehouse_sources/backend/temporal/data_imports/sources/freshcaller/tests/test_freshcaller.py
 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/tests/test_freshchat.py
 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/tests/test_freshdesk.py
@@ -345,9 +339,7 @@ products/warehouse_sources/backend/temporal/data_imports/sources/hubspot/test/te
 products/warehouse_sources/backend/temporal/data_imports/sources/hubspot/test/test_hubspot_metadata.py
 products/warehouse_sources/backend/temporal/data_imports/sources/hubspot/test/test_hubspot_search.py
 products/warehouse_sources/backend/temporal/data_imports/sources/hugging_face/tests/test_hugging_face.py
-products/warehouse_sources/backend/temporal/data_imports/sources/humanitec/tests/test_humanitec.py
 products/warehouse_sources/backend/temporal/data_imports/sources/humanitix/tests/test_humanitix.py
-products/warehouse_sources/backend/temporal/data_imports/sources/huntr/tests/test_huntr.py
 products/warehouse_sources/backend/temporal/data_imports/sources/hyperspell/tests/test_hyperspell.py
 products/warehouse_sources/backend/temporal/data_imports/sources/hyros/tests/test_hyros.py
 products/warehouse_sources/backend/temporal/data_imports/sources/imagga/tests/test_imagga.py
@@ -498,7 +490,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/openrouter/test
 products/warehouse_sources/backend/temporal/data_imports/sources/openweather/tests/test_openweather.py
 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/tests/test_opinion_stage.py
 products/warehouse_sources/backend/temporal/data_imports/sources/opn_payments/tests/test_opn_payments.py
-products/warehouse_sources/backend/temporal/data_imports/sources/opsgenie/tests/test_opsgenie.py
 products/warehouse_sources/backend/temporal/data_imports/sources/optimizely/tests/test_optimizely.py
 products/warehouse_sources/backend/temporal/data_imports/sources/opuswatch/tests/test_opuswatch.py
 products/warehouse_sources/backend/temporal/data_imports/sources/orb/tests/test_orb.py
@@ -534,7 +525,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/pipeliner/tests
 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/tests/test_plaid.py
 products/warehouse_sources/backend/temporal/data_imports/sources/plain/tests/test_plain.py
 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/tests/test_planhat.py
-products/warehouse_sources/backend/temporal/data_imports/sources/platform_sh/tests/test_platform_sh.py
 products/warehouse_sources/backend/temporal/data_imports/sources/plausible/tests/test_plausible.py
 products/warehouse_sources/backend/temporal/data_imports/sources/plivo/tests/test_plivo.py
 products/warehouse_sources/backend/temporal/data_imports/sources/pluralsight_flow/tests/test_pluralsight_flow.py
@@ -649,7 +639,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/sourcegraph/tes
 products/warehouse_sources/backend/temporal/data_imports/sources/spacelift/tests/test_spacelift.py
 products/warehouse_sources/backend/temporal/data_imports/sources/sparkpost/tests/test_sparkpost.py
 products/warehouse_sources/backend/temporal/data_imports/sources/split_io/tests/test_split_io.py
-products/warehouse_sources/backend/temporal/data_imports/sources/splunk_observability_cloud/tests/test_splunk_observability_cloud.py
 products/warehouse_sources/backend/temporal/data_imports/sources/spot_io/tests/test_spot_io.py
 products/warehouse_sources/backend/temporal/data_imports/sources/spotlercrm/tests/test_spotlercrm.py
 products/warehouse_sources/backend/temporal/data_imports/sources/sprig/tests/test_sprig.py
@@ -687,7 +676,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/tenable_vulnera
 products/warehouse_sources/backend/temporal/data_imports/sources/tenjin/tests/test_tenjin.py
 products/warehouse_sources/backend/temporal/data_imports/sources/terraform_cloud/tests/test_terraform_cloud.py
 products/warehouse_sources/backend/temporal/data_imports/sources/thinkific/tests/test_thinkific.py
-products/warehouse_sources/backend/temporal/data_imports/sources/thinkific_courses/tests/test_thinkific_courses.py
 products/warehouse_sources/backend/temporal/data_imports/sources/tickettailor/tests/test_tickettailor.py
 products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/test/test_tiktok_ads.py
 products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/test/test_tiktok_ads_utils.py
@@ -713,7 +701,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/twitter/tests/t
 products/warehouse_sources/backend/temporal/data_imports/sources/tyntec_sms/tests/test_tyntec_sms.py
 products/warehouse_sources/backend/temporal/data_imports/sources/typeform/tests/test_typeform.py
 products/warehouse_sources/backend/temporal/data_imports/sources/ubidots/tests/test_ubidots.py
-products/warehouse_sources/backend/temporal/data_imports/sources/uk_companies_house/tests/test_uk_companies_house.py
 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/tests/test_unleash.py
 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/tests/test_unstructured.py
 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/tests/test_uppromote.py
@@ -730,8 +717,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/vercel/tests/te
 products/warehouse_sources/backend/temporal/data_imports/sources/vitally/tests/test_vitally.py
 products/warehouse_sources/backend/temporal/data_imports/sources/vultr/tests/test_vultr.py
 products/warehouse_sources/backend/temporal/data_imports/sources/wasabi/tests/test_wasabi.py
-products/warehouse_sources/backend/temporal/data_imports/sources/watchmode/tests/test_watchmode.py
-products/warehouse_sources/backend/temporal/data_imports/sources/watchmode/tests/test_watchmode_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/waydev/tests/test_waydev.py
 products/warehouse_sources/backend/temporal/data_imports/sources/webflow/tests/test_webflow.py
 products/warehouse_sources/backend/temporal/data_imports/sources/weights_and_biases/tests/test_weights_and_biases.py
@@ -760,7 +745,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/zapsign/tests/t
 products/warehouse_sources/backend/temporal/data_imports/sources/zendesk/tests/test_zendesk.py
 products/warehouse_sources/backend/temporal/data_imports/sources/zendesk_sell/tests/test_zendesk_sell.py
 products/warehouse_sources/backend/temporal/data_imports/sources/zendesk_sunshine/tests/test_zendesk_sunshine.py
-products/warehouse_sources/backend/temporal/data_imports/sources/zenduty/tests/test_zenduty.py
 products/warehouse_sources/backend/temporal/data_imports/sources/zenloop/tests/test_zenloop.py
 products/warehouse_sources/backend/temporal/data_imports/sources/zep/tests/test_zep.py
 products/warehouse_sources/backend/temporal/data_imports/sources/zero/tests/test_zero.py
