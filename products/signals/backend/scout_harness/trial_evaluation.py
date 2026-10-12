@@ -63,7 +63,7 @@ from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
-JUDGE_MODEL = "gpt-6-astra"
+JUDGE_MODEL = "gpt-6.1-sol"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
