@@ -132,6 +132,10 @@
     .SupportEditor__content {
         display: flex;
         flex-direction: column;
+
+        // Scroll long replies inside the editor so the toolbar, send button and thread stay in view.
+        max-height: 40vh;
+        overflow-y: auto;
         overflow-wrap: anywhere;
         background-color: var(--color-bg-fill-input);
         border-top-left-radius: var(--radius);
