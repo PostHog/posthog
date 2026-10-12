@@ -793,8 +793,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/metorial.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/mixmax.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/mixpanel.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/mollie.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/monday/settings.py
