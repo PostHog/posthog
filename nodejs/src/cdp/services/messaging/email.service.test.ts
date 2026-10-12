@@ -1746,5 +1746,43 @@ describe('EmailService', () => {
                 distinct_id: 'distinct_id',
             })
         })
+
+        it.each([
+            {
+                stage: 'saving the email copy',
+                warning: 'Email sent, but its saved copy could not be created.',
+                breakBookkeeping: () => {
+                    const messageAssets = new MessageAssetsService({
+                        produce: jest.fn().mockResolvedValue(undefined),
+                    } as unknown as IngestionOutputs<'message_assets'>)
+                    jest.spyOn(messageAssets, 'buildRowForEmail').mockImplementation(() => {
+                        throw new Error('Asset row fault')
+                    })
+                    service['messageAssetsService'] = messageAssets
+                },
+            },
+            {
+                stage: 'reading the engagement setting',
+                warning: 'Email sent, but its engagement event could not be recorded.',
+                breakBookkeeping: () => {
+                    jest.spyOn(
+                        (service as any).teamWorkflowsConfigService,
+                        'shouldCaptureEngagementEvents'
+                    ).mockRejectedValue(new Error('Engagement config fault'))
+                },
+            },
+        ])('keeps an accepted email sent when $stage fails', async ({ warning, breakBookkeeping }) => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            breakBookkeeping()
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
+            expect(result.metrics.map((metric) => metric.metric_name)).not.toContain('email_failed')
+            expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+            expect(result.logs).toContainEqual(expect.objectContaining({ level: 'warn', message: warning }))
+            expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+        })
     })
 })
