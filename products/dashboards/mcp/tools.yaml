@@ -10,6 +10,9 @@ tools:
     dashboard-create:
         operation: dashboards_create
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: create
         scopes:
             - dashboard:write
         annotations:
@@ -204,6 +207,9 @@ tools:
     dashboard-get:
         operation: dashboards_retrieve
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: get
         scopes:
             - dashboard:read
         annotations:
@@ -437,6 +443,9 @@ tools:
     dashboard-update:
         operation: dashboards_partial_update
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: update
         scopes:
             - dashboard:write
         annotations:
@@ -665,6 +674,9 @@ tools:
     dashboards-get-all:
         operation: dashboards_list
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: list
         scopes:
             - dashboard:read
         annotations:

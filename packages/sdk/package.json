@@ -1,0 +1,62 @@
+{
+    "name": "@posthog/sdk",
+    "version": "0.1.0",
+    "description": "Typed PostHog API client and offline operation discovery for agents",
+    "license": "MIT",
+    "bin": {
+        "posthog-sdk": "./dist/cli.js"
+    },
+    "files": [
+        "dist",
+        "src",
+        "api-index.tsv",
+        "domains.tsv",
+        "coverage.json",
+        "README.md",
+        "AGENTS.md"
+    ],
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./discovery": {
+            "types": "./dist/discovery.d.ts",
+            "default": "./dist/discovery.js"
+        },
+        "./coverage.json": "./coverage.json",
+        "./package.json": "./package.json",
+        "./*": {
+            "types": "./dist/generated/*/index.d.ts",
+            "default": "./dist/generated/*/index.js"
+        },
+        "./api": {
+            "types": "./dist/generated/api.d.ts",
+            "default": "./dist/generated/api.js"
+        },
+        "./api-index.tsv": "./api-index.tsv",
+        "./domains.tsv": "./domains.tsv"
+    },
+    "scripts": {
+        "build": "node scripts/build.mjs",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "generate": "node ../../services/mcp/scripts/generate-sdk.mjs",
+        "test": "node --test tests/*.test.mjs",
+        "check:package": "node scripts/check-package.mjs",
+        "prepack": "npm run build"
+    },
+    "dependencies": {
+        "ajv": "^8.20.0",
+        "ajv-formats": "^3.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=22"
+    }
+}

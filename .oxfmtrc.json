@@ -146,6 +146,7 @@
         "frontend/src/layout.html",
         "**/fixtures/**",
         "services/mcp/**/generated.ts",
+        "packages/sdk/src/generated/handlers.mjs",
         "services/mcp/src/**/*.md",
         "services/mcp/worker-configuration.d.ts",
         "posthog/cdp/filter_globals.json",

@@ -8,6 +8,19 @@ on:
         paths:
             - '.github/workflows/ci-openapi-codegen.yml'
             - 'tools/openapi-codegen/**'
+            - 'packages/sdk/**'
+            - 'services/mcp/scripts/**'
+            - 'services/mcp/sdk/**'
+            - 'services/mcp/tsconfig.json'
+            - 'services/mcp/package.json'
+            - 'services/mcp/src/**'
+            - 'packages/llm-normalizer/src/**'
+            - 'products/notebooks/**'
+            - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+            - 'services/mcp/definitions/**'
+            - 'services/mcp/schema/tool-definitions.json'
+            - 'products/*/mcp/**'
+            - 'frontend/src/queries/schema.json'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -31,3 +44,21 @@ jobs:
 
             - name: Run tests
               run: pnpm --filter=@posthog/openapi-codegen test
+
+    sdk:
+        name: Agent SDK contracts and package
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/sdk install --frozen-lockfile
+
+            - name: Build and test SDK
+              run: |
+                  pnpm --filter=@posthog/sdk build
+                  pnpm --filter=@posthog/sdk test
+                  pnpm --filter=@posthog/sdk check:package

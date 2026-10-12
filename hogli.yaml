@@ -527,6 +527,9 @@ build:
     build:openapi-mcp-types:
         cmd: pnpm --filter=@posthog/mcp run generate-mcp-types
         description: Generate full TypeScript type namespace for MCP from OpenAPI schema
+    build:openapi-sdk:
+        cmd: pnpm --filter=@posthog/mcp run generate:sdk
+        description: Generate agent SDK interfaces, operations, and offline discovery metadata
     build:openapi-mcp:
         cmd: pnpm --filter=@posthog/mcp run generate-orval-schemas
         description: Generate Orval Zod schemas for MCP tool handlers
@@ -587,6 +590,7 @@ build:
                   rm -rf "$log_dir"
                   trap - INT TERM
                   exit "$generation_status"
+            - build:openapi-sdk
             - build:openapi-cli-agent-scopes
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts

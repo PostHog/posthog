@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { hasScope } from '../src/lib/api'
+import { findOperation, resolveDescription } from './lib/agent-operations.mjs'
 import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
@@ -181,57 +182,6 @@ function inlineParameterRefs(spec: OpenApiSpec): void {
  */
 function loadKnownSchemaTypes(spec: OpenApiSpec): Set<string> {
     return new Set(Object.keys(spec.components?.schemas ?? {}))
-}
-
-/**
- * Find an operation by operationId. When the same endpoint exists at both
- * /api/environments/ and /api/projects/, prefers /api/projects/.
- * Prefers an exact operationId match, then falls back to matching _N deduplicated
- * variants (e.g. issues_list matches issues_list_2) for backward compatibility.
- */
-function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperation | undefined {
-    const base = operationId.replace(/_\d+$/, '')
-    let exactFallback: ResolvedOperation | undefined
-    let baseFallback: ResolvedOperation | undefined
-    let baseProject: ResolvedOperation | undefined
-
-    for (const [urlPath, methods] of Object.entries(spec.paths)) {
-        for (const [method, op] of Object.entries(methods)) {
-            if (!op?.operationId) {
-                continue
-            }
-            const resolved = {
-                method: method.toUpperCase(),
-                path: urlPath,
-                operation: op,
-            }
-
-            if (op.operationId === operationId) {
-                if (urlPath.startsWith('/api/projects/')) {
-                    return resolved
-                }
-                if (!exactFallback) {
-                    exactFallback = resolved
-                }
-                continue
-            }
-
-            const opBase = op.operationId.replace(/_\d+$/, '')
-            if (opBase !== base) {
-                continue
-            }
-            if (urlPath.startsWith('/api/projects/')) {
-                if (!baseProject) {
-                    baseProject = resolved
-                }
-                continue
-            }
-            if (!baseFallback) {
-                baseFallback = resolved
-            }
-        }
-    }
-    return exactFallback ?? baseProject ?? baseFallback
 }
 
 function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: string }): OpenApiSchema | undefined {
@@ -2124,27 +2074,6 @@ ${mapEntries}
 // ------------------------------------------------------------------
 // Generate tool definitions JSON
 // ------------------------------------------------------------------
-
-/**
- * Resolve a tool description from either an inline `description` string or a
- * `description_file` path (resolved relative to `yamlDir`). Returns the
- * fallback when neither is set.
- */
-function resolveDescription(
-    config: { description?: string | undefined; description_file?: string | undefined },
-    yamlDir: string,
-    fallback: string
-): string {
-    if (config.description_file) {
-        const filePath = path.resolve(yamlDir, config.description_file)
-        if (!fs.existsSync(filePath)) {
-            console.error(`description_file not found: ${filePath}`)
-            process.exit(1)
-        }
-        return fs.readFileSync(filePath, 'utf-8').trim()
-    }
-    return config.description?.trim() || fallback
-}
 
 function generateDefinitionsJson(
     categories: {

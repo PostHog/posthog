@@ -740,6 +740,19 @@ jobs:
                         # resolver at tools/owners.
                         - 'tools/owners/**'
                       openapi_types:
+                        - 'services/mcp/sdk/**'
+                        - 'services/mcp/tsconfig.json'
+                        - 'services/mcp/package.json'
+                        - 'services/mcp/src/**'
+                        - 'packages/llm-normalizer/src/**'
+                        - 'products/notebooks/**'
+                        - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+                        - 'packages/sdk/src/generated/**'
+                        - 'packages/sdk/catalog/**'
+                        - 'packages/sdk/catalog.json'
+                        - 'packages/sdk/coverage.json'
+                        - 'packages/sdk/package.json'
+                        - 'frontend/src/queries/schema.json'
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
                         - 'frontend/src/lib/agentScopes.generated.ts'
