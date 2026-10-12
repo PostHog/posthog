@@ -98,7 +98,7 @@ class TestDiscoveryFingerprints:
         fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
         assert fingerprints == [self._recalculation_key(experiment, METRIC_UUID)]
 
-    @parameterized.expand([("regular", _raw_regular_sync, 4), ("saved", _raw_saved_sync, 6)])
+    @parameterized.expand([("regular", _raw_regular_sync, 2), ("saved", _raw_saved_sync, 4)])
     def test_discovery_reads_a_fixed_number_of_queries(
         self, _name: str, discover: Callable[..., list], expected_queries: int
     ) -> None:

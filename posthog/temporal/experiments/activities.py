@@ -36,9 +36,10 @@ from products.experiments.backend.facade.timeseries import (
     apply_saved_metric_overrides,
     backfill_experiment_timeseries,
     build_metric,
+    inline_metric_calculation_keys_for_experiments,
     is_daily_timeseries_metric,
     is_scheduled_metric,
-    metric_calculation_keys_for_experiments,
+    saved_metric_calculation_keys_for_experiments,
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -82,18 +83,18 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
             deleted=False,
             status=Experiment.Status.RUNNING,
             start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-        ).exclude(
+        )
+        .exclude(
             Q(metrics__isnull=True) | Q(metrics=[]),
             Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
         )
+        .select_related("team", "feature_flag")
     )
-    keys_by_experiment = metric_calculation_keys_for_experiments(
-        {experiment.id: experiment.team_id for experiment in experiments}
-    )
+    keys_by_experiment = inline_metric_calculation_keys_for_experiments(experiments)
 
     for experiment in experiments:
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-        calculation_keys = keys_by_experiment[experiment.id].inline
+        calculation_keys = keys_by_experiment[experiment.id]
 
         for metric in all_metrics:
             metric_uuid = metric.get("uuid")
@@ -106,16 +107,11 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
             if not is_scheduled_metric(metric):
                 continue
 
-            fingerprint = calculation_keys.get(metric_uuid)
-            if fingerprint is None:
-                # The experiment lost this metric after the discovery query read it.
-                continue
-
             experiment_metrics.append(
                 ExperimentRegularMetricInput(
                     experiment_id=experiment.id,
                     metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
+                    fingerprint=calculation_keys[metric_uuid],
                     team_id=experiment.team_id,
                 )
             )
@@ -390,15 +386,15 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
             deleted=False,
             status=Experiment.Status.RUNNING,
             start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-        ).prefetch_related("experimenttosavedmetric_set__saved_metric")
+        )
+        .select_related("team", "feature_flag")
+        .prefetch_related("experimenttosavedmetric_set__saved_metric")
         if experiment.experimenttosavedmetric_set.all()
     ]
-    keys_by_experiment = metric_calculation_keys_for_experiments(
-        {experiment.id: experiment.team_id for experiment in experiments}
-    )
+    keys_by_experiment = saved_metric_calculation_keys_for_experiments(experiments)
 
     for experiment in experiments:
-        calculation_keys = keys_by_experiment[experiment.id].saved
+        calculation_keys = keys_by_experiment[experiment.id]
 
         for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
             saved_metric = exp_to_saved_metric.saved_metric
@@ -414,16 +410,11 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
             if not is_scheduled_metric(saved_metric.query):
                 continue
 
-            fingerprint = calculation_keys.get(exp_to_saved_metric.id)
-            if fingerprint is None:
-                # The experiment lost this link after the discovery query read it.
-                continue
-
             experiment_metrics.append(
                 ExperimentSavedMetricInput(
                     experiment_id=experiment.id,
                     metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
+                    fingerprint=calculation_keys[exp_to_saved_metric.id],
                     team_id=experiment.team_id,
                 )
             )
