@@ -85,7 +85,16 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     if (stopPropagation) {
                         e.stopPropagation()
                     }
-                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    // The Enter that confirms an IME candidate is not a commit: no Enter handler (including
+                    // the consumer's onKeyDown) should see it, and it must not bubble to an enclosing Enter
+                    // handler (for example a dialog form that submits on Enter). Don't preventDefault, the
+                    // browser still needs the key to finish the composition. Safari ends the composition
+                    // before keydown fires (isComposing is already false), but still reports keyCode 229.
+                    if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) {
+                        e.stopPropagation()
+                        return
+                    }
+                    if (e.key === 'Enter') {
                         const target = e.currentTarget
                         // When shift is pressed, we always just want to add a new line
                         if (!e.shiftKey) {
