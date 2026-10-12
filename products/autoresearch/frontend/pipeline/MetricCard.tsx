@@ -7,7 +7,7 @@ export function MetricCard({ label, value, tooltip }: { label: string; value: st
         </div>
     )
     return (
-        <div className="border rounded p-3 space-y-1">
+        <div className="rounded bg-surface-secondary p-3 space-y-1">
             {tooltip ? <Tooltip title={tooltip}>{labelElement}</Tooltip> : labelElement}
             <div className="text-lg font-bold truncate">{value}</div>
         </div>
