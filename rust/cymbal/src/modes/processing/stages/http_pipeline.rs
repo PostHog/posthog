@@ -73,9 +73,55 @@ fn handle_result(
             | EventError::RateLimitedProject(_) => None,
             err => {
                 original.attach_error(err.to_string())?;
+                if let Some(reason) = err.dlq_reason() {
+                    original.mark_for_dlq(reason)?;
+                }
                 Some(original)
             }
         },
     };
     Ok(item)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use serde_json::json;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn event(uuid: Uuid) -> AnyEvent {
+        AnyEvent {
+            uuid,
+            event: "$exception".to_string(),
+            team_id: 1,
+            timestamp: String::new(),
+            properties: json!({ "$exception_list": [] }),
+            others: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn exception_too_large_is_marked_for_dlq() {
+        let uuid = Uuid::from_u128(1);
+        let out = handle_result(event(uuid), Err(EventError::ExceptionTooLarge(uuid, 5, 4)))
+            .unwrap()
+            .expect("event is returned so the caller can dead-letter it");
+
+        assert_eq!(out.properties["$cymbal_dlq_reason"], "exception_too_large");
+        assert!(out.properties["$cymbal_errors"].is_array());
+    }
+
+    #[test]
+    fn other_handled_errors_are_not_marked_for_dlq() {
+        let uuid = Uuid::from_u128(1);
+        let out = handle_result(event(uuid), Err(EventError::EmptyExceptionList(uuid)))
+            .unwrap()
+            .expect("event is returned with the error attached");
+
+        assert!(out.properties.get("$cymbal_dlq_reason").is_none());
+        assert!(out.properties["$cymbal_errors"].is_array());
+    }
 }

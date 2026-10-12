@@ -8,7 +8,8 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::{
-    error::UnhandledError,
+    error::{EventError, UnhandledError},
+    metric_consts::REMOTE_RESOLUTION_REQUESTS,
     stages::{pipeline::ParsedPipelineItem, resolution::remote::pool::EndpointPool},
     types::{
         batch::Batch,
@@ -18,6 +19,14 @@ use crate::{
 };
 
 use super::config::RemoteResolutionConfig;
+
+/// tonic's default max decoded message size, which the resolution server runs with. An item
+/// over it breaks the whole multiplexed stream to that endpoint, failing every in-flight item
+/// on it with a terminal `OutOfRange` that no retry recovers from, so it never gets sent.
+const MAX_REMOTE_ITEM_BYTES: usize = 4 * 1024 * 1024;
+
+/// Headroom for the non-payload `ResolveItem` fields (id, team id, deadline, field tags).
+const REMOTE_ITEM_OVERHEAD_BYTES: usize = 64;
 
 mod chunk;
 mod partition;
@@ -182,8 +191,9 @@ async fn resolve_remote_events(
     ctx: &RemoteResolutionContext,
     events: Vec<RemoteEvent>,
 ) -> Result<Vec<(usize, ParsedPipelineItem)>, UnhandledError> {
+    let (events, oversized) = split_oversized_events(events);
     if events.is_empty() {
-        return Ok(Vec::new());
+        return Ok(oversized);
     }
 
     let (mut event_slots, work_items) = build_work_items(events)?;
@@ -273,7 +283,43 @@ async fn resolve_remote_events(
             }
             Ok((event.batch_index, Ok(event.evt)))
         })
+        .chain(oversized.into_iter().map(Ok))
         .collect()
+}
+
+/// Pulls out events with an exception too large to send to the resolution server, failing
+/// just that event so the rest of the batch still resolves.
+fn split_oversized_events(
+    events: Vec<RemoteEvent>,
+) -> (Vec<RemoteEvent>, Vec<(usize, ParsedPipelineItem)>) {
+    let mut remote = Vec::with_capacity(events.len());
+    let mut oversized = Vec::new();
+    for event in events {
+        let largest = event
+            .exception_jsons
+            .iter()
+            .chain(event.legacy_exception_jsons.iter().flatten())
+            .map(|exception_json| {
+                exception_json.len() + event.metadata.len() + REMOTE_ITEM_OVERHEAD_BYTES
+            })
+            .max()
+            .unwrap_or(0);
+        if largest > MAX_REMOTE_ITEM_BYTES {
+            metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "item_too_large")
+                .increment(1);
+            oversized.push((
+                event.batch_index,
+                Err(EventError::ExceptionTooLarge(
+                    event.evt.uuid(),
+                    largest,
+                    MAX_REMOTE_ITEM_BYTES,
+                )),
+            ));
+        } else {
+            remote.push(event);
+        }
+    }
+    (remote, oversized)
 }
 
 fn build_work_items(
@@ -476,6 +522,44 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn split_oversized_events_fails_only_the_oversized_event() {
+        let small = fake_remote_event(1, 0, 2);
+        let mut large = fake_remote_event(1, 1, 2);
+        large.exception_jsons[1] = vec![b'x'; MAX_REMOTE_ITEM_BYTES];
+        let large_uuid = large.evt.uuid();
+
+        let (remote, oversized) = split_oversized_events(vec![small, large]);
+
+        assert_eq!(remote.len(), 1);
+        assert_eq!(remote[0].batch_index, 0);
+        assert_eq!(oversized.len(), 1);
+        let (batch_index, item) = &oversized[0];
+        assert_eq!(*batch_index, 1);
+        match item {
+            Err(EventError::ExceptionTooLarge(uuid, size, limit)) => {
+                assert_eq!(*uuid, large_uuid);
+                assert!(size > limit);
+                assert_eq!(*limit, MAX_REMOTE_ITEM_BYTES);
+            }
+            other => panic!("expected ExceptionTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn split_oversized_events_checks_legacy_snapshot() {
+        let mut event = fake_remote_event(1, 0, 1);
+        event.legacy_exception_jsons = Some(vec![vec![b'x'; MAX_REMOTE_ITEM_BYTES]]);
+
+        let (remote, oversized) = split_oversized_events(vec![event]);
+
+        assert!(remote.is_empty());
+        assert!(matches!(
+            oversized[0].1,
+            Err(EventError::ExceptionTooLarge(..))
+        ));
     }
 
     fn fake_remote_event(team_id: i32, batch_index: usize, n_exceptions: usize) -> RemoteEvent {

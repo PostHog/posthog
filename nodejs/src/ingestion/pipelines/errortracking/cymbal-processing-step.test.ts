@@ -1,4 +1,4 @@
-import { PipelineResultType, isDropResult, isOkResult } from '~/ingestion/framework/results'
+import { PipelineResultType, isDlqResult, isDropResult, isOkResult } from '~/ingestion/framework/results'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 
@@ -124,6 +124,30 @@ describe('createCymbalProcessingStep', () => {
         expect(results).toHaveLength(2)
         expect(results[0].type).toBe(PipelineResultType.DROP)
         expect(isDropResult(results[0])).toBe(true)
+        expect(results[1].type).toBe(PipelineResultType.OK)
+    })
+
+    it('sends events Cymbal marks for DLQ to the DLQ', async () => {
+        const inputs = [createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })]
+
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([
+            createResponse({
+                uuid: 'uuid-1',
+                properties: {
+                    $cymbal_errors: ['Exception on event uuid-1 is too large to resolve'],
+                    $cymbal_dlq_reason: 'exception_too_large',
+                },
+            }),
+            createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } }),
+        ])
+
+        const results = await step(inputs)
+
+        expect(results).toHaveLength(2)
+        expect(isDlqResult(results[0])).toBe(true)
+        if (isDlqResult(results[0])) {
+            expect(results[0].reason).toBe('cymbal_exception_too_large')
+        }
         expect(results[1].type).toBe(PipelineResultType.OK)
     })
 

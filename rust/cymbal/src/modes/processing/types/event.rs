@@ -63,6 +63,7 @@ impl AnyEvent {
 pub trait PropertiesContainer: Send + Clone + 'static {
     fn set_properties(&mut self, new_props: Value) -> Result<(), UnhandledError>;
     fn attach_error(&mut self, error: String) -> Result<(), UnhandledError>;
+    fn mark_for_dlq(&mut self, reason: &str) -> Result<(), UnhandledError>;
 }
 
 impl PropertiesContainer for AnyEvent {
@@ -81,6 +82,16 @@ impl PropertiesContainer for AnyEvent {
         props.insert(
             "$cymbal_errors".to_string(),
             serde_json::Value::Array(errors),
+        );
+        self.properties = serde_json::to_value(props)?;
+        Ok(())
+    }
+
+    fn mark_for_dlq(&mut self, reason: &str) -> Result<(), UnhandledError> {
+        let mut props: HashMap<String, Value> = serde_json::from_value(self.properties.take())?;
+        props.insert(
+            "$cymbal_dlq_reason".to_string(),
+            Value::String(reason.to_string()),
         );
         self.properties = serde_json::to_value(props)?;
         Ok(())

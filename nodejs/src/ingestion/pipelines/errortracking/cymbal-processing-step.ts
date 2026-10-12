@@ -4,7 +4,7 @@ import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
+import { PipelineResult, dlq, drop, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
@@ -119,6 +119,19 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
                         teamId: input.team.id,
                     })
                     return drop('suppressed')
+                }
+
+                // Cymbal marks events it can never process (e.g. an exception too large to
+                // resolve) so they go to the DLQ instead of failing the whole batch.
+                const dlqReason = response.properties.$cymbal_dlq_reason
+                if (typeof dlqReason === 'string') {
+                    logger.warn('⚠️', 'cymbal_event_dlq', {
+                        eventUuid: input.event.uuid,
+                        teamId: input.team.id,
+                        reason: dlqReason,
+                        errors: response.properties.$cymbal_errors,
+                    })
+                    return dlq(`cymbal_${dlqReason}`)
                 }
 
                 // Replace event properties with Cymbal's processed properties.
