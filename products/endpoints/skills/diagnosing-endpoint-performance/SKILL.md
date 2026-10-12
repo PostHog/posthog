@@ -148,8 +148,11 @@ endpoint's calls actually are:
 ```sql
 SELECT count() AS calls, max(query_start_time) AS last_called, avg(query_duration_ms) AS avg_ms
 FROM query_log
-WHERE name = '<endpoint_name>' AND endpoint LIKE '%/endpoints/%' AND is_personal_api_key_request
+WHERE extract(endpoint, '/endpoints/([^/]+)/run') = '<endpoint_name>' AND is_personal_api_key_request
 ```
+
+Filter on the request path, not on `name`. A materialised run logs `name` as
+`<endpoint_name>_materialized`, so `name = '<endpoint_name>'` counts only the inline runs.
 
 ## Workflow
 
