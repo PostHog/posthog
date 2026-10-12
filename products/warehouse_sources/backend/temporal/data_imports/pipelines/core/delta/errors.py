@@ -85,6 +85,12 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
     this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
 
+    A bare `OSError` with errno `EBUSY` is s3fs's translation of every S3 "back off" response
+    (`SlowDown`, `ServiceUnavailable`, `OperationAborted`, a bare 503/409; see
+    `s3fs/errors.py::translate_boto_error`), raised once s3fs's own retries are exhausted. The errno
+    covers the 503 "Service Unavailable" case the message needles below miss, without matching on
+    the vendor's free text.
+
     A bodyless 5xx that pyarrow's S3FileSystem reports as "AWS Error UNKNOWN" (see
     `_is_bodyless_5xx_unknown_error`) is also transient - but only once its status is confirmed to be
     5xx, because AWS omits the error body (and so reports the same UNKNOWN code) for a permanent
@@ -108,7 +114,7 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
-    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY):
         return True
     if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
         return True
