@@ -41,14 +41,16 @@ export function loadOpened(): string[] {
   return scope ? readOpened(scope.store, scope.key) : [];
 }
 
-// Opened ids whose task is gone (deleted or archived) are skipped, and recent
-// tasks fill the rest so a fresh install still shows something.
+// `known` holds opened tasks fetched outside the recent page. Opened ids with
+// no task are skipped, and recent tasks fill the rest so a fresh install still
+// shows something.
 export function lastOpened(
   opened: string[],
   recent: Task[],
+  known: Task[],
   limit: number,
 ): Task[] {
-  const byId = new Map(recent.map((task) => [task.id, task]));
+  const byId = new Map([...recent, ...known].map((task) => [task.id, task]));
   const picked = new Map<string, Task>();
   for (const task of [
     ...opened.flatMap((id) => byId.get(id) ?? []),

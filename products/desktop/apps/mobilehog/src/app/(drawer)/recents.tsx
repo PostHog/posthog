@@ -27,7 +27,7 @@ import {
   TaskChatRow,
 } from "@/components/TaskRow";
 import { lastOpened, loadOpened } from "@/lib/openedChats";
-import { useTaskPages, useTasks } from "@/lib/queries";
+import { useTaskPages, useTasks, useTasksById } from "@/lib/queries";
 import { useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -73,13 +73,26 @@ export default function RecentsScreen() {
   const recentTasks = useTasks();
   const [opened, setOpened] = useState(loadOpened);
   useFocusEffect(useCallback(() => setOpened(loadOpened()), []));
+  // The recent page holds at most one page of tasks, so a chat opened from an
+  // older search result is fetched on its own.
+  const missing = useMemo(() => {
+    if (!recentMode || !recentTasks.data) return [];
+    const inPage = new Set(recentTasks.data.map((task) => task.id));
+    return opened.slice(0, LAST_OPENED_LIMIT).filter((id) => !inPage.has(id));
+  }, [recentMode, recentTasks.data, opened]);
+  const openedTasks = useTasksById(missing);
 
   const items = useMemo(() => {
     if (recentMode) {
       const recent = [...(recentTasks.data ?? [])].sort((a, b) =>
         activityAt(b).localeCompare(activityAt(a)),
       );
-      return lastOpened(opened, recent, LAST_OPENED_LIMIT).map(
+      return lastOpened(
+        opened,
+        recent,
+        openedTasks.data,
+        LAST_OPENED_LIMIT,
+      ).map(
         (task): Item => ({
           kind: "task",
           id: task.id,
@@ -109,6 +122,7 @@ export default function RecentsScreen() {
   }, [
     recentMode,
     recentTasks.data,
+    openedTasks.data,
     opened,
     scope,
     showReports,
@@ -117,7 +131,7 @@ export default function RecentsScreen() {
   ]);
 
   const loading = recentMode
-    ? recentTasks.isLoading
+    ? recentTasks.isLoading || openedTasks.isLoading
     : (scope !== "reports" && tasks.isLoading) ||
       (showReports && reports.isLoading);
 

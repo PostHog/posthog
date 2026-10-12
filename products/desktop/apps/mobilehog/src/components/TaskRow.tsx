@@ -15,6 +15,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Animated, {
@@ -176,8 +177,11 @@ function taskSnippet(task: Task, title: string): string {
 }
 
 // A fixed height, so the SwiftUI host around a row never has to catch up with
-// a title that wraps.
-const CHAT_ROW_HEIGHT = 60;
+// a title that wraps. Only the two text lines follow the text size setting.
+function useChatRowHeight(): number {
+  const { fontScale } = useWindowDimensions();
+  return Math.ceil(21 + 39 * fontScale);
+}
 
 export function ChatRow({
   icon,
@@ -192,10 +196,15 @@ export function ChatRow({
   running?: boolean;
   onPress: () => void;
 }) {
+  const height = useChatRowHeight();
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.chatRow, pressed && { opacity: 0.5 }]}
+      style={({ pressed }) => [
+        styles.chatRow,
+        { height },
+        pressed && { opacity: 0.5 },
+      ]}
     >
       <View style={styles.chatIcon}>
         <Host matchContents>
@@ -249,6 +258,7 @@ export function RowSkeletons({
   count?: number;
   chat?: boolean;
 }) {
+  const chatHeight = useChatRowHeight();
   const opacity = useSharedValue(1);
   useEffect(() => {
     opacity.value = withRepeat(
@@ -261,7 +271,10 @@ export function RowSkeletons({
   return (
     <Animated.View style={pulse}>
       {SKELETON_WIDTHS.slice(0, count).map((width) => (
-        <View key={width} style={chat ? styles.chatRow : styles.row}>
+        <View
+          key={width}
+          style={chat ? [styles.chatRow, { height: chatHeight }] : styles.row}
+        >
           {chat ? <View style={styles.chatIcon} /> : null}
           <View style={styles.body}>
             <View style={[styles.skeletonTitle, { width }]} />
@@ -294,7 +307,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    height: CHAT_ROW_HEIGHT,
     paddingHorizontal: 4,
   },
   chatIcon: {

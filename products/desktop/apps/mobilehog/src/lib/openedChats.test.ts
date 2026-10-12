@@ -125,9 +125,16 @@ describe("lastOpened", () => {
       limit: 8,
       expected: ["r1", "r2", "r3", "r4"],
     },
-  ])("$name", ({ opened, limit, expected }) => {
-    expect(lastOpened(opened, recent, limit).map(({ id }) => id)).toEqual(
-      expected,
-    );
+    {
+      name: "finds an opened task outside the recent page",
+      opened: ["old", "r2"],
+      known: ["old"],
+      limit: 3,
+      expected: ["old", "r2", "r1"],
+    },
+  ])("$name", ({ opened, known = [], limit, expected }) => {
+    expect(
+      lastOpened(opened, recent, known.map(task), limit).map(({ id }) => id),
+    ).toEqual(expected);
   });
 });
