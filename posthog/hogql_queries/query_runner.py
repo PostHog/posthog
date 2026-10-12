@@ -2059,7 +2059,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifier_source = (
             query_json["source"]["source"] if isinstance(self.query, FunnelCorrelationQuery) else query_json
         )
-        if "modifiers" in modifier_source and self.modifiers.useNewEventsSchema is not None:
+        if (
+            "modifiers" in modifier_source
+            and self.modifiers.useNewEventsSchema is not None
+            and (self.modifiers.useNewEventsSchema or settings.CLICKHOUSE_NATIVE_EVENTS_HOST)
+        ):
             modifier_source["modifiers"] = {
                 **(modifier_source["modifiers"] or {}),
                 "useNewEventsSchema": self.modifiers.useNewEventsSchema,

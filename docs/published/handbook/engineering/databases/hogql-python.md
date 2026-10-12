@@ -23,7 +23,7 @@ After individual testing, the existing project modifier or `CLICKHOUSE_HOGQL_USE
 
 When `CLICKHOUSE_NATIVE_EVENTS_HOST` is configured, ClickHouse queries compiled against the native events schema use that hostname. Legacy queries retain their usual connection, and logs retain their dedicated cluster. Configure a hostname rather than an HTTP URL. Connections retain their resolved credentials, including rotating token files. `CLICKHOUSE_NATIVE_EVENTS_VERIFY` defaults to `CLICKHOUSE_VERIFY` and controls certificate verification for this host.
 
-Before enabling the route, verify connectivity and credentials from both the API and query workers. Test queries that join other clusters as well as events-only queries; changing the initiating host does not establish cross-version join compatibility. This rollout covers HogQL query execution, not a blanket move of raw SQL, exports, or other services.
+Deploy the code to the API and all query workers before configuring the native host or enrolling staff. Verify connectivity and credentials from both the API and query workers. Test queries that join other clusters as well as events-only queries; changing the initiating host does not establish cross-version join compatibility. This rollout covers HogQL query execution, not a blanket move of raw SQL, exports, or other services.
 
 ## Query templates
 

@@ -111,6 +111,20 @@ class TestNewEventsSchemaUserRollout(SimpleTestCase):
         assert source.modifiers is not None
         self.assertIsNone(source.modifiers.useNewEventsSchema)
 
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST=None)
+    def test_unconfigured_route_preserves_legacy_async_payload_for_older_workers(self) -> None:
+        ordinary = User(id=124, is_staff=True, is_active=True)
+        source = HogQLQuery(query="SELECT 1", modifiers=self.modifiers)
+        runner = HogQLQueryRunner(query=source, team=self.team, user=ordinary)
+        cache = MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None)
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            runner.enqueue_async_calculation(cache_manager=cache, user=ordinary)
+        self.assertEqual(enqueue.call_args.kwargs["query_json"], source.model_dump())
+
     def test_async_effective_modifier_has_same_cache_payload_as_request(self) -> None:
         request = HogQLQueryRunner(
             query=HogQLQuery(query="SELECT 1", modifiers=self.modifiers), team=self.team, user=self.user
