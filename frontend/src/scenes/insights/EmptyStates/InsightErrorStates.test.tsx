@@ -1,6 +1,7 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -26,6 +27,7 @@ describe('insight error states', () => {
 
     afterEach(() => {
         cleanup()
+        jest.useRealTimers()
     })
 
     it('reports "insight error message shown" when a validation error renders', () => {
@@ -194,6 +196,102 @@ describe('insight error states', () => {
         expect(screen.getByText("This query couldn't finish")).toBeTruthy()
         expect(screen.getByText('Try a shorter date range or narrower filters, then run it again.')).toBeTruthy()
         expect(screen.queryByText(/DB::Exception/)).toBeNull()
+    })
+
+    it('honors a numeric capacity cooldown across remounts', () => {
+        jest.useFakeTimers()
+        const error = new ApiError('', 503, new Headers({ 'Retry-After': '45' }))
+        const onRetry = jest.fn()
+        const view = (
+            <InsightErrorState
+                titleStatus={error.status}
+                retryAfterTimestamp={error.retryAfterTimestamp}
+                onRetry={onRetry}
+            />
+        )
+        const { unmount } = render(view)
+
+        expect(screen.getByText('PostHog is busy. You can retry in 45 seconds.')).toBeTruthy()
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).not.toHaveBeenCalled()
+
+        act(() => jest.advanceTimersByTime(15_000))
+        unmount()
+        render(view)
+        expect(screen.getByText('PostHog is busy. You can retry in 30 seconds.')).toBeTruthy()
+
+        act(() => jest.advanceTimersByTime(29_000))
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).not.toHaveBeenCalled()
+
+        act(() => jest.advanceTimersByTime(1000))
+        expect(screen.getByText('You can try this query again now.')).toBeTruthy()
+        expect(onRetry).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps rate-limit guidance when a 429 carries an embedded capacity deadline', () => {
+        jest.useFakeTimers()
+        const onRetry = jest.fn()
+        render(
+            <InsightErrorState
+                titleStatus={429}
+                retryAfter="in 2 minutes"
+                retryAfterTimestamp={Date.now() + 10_000}
+                onRetry={onRetry}
+            />
+        )
+
+        expect(screen.getByText('Try again in 2 minutes.')).toBeTruthy()
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).not.toHaveBeenCalled()
+
+        act(() => jest.advanceTimersByTime(10_000))
+        expect(screen.getByText('Try again in 2 minutes.')).toBeTruthy()
+        expect(screen.queryByText('You can try this query again now.')).toBeNull()
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('updates the capacity countdown after page translation replaces its text node', () => {
+        jest.useFakeTimers()
+        const onRetry = jest.fn()
+        render(<InsightErrorState titleStatus={503} retryAfterTimestamp={Date.now() + 2000} onRetry={onRetry} />)
+        const message = screen.getByText('PostHog is busy. You can retry in 2 seconds.')
+        const translateMessage = (): void => {
+            const translated = document.createElement('font')
+            translated.textContent = 'Translated countdown'
+            message.replaceChild(translated, message.firstChild!)
+        }
+
+        translateMessage()
+        act(() => jest.advanceTimersByTime(1000))
+        expect(message.textContent).toBe('PostHog is busy. You can retry in 1 second.')
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).not.toHaveBeenCalled()
+
+        translateMessage()
+        act(() => jest.advanceTimersByTime(1000))
+        expect(message.textContent).toBe('You can try this query again now.')
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('uses the latest capacity deadline when a retry is rejected again', () => {
+        jest.useFakeTimers()
+        const onRetry = jest.fn()
+        const { rerender } = render(
+            <InsightErrorState titleStatus={503} retryAfterTimestamp={Date.now() + 30_000} onRetry={onRetry} />
+        )
+        act(() => jest.advanceTimersByTime(30_000))
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).toHaveBeenCalledTimes(1)
+
+        rerender(<InsightErrorState titleStatus={503} retryAfterTimestamp={Date.now() + 60_000} onRetry={onRetry} />)
+        expect(screen.getByText('PostHog is busy. You can retry in 60 seconds.')).toBeTruthy()
+        fireEvent.click(screen.getByTestId('insight-retry-button'))
+        expect(onRetry).toHaveBeenCalledTimes(1)
     })
 
     it('uses user-facing copy for invalid query errors', () => {

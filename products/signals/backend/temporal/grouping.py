@@ -44,6 +44,7 @@ from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
+from products.signals.backend.temporal.refusal_review import generate_queries_or_preserve_refusal
 from products.signals.backend.temporal.signal_queries import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -178,6 +179,7 @@ class GenerateSearchQueriesInput:
     # Optional with a default so workflows mid-flight across a deploy (whose activity input was
     # serialized before this field existed) still deserialize; missing => gateway key owner's team.
     team_id: int | None = None
+    signal: EmitSignalInputs | None = None
 
 
 async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str]:
@@ -208,9 +210,10 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
     )
 
 
-@dataclass
+@frozen
 class GenerateSearchQueriesOutput:
     queries: list[str]
+    quarantined: bool = False
 
 
 @temporalio.activity.defn
@@ -219,7 +222,13 @@ class GenerateSearchQueriesOutput:
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
-        queries = await generate_search_queries(input)
+        queries: list[str] | None
+        if input.signal is None:
+            queries = await generate_search_queries(input)
+        else:
+            queries = await generate_queries_or_preserve_refusal(input.signal, lambda: generate_search_queries(input))
+            if queries is None:
+                return GenerateSearchQueriesOutput(queries=[], quarantined=True)
         logger.debug(
             f"Generated {len(queries)} search queries",
             source_product=input.source_product,
@@ -337,6 +346,11 @@ None of these are reasons to split:
 
 When you are unsure, name the single change, or the single feature whose logic every signal lives in, that would resolve the group. If you can name it, they belong in one PR. Split only when the signals belong to different features or products, or when the new signal is too vague to tie to the group's fix.
 
+The group can include a RESEARCHED CAUSE. This means that an engineer already investigated the group and named its cause and its fix. The group's PR is that fix. For such a group, the rule is stricter:
+- Accept the new signal only when the researched fix also resolves it.
+- Reject the new signal when it needs a different fix, even when it is in the same feature, on the same page, or in the same product area.
+- A shared page, a shared HTTP status (such as a 404), or a shared error message is not a shared cause.
+
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
 
@@ -348,6 +362,7 @@ class SpecificityResult(BaseModel):
 
 
 MAX_SIGNALS_IN_SPECIFICITY_CONTEXT = 8
+MAX_RESEARCHED_SUMMARY_CHARS = 2000
 
 
 def _build_matching_prompt(
@@ -403,11 +418,16 @@ def _build_specificity_prompt(
     new_signal_source_type: str,
     report_title: str,
     group_signals: list[SignalData],
+    researched_summary: str | None = None,
 ) -> str:
     """Build prompt for the PR-specificity verification gate."""
     prompt = f"""EXISTING GROUP:
 - Title: {report_title or "(untitled)"}
-- Signals ({len(group_signals)} total):
+"""
+    if researched_summary:
+        prompt += f"""- Researched cause: {researched_summary[:MAX_RESEARCHED_SUMMARY_CHARS]}
+"""
+    prompt += f"""- Signals ({len(group_signals)} total):
 """
     for i, sig in enumerate(group_signals[:MAX_SIGNALS_IN_SPECIFICITY_CONTEXT]):
         prompt += f"""
@@ -601,6 +621,7 @@ async def verify_match_specificity(
     new_signal_source_type: str,
     report_title: str,
     group_signals: list[SignalData],
+    researched_summary: str | None = None,
 ) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     specificity_prompt = _build_specificity_prompt(
@@ -609,6 +630,7 @@ async def verify_match_specificity(
         new_signal_source_type=new_signal_source_type,
         report_title=report_title,
         group_signals=group_signals,
+        researched_summary=researched_summary,
     )
 
     specificity = await call_llm(
@@ -629,12 +651,41 @@ async def verify_match_specificity(
     )
 
 
+def _has_completed_research(report: SignalReport) -> bool:
+    """Whether a research pass completed on the report, so its title and summary describe the researched cause.
+
+    `researched_signal_count` alone does not prove this. A run that starts, and a snooze, move `signals_at_run`
+    before any research completes, so the reconstruction is positive while the summary is still the matcher's
+    first guess. Only a pass that reaches READY writes `signals_researched`. A report researched before that
+    column existed has it null, and only on a READY report is `signals_at_run` known to be a run's stamp.
+    """
+    if report.researched_signal_count == 0:
+        return False
+    return report.signals_researched is not None or report.status == SignalReport.Status.READY
+
+
+def _researched_summary(team_id: int, report_id: str) -> str | None:
+    """The summary of a report that a research pass completed, or None when no research pass covers it.
+
+    Before research, the summary is only the matcher's first guess, so it must not constrain later signals.
+    """
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+    if report is None or not _has_completed_research(report) or not report.summary:
+        return None
+    if _is_safety_suppressed(report_id, team_id):
+        return None
+    return report.summary
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
+        researched_summary = await database_sync_to_async(_researched_summary, thread_sensitive=False)(
+            input.team_id, input.report_id
+        )
         result = await verify_match_specificity(
             team_id=input.team_id,
             new_signal_description=input.new_signal_description,
@@ -642,6 +693,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
             new_signal_source_type=input.new_signal_source_type,
             report_title=input.report_title,
             group_signals=input.group_signals,
+            researched_summary=researched_summary,
         )
 
         logger.debug(
@@ -680,13 +732,16 @@ class AssignAndEmitSignalInput:
     remediation: Optional[dict] = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
     timestamp: datetime
     run_count: int
     research_debounce_seconds: int = 0
+    # The title the report holds after assignment. It differs from `updated_title` when assignment keeps a
+    # researched title. None when no title is known, which includes results recorded before this field existed.
+    report_title: Optional[str] = None
 
 
 @frozen
@@ -706,6 +761,7 @@ class AssignAndEmitDbResult:
     next_research_bucket: Optional[int] = None
     # What the report's last completed pass covered, for the same reason.
     report_signals_researched: int = 0
+    report_title: Optional[str] = None
 
 
 def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
@@ -836,7 +892,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     report.total_weight += input.weight
                     report.signal_count += 1
                     update_fields = ["total_weight", "signal_count", "updated_at"]
-                    if input.updated_title:
+                    # A research pass writes the title together with the summary. A later signal must
+                    # not rename the report away from the cause that the summary explains.
+                    if input.updated_title and not _has_completed_research(report):
                         report.title = input.updated_title
                         update_fields.append("title")
                     report.save(update_fields=update_fields)
@@ -944,6 +1002,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 promotion_suppressed=promotion_suppressed,
                 next_research_bucket=bucket,
                 report_signals_researched=signals_researched,
+                report_title=report.title,
             )
 
     try:
@@ -1074,12 +1133,19 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=db_result.promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
+        report_title = db_result.report_title
+        # The matcher blanks an unsafe report's title, so the batch context must not bring it back.
+        if report_title and await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
+            db_result.report_id, input.team_id
+        ):
+            report_title = ""
         return AssignAndEmitSignalOutput(
             report_id=db_result.report_id,
             promoted=db_result.promoted,
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
             research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
+            report_title=report_title,
         )
     except Exception as e:
         logger.exception(
@@ -1172,6 +1238,7 @@ async def _process_signal_batch(
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
     dropped = 0
+    isolate_refusals = workflow.patched("signals-query-refusal-review-v1")
 
     # === PARALLEL PHASE (steps 1-4) ===
 
@@ -1189,6 +1256,20 @@ async def _process_signal_batch(
 
         # Step 1b: Embed all signals + generate search queries in parallel
         # (query gen needs type examples but NOT the signal embeddings)
+        query_inputs = batch
+        query_result_indices = list(range(len(batch)))
+        if isolate_refusals:
+            query_inputs = []
+            query_result_indices = []
+            payload_indices: dict[str, int] = {}
+            # Duplicate payloads must share a query activity so their refusal counts cannot race.
+            for signal in batch:
+                payload = json.dumps(asdict(signal), sort_keys=True)
+                if payload not in payload_indices:
+                    payload_indices[payload] = len(query_inputs)
+                    query_inputs.append(signal)
+                query_result_indices.append(payload_indices[payload])
+
         step1b_results = await asyncio.gather(
             *[
                 workflow.execute_activity(
@@ -1208,15 +1289,26 @@ async def _process_signal_batch(
                         source_product=s.source_product,
                         source_type=s.source_type,
                         signal_type_examples=type_examples_result.examples,
+                        signal=s if isolate_refusals else None,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=5),
                 )
-                for s in batch
+                for s in query_inputs
             ],
         )
         signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
-        query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
+        query_outputs = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
+        query_gen_results = [query_outputs[i] for i in query_result_indices]
+
+        if isolate_refusals:
+            retained_indices = [i for i, result in enumerate(query_gen_results) if not result.quarantined]
+            dropped = len(batch) - len(retained_indices)
+            batch = [batch[i] for i in retained_indices]
+            signal_embeddings = [signal_embeddings[i] for i in retained_indices]
+            query_gen_results = [query_gen_results[i] for i in retained_indices]
+            if not batch:
+                return dropped, type_examples_result
 
         # Step 3: Embed all queries across all signals (flatten → parallel embed)
         all_queries_flat: list[tuple[int, str]] = []
@@ -1436,7 +1528,9 @@ async def _process_signal_batch(
                 old_ctx = report_contexts.get(assign_result.report_id)
                 report_contexts[assign_result.report_id] = ReportContext(
                     report_id=assign_result.report_id,
-                    title=updated_title or (old_ctx.title if old_ctx else ""),
+                    title=assign_result.report_title
+                    if assign_result.report_title is not None
+                    else updated_title or (old_ctx.title if old_ctx else ""),
                     signal_count=(old_ctx.signal_count if old_ctx else 0) + 1,
                 )
             else:

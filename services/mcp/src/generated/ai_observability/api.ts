@@ -3378,6 +3378,7 @@ export const LlmPromptsListParams = () => zod.object({
         ),
 })
 
+export const llmPromptsListQueryArchivedDefault = false
 export const llmPromptsListQueryContentDefault = `full`
 export const llmPromptsListQueryLabelMax = 128
 
@@ -3386,6 +3387,12 @@ export const llmPromptsListQueryOrderByDefault = `-created_at`
 export const llmPromptsListQueryResolveDefault = true
 
 export const LlmPromptsListQueryParams = () => zod.object({
+    archived: zod
+        .boolean()
+        .default(llmPromptsListQueryArchivedDefault)
+        .describe(
+            'Return archived prompts instead of active ones. Each archived prompt appears once, at its most recent version.'
+        ),
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)

@@ -102,7 +102,7 @@ The experiment metadata records `skill_delivery`; compare the shared `expected_s
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment records `agent_runtime`, `agent_model`, and `skill_delivery` in its metadata, so compare cross-run scores within one runtime and delivery mode.
+Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`, so compare cross-run scores within one runtime and delivery mode.
 
 ## Providers
 
@@ -258,6 +258,7 @@ python -m products.posthog_ai.eval_harness.harness --list | grep my_thing
 Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
 Only the overall run uses `PASS` or `FAIL`, so a suite with a low behavioral score still reads as completed rather than passed.
 The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
+Each scorer line shows its score with a 95% confidence interval clustered by case. With `--trials N` a second line adds pass^N (every trial passed), pass@N (any trial passed) and the number of flaky cases, counting only cases scored on all N trials, so a noisy suite is distinguishable from a real score change.
 A crashed suite is labeled `CRASH`, includes its traceback in the summary, and makes the run exit nonzero without taking down the other suites.
 
 Every real eval invocation mirrors its complete stdout and stderr to:

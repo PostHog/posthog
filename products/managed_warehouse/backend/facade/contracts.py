@@ -324,6 +324,20 @@ class TrinoCompiledQuery:
     hogql: str | None = None
 
 
+@frozen
+class TrinoIncrementalWrite:
+    """How a Trino model build tracks an incremental view.
+
+    With ``since`` set, the build reads only rows at or after it and merges them into the existing
+    table on ``unique_key``. Without it, the build replaces the table. Both report the highest
+    ``incremental_key`` written, so a full build seeds the next incremental one.
+    """
+
+    incremental_key: str
+    unique_key: tuple[str, ...]
+    since: Any = None
+
+
 class TrinoExpansionMode(StrEnum):
     PURE = "pure"
     DJANGO = "django"
@@ -341,10 +355,13 @@ class DuckLakeQueryResult:
     query_ms: float | None = None
 
 
-@dataclass
+@frozen
 class DuckLakeTableResult:
     schema_name: str
     table_name: str
     row_count: int
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
+    # Highest incremental key written, for builds that track one. None when no rows were written.
+    watermark: Any = None
+    merged: bool = False

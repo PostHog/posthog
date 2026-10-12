@@ -97,8 +97,8 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 logger = structlog.get_logger(__name__)
 
 
-def _setup_enabled(request: Request, team: Team) -> bool:
-    """Evaluate the Setup flag once per request.
+def _setup_enabled(request: Request, team: Team, *, include_onboarding: bool = False) -> bool:
+    """Evaluate eligible marketing flags once per request.
 
     Evaluated for the requesting person, because the flag's release conditions target
     people and the frontend renders the Setup tab off that same per-person answer.
@@ -107,7 +107,8 @@ def _setup_enabled(request: Request, team: Team) -> bool:
     condition matches too. Cached on the request because a second call in the same one
     would fire a redundant `$feature_flag_called`.
     """
-    cached = getattr(request, "_ma_setup_flag", None)
+    cache_attribute = "_ma_onboarding_flag" if include_onboarding else "_ma_setup_flag"
+    cached = getattr(request, cache_attribute, None)
     if cached is not None:
         return cached
     person_properties = {}
@@ -124,9 +125,13 @@ def _setup_enabled(request: Request, team: Team) -> bool:
             person_properties=person_properties,
             group_properties={"organization": {"id": str(team.organization.id)}},
         )
-        for flag in ("marketing-analytics-setup", "new-marketing-analytics-dashboard")
+        for flag in (
+            "marketing-analytics-setup",
+            "new-marketing-analytics-dashboard",
+            *(("marketing-analytics-source-onboarding",) if include_onboarding else ()),
+        )
     )
-    request._ma_setup_flag = enabled  # type: ignore[attr-defined]
+    setattr(request, cache_attribute, enabled)
     return enabled
 
 
@@ -1631,7 +1636,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False, url_path="setup_plan", required_scopes=["marketing_analytics:read"])
     def setup_plan(self, request: Request, *args, **kwargs) -> Response:
         # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
-        if not _setup_enabled(request, self.team):
+        if not _setup_enabled(request, self.team, include_onboarding=True):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
         date_from = request.validated_query_data["date_from"]
@@ -1648,6 +1653,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 self.team,
                 date_from=date_from,
                 user=user,
+                refresh_source_scan=request.validated_query_data["refresh"],
             )
             # `model_dump(mode="json")` so the Pydantic op models inside each suggestion
             # come out as plain JSON — the serializer exposes them as JSONField.

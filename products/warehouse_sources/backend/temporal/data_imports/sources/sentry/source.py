@@ -72,8 +72,11 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             caption=(
                 "Enter a Sentry auth token and your organization slug to sync Sentry organization, "
                 "project, issue, and monitor datasets.\n\n"
-                "Create a token in Sentry and make sure it includes the scopes below if you want to "
-                "sync all datasets:\n" + "\n".join(f"- `{scope}`" for scope in REQUIRED_SENTRY_SCOPES) + "\n"
+                "Create a personal token in your "
+                "[Sentry account settings](https://sentry.io/settings/account/api/auth-tokens/) and make sure "
+                "it includes the scopes below if you want to sync all datasets:\n"
+                + "\n".join(f"- `{scope}`" for scope in REQUIRED_SENTRY_SCOPES)
+                + "\n"
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/sentry",
             fields=cast(
@@ -84,7 +87,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
                         label="Auth token",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="324587...",
+                        placeholder="sntryu_...",
                         secret=True,
                     ),
                     SourceFieldInputConfig(

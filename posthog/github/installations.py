@@ -18,14 +18,14 @@ SCOPE_DB_ALIAS = "default"
 def installation_team_ids(payload: dict) -> list[int]:
     """Teams whose GitHub Integration matches the delivery's installation, in deterministic order.
 
-    Empty when the payload carries no installation id or no Integration matches it — the
-    lookups that take this fall back to their unscoped behaviour in that case.
+    Empty when the payload carries no installation id or no Integration matches it.
     """
     external_id = installation_id(payload)
     if external_id is None:
         return []
 
-    # One installation can map to multiple teams; order_by makes attribution deterministic.
+    # One installation can link to several teams. The order only keeps results stable, so never treat
+    # the first team as the owner. See posthog/ingress/github/README.md#picking-the-project.
     return list(
         Integration.objects.using(SCOPE_DB_ALIAS)
         .filter(kind="github", integration_id=external_id)

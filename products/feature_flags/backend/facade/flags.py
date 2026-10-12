@@ -45,6 +45,13 @@ def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
     return mode
 
 
+def hides_flag_calls_from_query_builders(organization_id: UUID) -> bool:
+    """Whether the organization's pickers leave out events marked hidden_in_query_builders, and the actions and
+    cohorts APIs reject a new use of them. It reads the same mode as the team API's flag_evaluations_mode, which the
+    frontend's hiddenEventNames reads, so the pickers and the APIs agree."""
+    return get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
+
+
 def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     """Gate every surface that exposes `posthog.flag_evaluations` through here.
 

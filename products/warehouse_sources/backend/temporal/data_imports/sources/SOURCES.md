@@ -1047,6 +1047,7 @@ doesn't conflict with concurrent PRs.
 - castor_edc
 - chargebackstop
 - chargeflow
+- checkhq
 - checkly
 - chift
 - chorus
@@ -1239,6 +1240,7 @@ doesn't conflict with concurrent PRs.
 - kyve
 - labelbox
 - lambda_labs
+- laravel_cloud
 - lawmatics
 - learnworlds
 - ledyer
@@ -1366,6 +1368,7 @@ doesn't conflict with concurrent PRs.
 - quay
 - quickbooks
 - railz
+- rainforest_pay
 - raisely
 - raken
 - rakuten_advertising
@@ -1381,6 +1384,7 @@ doesn't conflict with concurrent PRs.
 - reply_io
 - retail_express
 - retently
+- rewardful
 - ringcentral
 - rocket_chat
 - rocket_matter
@@ -1444,6 +1448,7 @@ doesn't conflict with concurrent PRs.
 - sprinto
 - sprout_social
 - sqlite
+- stackadapt
 - starburst
 - statsig
 - stockx
@@ -1482,6 +1487,7 @@ doesn't conflict with concurrent PRs.
 - toast
 - toggl
 - track_pms
+- tracklution
 - tradable_bits
 - tremendous
 - triple_whale
@@ -1496,6 +1502,7 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_bls
+- userback
 - uservoice
 - vanta
 - vespa
@@ -1514,6 +1521,7 @@ doesn't conflict with concurrent PRs.
 - whmcs
 - wikipedia_pageviews
 - windsor_ai
+- wise
 - wisprflow
 - wistia
 - wiz

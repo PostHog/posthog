@@ -32,6 +32,16 @@ def format_pr_intent(pr_metadata: PRMetadata) -> str:
     return f"Title: {pr_metadata.title}\n\nDescription:\n{pr_metadata.body.strip() or '(no description provided)'}"
 
 
+def author_comments(pr_comments: list[PRComment], pr_metadata: PRMetadata) -> list[PRComment]:
+    """The PR author's own inline comments, for prompts that need the author's intent and replies.
+
+    Other reviewers' comments stay out of the review prompts: a reviewer that reads another bot's finding
+    tends to agree with it or skip it, and dedup matches findings against those comments after the review.
+    """
+    author = pr_metadata.author.lower()
+    return [comment for comment in pr_comments if comment.user.lower() == author]
+
+
 def build_chunk_prompt_context(
     chunk: Chunk,
     pr_metadata: PRMetadata,
