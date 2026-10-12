@@ -23,7 +23,7 @@ import {
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
+import { buildBIQuery, getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 
 import { expect, userEvent } from 'storybook/test'
@@ -1409,6 +1409,112 @@ export const BIPivotTotals: Story = {
                 },
             },
         },
+    },
+}
+
+const BI_GEOGRAPHY_FIELDS: BIField[] = ['Country', 'State', 'City'].map((name) => ({
+    ...biEventsField(name, 'string'),
+    expression: `properties.${name.toLowerCase()}`,
+}))
+const BI_HIERARCHY_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [BI_GEOGRAPHY_FIELDS[0]],
+    columns: [],
+    filters: [],
+    hierarchies: [{ id: 'geography', name: 'Geography', levels: BI_GEOGRAPHY_FIELDS }],
+}
+const BI_HIERARCHY_WORKSHEET = {
+    ...buildBIQuery(BI_HIERARCHY_CONFIG)!.node,
+    kind: NodeKind.BIVisualizationNode,
+    config: BI_HIERARCHY_CONFIG,
+}
+
+export const BINamedHierarchy: Story = {
+    ...BITableAnalysis,
+    parameters: {
+        ...BITableAnalysis.parameters,
+        pageUrl: `${urls.businessIntelligence()}#q=${encodeURIComponent(JSON.stringify(BI_HIERARCHY_WORKSHEET))}`,
+        testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.get,
+                    '/api/projects/:team_id/insights/': {
+                        results: [
+                            {
+                                id: 910,
+                                short_id: 'exampleGeo',
+                                name: 'Example geography',
+                                query: BI_HIERARCHY_WORKSHEET,
+                            },
+                        ],
+                        next: null,
+                        count: 1,
+                    },
+                    '/api/projects/:team_id/insights/910/': {
+                        id: 910,
+                        short_id: 'exampleGeo',
+                        name: 'Example geography',
+                        query: BI_HIERARCHY_WORKSHEET,
+                    },
+                },
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: {
+                                    ...BI_EVENTS_FIELDS,
+                                    ...Object.fromEntries(
+                                        BI_GEOGRAPHY_FIELDS.map((field) => [
+                                            field.name,
+                                            {
+                                                name: field.name,
+                                                hogql_value: field.expression,
+                                                type: field.type,
+                                                schema_valid: true,
+                                            },
+                                        ])
+                                    ),
+                                },
+                            },
+                        },
+                    },
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        const level =
+                            BI_GEOGRAPHY_FIELDS.find((field) =>
+                                query.query.split('FROM')[0].includes(field.expression)
+                            ) ?? BI_GEOGRAPHY_FIELDS[0]
+                        const column = getBIResultDimensions({ ...BI_HIERARCHY_CONFIG, rows: [level] })[0].column
+                        return [
+                            200,
+                            {
+                                columns: [column, 'sum_revenue'],
+                                types: [
+                                    [column, 'String'],
+                                    ['sum_revenue', 'Float64'],
+                                ],
+                                results: [[`Example ${level.name.toLowerCase()}`, 120]],
+                                hasMore: false,
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await userEvent.click(await canvas.findByText('120', { exact: true }))
+        await waitFor(() => expect(within(document.body).getByRole('link', { name: 'Drill to State' })).toBeVisible())
+        await stabilizeQueryElapsedTime()
     },
 }
 

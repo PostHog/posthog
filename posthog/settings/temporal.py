@@ -375,6 +375,7 @@ MCPA_TASK_QUEUE = _set_temporal_task_queue(os.getenv("MCPA_TASK_QUEUE", "general
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
+WEB_ANALYTICS_TASK_QUEUE = _set_temporal_task_queue("web-analytics-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
 # env var still registers the autoresearch coordinator schedule on the queue that fleet polls.
