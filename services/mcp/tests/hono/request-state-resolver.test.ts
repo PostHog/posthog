@@ -20,6 +20,7 @@ const {
         scoped_teams: [],
         is_impersonated: undefined as boolean | undefined,
         suppress_analytics: undefined as boolean | undefined,
+        mcp_allowed_tools: undefined as string[] | undefined,
     },
     mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
     // Records the keys passed to every session-scoped refreshTtl call (only the
@@ -204,6 +205,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
+        mockApiKey.mcp_allowed_tools = undefined
     })
 
     it.each([true, false, undefined])(
@@ -877,6 +879,21 @@ describe('RequestStateResolver MCP client contexts', () => {
                 ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
                 : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
         )
+    })
+
+    // A gated hint outside the held set would send the agent after a tool it can never get.
+    it('limits the roster and the gated hints to the held tool set', async () => {
+        mockApiKey.scopes = ['project:read']
+        mockApiKey.mcp_allowed_tools = ['docs-search', 'dashboards-get-all']
+        const catalog = new ToolCatalog()
+        await catalog.warmup()
+        const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
+
+        const result = await resolver.resolve(makeProps({ mode: 'cli' }))
+
+        expect(result.allTools.map((tool) => tool.name)).toEqual(['docs-search'])
+        expect(result.scopeGatedTools.map((tool) => tool.name)).toEqual(['dashboards-get-all'])
+        expect(result.flagGatedTools).toEqual([])
     })
 
     it('merges request excludeTools into catalog filter options', async () => {
