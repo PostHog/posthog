@@ -82,6 +82,11 @@ export const personMergeEventProducedCounter = new Counter({
     help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
 })
 
+export const mergeIdentifiedSourceNewTargetCounter = new Counter({
+    name: 'person_merge_identified_source_new_target_total',
+    help: 'Identifies refused because the source is identified while the target had no person, so the merge created one for the target.',
+})
+
 export const mergeNoopMappingEmissionCounter = new Counter({
     name: 'person_merge_noop_mapping_emission_total',
     help: 'Distinct ids considered for mapping re-emission on already-satisfied merges.',
@@ -459,7 +464,11 @@ export class PostgresPersonMerge {
         // id whose uuid a newly created person is born on — its events already point at the right
         // person, so it keeps version 0 and stays out of the overrides join.
 
-        if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
+        if (otherPerson && !mergeIntoPerson && otherPerson.is_identified && !this.request.allowIdentifiedSources) {
+            // Attaching the new target to an identified source would identify one person as two
+            // users, so the source keeps its person and the target gets its own, as when both exist.
+            return await this.createTargetBesideIdentifiedSource(otherPerson, otherPersonDistinctId)
+        } else if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
 
             const [existingPerson, distinctIdToAdd] = (() => {
@@ -577,6 +586,44 @@ export class PostgresPersonMerge {
                 survivorNeedsUpdate: needsPersonUpdate,
                 kafkaAck,
             }
+        }
+    }
+
+    private async createTargetBesideIdentifiedSource(
+        source: InternalPerson,
+        sourceDistinctId: string
+    ): Promise<MergePersonsResult> {
+        const teamId = this.teamId
+        const [person, kafkaMessages] = await this.inTransaction('mergeDistinctIds-IdentifiedSource', async (tx) => {
+            // The target derives the new person's uuid, so its mapping keeps version 0.
+            const [created, , messages, idOwned] = await this.createService.createPerson(
+                this.timestamp,
+                this.request.eventOps.set,
+                this.request.eventOps.setOnce,
+                teamId,
+                null,
+                true,
+                this.request.eventUuid,
+                { distinctId: this.targetDistinctId, version: 0 },
+                [],
+                tx
+            )
+            // Another writer now owns the target; the retry re-reads both ids and classifies against it.
+            // A uuid held by a person that owns neither id resolves to that holder without mapping the
+            // target, as in the neither-exists branch.
+            if (idOwned) {
+                throw new PersonMergeRaceConditionError(
+                    `person for ${this.targetDistinctId} was created concurrently during a merge`
+                )
+            }
+            return [created, messages] as const
+        })
+        mergeIdentifiedSourceNewTargetCounter.inc()
+        const kafkaAck = this.produceMessages(kafkaMessages)
+        return {
+            survivor: person,
+            results: [{ sourceDistinctId, outcome: 'skipped_already_identified', sourcePersonUuid: source.uuid }],
+            kafkaAck,
         }
     }
 
@@ -885,6 +932,9 @@ export class PostgresPersonMerge {
         // will not merge a user who's already identified into anyone else.
         const mergeAllowed = this.request.allowIdentifiedSources || !otherPerson.is_identified
         if (!mergeAllowed) {
+            // A replay of a committed createTargetBesideIdentifiedSource lands here, so re-emit
+            // the target's mapping in case the crash came before its produce.
+            const { kafkaAck } = await this.reemitSatisfiedMappings([mergeIntoDistinctId])
             return {
                 survivor: mergeInto,
                 results: [
@@ -894,6 +944,7 @@ export class PostgresPersonMerge {
                         sourcePersonUuid: otherPerson.uuid,
                     },
                 ],
+                kafkaAck,
             }
         }
 
