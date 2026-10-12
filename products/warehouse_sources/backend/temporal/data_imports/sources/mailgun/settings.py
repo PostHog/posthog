@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PaginationStyle = Literal["paging", "skip"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class MailgunEndpointConfig:
     name: str
     # Path relative to the regional API host. Contains a `{domain}` placeholder for
