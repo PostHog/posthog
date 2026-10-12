@@ -50,8 +50,11 @@ const common = {
     absWorkingDir: __dirname,
     bundle: true,
     writeMetaFile: !isDev,
-    extraPlugins: [zodJitlessEsbuildPlugin()],
 }
+
+// Not part of `common`: the toolbar spreads `common` over its own config, so an `extraPlugins` key
+// there would replace the toolbar's module plugin. The toolbar bundles no zod.
+const appBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
 
 await buildInParallel(
     [
@@ -63,14 +66,14 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
         },
         ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
             entryPoints: [entryPoint],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', outfileName),
-            ...common,
+            ...appBundle,
             ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
         {
@@ -83,7 +86,7 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
         },
         {
             name: 'Render Query',
@@ -91,14 +94,14 @@ await buildInParallel(
             entryPoints: ['src/render-query/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
-            ...common,
+            ...appBundle,
         },
         {
             name: 'Infrastructure Admin',
             entryPoints: ['../products/tasks/frontend/infrastructure/mountInfrastructureAdmin.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'infrastructure-admin.js'),
-            ...common,
+            ...appBundle,
         },
         {
             ...getToolbarAppBuildConfig(__dirname),
