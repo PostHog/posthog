@@ -54,6 +54,7 @@ const LIVE_RUN: AutoresearchPipelineApi['live_training_run'] = {
     experiment_count: 3,
     best_holdout_score: 0.81,
     latest_agent_description: 'Add the ratio of shares in the last 7 days to the last 30 days.',
+    latest_summary: null,
 }
 
 const CONFIRMED = {
