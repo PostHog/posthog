@@ -4258,6 +4258,7 @@ export namespace Schemas {
         fix?: (string | null) | undefined;
         message: string;
         start?: (number | null) | undefined;
+        url?: (string | null) | undefined;
     };
     export type PredicateFixAction =
         | "edit_query"
@@ -6195,6 +6196,7 @@ export namespace Schemas {
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_titles: Record<string, string>;
     }>;
     /**
      * Serializer mixin that handles tags for objects.
@@ -6283,6 +6285,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_titles?: (Record<string, string> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -6311,6 +6317,7 @@ export namespace Schemas {
     };
     export type DashboardFilter = Partial<{
         breakdown_filter: BreakdownFilter | null;
+        compareFilter: CompareFilter | null;
         date_from: string | null;
         date_to: string | null;
         explicitDate: boolean | null;
@@ -6381,6 +6388,11 @@ export namespace Schemas {
         sm: _DashboardPatchTileLayoutBoxOpenApi;
         xs?: _DashboardPatchTileLayoutBoxOpenApi | undefined;
     };
+    /**
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog
+     */
+    export type DashboardTileBadgeEnum = "winner" | "cheeky-hog";
     /**
      * * `activity_events_list` - activity_events_list
      * * `canvas_app` - canvas_app
@@ -6559,6 +6571,8 @@ export namespace Schemas {
         id: number;
         layouts: _DashboardPatchTileLayoutsOpenApi;
         show_description: boolean;
+        group_key: string | null;
+        badge: DashboardTileBadgeEnum | NullEnum;
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
@@ -6653,6 +6667,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_titles?: (Record<string, string> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -9892,6 +9910,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9901,7 +9920,8 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "no_metric"
         | "srm"
-        | "zero_exposures";
+        | "zero_exposures"
+        | "forced_variant_release_condition";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9918,6 +9938,7 @@ export namespace Schemas {
      * * `add_primary_metric` - Add Primary Metric
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
+     * * `edit_release_conditions` - Edit Release Conditions
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -9925,7 +9946,8 @@ export namespace Schemas {
         | "use_first_seen_variant"
         | "add_primary_metric"
         | "add_secondary_metric"
-        | "edit_exposure_criteria";
+        | "edit_exposure_criteria"
+        | "edit_release_conditions";
     export type ExperimentHealthFinding = {
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -9938,6 +9960,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -15197,7 +15220,7 @@ export namespace Schemas {
          */
         evaluation_contexts?: Array<unknown> | undefined;
         /**
-         * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+         * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
          */
         usage_dashboard: number | null;
         /**
@@ -15940,6 +15963,7 @@ export namespace Schemas {
     >;
     export type TileFilters = Partial<{
         breakdown_filter: BreakdownFilter | null;
+        compareFilter: CompareFilter | null;
         date_from: string | null;
         date_to: string | null;
         explicitDate: boolean | null;
@@ -19269,6 +19293,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
         use_dashboard: number | null;
@@ -19766,6 +19791,7 @@ export namespace Schemas {
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
+        default_email_integration_id: number | null;
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
