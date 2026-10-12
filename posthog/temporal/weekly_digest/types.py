@@ -145,11 +145,11 @@ class DigestErrorIssue(BaseModel):
     @field_validator("description", mode="before")
     @classmethod
     def _trim_description(cls, value: str | None) -> str | None:
-        if not value:
+        text = " ".join((value or "").split())
+        if not text:
             return None
-        text = " ".join(value.split())
         if len(text) <= DIGEST_ERROR_ISSUE_DESCRIPTION_MAX_CHARS:
-            return text or None
+            return text
         return text[: DIGEST_ERROR_ISSUE_DESCRIPTION_MAX_CHARS - 1].rstrip() + "…"
 
 
