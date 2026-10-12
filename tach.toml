@@ -1683,3 +1683,17 @@ expose = [
 from = [
     "products.warehouse_suggestions",
 ]
+
+[[modules]]
+path = "products.authz"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.authz",
+]
