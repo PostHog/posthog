@@ -39,14 +39,14 @@ from posthog.event_usage import EventSource, report_user_action
 from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
-from posthog.utils import get_instance_region
+from posthog.utils import absolute_uri, get_instance_region
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.llm import POSTHOG_AI_PRODUCT, is_ai_gateway_served
+from ee.hogai.llm import POSTHOG_AI_PRODUCT, is_ai_credits_exhausted, is_ai_gateway_served
 from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
@@ -431,6 +431,22 @@ class BaseAgentRunner(ABC):
                 )
                 return  # Don't run interrupt handling after LLM errors
             except LLM_API_EXCEPTIONS as e:
+                if is_ai_credits_exhausted(e):
+                    # An expected billing state, not a provider failure, so skip error tracking and the provider counter.
+                    if self._use_checkpointer:
+                        await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                    logger.info("ai_credits_exhausted", team_id=self._team.id)
+                    yield (
+                        AssistantEventType.MESSAGE,
+                        FailureMessage(
+                            content=(
+                                "Your team has used its monthly PostHog AI credits. "
+                                f"Top up on the [billing page]({absolute_uri('/organization/billing')}) to continue."
+                            ),
+                            id=str(uuid4()),
+                        ),
+                    )
+                    return
                 # Catch-all for other API errors (auth errors, etc.)
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
