@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { type ChangeEvent } from 'react'
 
@@ -28,8 +29,20 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
     return (
         <div className="flex flex-col gap-2" data-attr="today-report-feedback">
             <div className="flex flex-wrap items-center gap-1">
-                <Text size="xs" variant="muted" render={<span />} className="me-1">
-                    {feedbackSentiment ? 'Thanks for the feedback' : 'Was this report useful?'}
+                {/* Both labels share one grid cell so the thumbs sit still when the text swaps. */}
+                <Text size="xs" variant="muted" render={<span />} className="me-1 grid">
+                    <span
+                        className={clsx('col-start-1 row-start-1', feedbackSentiment && 'invisible')}
+                        aria-hidden={!!feedbackSentiment}
+                    >
+                        Was this report useful?
+                    </span>
+                    <span
+                        className={clsx('col-start-1 row-start-1', !feedbackSentiment && 'invisible')}
+                        aria-hidden={!feedbackSentiment}
+                    >
+                        Thanks for the feedback!
+                    </span>
                 </Text>
                 <span className="relative inline-flex">
                     <TodayActionButton
@@ -59,25 +72,27 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                 >
                     {isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                 </TodayActionButton>
-                {canAddNote && (
-                    <Button
-                        variant="link-muted"
-                        size="sm"
-                        onClick={() => {
-                            focusFeedbackNote()
-                            openFeedbackNote()
-                        }}
-                        data-attr="today-report-feedback-note-open"
-                    >
-                        Add a note
-                    </Button>
-                )}
-                {feedbackNoteSent && (
-                    <Text size="xs" variant="muted" render={<span />}>
-                        Note added
-                    </Text>
-                )}
             </div>
+            {/* The note controls live under the row so they never push the thumbs sideways. */}
+            {canAddNote && (
+                <Button
+                    variant="link-muted"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => {
+                        focusFeedbackNote()
+                        openFeedbackNote()
+                    }}
+                    data-attr="today-report-feedback-note-open"
+                >
+                    Add a note
+                </Button>
+            )}
+            {feedbackNoteSent && (
+                <Text size="xs" variant="muted" render={<span />}>
+                    Note added
+                </Text>
+            )}
             {feedbackNoteOpen && (
                 <div className="flex flex-col items-start gap-2">
                     <Textarea

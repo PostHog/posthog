@@ -110,7 +110,7 @@ describe('ReportFeedbackFooter', () => {
         await user.click(screen.getByLabelText('This report was useful'))
 
         expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
-        expect(screen.getByText('Thanks for the feedback')).toBeInTheDocument()
+        expect(screen.getByText('Thanks for the feedback!')).toBeVisible()
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
     })
 })

@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -59,7 +60,21 @@ export function ReportFeedbackFooter({
             {/* `select-none` stays on the rating row: on the wrapper it would also cover the note
                 textarea, where it blocks selecting text to edit or copy a draft. */}
             <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary select-none">
-                <span>{feedbackSentiment ? 'Thanks for the feedback' : 'Was this report useful?'}</span>
+                {/* Both labels share one grid cell so the thumbs sit still when the text swaps. */}
+                <span className={clsx('grid', align === 'end' && 'text-end')}>
+                    <span
+                        className={clsx('col-start-1 row-start-1', feedbackSentiment && 'invisible')}
+                        aria-hidden={!!feedbackSentiment}
+                    >
+                        Was this report useful?
+                    </span>
+                    <span
+                        className={clsx('col-start-1 row-start-1', !feedbackSentiment && 'invisible')}
+                        aria-hidden={!feedbackSentiment}
+                    >
+                        Thanks for the feedback!
+                    </span>
+                </span>
                 <div className="flex items-center gap-1">
                     <span className="relative inline-flex">
                         <LemonButton
@@ -85,21 +100,22 @@ export function ReportFeedbackFooter({
                         data-attr="inbox-report-feedback-thumbs-down"
                     />
                 </div>
-                {feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent && (
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        onClick={() => {
-                            setOpenedHere(true)
-                            openFeedbackNote()
-                        }}
-                        data-attr="inbox-report-feedback-add-note"
-                    >
-                        Add a note
-                    </LemonButton>
-                )}
-                {feedbackNoteSent && <span>Note added</span>}
             </div>
+            {/* The note controls live under the row so they never push the thumbs sideways. */}
+            {feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent && (
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    onClick={() => {
+                        setOpenedHere(true)
+                        openFeedbackNote()
+                    }}
+                    data-attr="inbox-report-feedback-add-note"
+                >
+                    Add a note
+                </LemonButton>
+            )}
+            {feedbackNoteSent && <span className="text-xs text-tertiary">Note added</span>}
             {feedbackNoteOpen && (
                 <div className="flex w-full max-w-prose flex-col items-start gap-2">
                     <LemonTextArea

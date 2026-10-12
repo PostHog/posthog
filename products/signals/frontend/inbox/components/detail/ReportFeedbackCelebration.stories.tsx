@@ -49,7 +49,7 @@ export const InFooter: Story = {
         }),
     ],
     render: () => (
-        <div className="bg-primary flex min-h-[400px] items-end justify-center p-8">
+        <div className="bg-primary flex min-h-[400px] items-start justify-center px-8 pt-40 pb-8">
             <div className="w-[32rem] border border-primary bg-surface-primary p-5">
                 <ReportFeedbackFooter
                     report={makeReport({ title: 'Checkout errors spiked after the release' })}
