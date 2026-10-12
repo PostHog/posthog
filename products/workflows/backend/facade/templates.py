@@ -6,10 +6,9 @@ from products.workflows.backend.services.hog_flow_templates import (
     delete_template,
     function_template_exists,
     get_function_template_schema,
-    get_global_template_for_team,
+    get_global_template,
     get_template,
     list_global_templates,
-    list_global_templates_for_team,
     list_templates,
     update_template,
 )
@@ -19,10 +18,9 @@ __all__ = [
     "delete_template",
     "function_template_exists",
     "get_function_template_schema",
-    "get_global_template_for_team",
+    "get_global_template",
     "get_template",
     "list_global_templates",
-    "list_global_templates_for_team",
     "list_templates",
     "update_template",
 ]
