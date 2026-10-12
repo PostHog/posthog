@@ -75,6 +75,12 @@ def endpoint_config(endpoint: RudderStackEndpoint, api_version: str) -> Endpoint
     }
 
 
+def endpoint_extra(endpoint: RudderStackEndpoint, api_version: str) -> Endpoint:
+    config = endpoint_config(endpoint, api_version)
+    config.pop("params", None)
+    return config
+
+
 def token_for_endpoint(config: RudderStackSourceConfig, endpoint: str | None) -> str:
     if endpoint == "audit_logs":
         if not config.organization_access_token:
@@ -135,14 +141,8 @@ def rudderstack_source(
             job_id=inputs.job_id,
             db_incremental_field_last_value=None,
             page_size_param=None,
-            parent_endpoint_extra={
-                key: value
-                for key, value in endpoint_config(ENDPOINTS[endpoint.fanout.parent_name], api_version).items()
-                if key != "params"
-            },
-            child_endpoint_extra={
-                key: value for key, value in endpoint_config(endpoint, api_version).items() if key != "params"
-            },
+            parent_endpoint_extra=endpoint_extra(ENDPOINTS[endpoint.fanout.parent_name], api_version),
+            child_endpoint_extra=endpoint_extra(endpoint, api_version),
             resume_hook=save_checkpoint,
             initial_paginator_state=resume.paginator_state if resume else None,
         )
