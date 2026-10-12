@@ -52,6 +52,8 @@ GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS = 60 * 60
 # `pushed_at` is older than its row's last sync still has the commit the row holds. The margin
 # covers a push that landed while that sync ran.
 UNPUSHED_SYNC_MARGIN = timedelta(minutes=5)
+# The listing only shows pushes made before it was fetched, so the push check needs a recent one.
+LISTING_MAX_AGE_SECONDS = 10 * 60
 
 MAX_BUDGET_WAIT_SECONDS = 60.0
 
@@ -413,8 +415,18 @@ class GitHubRepositoryFullCache:
     async def _sync_full_cache_locked(
         self, *, concurrency: int
     ) -> list[IntegrationRepositoryCacheEntry | BaseException]:
-        # 1. Source of truth: the light cache. This also refreshes it from GitHub if >1h stale.
-        repos = await self.github.list_all_cached_repositories_async()
+        # 1. Source of truth: the light cache, refreshed when older than the push check allows.
+        try:
+            repos = await database_sync_to_async(self.github.sync_repository_cache)(
+                min_refresh_interval_seconds=LISTING_MAX_AGE_SECONDS
+            )
+            listing_is_recent = True
+        except Exception:
+            logger.warning(
+                "github_full_cache.listing_refresh_failed", integration_id=self.integration.id, exc_info=True
+            )
+            repos = await self.github.list_all_cached_repositories_async()
+            listing_is_recent = False
         listed_by_name = {r["full_name"].lower(): r for r in repos if isinstance(r.get("full_name"), str)}
         valid_full_names = set(listed_by_name)
         # 2. Evict orphans — heavy cache is always a subset of the light cache.
@@ -438,7 +450,7 @@ class GitHubRepositoryFullCache:
         def make_fn(full_name: str) -> Callable[[], Awaitable[IntegrationRepositoryCacheEntry]]:
             async def run() -> IntegrationRepositoryCacheEntry:
                 return await self.sync_full_cache_entry_async(
-                    full_name, path_log=path_log, listed=listed_by_name[full_name]
+                    full_name, path_log=path_log, listed=listed_by_name[full_name] if listing_is_recent else None
                 )
 
             return run

@@ -31,6 +31,12 @@ class TestGitHubRepositoryFullCache(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+        # The sweep falls back to the patched cached listing, as it does when a refresh fails.
+        refresh = patch.object(
+            GitHubIntegration, "sync_repository_cache", side_effect=RuntimeError("no listing refresh")
+        )
+        refresh.start()
+        self.addCleanup(refresh.stop)
 
     def _create_integration(self) -> Integration:
         return Integration.objects.create(
@@ -430,6 +436,30 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert len(results) == 2
         broken = next(r for r in results if isinstance(r, GitHubIntegrationError))
         assert str(broken) == "boom"
+
+    @parameterized.expand([("listing_refreshed", True), ("listing_refresh_failed", False)])
+    def test_sync_full_cache_checks_pushes_only_against_a_recent_listing(self, _name: str, refreshed: bool) -> None:
+        integration = self._create_integration()
+        listing = [{"full_name": "posthog/posthog", "pushed_at": "2026-01-01T00:00:00Z"}]
+        received: list[dict | None] = []
+
+        async def fake_entry_async(full_name, *, path_log=None, listed=None):
+            received.append(listed)
+            return MagicMock(full_name=full_name)
+
+        async def fake_list():
+            return listing
+
+        repo_cache = self._cache_for(integration)
+        refresh = {"return_value": listing} if refreshed else {"side_effect": RuntimeError("down")}
+        with (
+            patch.object(repo_cache.github, "sync_repository_cache", **refresh),
+            patch.object(repo_cache, "sync_full_cache_entry_async", side_effect=fake_entry_async),
+            patch.object(repo_cache.github, "list_all_cached_repositories_async", side_effect=fake_list),
+        ):
+            asyncio.run(repo_cache.sync_full_cache())
+
+        assert received == [listing[0] if refreshed else None]
 
     @patch("posthog.models.integration_repository_cache.github_installation_pace_seconds", return_value=0.01)
     def test_sync_full_cache_retries_a_call_the_egress_budget_shed(self, _mock_pace: MagicMock) -> None:
