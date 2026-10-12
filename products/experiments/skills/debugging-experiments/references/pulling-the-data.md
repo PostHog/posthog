@@ -11,8 +11,11 @@ subset plus the numbers each cause needs.
 Pull these fields; they are inputs to almost every cause:
 
 - `exposure_criteria.multiple_variant_handling` — `"exclude"` (default) or `"first_seen"`.
-- `exposure_criteria.exposure_config.event` — set means a **custom exposure event** (changes
-  the query below); absent means the default `$feature_flag_called`.
+- `exposure_criteria.exposure_config.event` — set to any event other than `$feature_flag_called`
+  or `$experiment_exposure` means a **custom exposure event** (changes the query below); absent means
+  the default exposure event.
+- `resolved_exposure_event` — the event the default exposure counts on: `$feature_flag_called` or
+  `$experiment_exposure`. Read it, do not derive it. It selects the exposure-event predicate in §3.
 - `exposure_criteria.filterTestAccounts` — defaults to true.
 - `feature_flag.filters.groups[]` — per group read `variant`, `properties`,
   `rollout_percentage` (that group's **rollout**, % of the matched bucketing units — persons, or
@@ -83,6 +86,24 @@ Returns per-variant exposure totals and metric results in one call:
 
 ## 3. Exposure shape — `posthog:execute-sql`
 
+**The exposure-event predicate.** Every query below on the default exposure event uses it. Select it
+from §1 before you run a query:
+
+| Exposure config                             | `resolved_exposure_event` | Predicate                                                   |
+| ------------------------------------------- | ------------------------- | ----------------------------------------------------------- |
+| Not set, or it names `$feature_flag_called` | `$feature_flag_called`    | `event IN ('$feature_flag_called', '$experiment_exposure')` |
+| Not set, or it names `$feature_flag_called` | `$experiment_exposure`    | `event = '$experiment_exposure'`                            |
+| It names `$experiment_exposure`             | any                       | `event = '$experiment_exposure'`                            |
+| A custom event or an action                 | any                       | that event or action (see below)                            |
+
+The queries show the `IN` form, because most experiments resolve to `$feature_flag_called`.
+`$experiment_exposure` is an ingestion-side copy of `$feature_flag_called` with the same properties.
+Ingestion stops writing `$feature_flag_called` for some organizations, and the copy then carries the
+exposures. A query on `$feature_flag_called` alone then returns an empty or incomplete population
+while the experiment has exposures. When both events exist, a flag call and its copy are two rows for
+one exposure: raw event counts can count one exposure twice. Compare populations on distinct persons,
+never on event counts.
+
 Default exposure event:
 
 ```sql
@@ -94,20 +115,21 @@ SELECT
   min(timestamp) AS first_seen,
   max(timestamp) AS last_seen
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event IN ('$feature_flag_called', '$experiment_exposure')
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= '<start_date>'
 GROUP BY variant
 ORDER BY exposure_events DESC
 ```
 
-**`exposure_events` is not the SRM input.** It counts raw `$feature_flag_called` events, and one
-user fires as many as their app evaluates the flag — a variant that re-renders or adds a route reads
-it more often, so the event ratio drifts from the person ratio with nothing wrong. Use this column
-for volume and liveness (is anything arriving, has one arm gone quiet), and take the SRM counts from
-§2's `total_exposures`, which is already one row per person. See the chi-squared section in §4.
+**`exposure_events` is not the SRM input.** It counts raw exposure events, including a flag call and
+its copy as two rows, and one user fires as many as their app evaluates the flag — a variant that
+re-renders or adds a route reads it more often, so the event ratio drifts from the person ratio with
+nothing wrong. Use this column for volume and liveness (is anything arriving, has one arm gone
+quiet), and take the SRM counts from §2's `total_exposures`, which is already one row per person.
+See the chi-squared section in §4.
 
-If `exposure_criteria.exposure_config.event` is set, the variant attribution lives on
+If `exposure_criteria.exposure_config.event` names a custom event, the variant attribution lives on
 `properties.$feature/<flag-key>` instead of `$feature_flag_response`, and the event filter is
 the custom event — see `diagnostic-snapshot.md` for the custom-event variant of this query.
 
@@ -116,7 +138,9 @@ control/test split — its count is the size of the holdout, useful for explaini
 shortfall (see the holdout note in §1).
 
 Ignore `$feature_flag_response = false / None / null` rows: `$feature_flag_called` fires on
-every evaluation, including users who didn't bucket into the test. They aren't a balance
+every evaluation, including users who didn't bucket into the test. Only `$feature_flag_called`
+carries these rows: ingestion copies only nonempty string responses other than `true`/`false` into
+`$experiment_exposure`. They aren't a balance
 signal (PostHog's own analysis filters them out). The exception is when _every_ row is
 `None`/`false` — that's a missing-exposures symptom (a flag dependency failing closed lands users
 here too). **Second exception — a capture-side SRM:**
@@ -179,8 +203,9 @@ Run these only _after_ SRM is confirmed. First run the **decisive test** below t
 then run the matching queries: a **capture** verdict sends you to the surface / dropped-`false` /
 SDK queries, an **assignment** verdict to the SDK / bootstrap queries. All queries
 collapse to one row per person at first exposure, mirroring the product; substitute the two real
-variant keys. They assume the default exposure event — for a custom exposure event, swap the event
-filter and read the variant from `properties.$feature/<flag-key>` instead (as in §3), and for a
+variant keys. They assume the default exposure event and show the `IN` predicate from §3 — replace it
+with `event = '$experiment_exposure'` when that is the predicate §3 selects. For a custom exposure
+event, swap the event filter and read the variant from `properties.$feature/<flag-key>` instead (as in §3), and for a
 group-aggregated flag count the group key rather than `person_id` (see §1).
 
 #### The decisive test: recompute assignment offline
@@ -296,7 +321,7 @@ WITH person_variants AS (
            if(uniqExact(properties.$feature_flag_response) > 1, '$multiple',
               any(properties.$feature_flag_response)) AS variant
     FROM events
-    WHERE event = '$feature_flag_called'
+    WHERE event IN ('$feature_flag_called', '$experiment_exposure')
       AND properties.$feature_flag = '<flag-key>'
       AND properties.$feature_flag_response IN ('<variant_a>', '<variant_b>')
       AND timestamp >= '<start_date>'
@@ -306,7 +331,7 @@ SELECT distinct_id,
        argMin(properties.$feature_flag_response, timestamp) AS recorded_variant,
        uniqExact(properties.$feature_flag_response) AS variants_seen
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event IN ('$feature_flag_called', '$experiment_exposure')
   AND properties.$feature_flag = '<flag-key>'
   AND properties.$feature_flag_response IN ('<variant_a>', '<variant_b>')
   AND timestamp >= '<start_date>'
@@ -329,7 +354,7 @@ WITH first_exposures AS (
               any(properties.$feature_flag_response)) AS variant,
            toDate(min(timestamp)) AS first_day
     FROM events
-    WHERE event = '$feature_flag_called'
+    WHERE event IN ('$feature_flag_called', '$experiment_exposure')
       AND properties.$feature_flag = '<flag-key>'
       AND properties.$feature_flag_response IN ('<variant_a>', '<variant_b>')
       AND timestamp >= '<start_date>'
@@ -359,7 +384,7 @@ WITH first_exposure AS (
            argMin(properties.$feature_flag_response, timestamp) AS variant,
            argMin(properties.$pathname, timestamp) AS first_path
     FROM events
-    WHERE event = '$feature_flag_called'
+    WHERE event IN ('$feature_flag_called', '$experiment_exposure')
       AND properties.$feature_flag = '<flag-key>'
       AND properties.$feature_flag_response IN ('<variant_a>', '<variant_b>')
       AND timestamp >= '<start_date>'
@@ -378,6 +403,9 @@ LIMIT 40
 
 **Dropped `false`/`null` bucket by SDK.** If a variant is short by ~N persons and the `false`/`null`
 person count is near N and concentrated on one `$lib`/surface, flag-read timing is the lead.
+This query stays on `$feature_flag_called` alone: `$experiment_exposure` has no `false`/`null` rows,
+so it can not show failed evaluations. If ingestion stopped writing `$feature_flag_called` for the
+organization, this query returns nothing, and the bucket can not be measured from events.
 
 ```sql
 SELECT coalesce(toString(properties.$feature_flag_response), 'null') AS response,
