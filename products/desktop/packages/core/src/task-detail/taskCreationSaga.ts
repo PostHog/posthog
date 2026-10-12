@@ -380,7 +380,7 @@ export class TaskCreationSaga extends Saga<
       repoPath &&
       !input.taskId
     ) {
-      this.dispatchEnvironmentSetup(
+      await this.dispatchEnvironmentSetup(
         task.id,
         input.environmentId,
         repoPath,
@@ -735,39 +735,42 @@ export class TaskCreationSaga extends Saga<
     return existingFolder;
   }
 
-  private dispatchEnvironmentSetup(
+  // Starts the script before the agent connects. The agent does not wait for
+  // the script to exit, because a script can start a long-running dev server.
+  private async dispatchEnvironmentSetup(
     taskId: string,
     environmentId: string,
     repoPath: string,
     worktreePath: string,
-  ): void {
-    this.deps.host
-      .getEnvironment({ repoPath, id: environmentId })
-      .then(async (env) => {
-        if (!env?.setup?.script) return;
-
-        const approved = await this.deps.host.confirmEnvironmentSetup({
-          repoPath,
-          environmentId,
-          name: env.name,
-          script: env.setup.script,
-        });
-        if (!approved) return;
-
-        this.deps.host.dispatchSetupAction({
-          taskId,
-          command: env.setup.script,
-          cwd: worktreePath,
-          label: `Setup: ${env.name}`,
-        });
-      })
-      .catch((error) => {
-        this.log.error("Failed to dispatch environment setup script", {
-          taskId,
-          environmentId,
-          error,
-        });
+  ): Promise<void> {
+    try {
+      const env = await this.deps.host.getEnvironment({
+        repoPath,
+        id: environmentId,
       });
+      if (!env?.setup?.script) return;
+
+      const approved = await this.deps.host.confirmEnvironmentSetup({
+        repoPath,
+        environmentId,
+        name: env.name,
+        script: env.setup.script,
+      });
+      if (!approved) return;
+
+      this.deps.host.dispatchSetupAction({
+        taskId,
+        command: env.setup.script,
+        cwd: worktreePath,
+        label: `Setup: ${env.name}`,
+      });
+    } catch (error) {
+      this.log.error("Failed to dispatch environment setup script", {
+        taskId,
+        environmentId,
+        error,
+      });
+    }
   }
 
   // Resolve the first message and pre-upload its attachments (skill bundles,
