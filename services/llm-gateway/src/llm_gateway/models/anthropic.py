@@ -12,6 +12,8 @@ class AnthropicMessagesRequest(BaseModel):
     messages: list[dict[str, Any]]
     max_tokens: int = 4096
     stream: bool = False
+    tools: list[dict[str, Any]] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class AnthropicCountTokensRequest(BaseModel):
