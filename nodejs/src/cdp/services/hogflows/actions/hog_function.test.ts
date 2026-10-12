@@ -448,32 +448,40 @@ describe('HogFunctionHandler', () => {
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
-    it('should skip the send and emit message_frequency_capped when the recipient reached the frequency cap', async () => {
-        ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+    // A broadcast run carries a parentRunId, and its run view reads metrics keyed on that ID.
+    it.each([
+        ['a workflow run', undefined],
+        ['a broadcast run', 'broadcast-run-id'],
+    ])(
+        'should skip the send and emit message_frequency_capped when the recipient reached the frequency cap for %s',
+        async (_label, parentRunId) => {
+            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            invocation.parentRunId = parentRunId
 
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
-        })
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
 
-        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+            const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        expect(handlerResult.nextAction?.id).toBe('exit')
-        expect(invocationResult.logs[0].message).toContain(
-            `[Action:function] Skipping send: recipient reached the frequency cap.`
-        )
-        expect(invocationResult.metrics).toEqual([
-            {
-                team_id: team.id,
-                app_source_id: invocation.functionId,
-                instance_id: action.id,
-                metric_kind: 'other',
-                metric_name: 'message_frequency_capped',
-                count: 1,
-            },
-        ])
-        expect(mockFetch).not.toHaveBeenCalled()
-    })
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            expect(invocationResult.logs[0].message).toContain(
+                `[Action:function] Skipping send: recipient reached the frequency cap.`
+            )
+            expect(invocationResult.metrics).toEqual([
+                {
+                    team_id: team.id,
+                    app_source_id: parentRunId ?? invocation.functionId,
+                    instance_id: action.id,
+                    metric_kind: 'other',
+                    metric_name: 'message_frequency_capped',
+                    count: 1,
+                },
+            ])
+            expect(mockFetch).not.toHaveBeenCalled()
+        }
+    )
 
     it('should skip the send and emit email_bounce_prevented when validation predicts a hard bounce', async () => {
         ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
