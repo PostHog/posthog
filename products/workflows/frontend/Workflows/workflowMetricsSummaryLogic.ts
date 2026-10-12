@@ -119,8 +119,6 @@ export type EmailMetric =
     | 'email_untracked'
     | 'email_suspended'
     | 'email_paused'
-    // Emitted by the project-wide marketing frequency cap. Not email-prefixed because the same
-    // metric name covers SMS and push steps; this table only reads it for email steps.
     | 'message_frequency_capped'
 
 // The bounce rollup's per-type rows. They are fetched and shown as a breakdown of Bounced rather
@@ -157,7 +155,6 @@ export type EmailMetricRow = {
     bouncedSoft: number
     bouncedUnknown: number
     bouncePrevented: number
-    // Sends skipped because the person already reached the project's marketing frequency cap.
     frequencyCapped: number
     // Spam complaints. Stored under the email_blocked metric name for continuity with
     // historical data (see the SES webhook handler's Complaint mapping).
@@ -397,8 +394,6 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_bounced_undetermined: { search: 'Undetermined bounce', levels: ['WARN'] },
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
-    // Frequency cap skips log "Skipping send: recipient reached the frequency cap." at INFO, so the
-    // search term has to be narrower than the bounce-prevented one to tell the two apart.
     message_frequency_capped: { search: 'reached the frequency cap', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
