@@ -61,8 +61,11 @@ function DeploysRefreshButton(): JSX.Element {
 }
 
 export function EngineeringAnalyticsScene(): JSX.Element {
-    const { searchParams: linkParams } = useValues(router)
+    const { searchParams } = useValues(router)
     const { activeView } = useValues(engineeringAnalyticsSceneLogic)
+    const { scopeRepo } = useValues(engineeringAnalyticsLogic)
+    // The repository rides in the path, so an old `?repo` must not follow the tabs.
+    const { repo: _repo, ...linkParams } = searchParams
 
     // The general areas of the product. A drill-down page sits below the tab it opens from.
     const tabs: LemonTab<EngineeringAnalyticsView>[] = [
@@ -70,28 +73,28 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             key: 'hub',
             label: 'Overview',
             content: <RepoOverviewScene />,
-            link: combineUrl(urls.engineeringAnalytics(), linkParams).url,
+            link: combineUrl(urls.engineeringAnalytics(scopeRepo), linkParams).url,
             'data-attr': 'engineering-analytics-overview-tab',
         },
         {
             key: 'pull-requests',
             label: 'Pull requests',
             content: <EngineeringAnalyticsPullRequests />,
-            link: combineUrl(urls.engineeringAnalyticsPullRequestList(), linkParams).url,
+            link: combineUrl(urls.engineeringAnalyticsPullRequestList(scopeRepo), linkParams).url,
             'data-attr': 'engineering-analytics-pull-requests-tab',
         },
         {
             key: 'workflows',
             label: 'Workflows',
             content: <EngineeringAnalyticsWorkflows />,
-            link: combineUrl(urls.engineeringAnalyticsWorkflows(), linkParams).url,
+            link: combineUrl(urls.engineeringAnalyticsWorkflows(scopeRepo), linkParams).url,
             'data-attr': 'engineering-analytics-workflows-tab',
         },
         {
             key: 'tests',
             label: 'Tests',
             content: <EngineeringAnalyticsTests />,
-            link: combineUrl(urls.engineeringAnalyticsTests(), linkParams).url,
+            link: combineUrl(urls.engineeringAnalyticsTests(scopeRepo), linkParams).url,
             // Pinned because autocapture dashboards and selectors use the original value.
             'data-attr': 'engineering-analytics-test-health-tab',
         },
@@ -99,7 +102,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             key: 'deploys',
             label: 'Deploys',
             content: <EngineeringAnalyticsDeploys />,
-            link: combineUrl(urls.engineeringAnalyticsDeploys(), linkParams).url,
+            link: combineUrl(urls.engineeringAnalyticsDeploys(scopeRepo), linkParams).url,
             // Pinned because autocapture dashboards and selectors use the original value.
             'data-attr': 'engineering-analytics-health-tab',
         },
@@ -107,14 +110,14 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             key: 'teams',
             label: 'Teams',
             content: <EngineeringAnalyticsTeams />,
-            link: combineUrl(urls.engineeringAnalyticsTeams(), linkParams).url,
+            link: combineUrl(urls.engineeringAnalyticsTeams(scopeRepo), linkParams).url,
             'data-attr': 'engineering-analytics-teams-tab',
         },
         {
             key: 'authors',
             label: 'Authors',
             content: <EngineeringAnalyticsAuthors />,
-            link: combineUrl(urls.engineeringAnalyticsAuthors(), linkParams).url,
+            link: combineUrl(urls.engineeringAnalyticsAuthors(scopeRepo), linkParams).url,
             'data-attr': 'engineering-analytics-authors-tab',
         },
     ]

@@ -142,7 +142,11 @@ export function WorkflowRunDetailScene(): JSX.Element {
                         repoSlot={
                             <RepoScopeChip
                                 label={`${run.repo.owner}/${run.repo.name}`}
-                                to={withScope(urls.engineeringAnalytics(), searchParams, sourceId)}
+                                to={withScope(
+                                    urls.engineeringAnalytics(`${run.repo.owner}/${run.repo.name}`),
+                                    searchParams,
+                                    sourceId
+                                )}
                             />
                         }
                         crumbs={[

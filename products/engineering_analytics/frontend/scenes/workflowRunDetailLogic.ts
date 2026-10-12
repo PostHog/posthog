@@ -223,13 +223,17 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     {
                         key: 'EngineeringAnalytics',
                         name: 'Engineering analytics',
-                        path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
+                        path: withScope(urls.engineeringAnalytics(`${repoOwner}/${repoName}`), searchParams, sourceId),
                         iconType: 'health',
                     },
                     {
                         key: 'EngineeringAnalyticsWorkflows',
                         name: 'Workflows',
-                        path: withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId),
+                        path: withScope(
+                            urls.engineeringAnalyticsWorkflows(`${repoOwner}/${repoName}`),
+                            searchParams,
+                            sourceId
+                        ),
                         iconType: 'health',
                     },
                 ]

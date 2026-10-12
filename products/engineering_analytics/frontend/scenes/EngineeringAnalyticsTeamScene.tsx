@@ -35,9 +35,10 @@ import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_DATE_OPTIONS, TEAMS_WINDOW_LABELS, U
 export const scene: SceneExport<TeamDetailLogicProps> = {
     component: EngineeringAnalyticsTeamScene,
     logic: teamDetailLogic,
-    paramsToProps: ({ params: { ownerTeam }, searchParams: { source } }) => ({
+    paramsToProps: ({ params: { ownerTeam, repoOwner, repoName }, searchParams: { source } }) => ({
         ownerTeam: decodeURIComponent(ownerTeam ?? ''),
         sourceId: source ?? null,
+        repo: repoOwner && repoName ? `${repoOwner}/${repoName}` : null,
     }),
 }
 
@@ -56,6 +57,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
         ownerTeam,
         deliveryScope,
         sourceId,
+        repo,
         quarantinedTests,
     } = useValues(teamDetailLogic)
     const { loadActivity, loadHealthRow, loadMergeTrend } = useActions(teamDetailLogic)
@@ -68,8 +70,8 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
 
     const isUnowned = ownerTeam === UNOWNED_TEAM
     const mainDataNotConnected = [activityStatus, healthRowStatus, mergeTrendStatus].includes('notConnected')
-    const hubUrl = withCurrentScope(urls.engineeringAnalytics(), sourceId)
-    const teamsUrl = withCurrentScope(urls.engineeringAnalyticsTeams(), sourceId)
+    const hubUrl = withCurrentScope(urls.engineeringAnalytics(repo), sourceId)
+    const teamsUrl = withCurrentScope(urls.engineeringAnalyticsTeams(repo), sourceId)
 
     const testColumns: LemonTableColumns<TeamTestSignalRow> = [
         {
@@ -239,6 +241,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                         <TeamDeliveryPanel
                             scope={deliveryScope}
                             sourceId={sourceId}
+                            repo={repo}
                             busy={windowBusy}
                             controls={windowControls}
                         >

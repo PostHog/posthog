@@ -24,6 +24,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
         trunkQuarantineTestsByTeam,
         expandedTrunkQuarantineTeams,
         sourceId,
+        scopeRepo,
     } = useValues(engineeringAnalyticsLogic)
     const { loadTrunkQuarantine, toggleTrunkQuarantineTeam } = useActions(engineeringAnalyticsLogic)
 
@@ -39,7 +40,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             key: 'ownerTeam',
             render: (_, row) => (
                 <Link
-                    to={withCurrentScope(urls.engineeringAnalyticsTeam(row.ownerTeam), sourceId)}
+                    to={withCurrentScope(urls.engineeringAnalyticsTeam(row.ownerTeam, scopeRepo), sourceId)}
                     className="font-semibold"
                     data-attr="engineering-analytics-quarantine-team-link"
                 >

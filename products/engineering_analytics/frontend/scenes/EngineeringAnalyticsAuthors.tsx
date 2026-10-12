@@ -21,6 +21,7 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
         githubTeam,
         teamOptions,
         sourceId,
+        scopeRepo,
     } = useValues(authorFrictionLogic)
     const { loadFriction, setGithubTeam } = useActions(authorFrictionLogic)
 
@@ -76,6 +77,7 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
                             maxScore={maxScore}
                             loading={frictionLoading}
                             sourceId={sourceId}
+                            repo={scopeRepo}
                             emptyState={
                                 githubTeam
                                     ? 'No one on this team has 3 merged pull requests in the window yet.'

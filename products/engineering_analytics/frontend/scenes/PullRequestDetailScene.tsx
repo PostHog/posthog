@@ -518,12 +518,15 @@ export function PullRequestDetailScene(): JSX.Element {
                 repoSlot={
                     <RepoScopeChip
                         label={`${repoOwner}/${repoName}`}
-                        to={withCurrentScope(urls.engineeringAnalytics(), sourceId)}
+                        to={withCurrentScope(urls.engineeringAnalytics(`${repoOwner}/${repoName}`), sourceId)}
                     />
                 }
                 lensFilter={{
                     label: `pr: #${pullRequest?.number ?? ''}`,
-                    to: withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId),
+                    to: withCurrentScope(
+                        urls.engineeringAnalyticsPullRequestList(`${repoOwner}/${repoName}`),
+                        sourceId
+                    ),
                 }}
                 showDate={false}
             />
@@ -551,7 +554,10 @@ export function PullRequestDetailScene(): JSX.Element {
                                     <Link
                                         to={
                                             combineUrl(
-                                                urls.engineeringAnalyticsAuthor(pullRequest.author.handle),
+                                                urls.engineeringAnalyticsAuthor(
+                                                    pullRequest.author.handle,
+                                                    `${repoOwner}/${repoName}`
+                                                ),
                                                 sourceId ? { source: sourceId } : {}
                                             ).url
                                         }

@@ -277,7 +277,7 @@ type Story = StoryObj<typeof meta>
 
 export const RepoOverview: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
 }
 
 // The Trunk-source variant: the failed-queue-run proxy card is replaced by the queue's own
@@ -293,7 +293,7 @@ const OVERVIEW_WITH_TRUNK: RepoOverviewApi = {
 
 export const RepoOverviewWithTrunkQueueData: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: { pageUrl: urls.engineeringAnalytics('PostHog/posthog') },
     decorators: [
         mswDecorator({
             get: {

@@ -817,7 +817,7 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 {
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
-                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
+                    path: withScope(urls.engineeringAnalytics(`${repoOwner}/${repoName}`), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {

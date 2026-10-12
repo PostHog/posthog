@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -28,20 +28,25 @@ import { deliveryComparisonLogic } from './deliveryComparisonLogic'
 import { DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
 import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
+import { repoScopeLogic } from './repoScopeLogic'
 
 export const scene: SceneExport<AuthorLogicProps> = {
     component: EngineeringAnalyticsAuthorScene,
     logic: authorLogic,
-    paramsToProps: ({ params: { handle }, searchParams: { source } }) => ({
+    paramsToProps: ({ params: { handle, repoOwner, repoName }, searchParams: { source } }) => ({
         handle: decodeURIComponent(handle),
         sourceId: source ?? null,
+        repo: repoOwner && repoName ? `${repoOwner}/${repoName}` : null,
     }),
 }
 
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
+    // An old repo-less author link forwards to the repository it belongs to.
+    useMountedLogic(repoScopeLogic)
     const {
         handle,
         sourceId,
+        repo,
         deliveryScope,
         workflowCosts,
         workflowCostsLoading,
@@ -51,11 +56,11 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
         frictionDetailFailed,
     } = useValues(authorLogic)
     const { loadWorkflowCosts, loadFrictionDetail } = useActions(authorLogic)
-    const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
+    const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId, repo }))
     const { comparison, comparisonLoading, comparisonFailed } = useValues(
-        deliveryComparisonLogic({ author: handle, sourceId })
+        deliveryComparisonLogic({ author: handle, sourceId, repo: repo ?? undefined })
     )
-    const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
+    const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId, repo })
     const {
         timelines,
         timelinesLoading,
@@ -68,8 +73,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     } = useValues(timelinesLogic)
     const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
-    const hubUrl = withCurrentScope(urls.engineeringAnalytics(), sourceId)
-    const pullRequestsUrl = withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)
+    const hubUrl = withCurrentScope(urls.engineeringAnalytics(repo), sourceId)
+    const pullRequestsUrl = withCurrentScope(urls.engineeringAnalyticsPullRequestList(repo), sourceId)
     const avatarUrl = timelines?.items[0]?.author.avatar_url
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
     // Ranked, biggest spend first; the bar length is each workflow's share of the window's total.
@@ -130,6 +135,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     scope={deliveryScope}
                     scopeLabel="This author"
                     sourceId={sourceId}
+                    repo={repo}
                     // Both reads keep their previous window while they reload, so the team rows wait for both.
                     comparison={comparisonLoading || summaryLoading ? null : comparison}
                     comparisonFailed={comparisonFailed}
