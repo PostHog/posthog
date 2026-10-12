@@ -286,3 +286,39 @@ export function buildLogsSessionScope(
         initialFilters: timestamp ? { dateRange: buildDateRangeAround(timestamp, windowMinutes) } : undefined,
     }
 }
+
+export interface ParsedJsonFields {
+    value: unknown
+    parsedFieldCount: number
+}
+
+// Deep parse all string fields that look like JSON. Only strings that parse to an object or array count as parsed fields.
+export function parseJsonFields(obj: unknown): ParsedJsonFields {
+    if (typeof obj === 'string') {
+        try {
+            const parsed = parseJsonFields(JSON.parse(obj))
+            const isJsonContainer = parsed.value !== null && typeof parsed.value === 'object'
+            return { value: parsed.value, parsedFieldCount: parsed.parsedFieldCount + (isJsonContainer ? 1 : 0) }
+        } catch {
+            return { value: obj, parsedFieldCount: 0 }
+        }
+    }
+    if (Array.isArray(obj)) {
+        const items = obj.map(parseJsonFields)
+        return {
+            value: items.map((item) => item.value),
+            parsedFieldCount: items.reduce((sum, item) => sum + item.parsedFieldCount, 0),
+        }
+    }
+    if (obj !== null && typeof obj === 'object') {
+        const result: Record<string, unknown> = {}
+        let parsedFieldCount = 0
+        for (const [key, value] of Object.entries(obj)) {
+            const parsed = parseJsonFields(value)
+            result[key] = parsed.value
+            parsedFieldCount += parsed.parsedFieldCount
+        }
+        return { value: result, parsedFieldCount }
+    }
+    return { value: obj, parsedFieldCount: 0 }
+}

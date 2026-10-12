@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
+import { ParsedJsonFields, getSessionIdFromLogAttributes, parseJsonFields } from 'products/logs/frontend/utils'
 
 export type LogDetailsTab = 'details' | 'raw' | 'explore-ai' | 'comments' | 'related-errors'
 
@@ -19,6 +19,7 @@ export interface logDetailsModalLogicValues {
     hasSessionId: boolean
     isLogDetailsOpen: boolean
     jsonParseAllFields: boolean
+    jsonParsedLog: ParsedJsonFields
     selectedLog: ParsedLogMessage | null
     sessionId: string | null
 }
@@ -48,6 +49,7 @@ export interface logDetailsModalLogicMeta {
             configuredSessionIdKeys: string[] | undefined
         ) => string | null
         hasSessionId: (sessionId: string | null) => boolean
+        jsonParsedLog: (selectedLog: ParsedLogMessage | null) => ParsedJsonFields
     }
 }
 
@@ -71,7 +73,13 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
     }),
 
-    listeners(() => ({
+    listeners(({ values }) => ({
+        setJsonParseAllFields: ({ enabled }) => {
+            posthog.capture('logs details json parse toggled', {
+                enabled,
+                parsed_field_count: values.jsonParsedLog.parsedFieldCount,
+            })
+        },
         setActiveTab: ({ tab }) => {
             posthog.capture('logs details tab changed', { tab })
         },
@@ -129,5 +137,10 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                     : null,
         ],
         hasSessionId: [(s) => [s.sessionId], (sessionId: string | null): boolean => sessionId !== null],
+        jsonParsedLog: [
+            (s) => [s.selectedLog],
+            (selectedLog: ParsedLogMessage | null): ParsedJsonFields =>
+                selectedLog ? parseJsonFields(selectedLog.originalLog) : { value: null, parsedFieldCount: 0 },
+        ],
     }),
 ])
