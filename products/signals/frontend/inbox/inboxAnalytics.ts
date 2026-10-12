@@ -49,6 +49,8 @@ export const INBOX_EVENTS = {
     SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
+    SOURCE_TOGGLE_FAILED: 'Signal source toggle failed',
+    SOURCE_CONFIGS_LOAD_FAILED: 'Signal source configs load failed',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
@@ -95,6 +97,35 @@ export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_cli
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
+
+/**
+ * The surface that wrote a report link, from its `link_source` query param. Must match
+ * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
+ */
+export const INBOX_REPORT_LINK_SOURCES = [
+    'mcp',
+    'slack',
+    'slack_scout',
+    'scout',
+    'github_comment',
+    'github_pr',
+    'tracker',
+    'support',
+    'task',
+    'today',
+] as const
+
+/** `other` is a `source` value outside the fixed set, so a typo or a hand-edited link stays countable. */
+export type InboxReportLinkSource = (typeof INBOX_REPORT_LINK_SOURCES)[number] | 'other'
+
+export function parseInboxReportLinkSource(value: unknown): InboxReportLinkSource | null {
+    if (value === undefined || value === null || value === '') {
+        return null
+    }
+    return (INBOX_REPORT_LINK_SOURCES as readonly unknown[]).includes(value)
+        ? (value as InboxReportLinkSource)
+        : 'other'
+}
 
 /**
  * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
@@ -228,6 +259,7 @@ export type ScoutActionType =
     | 'sort_roster'
     | 'choose_create_path'
     | 'switch_create_path'
+    | 'test_precheck'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -435,6 +467,7 @@ export function captureInboxReportOpened(
     params: {
         report: SignalReport
         openMethod: InboxReportOpenMethod
+        linkSource: InboxReportLinkSource | null
         previousReportId: string | null
         rank: number | null
         listSize: number | null
@@ -450,6 +483,7 @@ export function captureInboxReportOpened(
             status: params.report.status ?? null,
             source_products: params.report.source_products ?? [],
             open_method: params.openMethod,
+            link_source: params.linkSource,
             previous_report_id: params.previousReportId,
             rank: params.rank,
             list_size: params.listSize,
@@ -701,6 +735,34 @@ export function captureSignalSourceDisabled(params: { sourceProduct: string; sou
         source_product: params.sourceProduct,
         source_type: params.sourceType,
     })
+}
+
+/**
+ * Why a source switch did not save. `configs_unavailable` means the source list never loaded, so the
+ * switch could not tell an existing row from a new one and refused to write.
+ */
+export type SignalSourceToggleFailureReason = 'configs_unavailable' | 'request_failed'
+
+/** A source switch that did not save. Without it, a lost toggle leaves no trace next to the connections. */
+export function captureSignalSourceToggleFailed(params: {
+    sourceProduct: string
+    sourceType: string
+    enabled: boolean
+    reason: SignalSourceToggleFailureReason
+    errorMessage: string
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_TOGGLE_FAILED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        enabled: params.enabled,
+        reason: params.reason,
+        error_message: params.errorMessage,
+    })
+}
+
+/** The source list failed to load, which blocks every switch that reads it. */
+export function captureSignalSourceConfigsLoadFailed(errorMessage: string): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CONFIGS_LOAD_FAILED, { error_message: errorMessage })
 }
 
 export function captureSignalSourceInterest(source: string): void {

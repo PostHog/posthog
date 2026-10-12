@@ -8,7 +8,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, H
 from posthog.models.integration import GoogleCloudIntegration
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-google-cloud-storage",

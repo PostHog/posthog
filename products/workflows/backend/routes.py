@@ -6,6 +6,7 @@ from posthog.ingress.views import build_webhook_view
 from posthog.utils import opt_slash_path
 
 from products.workflows.backend.presentation.views import (
+    email_drafts,
     hog_flow,
     hog_flow_template,
     workflow_scout_runs,
@@ -31,6 +32,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_scout_runs",
         workflow_scout_runs.WorkflowScoutRunViewSet,
         "project_workflow_scout_runs",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_email_drafts",
+        email_drafts.WorkflowEmailDraftViewSet,
+        "project_workflow_email_drafts",
         ["team_id"],
     )
     routers.projects.register(

@@ -376,6 +376,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
+    'replay_scanner:write',
+    'session_recording:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]

@@ -140,6 +140,14 @@ _ONESHOT_RETRY = RetryPolicy(
     # output limit — a killed sandbox or half-flushed log tail raises the same type and recovers on
     # retry. Only the one-shot path can read stop_reason == "max_tokens" and fail fast on it.
 )
+# The GitHub writes that carry the result to the PR. Another caller can exhaust the shared
+# installation budget for a minute or two, and GitHub returns 5xx in short spells, so the waits
+# (30s, 60s, 120s) outlast both. A retry never double-posts, because publish checks its marker first.
+_GITHUB_POST_RETRY = RetryPolicy(
+    maximum_attempts=4,
+    initial_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+)
 
 
 def _enforce_failure_floor(stage: str, failed: int, total: int) -> None:
@@ -513,6 +521,10 @@ class ReviewPRWorkflow:
         if inputs.trigger_source == TRIGGER_AUTOMATIC and (meta.already_completed or not meta.pr_open):
             workflow.logger.info("Automatic review skipped: the PR is closed or this head is already complete")
             return report_id
+        # The patch keeps a history written before the label check on its old command sequence.
+        if workflow.patched("reviewhog-skip-agent-review-label-2026-10") and meta.skip_agent_review:
+            workflow.logger.info("Automatic review skipped: the PR has the skip-agent-review label")
+            return report_id
 
         # Resolve the acting user whose enabled perspectives apply: the PR author, or the explicit
         # override the CLI and inbox triggers set. The label trigger falls back to the default run
@@ -531,6 +543,7 @@ class ReviewPRWorkflow:
                 installation_id=inputs.installation_id,
                 github_repo_id=inputs.github_repo_id,
                 head_branch=branch,
+                review_mode=inputs.review_mode,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
@@ -778,7 +791,7 @@ class ReviewPRWorkflow:
                         trigger_source=inputs.trigger_source,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
-                    retry_policy=_RETRY,
+                    retry_policy=_GITHUB_POST_RETRY,
                 )
             elif inputs.publish:
                 workflow.logger.info("No PR to publish to (branch target); the review is stored only")
@@ -797,6 +810,7 @@ class ReviewPRWorkflow:
                             report_id=report_id,
                             review_mode=inputs.review_mode,
                             review_design=review_design,
+                            run_index=meta.run_index,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -879,7 +893,7 @@ class ReviewPRWorkflow:
                         raised_elsewhere_count=dedup.raised_elsewhere_count if dedup is not None else 0,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
-                    retry_policy=_RETRY,
+                    retry_policy=_GITHUB_POST_RETRY,
                 )
             except Exception:
                 workflow.logger.warning("Could not finalize the status comment")

@@ -474,6 +474,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
+        "lifecycle_locked": "owner-only pause, resume, and delete",
+        "allowed_mcp_tools": "allowed MCP tools",
+        "tool_preset": "tool preset",
     },
     # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
     "SignalTeamConfig": {
@@ -594,6 +597,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
+    # The facade logs a version change as `uploaded_version` or `activated_version` at the write
+    # site, so the save that only moves the active version must not add an `updated` row.
+    "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
     # and the failure streak by the runner on every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit
@@ -716,6 +722,12 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.
         "pull_requests",
+    ],
+    "StreamlitApp": [
+        # Reverse relations. Version uploads and activations log their own rows, and a version's
+        # str() includes the app name, so a rename would show a false versions change.
+        "versions",
+        "sandbox",
     ],
     "HogFlow": [
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph

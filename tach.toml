@@ -1061,7 +1061,10 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.cdp",
+    "products.early_access_features",
+    "products.error_tracking",
     "products.feature_flags",
+    "products.surveys",
     "products.messaging",
     "products.notifications",
     # Facade-only: the Run scout action's endpoint starts a scout run through

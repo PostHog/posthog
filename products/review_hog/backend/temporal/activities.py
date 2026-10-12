@@ -26,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -33,12 +34,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
-from products.review_hog.backend.internal_features import has_internal_features
+from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
+from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
+from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
@@ -100,6 +101,14 @@ from products.review_hog.backend.reviewer.persistence import (
     replace_deduplicated_findings,
     replace_dropped_findings,
     upsert_review_report,
+)
+from products.review_hog.backend.reviewer.progress import (
+    REVIEW_FAILED_REASON,
+    RUN_OUTCOME_FAILED,
+    RUN_OUTCOME_SKIPPED,
+    RUN_STAGE_REVIEW,
+    in_publish_window,
+    record_run_outcome,
 )
 from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -259,6 +268,8 @@ class ReviewMeta:
     lens_chunks_capped: bool = False
     # None means no automatic review has run on the PR, so the push gate stays off for this turn.
     automatic_reviewed_head_sha: str | None = None
+    # An automatic turn on a PR with the skip-agent-review label. Older histories decode as no skip.
+    skip_agent_review: bool = False
 
 
 @dataclass(frozen=False)
@@ -284,6 +295,8 @@ class ResolveActingUserInput:
     # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
     # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
     head_branch: str | None = None
+    # Full in older payloads, which keeps them off the Flash-after-Full check below.
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass(frozen=False)
@@ -601,6 +614,8 @@ class StatusCommentInput:
     report_id: str
     review_mode: str = REVIEW_MODE_FULL
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # The failed turn, for the failure edit. None in payloads from before the field existed.
+    run_index: int | None = None
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -785,8 +800,16 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         merge_base_sha=fetched.merge_base_sha,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
+    # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
+    # delivery, so the webhook payload can miss the label.
+    skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
+        fetched.pr_metadata.labels
+    )
+    if skip_agent_review:
+        observe_dispatch("label_skipped")
     if already_published or (
-        input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or fetched.pr_metadata.state != "open")
+        input.trigger_source == TRIGGER_AUTOMATIC
+        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
     ):
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
             status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
@@ -814,6 +837,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
+        skip_agent_review=skip_agent_review,
     )
 
 
@@ -855,6 +879,30 @@ def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int
     )
 
 
+def _flash_after_full(input: ResolveActingUserInput) -> bool:
+    """Whether a queued Flash request now follows a Full review published while it waited."""
+    if input.review_mode != REVIEW_MODE_FLASH or input.report_id is None:
+        return False
+    return full_review_published(ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first())
+
+
+def _record_flash_after_full(team_id: int, report_id: str) -> None:
+    """Record the dropped Standard request, so a status reader sees it ended instead of waiting forever."""
+    report = ReviewReport.objects.for_team(team_id).filter(id=report_id).only("run_count", "head_sha").first()
+    if report is None:
+        return
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_SKIPPED,
+        reason=ReviewRequestRefusal.FLASH_AFTER_FULL.value,
+        run_index=report.run_count + 1,
+        review_mode=REVIEW_MODE_FLASH,
+        head_sha=report.head_sha,
+    )
+
+
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
     # Resolved even on override runs: the owner decides resolution and the clean-review media,
     # whoever asked for the review.
@@ -874,11 +922,14 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
             acting_user_id, resolved_from = input.default_user_id, "default"
     automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
-    if input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed:
+    flash_after_full = _flash_after_full(input)
+    if (input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed) or flash_after_full:
         if input.report_id is not None:
             ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
                 status=ReviewReport.Status.IDLE
             )
+        if flash_after_full and input.report_id is not None:
+            _record_flash_after_full(input.team_id, input.report_id)
         return ResolveActingUserResult(acting_user_id=None)
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
@@ -899,11 +950,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
     preferences = defaults if borrowed else preferences_by_user[acting_user_id]
     owner_preferences = preferences_by_user[owner.user_id] if owner.user_id is not None else defaults
-    resolution = ResolutionGate(
-        owner_user_id=owner.user_id,
-        owner_opted_in=owner_preferences.resolve_comments,
-        internal_features=owner.user_id is not None and has_internal_features(input.team_id),
-    )
+    resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
         review_labeled_prs=True,
@@ -1423,7 +1470,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 # The reviews API shows this as the finding's validator note, so it says that no validator ran.
-SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
+SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. A Standard review publishes its findings directly."
 
 
 def _is_final_attempt() -> bool:
@@ -1827,6 +1874,13 @@ def _publish(input: PublishInput) -> PublishResult:
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
+def _wait_for_github_reset(error: GitHubRateLimitError) -> ApplicationError | GitHubRateLimitError:
+    # GitHub names its reset time, at most an hour away, which can be later than the retry policy's next attempt.
+    if error.retry_after is None:
+        return error
+    return ApplicationError(str(error), next_retry_delay=datetime.timedelta(seconds=error.retry_after))
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1836,7 +1890,10 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    try:
+        return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
@@ -2205,15 +2262,34 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    try:
+        await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
+def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
-    fail_status_comment(team_id, report_id, review_mode=review_mode)
+    report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
+    if report is None:
+        return
+    if run_index is None:
+        # A run that dies in the publish window already counts its turn in `run_count`.
+        run_index = report.run_count if in_publish_window(report) else report.run_count + 1
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_FAILED,
+        reason=REVIEW_FAILED_REASON,
+        run_index=run_index,
+        review_mode=review_mode,
+        head_sha=report.head_sha,
+    )
+    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
@@ -2225,7 +2301,9 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(
+        input.team_id, input.report_id, input.review_mode, input.run_index
+    )
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------
