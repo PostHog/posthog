@@ -2014,11 +2014,42 @@ export interface ExperimentRetentionMetricApi {
     version?: number | null
 }
 
+export type ExperimentWarehouseNativeMetricApiMetricType =
+    (typeof ExperimentWarehouseNativeMetricApiMetricType)[keyof typeof ExperimentWarehouseNativeMetricApiMetricType]
+
+export const ExperimentWarehouseNativeMetricApiMetricType = {
+    WarehouseNative: 'warehouse_native',
+} as const
+
+export type ExperimentWarehouseNativeMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentWarehouseNativeMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    /** The direct-query source (an ExternalDataSource id) the query runs against. */
+    connection_id: string
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type: ExperimentWarehouseNativeMetricApiMetricType
+    name?: string | null
+    /** Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns. */
+    query: string
+    response?: ExperimentWarehouseNativeMetricApiResponse
+    sharedMetricId?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type ExperimentMetricApi =
     | ExperimentMeanMetricApi
     | ExperimentFunnelMetricApi
     | ExperimentRatioMetricApi
     | ExperimentRetentionMetricApi
+    | ExperimentWarehouseNativeMetricApi
 
 /**
  * A shared metric's link to one experiment, as the experiment API returns it.
@@ -2176,6 +2207,7 @@ export const ExperimentMetricTypeApi = {
     Mean: 'mean',
     Ratio: 'ratio',
     Retention: 'retention',
+    WarehouseNative: 'warehouse_native',
 } as const
 
 export type Kind3Api = (typeof Kind3Api)[keyof typeof Kind3Api]
@@ -3745,6 +3777,44 @@ export interface RunningTimeCalculationResultApi {
      * @nullable
      */
     recommended_running_time_days: number | null
+}
+
+/**
+ * Inputs for checking a warehouse-native metric query before it is saved.
+ */
+export interface WarehouseNativeMetricCheckRequestApi {
+    /** Id of the direct-query source the query runs against. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning one row per user with `variant`, `entity_id` and `value` columns. */
+    query: string
+    /** The experiment's variant keys. A variant the query returns that is not listed is reported as unknown. */
+    variant_keys?: string[]
+}
+
+/**
+ * Row count per `variant` value the query returns.
+ */
+export type WarehouseNativeMetricCheckResponseApiVariantRowCounts = { [key: string]: number }
+
+/**
+ * What a capped run of a warehouse-native metric query returned.
+ */
+export interface WarehouseNativeMetricCheckResponseApi {
+    /** Columns the query returns. */
+    columns: string[]
+    /** Required columns (`variant`, `entity_id`, `value`) the query does not return. */
+    missing_columns: string[]
+    /** Up to 20 rows from the query, one list per row in column order. */
+    sample_rows: unknown[][]
+    /** Row count per `variant` value the query returns. */
+    variant_row_counts: WarehouseNativeMetricCheckResponseApiVariantRowCounts
+    /** `variant` values the query returns that are not among `variant_keys`. */
+    unknown_variants: string[]
+    /**
+     * The warehouse's error message when the query failed, otherwise null.
+     * @nullable
+     */
+    error: string | null
 }
 
 /**

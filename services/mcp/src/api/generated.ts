@@ -7017,6 +7017,36 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeMetricMetricType = typeof ExperimentWarehouseNativeMetricMetricType[keyof typeof ExperimentWarehouseNativeMetricMetricType];
+
+
+    export const ExperimentWarehouseNativeMetricMetricType = {
+      WarehouseNative: 'warehouse_native',
+    } as const;
+
+    export type ExperimentWarehouseNativeMetricResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseNativeMetric {
+      breakdownFilter?: BreakdownFilter | null;
+      /** The direct-query source (an ExternalDataSource id) the query runs against. */
+      connection_id: string;
+      conversion_window?: number | null;
+      conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
+      fingerprint?: string | null;
+      goal?: ExperimentMetricGoal | null;
+      isSharedMetric?: boolean | null;
+      kind?: 'ExperimentMetric';
+      metric_type: ExperimentWarehouseNativeMetricMetricType;
+      name?: string | null;
+      /** Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns. */
+      query: string;
+      response?: ExperimentWarehouseNativeMetricResponse;
+      sharedMetricId?: number | null;
+      uuid?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type PrecomputationMode = typeof PrecomputationMode[keyof typeof PrecomputationMode];
 
 
@@ -7147,7 +7177,7 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
+      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentWarehouseNativeMetric | null;
       p_value?: number | null;
       probability?: ExperimentQueryResponseProbability;
       significance_code?: ExperimentSignificanceCode | null;
@@ -7162,7 +7192,7 @@ export namespace Schemas {
     export interface ExperimentQuery {
       experiment_id?: number | null;
       kind?: 'ExperimentQuery';
-      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+      metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentWarehouseNativeMetric;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       name?: string | null;
@@ -43474,7 +43504,7 @@ export namespace Schemas {
       recommended_sample_size?: number | null;
     }
 
-    export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+    export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentWarehouseNativeMetric;
 
     /**
      * A shared metric's link to one experiment, as the experiment API returns it.
@@ -43616,6 +43646,7 @@ export namespace Schemas {
       Mean: 'mean',
       Ratio: 'ratio',
       Retention: 'retention',
+      WarehouseNative: 'warehouse_native',
     } as const;
 
     export type Kind3 = typeof Kind3[keyof typeof Kind3];
@@ -90858,7 +90889,7 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
-      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
+      metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | ExperimentWarehouseNativeMetric | null;
       p_value?: number | null;
       probability?: QueryResponseAlternative20Probability;
       significance_code?: ExperimentSignificanceCode | null;
@@ -111630,6 +111661,44 @@ export namespace Schemas {
       database: string;
       /** Root database username */
       username: string;
+    }
+
+    /**
+     * Inputs for checking a warehouse-native metric query before it is saved.
+     */
+    export interface WarehouseNativeMetricCheckRequest {
+      /** Id of the direct-query source the query runs against. */
+      connection_id: string;
+      /** Read-only SQL in the warehouse's dialect, returning one row per user with `variant`, `entity_id` and `value` columns. */
+      query: string;
+      /** The experiment's variant keys. A variant the query returns that is not listed is reported as unknown. */
+      variant_keys?: string[];
+    }
+
+    /**
+     * Row count per `variant` value the query returns.
+     */
+    export type WarehouseNativeMetricCheckResponseVariantRowCounts = {[key: string]: number};
+
+    /**
+     * What a capped run of a warehouse-native metric query returned.
+     */
+    export interface WarehouseNativeMetricCheckResponse {
+      /** Columns the query returns. */
+      columns: string[];
+      /** Required columns (`variant`, `entity_id`, `value`) the query does not return. */
+      missing_columns: string[];
+      /** Up to 20 rows from the query, one list per row in column order. */
+      sample_rows: unknown[][];
+      /** Row count per `variant` value the query returns. */
+      variant_row_counts: WarehouseNativeMetricCheckResponseVariantRowCounts;
+      /** `variant` values the query returns that are not among `variant_keys`. */
+      unknown_variants: string[];
+      /**
+         * The warehouse's error message when the query failed, otherwise null.
+         * @nullable
+         */
+      error: string | null;
     }
 
     /**

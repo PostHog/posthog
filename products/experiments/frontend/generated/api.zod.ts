@@ -1379,6 +1379,30 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
     .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
 
 /**
+ * Check a warehouse-native metric query before saving it.
+ *
+ * Runs the query in the customer's warehouse with a row cap and reports the columns it returns,
+ * a few sample rows, the row count per variant, and variants the experiment does not know.
+ * Nothing is saved.
+ */
+export const ExperimentsCheckWarehouseNativeMetricCreateBody = /* @__PURE__ */ zod
+    .object({
+        connection_id: zod.string().describe('Id of the direct-query source the query runs against.'),
+        query: zod
+            .string()
+            .describe(
+                "Read-only SQL in the warehouse's dialect, returning one row per user with `variant`, `entity_id` and `value` columns."
+            ),
+        variant_keys: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "The experiment's variant keys. A variant the query returns that is not listed is reported as unknown."
+            ),
+    })
+    .describe('Inputs for checking a warehouse-native metric query before it is saved.')
+
+/**
  * Create an experiment that compares N versions of an LLM prompt using a metric template.
  *
  * The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates

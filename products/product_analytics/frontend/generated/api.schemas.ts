@@ -5618,6 +5618,29 @@ export interface ExperimentRetentionMetricApi {
     version?: number | null
 }
 
+export type ExperimentWarehouseNativeMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentWarehouseNativeMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    /** The direct-query source (an ExternalDataSource id) the query runs against. */
+    connection_id: string
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    metric_type?: 'warehouse_native'
+    name?: string | null
+    /** Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns. */
+    query: string
+    response?: ExperimentWarehouseNativeMetricApiResponse
+    sharedMetricId?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type PrecomputationModeApi = (typeof PrecomputationModeApi)[keyof typeof PrecomputationModeApi]
 
 export const PrecomputationModeApi = {
@@ -5728,6 +5751,7 @@ export interface ExperimentQueryResponseApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
+        | ExperimentWarehouseNativeMetricApi
         | null
     p_value?: number | null
     probability?: ExperimentQueryResponseApiProbability
@@ -5748,6 +5772,7 @@ export interface ExperimentQueryApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
+        | ExperimentWarehouseNativeMetricApi
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     name?: string | null

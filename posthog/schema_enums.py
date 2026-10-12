@@ -1456,6 +1456,7 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
+    WAREHOUSE_NATIVE = "warehouse_native"
 
 
 class PrecomputationMode(StrEnum):

@@ -73,6 +73,11 @@ from products.experiments.backend.facade.legacy_migration import (
     migrate_experiment as migrate_legacy_experiment,
 )
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
+from products.experiments.backend.facade.warehouse_native_metrics import (
+    check_warehouse_native_query,
+    has_direct_connection,
+    warehouse_native_metrics_enabled,
+)
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -114,6 +119,8 @@ from products.experiments.backend.presentation.serializers import (
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
     ShipVariantSerializer,
+    WarehouseNativeMetricCheckRequestSerializer,
+    WarehouseNativeMetricCheckResponseSerializer,
 )
 from products.experiments.backend.recalculation import (
     build_job_payload,
@@ -1483,6 +1490,35 @@ class EnterpriseExperimentsViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
+
+    @validated_request(
+        request_serializer=WarehouseNativeMetricCheckRequestSerializer,
+        responses={200: OpenApiResponse(response=WarehouseNativeMetricCheckResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="check_warehouse_native_metric",
+        required_scopes=["experiment:read", "query:read"],
+    )
+    def check_warehouse_native_metric(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Check a warehouse-native metric query before saving it.
+
+        Runs the query in the customer's warehouse with a row cap and reports the columns it returns,
+        a few sample rows, the row count per variant, and variants the experiment does not know.
+        Nothing is saved.
+        """
+        if not warehouse_native_metrics_enabled(self.team):
+            raise ValidationError("Warehouse-native metrics are not enabled for this project.")
+        data = request.validated_data
+        # The caller's identity carries the source's access control into the lookup and the query.
+        user = request.user if isinstance(request.user, User) else None
+        if not has_direct_connection(self.team, data["connection_id"], user):
+            raise ValidationError("The selected connection does not exist or cannot be queried directly.")
+        result = check_warehouse_native_query(
+            self.team, user, data["connection_id"], data["query"], data["variant_keys"]
+        )
+        return Response(WarehouseNativeMetricCheckResponseSerializer(result).data)
 
     @validated_request(
         request_serializer=RunningTimeCalculationInputSerializer,

@@ -989,7 +989,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return exposure_criteria
 
     def _validate_metrics_list(self, metrics: list | None) -> list | None:
-        ExperimentService.validate_experiment_metrics(metrics)
+        ExperimentService.validate_experiment_metrics(metrics, self.context["get_team"]())
         return metrics
 
     def validate_metrics(self, value):
@@ -3162,3 +3162,40 @@ class ExperimentSetupContextResponseSerializer(serializers.Serializer):
         help_text="Recent experiments in the project."
     )
     shared_metrics = ExperimentSetupSharedMetricsSectionSerializer(help_text="Most reused shared metrics.")
+
+
+class WarehouseNativeMetricCheckRequestSerializer(serializers.Serializer):
+    """Inputs for checking a warehouse-native metric query before it is saved."""
+
+    connection_id = serializers.CharField(help_text="Id of the direct-query source the query runs against.")
+    query = serializers.CharField(
+        help_text="Read-only SQL in the warehouse's dialect, returning one row per user with `variant`, `entity_id` and `value` columns."
+    )
+    variant_keys = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="The experiment's variant keys. A variant the query returns that is not listed is reported as unknown.",
+    )
+
+
+class WarehouseNativeMetricCheckResponseSerializer(serializers.Serializer):
+    """What a capped run of a warehouse-native metric query returned."""
+
+    columns = serializers.ListField(child=serializers.CharField(), help_text="Columns the query returns.")
+    missing_columns = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Required columns (`variant`, `entity_id`, `value`) the query does not return.",
+    )
+    sample_rows = serializers.ListField(
+        child=serializers.ListField(), help_text="Up to 20 rows from the query, one list per row in column order."
+    )
+    variant_row_counts = serializers.DictField(
+        child=serializers.IntegerField(), help_text="Row count per `variant` value the query returns."
+    )
+    unknown_variants = serializers.ListField(
+        child=serializers.CharField(), help_text="`variant` values the query returns that are not among `variant_keys`."
+    )
+    error = serializers.CharField(
+        allow_null=True, help_text="The warehouse's error message when the query failed, otherwise null."
+    )

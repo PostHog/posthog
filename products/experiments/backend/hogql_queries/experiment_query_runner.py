@@ -24,6 +24,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    ExperimentWarehouseNativeMetric,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -31,6 +32,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
@@ -730,7 +732,15 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return sorted_results, response.columns or []
 
     @experiment_error_handler
+    def _computable_metric(
+        self,
+    ) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
+        if isinstance(self.metric, ExperimentWarehouseNativeMetric):
+            raise ExposedHogQLError("Warehouse-native metrics cannot be calculated yet.")
+        return self.metric
+
     def _calculate(self) -> ExperimentQueryResponse:
+        self._computable_metric()
         variant_results = self._prepare_variant_results()
 
         if self._has_breakdown(variant_results):
@@ -760,10 +770,11 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _calculate_statistics_for_variants(self, variants: list[ExperimentStatsBase]) -> ExperimentQueryResponse:
         control_variant, test_variants = split_baseline_and_test_variants(variants, self.baseline_variant_key)
+        metric = self._computable_metric()
 
         if self.stats_method == "frequentist":
             return get_frequentist_experiment_result(
-                metric=self.metric,
+                metric=metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
                 stats_config=self.experiment.stats_config,
@@ -773,7 +784,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             )
 
         return get_bayesian_experiment_result(
-            metric=self.metric,
+            metric=metric,
             control_variant=control_variant,
             test_variants=test_variants,
             stats_config=self.experiment.stats_config,

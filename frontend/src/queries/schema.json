@@ -26713,7 +26713,7 @@
             "type": "object"
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean", "ratio", "retention"],
+            "enum": ["funnel", "mean", "ratio", "retention", "warehouse_native"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -26729,6 +26729,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRetentionMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeMetricTypeProps"
                 }
             ]
         },
@@ -26748,6 +26751,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRetentionMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeMetric"
                 }
             ],
             "required": ["metric_type"],
@@ -27592,6 +27598,83 @@
                 }
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeMetric": {
+            "additionalProperties": false,
+            "description": "A metric computed inside the customer's own warehouse through a direct connection. The customer's SQL returns one row per user as `(variant, entity_id, value)`; PostHog wraps it in aggregation SQL at analysis time, so only aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog.",
+            "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the query runs against.",
+                    "type": "string"
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "warehouse_native",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns.",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "kind", "metric_type", "query"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the query runs against.",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "warehouse_native",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns.",
+                    "type": "string"
+                }
+            },
+            "required": ["metric_type", "connection_id", "query"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -60253,6 +60336,22 @@
                         }
                     },
                     "required": ["query"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentWarehouseNativeMetric": {
+            "$comment": "(\n    metric: ExperimentMetric) => metric is ExperimentWarehouseNativeMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
                     "type": "object"
                 }
             },

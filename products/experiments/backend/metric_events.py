@@ -191,6 +191,9 @@ def _metric_sources(
             (MetricSourceRole.NUMERATOR, metric.numerator),
             (MetricSourceRole.DENOMINATOR, metric.denominator),
         ]
+    if not isinstance(metric, ExperimentRetentionMetric):
+        # A warehouse-native metric has no event sources; its rows come from the customer's warehouse.
+        return []
     # The completion is the retention metric's "return visit" event. The scan can only say the event
     # fired in this session, not that it fired in the window the analysis requires — so when start
     # and completion are the identical node, a completion source would render a hit byte-identical to
@@ -231,6 +234,7 @@ def _default_metric_title(metric: ExperimentMetric) -> str:
         )
     if isinstance(metric, ExperimentRetentionMetric):
         return f"{_source_title(metric.start_event) or 'Start event'} / {_source_title(metric.completion_event) or 'Completion event'}"
+    return "Warehouse query"
 
 
 def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:

@@ -987,10 +987,10 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
 
     def test_validate_experiment_metrics_accepts_none(self) -> None:
-        ExperimentService.validate_experiment_metrics(None)
+        ExperimentService.validate_experiment_metrics(None, self.team)
 
     def test_validate_experiment_metrics_accepts_empty_list(self) -> None:
-        ExperimentService.validate_experiment_metrics([])
+        ExperimentService.validate_experiment_metrics([], self.team)
 
     @parameterized.expand(
         [
@@ -1056,7 +1056,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_validate_experiment_metrics_accepts_valid_payloads(self, _: str, metric: dict) -> None:
-        ExperimentService.validate_experiment_metrics([metric])
+        ExperimentService.validate_experiment_metrics([metric], self.team)
 
     @parameterized.expand(
         [
@@ -1083,7 +1083,7 @@ class TestExperimentService(APIBaseTest):
         self, _: str, metrics: object, expected_fragment: str
     ) -> None:
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics(metrics)  # type: ignore[arg-type]
+            ExperimentService.validate_experiment_metrics(metrics, self.team)  # type: ignore[arg-type]
         assert expected_fragment in str(ctx.exception), (
             f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
         )
@@ -1107,7 +1107,8 @@ class TestExperimentService(APIBaseTest):
                     "source": {"kind": "EventsNode", "event": "$pageview", "math": math, "math_property": "amount"},
                     "threshold": 100,
                 }
-            ]
+            ],
+            self.team,
         )
 
     @parameterized.expand(
@@ -1127,7 +1128,8 @@ class TestExperimentService(APIBaseTest):
                         "source": {"kind": "EventsNode", "event": "$pageview", "math": math},
                         "threshold": 100,
                     }
-                ]
+                ],
+                self.team,
             )
         assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
 
@@ -1153,7 +1155,8 @@ class TestExperimentService(APIBaseTest):
                         },
                         "threshold": threshold,
                     }
-                ]
+                ],
+                self.team,
             )
         assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
 
@@ -1181,7 +1184,8 @@ class TestExperimentService(APIBaseTest):
                         "threshold": 100,
                         **bounds,
                     }
-                ]
+                ],
+                self.team,
             )
         assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
 
@@ -1212,7 +1216,8 @@ class TestExperimentService(APIBaseTest):
                     conversion_window=14,
                     conversion_window_unit="day",
                 )
-            ]
+            ],
+            self.team,
         )
 
     @parameterized.expand(
@@ -1230,7 +1235,7 @@ class TestExperimentService(APIBaseTest):
         self, _: str, overrides: dict, expected_fragment: str
     ) -> None:
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([self._retention_metric(**overrides)])
+            ExperimentService.validate_experiment_metrics([self._retention_metric(**overrides)], self.team)
         assert expected_fragment in str(ctx.exception), (
             f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
         )
@@ -1258,14 +1263,14 @@ class TestExperimentService(APIBaseTest):
             },
         }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([metric])
+            ExperimentService.validate_experiment_metrics([metric], self.team)
         message = str(ctx.exception)
         assert sensitive_value not in message, f"Sensitive user value leaked into error message: {message}"
 
     def test_validate_experiment_metrics_strips_pydantic_url_field(self) -> None:
         """Pydantic URLs like https://errors.pydantic.dev/... add noise — strip them."""
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID], self.team)
         message = str(ctx.exception)
         assert "errors.pydantic.dev" not in message
         assert "'url':" not in message
@@ -1273,7 +1278,7 @@ class TestExperimentService(APIBaseTest):
     def test_validate_experiment_metrics_preserves_loc_and_type_in_message(self) -> None:
         """Field location and error type stay so callers can self-correct."""
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID], self.team)
         message = str(ctx.exception)
         assert "extra_forbidden" in message
         assert "id" in message
@@ -1281,7 +1286,7 @@ class TestExperimentService(APIBaseTest):
     def test_validate_experiment_metrics_preserves_index_prefix(self) -> None:
         """The 'Invalid metric at index <i>:' prefix identifies which metric failed."""
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID], self.team)
         assert "Invalid metric at index 0:" in str(ctx.exception)
 
     def test_metric_builders_match_schema(self) -> None:
@@ -1352,7 +1357,7 @@ class TestExperimentService(APIBaseTest):
     def test_validate_experiment_metrics_events_node_id_hint(self) -> None:
         """Passing `id` on an EventsNode yields a hint mentioning both EventsNode and ActionsNode."""
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID])
+            ExperimentService.validate_experiment_metrics([self._INVALID_METRIC_EVENTS_NODE_ID], self.team)
         message = str(ctx.exception)
         assert "EventsNode" in message
         assert "ActionsNode" in message
@@ -1366,7 +1371,7 @@ class TestExperimentService(APIBaseTest):
             "source": {"kind": "EventsNode", "event": "$pageview", "id": huge_value},
         }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([metric])
+            ExperimentService.validate_experiment_metrics([metric], self.team)
         message = str(ctx.exception)
         assert huge_value not in message
         # The message size must scale with the metric schema (bounded), not with user input.
@@ -1385,7 +1390,7 @@ class TestExperimentService(APIBaseTest):
             "series": [bad_step] * 100,
         }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([metric])
+            ExperimentService.validate_experiment_metrics([metric], self.team)
         message = str(ctx.exception)
         # The truncation marker key from the implementation should appear when the cap is hit.
         assert "truncated" in message
@@ -1400,7 +1405,7 @@ class TestExperimentService(APIBaseTest):
             "source": {"kind": "EventsNode", "event": "$pageview"},
         }
         with self.assertRaises(ValidationError) as ctx:
-            ExperimentService.validate_experiment_metrics([valid, self._INVALID_METRIC_EVENTS_NODE_ID])
+            ExperimentService.validate_experiment_metrics([valid, self._INVALID_METRIC_EVENTS_NODE_ID], self.team)
         assert "Invalid metric at index 1:" in str(ctx.exception)
 
     # ------------------------------------------------------------------

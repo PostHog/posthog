@@ -1680,6 +1680,21 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
+class ExperimentWarehouseNativeMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the query runs against."),
+    )
+    metric_type: Literal["warehouse_native"] = "warehouse_native"
+    query: str = Field(
+        ...,
+        description=("Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns."),
+    )
+
+
 class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5897,6 +5912,33 @@ class ExperimentVariantResultFrequentist(BaseModel):
     sum: float
     sum_squares: float
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
+
+
+class ExperimentWarehouseNativeMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownFilter: BreakdownFilter | None = None
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the query runs against."),
+    )
+    conversion_window: int | None = None
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    fingerprint: str | None = None
+    goal: ExperimentMetricGoal | None = None
+    isSharedMetric: bool | None = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["warehouse_native"] = "warehouse_native"
+    name: str | None = None
+    query: str = Field(
+        ...,
+        description=("Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns."),
+    )
+    response: dict[str, Any] | None = None
+    sharedMetricId: float | None = None
+    uuid: str | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExternalQueryError(BaseModel):
@@ -31881,6 +31923,7 @@ class ExperimentMetricTypeProps(
         | ExperimentFunnelMetricTypeProps
         | ExperimentRatioMetricTypeProps
         | ExperimentRetentionMetricTypeProps
+        | ExperimentWarehouseNativeMetricTypeProps
     ]
 ):
     root: (
@@ -31888,6 +31931,7 @@ class ExperimentMetricTypeProps(
         | ExperimentFunnelMetricTypeProps
         | ExperimentRatioMetricTypeProps
         | ExperimentRetentionMetricTypeProps
+        | ExperimentWarehouseNativeMetricTypeProps
     )
 
 
@@ -32088,11 +32132,21 @@ class EndpointRequest(BaseModel):
 
 
 class ExperimentMetric(
-    RootModel[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric]
+    RootModel[
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+    ]
 ):
-    root: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    root: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+    ) = Field(..., discriminator="metric_type")
 
 
 class ExperimentQueryResponse(BaseModel):
@@ -32115,9 +32169,14 @@ class ExperimentQueryResponse(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
-        Field(default=None, discriminator="metric_type")
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+        | None
+    ) = Field(default=None, discriminator="metric_type")
     p_value: float | None = None
     probability: dict[str, float] | None = None
     significance_code: ExperimentSignificanceCode | None = None
@@ -32191,9 +32250,13 @@ class LegacyExperimentQueryResponse(BaseModel):
     credible_intervals: dict[str, list[float]]
     insight: list[dict[str, Any]]
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+    ) = Field(..., discriminator="metric_type")
     p_value: float
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
@@ -32267,9 +32330,14 @@ class QueryResponseAlternative20(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
-        Field(default=None, discriminator="metric_type")
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+        | None
+    ) = Field(default=None, discriminator="metric_type")
     p_value: float | None = None
     probability: dict[str, float] | None = None
     significance_code: ExperimentSignificanceCode | None = None
@@ -32560,9 +32628,13 @@ class NamedArgs2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+    ) = Field(..., discriminator="metric_type")
 
 
 class IsExperimentFunnelMetric(BaseModel):
@@ -32578,6 +32650,10 @@ class IsExperimentRatioMetric(BaseModel):
 
 
 class IsExperimentRetentionMetric(BaseModel):
+    namedArgs: NamedArgs2 | None = None
+
+
+class IsExperimentWarehouseNativeMetric(BaseModel):
     namedArgs: NamedArgs2 | None = None
 
 
@@ -32648,9 +32724,14 @@ class CachedExperimentQueryResponse(BaseModel):
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     last_refresh: AwareDatetime
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
-        Field(default=None, discriminator="metric_type")
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+        | None
+    ) = Field(default=None, discriminator="metric_type")
     next_allowed_client_refresh: AwareDatetime
     p_value: float | None = None
     probability: dict[str, float] | None = None
@@ -32690,9 +32771,13 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     last_refresh: AwareDatetime
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+    ) = Field(..., discriminator="metric_type")
     next_allowed_client_refresh: AwareDatetime
     p_value: float
     probability: dict[str, float]
@@ -32778,9 +32863,13 @@ class ExperimentQuery(BaseModel):
     )
     experiment_id: int | None = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentWarehouseNativeMetric
+    ) = Field(..., discriminator="metric_type")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     precomputation_mode: PrecomputationMode | None = None
