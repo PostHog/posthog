@@ -95,6 +95,7 @@ from posthog.schema_enums import (
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
+    DatePart as DatePart,
     DaysOfWeekEnum as DaysOfWeekEnum,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
@@ -5111,6 +5112,7 @@ class BIField(BaseModel):
         extra="forbid",
     )
     dateBucket: BIDateBucket | None = None
+    datePart: DatePart | None = None
     expression: str
     id: str
     localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None

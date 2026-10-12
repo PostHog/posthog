@@ -62,6 +62,7 @@ export interface BIField {
     type: DatabaseSerializedFieldType
     source: BIDataSource
     dateBucket?: BIDateBucket
+    datePart?: 'month' | 'quarter' | 'day_of_week'
     localDefinition?: BILocalFieldDefinition
 }
 
