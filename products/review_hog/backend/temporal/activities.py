@@ -648,6 +648,9 @@ class StatusCommentInput:
     review_design: str = REVIEW_DESIGN_PIPELINE
     # The failed turn, for the failure edit. None in payloads from before the field existed.
     run_index: int | None = None
+    # False when Temporal retries the turn after this failure. A Standard turn posts its failure
+    # comment only on the last attempt, so a retry that succeeds leaves no stale notice on the PR.
+    last_attempt: bool = True
 
 
 @frozen
@@ -2424,7 +2427,13 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
         raise _wait_for_github_reset(error) from error
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
+def _fail_run(
+    team_id: int,
+    report_id: str,
+    review_mode: str = REVIEW_MODE_FULL,
+    run_index: int | None = None,
+    last_attempt: bool = True,
+) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
@@ -2447,7 +2456,8 @@ def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL,
     )
     # A Standard turn has no status comment to mark as failed, so it says so in a comment of its own.
     if review_mode == REVIEW_MODE_FLASH:
-        post_failure_comment(team_id, report_id, review_mode=review_mode)
+        if last_attempt:
+            post_failure_comment(team_id, report_id, review_mode=review_mode)
     else:
         fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
@@ -2463,7 +2473,7 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     histories replay unchanged (new unconditional commands break replay determinism).
     """
     await database_sync_to_async(_fail_run, thread_sensitive=False)(
-        input.team_id, input.report_id, input.review_mode, input.run_index
+        input.team_id, input.report_id, input.review_mode, input.run_index, input.last_attempt
     )
 
 

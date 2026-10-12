@@ -177,6 +177,12 @@ def _non_retryable_cause(exc: BaseException | None) -> ApplicationError | None:
     return None
 
 
+def _out_of_attempts() -> bool:
+    info = workflow.info()
+    retry = info.retry_policy
+    return retry is None or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
+
+
 @dataclass
 class ReviewPerspectivesInputs(SandboxStageInput):
     chunk_ids: list[int]
@@ -434,14 +440,7 @@ class ReviewPRWorkflow:
             non_retryable = True
             raise ApplicationError(str(e), non_retryable=True, type=cause.type) from e
         finally:
-            info = workflow.info()
-            retry = info.retry_policy
-            terminal = (
-                completed
-                or non_retryable
-                or retry is None
-                or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
-            )
+            terminal = completed or non_retryable or _out_of_attempts()
             if (
                 workflow.patched("remove-reviewhog-trigger-label-2026-08")
                 and terminal
@@ -818,7 +817,7 @@ class ReviewPRWorkflow:
                 workflow.logger.info("No PR to publish to (branch target); the review is stored only")
             else:
                 workflow.logger.info("Publishing disabled for this run (publish=False)")
-        except Exception:
+        except Exception as e:
             # A dead run must not read as forever in progress on the PR or in the Code review UI
             # (the activity also returns the report to rest, covering a publish that died with the
             # idle write still deferred); best-effort so the edit can never mask the original error.
@@ -833,6 +832,7 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             review_design=review_design,
                             run_index=meta.run_index,
+                            last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,

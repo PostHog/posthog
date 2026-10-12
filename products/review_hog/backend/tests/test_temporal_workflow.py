@@ -172,6 +172,7 @@ async def _run_full_review_pr_workflow(
     meta_pr_number: int | None = 7,
     empty_diff: bool = False,
     fail_dedup: bool = False,
+    retryable_dedup_failures: int = 0,
     selection: PerspectiveSelectionDTO | None = None,
     fail_selection: bool = False,
     fail_review_units: frozenset[tuple[int, int]] = frozenset(),
@@ -376,11 +377,16 @@ async def _run_full_review_pr_workflow(
         coordinator_calls.append(input.lens_chunk_count)
         return CoordinatorReviewResult(lens_failures=coordinator_lens_failures)
 
+    dedup_attempts: list[int] = []
+
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
         _saw_design("dedup", input.review_design)
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
+        dedup_attempts.append(1)
+        if len(dedup_attempts) <= retryable_dedup_failures:
+            raise ApplicationError("sandbox busy")
         # Two survivors in two different chunks, so validate fans out one warm session per chunk.
         flash_stats = _FLASH_TURN_STATS if input.review_design == "single_agent" else None
         return DedupResult(issue_ids=["1-1-1", "1-2-1"], flash_stats=flash_stats)
@@ -434,11 +440,12 @@ async def _run_full_review_pr_workflow(
         marker_calls["status"] = input.marker
         return None
 
-    fail_status_calls: list[str] = []
+    # Each failure edit as (review_mode, last_attempt).
+    fail_status_calls: list[tuple[str, bool]] = []
 
     @activity.defn(name="fail_status_comment_activity")
     async def fail_status(input: StatusCommentInput) -> None:
-        fail_status_calls.append(input.review_mode)
+        fail_status_calls.append((input.review_mode, input.last_attempt))
         return None
 
     # The PR's 👀 while the turn runs, as ("add",) and ("remove", reaction_id).
@@ -711,8 +718,28 @@ async def test_review_pr_workflow_removes_label_trigger_after_failure(review_mod
     assert recorded["remove_label"] == [7]
     # A Standard turn has no status comment, but its failure still returns the report to rest and
     # tells the PR. A dead turn must not leave its 👀 behind either.
-    assert recorded["fail_status"] == [review_mode]
+    assert recorded["fail_status"] == [(review_mode, True)]
     assert recorded["reactions"] == [("add",), ("remove", 42)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dedup_failures, expected_failed, expected_fail_status",
+    [
+        # The second attempt succeeds, so the first attempt's failure must not tell the PR.
+        (5, False, [("flash", False)]),
+        (10, True, [("flash", False), ("flash", True)]),
+    ],
+)
+async def test_review_pr_workflow_reports_a_failure_only_on_the_last_attempt(
+    dedup_failures: int, expected_failed: bool, expected_fail_status: list[tuple[str, bool]]
+):
+    # Dedup runs up to five activity attempts, so five failures fail one workflow attempt.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, review_mode="flash", retryable_dedup_failures=dedup_failures, workflow_max_attempts=2
+    )
+    assert recorded["failed"] is expected_failed
+    assert recorded["fail_status"] == expected_fail_status
 
 
 @pytest.mark.asyncio

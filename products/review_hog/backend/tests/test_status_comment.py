@@ -743,11 +743,20 @@ class TestFailRun(BaseTest):
 class TestFailedTurnNotice(BaseTest):
     @parameterized.expand(
         [
-            ("standard_posts_a_failure_comment", REVIEW_MODE_FLASH, False, ["/repos/o/r/issues/123/comments"], []),
+            (
+                "standard_posts_a_failure_comment",
+                REVIEW_MODE_FLASH,
+                False,
+                True,
+                ["/repos/o/r/issues/123/comments"],
+                [],
+            ),
             # An activity retry finds the comment it already posted for this head.
-            ("standard_posts_once_per_head", REVIEW_MODE_FLASH, True, [], []),
+            ("standard_posts_once_per_head", REVIEW_MODE_FLASH, True, True, [], []),
+            # Temporal retries the turn, and a retry that succeeds must not sit next to a failure notice.
+            ("standard_waits_for_the_last_attempt", REVIEW_MODE_FLASH, False, False, [], []),
             # A Standard turn never edits the status comment an earlier Deep turn left on the report.
-            ("deep_edits_the_status_comment", REVIEW_MODE_FULL, False, [], ["/repos/o/r/issues/comments/555"]),
+            ("deep_edits_the_status_comment", REVIEW_MODE_FULL, False, True, [], ["/repos/o/r/issues/comments/555"]),
         ]
     )
     @patch(_INTEGRATION)
@@ -758,6 +767,7 @@ class TestFailedTurnNotice(BaseTest):
         _name: str,
         review_mode: str,
         already_posted: bool,
+        last_attempt: bool,
         expected_posts: list[str],
         expected_patches: list[str],
         mock_request: MagicMock,
@@ -774,7 +784,7 @@ class TestFailedTurnNotice(BaseTest):
         existing = [{"id": 9, "body": f"x\n{marker}", "user": {"login": "posthog[bot]", "type": "Bot"}}]
         mock_paginated.return_value = iter(existing if already_posted else [])
 
-        _fail_run(self.team.id, report_id, review_mode=review_mode)
+        _fail_run(self.team.id, report_id, review_mode=review_mode, last_attempt=last_attempt)
 
         assert _posts(mock_request) == expected_posts
         assert _patches(mock_request) == expected_patches
