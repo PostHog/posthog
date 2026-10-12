@@ -288,7 +288,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         assert costs == {priced_run: Decimal("1.25")}
 
-    def test_compute_cost_only_includes_billable_desktop_sessions(self) -> None:
+    def test_compute_cost_only_includes_billable_first_party_client_sessions(self) -> None:
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)
         rate_card = ComputeRateCard(
             version="test",
@@ -297,7 +297,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             cpu_core_second_usd=Decimal("0.01"),
             memory_gib_second_usd=Decimal("0.01"),
         )
-        for provenance in (TaskClientProvenance.POSTHOG_DESKTOP, None):
+        for provenance in (*TaskClientProvenance, None):
             run = TaskRun.objects.create(task=self.task, team=self.team)
             SandboxSession.objects.unscoped().create(
                 team=self.team,
@@ -326,7 +326,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
                 task_created_at=self.task.created_at,
             )
 
-        assert usage.compute_cost_usd == Decimal("0.20")
+        assert usage.compute_cost_usd == Decimal("0.60")
 
     def test_usage_is_reported_before_the_first_rate_card_takes_effect(self) -> None:
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)
