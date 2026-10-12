@@ -67,7 +67,7 @@ describe('PushCaptureService', () => {
                 {
                     event: '$set',
                     distinct_id: 'user-1',
-                    properties: { $set: { $device_push_subscription_app: 'cipher' }, $geoip_disable: true },
+                    properties: { $set: { $device_push_subscription_app: 'cipher' } },
                     options: { process_person_profile: true },
                 },
             ],

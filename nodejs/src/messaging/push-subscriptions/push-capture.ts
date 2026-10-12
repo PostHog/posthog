@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto'
 import { Counter } from 'prom-client'
 
-import { disableGeoipWithoutClientIp } from '~/common/services/internal-capture'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
@@ -69,7 +68,7 @@ export class PushCaptureService {
             uuid: randomUUID(),
             distinct_id: event.distinctId,
             timestamp: now,
-            properties: disableGeoipWithoutClientIp(properties),
+            properties,
         }
         if (Object.keys(options).length > 0) {
             entry.options = options
