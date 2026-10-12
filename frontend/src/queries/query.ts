@@ -110,6 +110,14 @@ function isRetryableSubmitFailure(error: unknown, refresh: RefreshType): boolean
 }
 
 /**
+ * A missing query status can be recovered by submitting again. An unavailable managed
+ * warehouse also answers 404, but resubmitting cannot fix that.
+ */
+export function isExpiredQueryStatusError(e: any): boolean {
+    return e?.status === 404 && e?.code !== MANAGED_WAREHOUSE_UNAVAILABLE_CODE
+}
+
+/**
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
  * "[ErrorDetail(string='Message', code='code')]"
@@ -315,9 +323,7 @@ async function executeQuery<N extends DataNode>(
     try {
         statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     } catch (e: any) {
-        // The server keeps a query's status in Redis for 20 minutes. A backgrounded tab stops
-        // polling and stops its own give-up timer, so it can outlive that TTL and then poll for a
-        // query the server has forgotten. That query most likely finished and cached its result.
+        // A backgrounded tab can outlive the query's status. Submit once more to recover its result.
         //
         // So run it again, once. force_async becomes async, to read the cached result instead of
         // recomputing it. The query ID is reused, so cancels and log lookups still find the run;
@@ -326,12 +332,7 @@ async function executeQuery<N extends DataNode>(
         // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
         // view may only read, so it cannot submit at all; report the expired status rather than
         // the permission error the server would answer with.
-        if (
-            retriedAfterExpiry ||
-            e?.status !== 404 ||
-            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
-            isSharedView()
-        ) {
+        if (retriedAfterExpiry || !isExpiredQueryStatusError(e) || isSharedView()) {
             throw e
         }
         return await executeQuery(

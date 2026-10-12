@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { IconChevronRight, IconExternal, IconNotebook } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -10,7 +11,6 @@ import { urls } from 'scenes/urls'
 
 import { autoresearchPipelineLogic, trainingRunProgress } from '../autoresearchPipelineLogic'
 import { type AutoresearchRunApi, AutoresearchTrainingRunApi } from '../generated/api.schemas'
-import { IterationTrail } from './IterationTrail'
 import { RunFeatureComparison } from './RunFeatureComparison'
 
 // Derived from the field rather than the standalone enum: this pending/running/completed/failed
@@ -52,7 +52,16 @@ function RunReport({ runId }: { runId: string }): JSX.Element | null {
     )
 }
 
-export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Element {
+/** One training run in the experiment log: its header, the experiments passed as children, and its report and bundle on expand. */
+export function TrainingRunRow({
+    run,
+    runNumber,
+    children,
+}: {
+    run: AutoresearchTrainingRunApi
+    runNumber: number
+    children?: ReactNode
+}): JSX.Element {
     const { expandedRunId, artifactsByRun, artifactsByRunLoading, featureFlags } = useValues(autoresearchPipelineLogic)
     const { toggleRunArtifacts, viewArtifact, reportNotebookOpened } = useActions(autoresearchPipelineLogic)
     const reportNotebookShortId = featureFlags[FEATURE_FLAGS.AUTORESEARCH_REPORT_NOTEBOOK]
@@ -68,7 +77,7 @@ export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JS
     const progressSummary =
         run.status === 'failed' && progress.iterationCount === 0
             ? 'Failed before any iterations'
-            : `${progress.iterationCount} iterations · ${
+            : `${progress.iterationCount} ${progress.iterationCount === 1 ? 'experiment' : 'experiments'} · ${
                   progress.bestHoldoutScore != null
                       ? `best AUC ${progress.bestHoldoutScore.toFixed(3)}`
                       : 'no score yet'
@@ -82,13 +91,13 @@ export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JS
                         size="small"
                         icon={<IconChevronRight className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />}
                         onClick={() => toggleRunArtifacts(run.id)}
-                        tooltip={isExpanded ? 'Hide details' : 'Show iterations & bundle'}
+                        tooltip={isExpanded ? 'Hide report and bundle' : 'Show report and bundle'}
                     />
                     <div className="space-y-0.5">
                         <div className="text-sm font-semibold flex items-center gap-1">
                             <Tooltip title={dayjs(startedAt).format('MMM D, YYYY HH:mm')}>
                                 <span>
-                                    Training run · <span translate="no">{dayjs(startedAt).fromNow()}</span>
+                                    Run {runNumber} · <span translate="no">{dayjs(startedAt).fromNow()}</span>
                                 </span>
                             </Tooltip>
                             {run.task_url && (
@@ -127,10 +136,6 @@ export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JS
                     ) : (
                         <RunReport runId={run.id} />
                     )}
-                    <div className="space-y-2">
-                        <div className="text-xs font-semibold text-muted uppercase tracking-wide">Iterations</div>
-                        <IterationTrail iterations={run.iterations} />
-                    </div>
                     {run.status === 'completed' && (
                         <div className="space-y-2">
                             <div className="text-xs font-semibold text-muted uppercase tracking-wide">
@@ -175,6 +180,7 @@ export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JS
                     </div>
                 </div>
             )}
+            {children}
         </div>
     )
 }

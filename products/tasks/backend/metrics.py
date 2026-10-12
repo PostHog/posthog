@@ -435,8 +435,7 @@ DesktopAccessOutcome = Literal[
 ]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
-# fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
-# a degraded gateway must not silently remove the only cost backstop), org_deactivated when
+# fail_open when a gateway/token error let the run proceed unchecked (a degraded gateway must not silently remove the only cost backstop), org_deactivated when
 # the local deactivated-organization check blocked the run before any gateway call.
 CODE_USAGE_GATE_CHECK_TOTAL = Counter(
     "posthog_tasks_code_usage_gate_check_total",

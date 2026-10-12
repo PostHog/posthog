@@ -222,8 +222,6 @@ export class IngestionGeneralServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
-            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
             personBatchWritePerKeyTeamAllowlist: this.config.PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(

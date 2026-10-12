@@ -2,6 +2,7 @@ import json
 import uuid
 from types import SimpleNamespace
 
+import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from django.utils import timezone
@@ -94,6 +95,10 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
+from products.messaging.backend.facade.testing import (
+    create_message_category_for_test,
+    create_recipient_preference_for_test,
+)
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
@@ -547,17 +552,13 @@ def _create_hog_flow(team: Team, label: str) -> str:
     return create_workflow_for_test(team_id=team.id, name=f"flow_{label}").id
 
 
-def _create_message_category(team: Team, label: str):
-    from products.messaging.backend.models.message_category import MessageCategory
-
-    return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
+def _create_message_category(team: Team, label: str) -> uuid.UUID:
+    return create_message_category_for_test(team_id=team.pk, key=f"category_{label}", name=f"Category {label}")
 
 
-def _create_message_recipient_preference(team: Team, label: str):
-    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-
-    return MessageRecipientPreference.objects.create(
-        team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
+def _create_message_recipient_preference(team: Team, label: str) -> uuid.UUID:
+    return create_recipient_preference_for_test(
+        team_id=team.pk, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
     )
 
 
@@ -1465,6 +1466,20 @@ class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
         )
 
         assert response.results == [("organization_organization",)]
+
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_deleted_ticket_is_excluded(self):
+        live = _create_support_ticket(self.team, "live")
+        deleted = _create_support_ticket(self.team, "deleted")
+        Ticket.all_objects.filter(id=deleted.id).update(deleted_at=timezone.now())
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.support_tickets",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [str(row[0]) for row in response.results] == [str(live.id)]
 
     def test_tags_lazy_join_returns_tag_names_array(self):
         ticket = _create_support_ticket(self.team, "tagged")

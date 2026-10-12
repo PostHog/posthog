@@ -58,13 +58,6 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                     <>
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
-                                onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
-                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
-                            >
-                                <IconSend />
-                                Message this cohort
-                            </SceneMenuBarItem>
-                            <SceneMenuBarItem
                                 onClick={() => {
                                     captureMessageAudienceClicked('cohort', 'broadcast')
                                     router.actions.push(
@@ -76,7 +69,17 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                                 data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
                             >
                                 <IconLetter />
-                                Send a broadcast
+                                Email this cohort
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() => {
+                                    captureMessageAudienceClicked('cohort', 'workflow')
+                                    router.actions.push(urlForCohortWorkflow(cohort))
+                                }}
+                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
+                            >
+                                <IconSend />
+                                Build a custom workflow
                             </SceneMenuBarItem>
                             <SceneMenuBarAddToNotebook
                                 dataAttrKey={RESOURCE_TYPE}

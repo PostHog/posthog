@@ -59,6 +59,10 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
 
+# A trace can start shortly before the selected range. The list loads a root span from up to this long
+# before the range, so the trace does not show as having no root.
+ROOT_SPAN_LOOKBACK = dt.timedelta(minutes=15)
+
 # Hard cap on number of rows returned per period by the span aggregation runners. Keeps
 # payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
 # graph collapses long tails anyway so the lower-ranked rows aren't visible.
@@ -678,6 +682,39 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         if root_only:
             key_predicate = ast.And(exprs=[self.where(), parse_expr("is_root_span = 1")])
 
+        filters_expr: ast.Expr = ast.Constant(value=True)
+        if not self._unbounded_trace_lookup:
+            # The day bound on time_bucket adds no rows, but it lets the primary key prune parts.
+            # With only the timestamp bounds, ClickHouse checks every part the team has.
+            filters_expr = ast.And(
+                exprs=[
+                    ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                    parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=self.query_date_range.to_placeholders()),
+                ]
+            )
+        # Under root_only the subquery already picks traces by an in-range root.
+        if not self._unbounded_trace_lookup and not root_only and self.query.traceId is None:
+            date_from = self.query_date_range.date_from()
+            lookback_bounds: dict[str, ast.Expr] = {
+                "date_from": ast.Constant(value=date_from - ROOT_SPAN_LOOKBACK),
+                "date_to": ast.Constant(value=date_from),
+            }
+            # The lookback can start on the day before date_from, so it needs its own time_bucket bound.
+            filters_expr = ast.Or(
+                exprs=[
+                    filters_expr,
+                    ast.And(
+                        exprs=[
+                            parse_expr(
+                                "is_root_span AND timestamp >= {date_from} AND timestamp < {date_to}",
+                                placeholders=lookback_bounds,
+                            ),
+                            parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=lookback_bounds),
+                        ]
+                    ),
+                ]
+            )
+
         query = parse_select(
             """
             SELECT
@@ -706,16 +743,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "where_for_start": key_predicate,
                 "trace_filter": trace_filter,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
-                # The day bound on time_bucket adds no rows, but it lets the primary key prune parts.
-                # With only the timestamp bounds, ClickHouse checks every part the team has.
-                "filters": ast.Constant(value=True)
-                if self._unbounded_trace_lookup
-                else ast.And(
-                    exprs=[
-                        ast.Placeholder(expr=ast.Field(chain=["filters"])),
-                        parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=self.query_date_range.to_placeholders()),
-                    ]
-                ),
+                "filters": filters_expr,
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map

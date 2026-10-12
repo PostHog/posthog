@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from .enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
@@ -71,8 +71,14 @@ class MetricQueryClause:
     quantile: float | None = None
     # Constrains rows to one metric type; None keeps all types (legacy).
     metric_type: MetricType | None = None
+    # Applied to each series before `aggregation` combines them.
+    range_function: MetricRangeFunction | None = None
 
     def __post_init__(self) -> None:
+        if self.aggregation.is_raw and self.group_by:
+            raise ValueError("group_by needs an aggregation; without one every series stays separate")
+        if self.range_function is not None and self.aggregation.is_counter_function:
+            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")

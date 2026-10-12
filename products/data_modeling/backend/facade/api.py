@@ -69,6 +69,7 @@ _LAZY = {
     "get_declared_target": "logic.node_frequency",
     "set_declared_target": "logic.node_frequency",
     "saved_query_target_bounds": "logic.node_frequency",
+    "SavedQueryFrequencyBounds": "logic.node_frequency",
     "clear_node_suspension": "logic.node_suspension",
     "is_node_suspended": "logic.node_suspension",
     "mark_node_suspended": "logic.node_suspension",

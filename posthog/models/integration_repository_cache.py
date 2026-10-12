@@ -172,7 +172,7 @@ class GitHubRepositoryFullCache:
         """Pure-network: repo metadata + default-branch SHA. No DB I/O when token is fresh."""
         repo_data = self.github._gh_api_get(f"/repos/{owner}/{repo}", endpoint="/repos/{owner}/{repo}")
         default_branch = repo_data.get("default_branch") or "main"
-        # Quote the ref so branches like `release/1.0` hit the right endpoint (precedent: products/visual_review/backend/logic.py).
+        # Quote the ref so branches like `release/1.0` hit the right endpoint (precedent: products/visual_review/backend/logic/github_api.py).
         branch_data = self.github._gh_api_get(
             f"/repos/{owner}/{repo}/branches/{quote(default_branch, safe='')}",
             endpoint="/repos/{owner}/{repo}/branches/{branch}",

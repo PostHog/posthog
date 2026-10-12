@@ -7,6 +7,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import type { MessagingNavTabKey } from '../messagingTabs'
 import { SETUP_GUIDE_STEP_LABELS, SETUP_GUIDE_STEP_TABS } from './setupGuideSteps'
+import { onboardingWizardUrl } from './wizard/onboardingWizardSteps'
 import { workflowsSetupGuideLogic } from './workflowsSetupGuideLogic'
 
 /** The messaging setup checklist. Each step opens the real setup page, so people learn where things live. */
@@ -22,7 +23,15 @@ export function MessagingSetupGuide({ linkFor }: { linkFor: (tab: MessagingNavTa
         <LemonCard hoverEffect={false} className="mb-4 p-4" data-attr="messaging-setup-guide">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="mb-0 text-base font-semibold">Set up messaging</h3>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        to={onboardingWizardUrl('messaging')}
+                        data-attr="messaging-setup-guide-open-wizard"
+                    >
+                        Guided setup
+                    </LemonButton>
                     <span className="text-secondary text-sm">{`${completedCount} of ${steps.length} done`}</span>
                     <LemonButton
                         size="small"
