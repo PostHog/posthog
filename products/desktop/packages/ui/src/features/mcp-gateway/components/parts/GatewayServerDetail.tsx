@@ -31,6 +31,13 @@ import {
   getGatewayServerRemovalAction,
 } from "@posthog/core/mcp-gateway/gatewayServers";
 import { usableInstallationId } from "@posthog/core/mcp-gateway/gatewayToolDiscovery";
+import {
+  Button as QuillButton,
+  Switch as QuillSwitch,
+  Tooltip as QuillTooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
@@ -231,13 +238,13 @@ export function GatewayServerDetail({
   };
 
   const connectButton = connecting ? (
-    <Button variant="solid" size="2" disabled>
-      <Spinner size="sm" /> Authorizing…
-    </Button>
+    <QuillButton variant="primary" size="sm" disabled>
+      <Spinner /> Authorizing…
+    </QuillButton>
   ) : needsReconnect ? (
-    <Button
-      variant="solid"
-      size="2"
+    <QuillButton
+      variant="primary"
+      size="sm"
       onClick={() =>
         gateway.reconnect({
           installationId: yourConnection.installation_id,
@@ -247,11 +254,11 @@ export function GatewayServerDetail({
       disabled={gateway.reconnectPending}
     >
       <Key size={12} /> Reconnect your account
-    </Button>
+    </QuillButton>
   ) : (
-    <Button
-      variant="solid"
-      size="2"
+    <QuillButton
+      variant="primary"
+      size="sm"
       onClick={() =>
         // Custom servers and api-key templates collect credentials first;
         // plain OAuth templates go straight to the browser round-trip.
@@ -261,7 +268,7 @@ export function GatewayServerDetail({
       }
     >
       <Key size={12} /> Connect your account
-    </Button>
+    </QuillButton>
   );
 
   const handleConnectSubmit = (credentials: GatewayConnectCredentials) => {
@@ -273,15 +280,29 @@ export function GatewayServerDetail({
     <Flex direction="column" gap="4" className="min-w-0">
       <BackButton onNavigate={onNavigate} />
 
-      {/* Hero */}
-      <Flex align="start" gap="3">
+      {needsReconnect && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive-foreground/30 bg-destructive p-3">
+          <div className="flex min-w-[200px] flex-1 flex-col gap-0.5">
+            <span className="font-medium text-foreground text-sm">
+              Reconnect required
+            </span>
+            <span className="text-muted-foreground text-xs">
+              {server.name} tools are not available to you or your agents until
+              you reconnect.
+            </span>
+          </div>
+          {connectButton}
+        </div>
+      )}
+
+      <div className="flex items-start gap-3">
         <ServerIcon
           iconDomain={template?.icon_domain}
           serverUrl={server.url}
           size={56}
         />
-        <Flex direction="column" gap="1" className="min-w-0 flex-1">
-          <Flex align="center" gap="2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-center gap-2">
             <Text truncate className="font-bold text-xl">
               {server.name}
             </Text>
@@ -290,13 +311,13 @@ export function GatewayServerDetail({
                 Off
               </Badge>
             )}
-          </Flex>
+          </div>
           {server.description && (
             <Text color="gray" className="text-sm">
               {server.description}
             </Text>
           )}
-          <Flex gap="3" align="center" mt="1">
+          <div className="mt-1 flex flex-wrap items-center gap-3">
             {server.created_by && (
               <Text color="gray" className="flex items-center gap-1 text-xs">
                 <User size={12} /> {gatewayUserName(server.created_by)}
@@ -312,36 +333,13 @@ export function GatewayServerDetail({
                 <ArrowUpRight size={11} /> Docs
               </a>
             )}
-          </Flex>
-        </Flex>
-        <Flex direction="column" align="end" gap="2" className="shrink-0">
-          {(deletesForEveryone || deleteInstallationId) && (
-            <Tooltip content="Delete server">
-              <IconButton
-                variant="ghost"
-                color="red"
-                size="2"
-                aria-label="Delete server"
-                onClick={() => setDeleteServerOpen(true)}
-              >
-                <Trash size={14} />
-              </IconButton>
-            </Tooltip>
-          )}
-          {yourConnection && (
-            <Tooltip
-              content={
-                selfEnabled
-                  ? "Disable this server for you"
-                  : "Enable this server for you"
-              }
-            >
-              {/* Tooltip stamps its own data-state on its child, which would
-                  overwrite the Switch's checked/unchecked state and leave the
-                  track stuck on the accent color. Give it a span to stamp. */}
-              <span className="inline-flex">
-                <Switch
-                  size="1"
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {yourConnection && (
+              <div className="mr-1 flex items-center gap-2 text-muted-foreground text-xs">
+                <QuillSwitch
+                  size="sm"
+                  aria-label="Enable this server for you"
                   checked={selfEnabled}
                   onCheckedChange={(enabled) =>
                     gateway.toggleYourConnection({
@@ -350,34 +348,48 @@ export function GatewayServerDetail({
                     })
                   }
                 />
-              </span>
-            </Tooltip>
-          )}
-          {yourConnection ? (
-            <Flex direction="column" align="end" gap="2">
-              {!deletesForEveryone && !deleteInstallationId && (
-                <Button
-                  variant="ghost"
-                  color="gray"
-                  size="2"
-                  disabled={gateway.disconnectPending}
-                  onClick={() =>
-                    gateway.disconnect({
-                      installationId: yourConnection.installation_id,
-                      serverName: server.name,
-                    })
+                {selfEnabled ? "Enabled for you" : "Disabled for you"}
+              </div>
+            )}
+            {yourConnection
+              ? !deletesForEveryone &&
+                !deleteInstallationId && (
+                  <QuillButton
+                    variant="outline"
+                    size="sm"
+                    disabled={gateway.disconnectPending}
+                    onClick={() =>
+                      gateway.disconnect({
+                        installationId: yourConnection.installation_id,
+                        serverName: server.name,
+                      })
+                    }
+                  >
+                    <X size={12} /> Disconnect
+                  </QuillButton>
+                )
+              : connectButton}
+            {(deletesForEveryone || deleteInstallationId) && (
+              <QuillTooltip>
+                <TooltipTrigger
+                  render={
+                    <QuillButton
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label="Delete server"
+                      className="text-destructive-foreground"
+                      onClick={() => setDeleteServerOpen(true)}
+                    >
+                      <Trash size={14} />
+                    </QuillButton>
                   }
-                >
-                  <X size={12} /> Disconnect
-                </Button>
-              )}
-              {needsReconnect && connectButton}
-            </Flex>
-          ) : (
-            connectButton
-          )}
-        </Flex>
-      </Flex>
+                />
+                <TooltipContent>Delete server</TooltipContent>
+              </QuillTooltip>
+            )}
+          </div>
+        </div>
+      </div>
 
       <Separator size="4" />
 
@@ -1021,14 +1033,12 @@ function AccessSection({
             const isYourShare = agent.user.id === currentUserId;
             const teamShared = agent.scope === "team";
             return (
-              <Flex
+              <div
                 key={`${agent.service_account_id}:${agent.user.id}`}
-                align="center"
-                gap="3"
-                className="group border-gray-5 border-b px-3 py-2 last:border-b-0"
+                className="group flex flex-wrap items-center gap-x-3 gap-y-2 border-gray-5 border-b px-3 py-2 last:border-b-0"
               >
                 <RobotAvatar />
-                <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex min-w-[160px] flex-1 flex-col">
                   <Text truncate className="font-medium text-sm">
                     {agent.name}
                   </Text>
@@ -1043,7 +1053,7 @@ function AccessSection({
                     toggle and Revoke appear only on rows backed by the caller's
                     connection. */}
                 {isYourShare && (
-                  <div className="flex shrink-0 items-center gap-3">
+                  <div className="ml-auto flex shrink-0 items-center gap-3">
                     <AgentScopeToggle
                       value={agent.scope}
                       disabled={accessPending}
@@ -1068,7 +1078,7 @@ function AccessSection({
                     </Button>
                   </div>
                 )}
-              </Flex>
+              </div>
             );
           })}
         </div>

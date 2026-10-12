@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -7,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -28,14 +33,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
     ENDPOINTS,
+    INCIDENT_IO_API_VERSION_V1,
+    INCIDENT_IO_DEFAULT_API_VERSION,
+    INCIDENT_IO_SUPPORTED_VERSIONS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+FOLLOW_UPS_V2_REMOVED_MESSAGE = "incident.io removed the follow-ups endpoint that API version v1 reads. Contact PostHog support to move this source to API version v3."
 
 
 @SourceRegistry.register
 class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeConfig]):
     api_docs_url = "https://api-docs.incident.io"
+    supported_versions = INCIDENT_IO_SUPPORTED_VERSIONS
+    default_version = INCIDENT_IO_DEFAULT_API_VERSION
+    # "v1" reads follow-ups from GET /v2/follow_ups, which incident.io removes on 2026-12-31.
+    deprecated_versions = (VersionDeprecation(version=INCIDENT_IO_API_VERSION_V1, sunset_at=date(2026, 12, 31)),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -54,6 +68,8 @@ class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeC
         return {
             "401 Client Error: Unauthorized for url: https://api.incident.io": "incident.io authentication failed. Please check that your API key is valid and has not been revoked.",
             "403 Client Error: Forbidden for url: https://api.incident.io": "Your incident.io API key is missing a required permission. incident.io API keys have per-resource permissions — grant the key the 'view' scope for the resources you want to sync.",
+            "404 Client Error: Not Found for url: https://api.incident.io/v2/follow_ups": FOLLOW_UPS_V2_REMOVED_MESSAGE,
+            "410 Client Error: Gone for url: https://api.incident.io/v2/follow_ups": FOLLOW_UPS_V2_REMOVED_MESSAGE,
         }
 
     @property
@@ -68,7 +84,7 @@ class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeC
 You can create an API key in your [incident.io dashboard](https://app.incident.io/settings/api-keys). API keys have per-resource permissions — grant the `view` scope for each resource you want to sync (incidents, follow-ups, alerts, users, and so on).""",
             iconPath="/static/services/incident_io.png",
             docsUrl="https://posthog.com/docs/cdp/sources/incident-io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -102,7 +118,7 @@ You can create an API key in your [incident.io dashboard](https://app.incident.i
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_incident_io_credentials(config.api_key, schema_name)
+        return validate_incident_io_credentials(config.api_key, self.resolve_api_version(api_version), schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[IncidentIoResumeConfig]:
         return ResumableSourceManager[IncidentIoResumeConfig](inputs, IncidentIoResumeConfig)
@@ -119,6 +135,7 @@ You can create an API key in your [incident.io dashboard](https://app.incident.i
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

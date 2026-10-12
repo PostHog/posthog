@@ -36,4 +36,8 @@ INCREMENTAL_FIELDS = {"assistant_conversations": [incremental_field("timestamp")
 AUTH_ERROR = "Your Mintlify API key is invalid or expired. Create an admin API key and reconnect."
 ACCESS_ERROR = "Mintlify denied access. Check your admin API key, project ID, and Pro or Enterprise plan."
 PROJECT_ERROR = "Mintlify could not find this project. Copy the project ID from the API keys page."
-HTTP_ERRORS = {401: AUTH_ERROR, 403: ACCESS_ERROR, 404: PROJECT_ERROR}
+# Mintlify returns 400 (rather than 403) when the project's plan doesn't support an analytics endpoint.
+BAD_REQUEST_ERROR = (
+    "Mintlify rejected this request. Check your project ID and that this analytics endpoint is available on your plan."
+)
+HTTP_ERRORS = {401: AUTH_ERROR, 403: ACCESS_ERROR, 404: PROJECT_ERROR, 400: BAD_REQUEST_ERROR}

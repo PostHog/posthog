@@ -582,9 +582,17 @@ Both property sources record whether their fetch ran, and a filter whose source 
 
 - `person_property_state` distinguishes `Pending` (prep has not run) from `Skipped` (request overrides cover every key the batch needs) and `Fetched`.
 - The key set of `group_properties` carries the same distinction per group type. A missing index means the fetch never ran; a present index is authoritative, so an empty map there means the group has no stored properties.
-- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a failed lookup says nothing about any group, and a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that one.
+- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that group.
 
-One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies only after the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before.
+One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies when the request carries no usable group key and no group property override, or when the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before. A request without group context therefore gets the same answer under a loaded, stale, or failed mapping.
+
+A failed lookup says nothing about any group in the request, so a condition that aggregates by a group or filters on a group property cannot be evaluated when the request sends group context.
+The matcher cannot tell which group type the condition's index names, so a key or override for any group type counts.
+The matcher skips that condition and evaluates the others.
+A later condition that matches still decides the flag, although the skipped condition could have picked a different variant.
+With `early_exit`, a skipped condition below 100% rollout could instead stop on its rollout with no match, so a later match then returns `failed: true` too.
+When no condition matches, the flag returns `failed: true` with the lookup's own error code, such as `timeout:persons_db_deadline` or `database_unavailable`, instead of `false`.
+Client SDKs then keep their cached value.
 
 Self-hosted upgrades across this change can see different `/flags` and `/decide` responses without any change to the request or the flag. A negative group filter that previously matched because of a fetch miss now stops matching. A condition that combines person and group filters now loads the group types referenced only by those filters, so the group's stored properties decide the filter where an empty map used to.
 

@@ -45,7 +45,7 @@ class InvalidFilterError(Exception):
 
 
 def compose_filters_clause(
-    filters: list[dict[str, str | bool | list[str] | None]],
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str]]:

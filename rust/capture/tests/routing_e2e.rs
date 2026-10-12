@@ -65,8 +65,8 @@ async fn it_routes_dlq_redirected_events_to_the_dlq_topic() -> Result<()> {
     );
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka_topics.main = main_topic.topic_name().to_string();
-    config.kafka_topics.dlq = dlq_topic.topic_name().to_string();
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+    config.outputs.dlq_topic = dlq_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
     // A failed first load (tight Redis timeout on a busy runner) retries on
@@ -130,7 +130,7 @@ async fn it_routes_custom_redirected_events_to_the_admin_topic() -> Result<()> {
     );
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka_topics.main = main_topic.topic_name().to_string();
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
     config.event_restrictions_enabled = true;
     config.event_restrictions_redis_url = Some(config.redis_url.clone());
     // A failed first load (tight Redis timeout on a busy runner) retries on
@@ -179,8 +179,8 @@ async fn it_routes_diverted_ai_events_to_the_ai_topic() -> Result<()> {
     let ai_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka_topics.main = main_topic.topic_name().to_string();
-    config.kafka_topics.ai_events = ai_topic.topic_name().to_string();
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+    config.outputs.ai_main_topic = ai_topic.topic_name().to_string();
     let server = ServerHandle::for_config(config).await;
 
     let batch = json!([
@@ -234,9 +234,9 @@ async fn it_routes_forced_ai_events_to_ai_overflow_when_the_valve_is_armed() -> 
     let ai_overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka_topics.main = main_topic.topic_name().to_string();
-    config.kafka_topics.ai_events = ai_topic.topic_name().to_string();
-    config.kafka_topics.ai_events_overflow = Some(ai_overflow_topic.topic_name().to_string());
+    config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+    config.outputs.ai_main_topic = ai_topic.topic_name().to_string();
+    config.outputs.ai_overflow_topic = Some(ai_overflow_topic.topic_name().to_string());
     config.overflow_enabled = true;
     config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();

@@ -111,6 +111,7 @@ describe('evaluationBackfillsLogic', () => {
         toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,

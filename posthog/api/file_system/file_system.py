@@ -637,7 +637,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     if (entry_type, ref, team_id) in denied:
                         continue
                     insight_types[(team_id, ref)] = get_file_system_insight_type(
-                        nested_kind or source_kind or kind, legacy_type
+                        "BI" if kind == "BIVisualizationNode" else nested_kind or source_kind or kind, legacy_type
                     )
                     if source_kind == "HogQLQuery":
                         content_types[(entry_type, team_id, ref)] = "application/sql"
@@ -650,6 +650,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ref = str(item.get("ref"))
             if item.get("type") == "insight":
                 metadata["insight_type"] = insight_types.get((team_id, ref))
+                if metadata["insight_type"] == "bi":
+                    item["href"] = f"/bi/{ref}"
             if include_content_type:
                 metadata["content_type"] = content_types.get((str(item["type"]), team_id, ref), "application/json")
             item["meta"] = metadata

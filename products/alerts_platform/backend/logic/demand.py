@@ -1,4 +1,5 @@
 import datetime as dt
+from collections.abc import Mapping
 
 from products.alerts_platform.backend.facade.contracts import AlertBatchKey, AlertDemand, SourceKind
 from products.alerts_platform.backend.logic.platform_lifecycle import due_q, slot_of, suppressed
@@ -9,11 +10,13 @@ from products.alerts_platform.backend.models import PlatformAlertConfiguration
 DISCOVERY_LIMIT_PER_SOURCE = 1000
 
 
-def discover_demand(cutoff: str, limit_per_source: int = DISCOVERY_LIMIT_PER_SOURCE) -> AlertDemand:
+def discover_demand(cutoff: str, limits_by_source: Mapping[SourceKind, int] | None = None) -> AlertDemand:
+    """A source `limits_by_source` does not name gets `DISCOVERY_LIMIT_PER_SOURCE` keys."""
     cutoff_time = dt.datetime.fromisoformat(cutoff)
     if cutoff_time.utcoffset() is None:
         raise ValueError("Demand discovery cutoff must include a timezone")
-    if limit_per_source < 1:
+    limits = limits_by_source or {}
+    if any(limit < 1 for limit in limits.values()):
         raise ValueError("Demand discovery limit must be at least 1")
 
     # Discovery is cross-team by definition, so it opts out of team scoping rather than running
@@ -41,7 +44,7 @@ def discover_demand(cutoff: str, limit_per_source: int = DISCOVERY_LIMIT_PER_SOU
             continue
         source_seen.add(key)
         keys = keys_by_source.setdefault(source, [])
-        if len(keys) < limit_per_source:
+        if len(keys) < limits.get(source, DISCOVERY_LIMIT_PER_SOURCE):
             keys.append(key)
         else:
             omitted_by_source[source] = omitted_by_source.get(source, 0) + 1

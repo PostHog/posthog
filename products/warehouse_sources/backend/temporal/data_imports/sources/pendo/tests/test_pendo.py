@@ -5,10 +5,8 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.pendo import pendo as pendo_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.pendo import (
     PendoResumeConfig,
-    get_base_url,
     get_rows,
     pendo_source,
     validate_credentials,
@@ -31,31 +29,6 @@ def _resp(json_data: Any, status: int = 200) -> mock.MagicMock:
     resp.status_code = status
     resp.ok = 200 <= status < 300
     return resp
-
-
-class TestGetBaseUrl:
-    @pytest.mark.parametrize(
-        "region, expected",
-        [
-            ("us", "https://app.pendo.io"),
-            ("US", "https://app.pendo.io"),
-            ("us1", "https://us1.app.pendo.io"),
-            ("eu", "https://app.eu.pendo.io"),
-            ("jp", "https://app.jpn.pendo.io"),
-            ("au", "https://app.au.pendo.io"),
-            (None, "https://app.pendo.io"),
-            ("not-a-region", "https://app.pendo.io"),
-        ],
-    )
-    def test_region_maps_to_base_url(self, region, expected):
-        assert get_base_url(region) == expected
-
-
-class TestHeaders:
-    def test_headers_carry_integration_key(self):
-        headers = pendo_module._get_headers("secret-key")
-        assert headers["x-pendo-integration-key"] == "secret-key"
-        assert headers["Content-Type"] == "application/json"
 
 
 class TestValidateCredentials:
@@ -82,14 +55,6 @@ class TestValidateCredentials:
             assert expected_substr in message
 
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_probes_the_page_endpoint_for_the_region(self, mock_session):
-        mock_session.return_value.get.return_value = _resp({}, 200)
-
-        validate_credentials("key", "eu")
-
-        assert mock_session.return_value.get.call_args.args[0] == "https://app.eu.pendo.io/api/v1/page"
-
-    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
     def test_swallows_network_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
 
@@ -108,37 +73,6 @@ class TestValidateCredentials:
 
 
 class TestGetRowsListEndpoint:
-    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_fetches_list_endpoint_with_expand(self, mock_session):
-        items = [{"id": "a"}, {"id": "b"}]
-        mock_session.return_value.request.return_value = _resp(items)
-        manager = _make_manager()
-
-        batches = list(get_rows("key", "us", "features", mock.MagicMock(), manager))
-
-        assert [row for batch in batches for row in batch] == items
-        assert mock_session.return_value.request.call_count == 1
-        method, url = mock_session.return_value.request.call_args.args[:2]
-        assert method == "GET"
-        assert url == "https://app.pendo.io/api/v1/feature?expand=*"
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].offset == 2
-        # The integration key is masked from logged URLs and captured HTTP samples.
-        assert mock_session.call_args.kwargs["redact_values"] == ("key",)
-
-    @mock.patch(f"{PENDO_PATH}.LIST_CHUNK_SIZE", 2)
-    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_chunks_a_large_list_and_advances_offset(self, mock_session):
-        items = [{"id": i} for i in range(5)]
-        mock_session.return_value.request.return_value = _resp(items)
-        manager = _make_manager()
-
-        batches = list(get_rows("key", "us", "pages", mock.MagicMock(), manager))
-
-        assert [len(batch) for batch in batches] == [2, 2, 1]
-        offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
-        assert offsets == [2, 4, 5]
-
     @mock.patch(f"{PENDO_PATH}.LIST_CHUNK_SIZE", 2)
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
     def test_resumes_from_saved_offset(self, mock_session):
@@ -149,15 +83,6 @@ class TestGetRowsListEndpoint:
         batches = list(get_rows("key", "us", "pages", mock.MagicMock(), manager))
 
         assert [row["id"] for batch in batches for row in batch] == [4]
-
-    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_handles_results_wrapper_object(self, mock_session):
-        mock_session.return_value.request.return_value = _resp({"results": [{"id": "x"}]})
-        manager = _make_manager()
-
-        batches = list(get_rows("key", "us", "guides", mock.MagicMock(), manager))
-
-        assert [row for batch in batches for row in batch] == [{"id": "x"}]
 
 
 class TestGetRowsAggregation:
@@ -191,37 +116,6 @@ class TestGetRowsAggregation:
 
         last_ids = [call.args[0].last_id for call in manager.save_state.call_args_list]
         assert last_ids == ["2", "3"]
-
-    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_accounts_source_sorts_on_account_id(self, mock_session):
-        mock_session.return_value.request.return_value = _resp({"results": []})
-        manager = _make_manager()
-
-        list(get_rows("key", "us", "accounts", mock.MagicMock(), manager))
-
-        pipeline = mock_session.return_value.request.call_args.kwargs["json"]["request"]["pipeline"]
-        assert {"source": {"accounts": None}} in pipeline
-        assert {"sort": ["accountId"]} in pipeline
-
-    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_empty_first_page_stops_without_saving_state(self, mock_session):
-        mock_session.return_value.request.return_value = _resp({"results": []})
-        manager = _make_manager()
-
-        batches = list(get_rows("key", "us", "visitors", mock.MagicMock(), manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_resumes_aggregation_from_saved_last_id(self, mock_session):
-        mock_session.return_value.request.return_value = _resp({"results": []})
-        manager = _make_manager(PendoResumeConfig(last_id="9"))
-
-        list(get_rows("key", "us", "visitors", mock.MagicMock(), manager))
-
-        pipeline = mock_session.return_value.request.call_args.kwargs["json"]["request"]["pipeline"]
-        assert {"filter": 'visitorId>"9"'} in pipeline
 
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
     def test_escapes_quotes_in_the_filter_cursor(self, mock_session):

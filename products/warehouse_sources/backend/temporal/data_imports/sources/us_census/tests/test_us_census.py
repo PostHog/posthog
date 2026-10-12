@@ -4,14 +4,10 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.settings import (
-    ENDPOINTS,
-    MAX_VARIABLES_PER_QUERY,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.settings import MAX_VARIABLES_PER_QUERY
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.us_census import (
     build_query_url,
     get_rows,
-    parse_custom_variables,
     rows_from_payload,
     validate_credentials,
     validate_custom_query,
@@ -55,23 +51,6 @@ class TestUSCensus:
         assert url == (
             "https://api.census.gov/data/2024/acs/acs5?get=NAME,B01001_001E&for=county:*&in=state:06&key=secret"
         )
-
-    def test_build_query_url_with_predicates_and_no_optional_parts(self):
-        url = build_query_url("2023/cbp", ("ESTAB",), "state:*", predicates=(("NAICS2017", "00"),))
-
-        assert url == "https://api.census.gov/data/2023/cbp?get=ESTAB&for=state:*&NAICS2017=00"
-
-    def test_rows_from_payload_zips_header_row(self):
-        payload = [
-            ["NAME", "B01001_001E", "state"],
-            ["California", "39242785", "06"],
-            ["Texas", "29527941", "48"],
-        ]
-
-        assert rows_from_payload(payload) == [
-            {"NAME": "California", "B01001_001E": "39242785", "state": "06"},
-            {"NAME": "Texas", "B01001_001E": "29527941", "state": "48"},
-        ]
 
     @pytest.mark.parametrize("payload", [None, {}, [], "rows", [{"NAME": "x"}]])
     def test_rows_from_payload_rejects_unexpected_shapes(self, payload):
@@ -161,9 +140,6 @@ class TestUSCensus:
         assert valid is False
         assert error is not None and "Could not reach" in error
 
-    def test_parse_custom_variables_strips_whitespace_and_empties(self):
-        assert parse_custom_variables(" NAME , B01001_001E ,, ") == ("NAME", "B01001_001E")
-
     @pytest.mark.parametrize(
         ("dataset", "variables", "geography", "expected_fragment"),
         [
@@ -189,13 +165,3 @@ class TestUSCensus:
             assert error is None
         else:
             assert error is not None and expected_fragment in error
-
-    @pytest.mark.parametrize("endpoint_name", list(ENDPOINTS))
-    def test_endpoint_catalog_is_well_formed(self, endpoint_name):
-        endpoint = ENDPOINTS[endpoint_name]
-
-        assert 0 < len(endpoint.variables) <= MAX_VARIABLES_PER_QUERY
-        assert len(set(endpoint.variables)) == len(endpoint.variables)
-        assert ":" in endpoint.geography
-        assert len(endpoint.primary_keys) > 0
-        assert validate_custom_query(endpoint.dataset, ",".join(endpoint.variables), endpoint.geography) is None

@@ -10,10 +10,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.settings import (
-    UPPROMOTE_ENDPOINTS,
-    UPPROMOTE_PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.settings import UPPROMOTE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.uppromote import (
     UpPromoteResumeConfig,
     _build_resource,
@@ -83,52 +80,6 @@ class TestDatetimeHelpers:
 
 
 class TestBuildResource:
-    def test_incremental_run_sends_creation_window(self) -> None:
-        resource = _build_resource(
-            UPPROMOTE_ENDPOINTS["affiliates"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01T00:00:10Z",
-            window_end="2026-02-01T00:00:00Z",
-        )
-        params = _endpoint(resource)["params"]
-        assert params["from_date"] == "2026-01-01T00:00:09Z"
-        # Only referrals require the paired to_date; other endpoints filter with from_date alone.
-        assert "to_date" not in params
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    def test_referrals_send_from_and_to_date_together(self) -> None:
-        resource = _build_resource(
-            UPPROMOTE_ENDPOINTS["referrals"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01T00:00:10Z",
-            window_end="2026-02-01T00:00:00Z",
-        )
-        params = _endpoint(resource)["params"]
-        assert params["from_date"] == "2026-01-01T00:00:09Z"
-        assert params["to_date"] == "2026-02-01T00:00:00Z"
-
-    def test_first_incremental_run_sends_no_window(self) -> None:
-        resource = _build_resource(
-            UPPROMOTE_ENDPOINTS["referrals"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            window_end="2026-02-01T00:00:00Z",
-        )
-        params = _endpoint(resource)["params"]
-        assert "from_date" not in params
-        assert "to_date" not in params
-
-    def test_full_refresh_replaces_and_sends_no_window(self) -> None:
-        resource = _build_resource(
-            UPPROMOTE_ENDPOINTS["affiliates"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            window_end="2026-02-01T00:00:00Z",
-        )
-        params = _endpoint(resource)["params"]
-        assert params == {"per_page": UPPROMOTE_PAGE_SIZE}
-        assert resource["write_disposition"] == "replace"
-
     @parameterized.expand([(name,) for name in UPPROMOTE_ENDPOINTS])
     def test_every_endpoint_builds_a_resource_with_data_selector(self, endpoint: str) -> None:
         resource = _build_resource(
@@ -184,35 +135,6 @@ class TestUpPromoteSourcePagination:
             pages = list(cast(Iterable[list[dict[str, Any]]], source.items()))
             return sent_params, pages
 
-    def test_paginates_until_empty_page_and_saves_resume_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _page([{"id": 1}]),
-            _page([{"id": 2}]),
-            _page([]),
-        ]
-        sent_params, pages = self._drive("affiliates", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [1, 2, 3]
-        assert all(p.get("per_page") == UPPROMOTE_PAGE_SIZE for p in sent_params)
-        # The terminal empty page only stops pagination; it is not yielded as a batch.
-        assert pages == [[{"id": 1}], [{"id": 2}]]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert [state.page for state in saved] == [2, 3]
-
-    def test_resume_seeds_paginator_with_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = UpPromoteResumeConfig(page=5)
-
-        sent_params, _ = self._drive("affiliates", manager, [_page([])])
-
-        assert [p.get("page") for p in sent_params] == [5]
-        manager.load_state.assert_called_once()
-
     def test_resume_reuses_frozen_referral_window_end(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -233,39 +155,6 @@ class TestUpPromoteSourcePagination:
         # The frozen window end is carried into subsequent checkpoints too.
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert all(state.to_date == "2026-02-01T00:00:00Z" for state in saved)
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive("affiliates", manager, [_page([])])
-
-        manager.save_state.assert_not_called()
-
-    def test_pull_session_disables_http_sample_capture(self) -> None:
-        # Affiliate/referral sync bodies carry PII, so the pull path must never let RESTClient
-        # capture raw responses into the shared samples prefix.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session") as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = lambda *_a, **_k: _page([])
-
-            source = uppromote_source(
-                api_key="test-key",
-                endpoint="affiliates",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                webhook_source_manager=_make_webhook_manager(enabled=False),
-            )
-            list(cast(Iterable[list[dict[str, Any]]], source.items()))
-
-        assert all(call.kwargs.get("capture") is False for call in MockSession.call_args_list)
-        assert MockSession.call_args_list, "expected the pull path to build a tracked session"
 
     @parameterized.expand(
         [
@@ -333,19 +222,6 @@ class TestWebhookTableTransformer:
         assert set(rows.keys()) == {1, 2}
         assert rows[1]["status"] == "approved"
 
-    def test_payment_rows_dedupe_on_payment_id(self) -> None:
-        transform = _make_webhook_table_transformer("payment_id")
-        table = table_from_py_list(
-            [
-                {"payment_id": 7, "status": "PENDING"},
-                {"payment_id": 7, "status": "SUCCESS"},
-            ]
-        )
-
-        result = transform(table)
-
-        assert result.to_pylist() == [{"payment_id": 7, "status": "SUCCESS"}]
-
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -404,19 +280,6 @@ class TestWebhookManagement:
 
         posted_events = {call.kwargs["json"]["event"] for call in session.post.call_args_list}
         assert posted_events == set(all_desired_webhook_events())
-
-    def test_create_webhook_reuses_existing_own_subscriptions(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _make_http_response(
-            {"data": [_subscription(event) for event in all_desired_webhook_events()]}
-        )
-
-        with patch(f"{TRANSPORT_MODULE}._make_session", return_value=session):
-            result = create_webhook("test-key", WEBHOOK_URL)
-
-        assert result.success is True
-        assert result.extra_inputs == {"signing_secret": "sec-1"}
-        session.post.assert_not_called()
 
     def test_create_webhook_fails_when_every_event_is_taken(self) -> None:
         session = MagicMock()

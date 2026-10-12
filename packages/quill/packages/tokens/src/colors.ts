@@ -116,6 +116,9 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
+        // Brand text on an inverted surface, such as a tooltip on `--foreground`. It takes the other mode's brand,
+        // so a dark tooltip in light mode gets the yellow, and a light tooltip in dark mode gets the orange.
+        'primary-on-foreground': ['var(--primary-dark)', 'var(--primary-light)', 'text-primary-on-foreground'],
         'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
 
         // ── Status (independent of theme hue) ─────────
@@ -224,6 +227,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'muted',
     'chrome',
     'primary',
+    'primary-on-foreground',
     'border',
     'input',
     // Transitive: reference var(--foreground) / var(--muted) — must also live

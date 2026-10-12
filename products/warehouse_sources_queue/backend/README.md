@@ -39,6 +39,15 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
 - **Claim-or-renew in one statement**: `get_unprocessed_and_lock` selects narrow claim candidates from the denormalized columns (with per-team round-robin fairness, head-of-line gating per run, a failed-run gate, and a schema-busy gate), then claims or renews the group leases for the winners inside a single writable CTE.
   The candidate CTE is `MATERIALIZED` so its `LIMIT` fully resolves before the lease upsert runs, and candidate groups are deduplicated because `INSERT ... ON CONFLICT DO UPDATE` cannot touch the same lease row twice in one statement.
   (The old README's `MATERIALIZED` rationale, preventing `pg_try_advisory_lock` from acquiring phantom locks in a `WHERE` clause, no longer applies: there are no advisory locks.)
+- **A bounded claim window**: one claim does not read the whole claimable set.
+  It reads the next `CLAIM_WINDOW_TEAMS` teams that hold claimable work, in `team_id` order from the consumer's cursor (`ClaimCursor`), and at most `CLAIM_WINDOW_TEAM_DEPTH` candidates per team (or the claim's limit, if larger).
+  Batches of a closed group (executing, or leased by another pod) do not count toward the depth.
+  Batches held by a run gate do not count either: the scan runs in rounds, and each round reads past the runs that the round before found held, up to `CLAIM_WINDOW_GATE_ROUNDS` rounds.
+  Each claim moves the cursor to the end of its window, and the walk wraps, so consecutive claims rotate through every team.
+  A full window that gives no batch does not end the claim call: it reads the next windows, up to `CLAIM_MAX_EMPTY_WINDOWS` or one turn over all teams.
+  A consumer starts at a random team, so pods started together read different windows. A claim that finds no team with work, or that fails, unsets the cursor, and the next claim starts at a new random team.
+  While the queue fits in one window, a claim sees all of it and the order is the same as an unbounded scan: round-robin across teams, oldest first.
+  During a larger backlog the order is oldest first among the teams of the window, not across the queue, and a team outside the window waits for the rotation.
 - **Async consumer**: single asyncio process that polls every ~2s, groups batches by `(team_id, schema_id)`, processes groups concurrently, batches within a group sequentially.
   Each batch renews the lease on entry, heartbeats it (and re-inserts `executing` status) during processing, and verifies ownership before writing `succeeded`.
 - **Three sweeps**, not one:
@@ -79,7 +88,11 @@ Three changes in August 2026 restructured the hot queries after a production loa
 
 A fourth change followed an October 2026 claim stall, after an analyze of the current daily partition:
 
-- The claim query's gates were correlated probes per candidate batch. On a hot partition the partial indexes churn and bloat, so the planner can answer a probe from `sb_run_uuid_idx`, `sb_run_uuid_bi_idx` or `sb_team_schema_idx` instead, and each probe then reads the whole run or group. A backlog of long runs made every poll quadratic. The gates now run once per group (`busy_groups`, `open_groups`) and once per run (`open_runs`), so a bad index choice costs at most one read of each candidate run. The loader also backs off failed polls with full jitter, so the fleet does not retry a struggling claim query in lockstep.
+- The claim query's gates were correlated probes per candidate batch. On a hot partition the partial indexes churn and bloat, so the planner can answer a probe from `sb_run_uuid_idx`, `sb_run_uuid_bi_idx` or `sb_team_schema_idx` instead, and each probe then reads the whole run or group. A backlog of long runs made every poll quadratic. The gates now run once per group (`closed_groups`) and once per scanned run (`gates`), so a bad index choice costs at most one read of each candidate run. The loader also backs off failed polls with full jitter, so the fleet does not retry a struggling claim query in lockstep.
+
+A fifth change followed a backlog that stayed claimable but drained slowly:
+
+- The claim query materialized every claimable batch on every poll, so one claim cost as much as the backlog was deep, and the loaders spent their time in claims while group slots stayed empty. The query now reads a bounded window: a loose index scan over `sb_claimable_idx` finds the next teams with work (one index descent per team and partition), and a per-team scan reads the oldest candidates of those teams only. See "A bounded claim window" above for the ordering rule that comes with it. The planner can price this statement above `jit_above_cost` although it runs in milliseconds, and JIT compilation then costs more than the statement, so the claim does not depend on the session: it runs in its own transaction after `SET LOCAL jit = off`, and the query is written so that the planner's estimate stays below the threshold. The consumer connections also set `jit = off` for the other queue statements.
 
 The shared lesson: every query on these tables must scale with the size of its answer (the claimable set, the candidate runs), never with retained failure history, because failure history is largest exactly when the fleet is least healthy.
 The `core/jobs_db.py` docstrings on `_state_claim_candidates_sql`, `_claim_window_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `test_jobs_db.py` pin the query shapes.
@@ -95,7 +108,7 @@ The migration must be `atomic = False` and re-runnable (a cancelled `CONCURRENTL
 - **COPY bulk inserts**: the producer inserts one row per batch. At our volume, row-level INSERT is fine. (We can always move to bulk insert if needed)
 - **Compaction**: RudderStack runs a background process to merge/drop completed datasets, it stores tables up to 100k rows and then they roll to the next one. We don't need it at the moment, but if we end up implementing rolling datasets, we will implement this compaction too.
 - **Caching layers**: RudderStack uses "no jobs" caches and active pipeline caches to reduce query load. We have not needed them, but only because the claim path was restructured to run off partial indexes and denormalized state (see above); "proper indexing" alone was not enough.
-- **Recursive CTE loose index scans**: their trick for finding distinct pipeline IDs efficiently. Our claim query gets the same effect from the partial indexes.
+- **Recursive CTE loose index scans**: no longer left out. The claim query uses one over `sb_claimable_idx` to find the teams of its window (`window_teams` in `_claim_window_sql`).
 - **Active Partitions**: RudderStack designs a partition and then it assigns each partition to one processor instance, this is similar to how Kafka partitions work. We don't need this, this will be an overkill as we don't have any specifics for a partition.
 
 ### Architecture
@@ -126,7 +139,16 @@ These gauges are queue-wide, so one pod per fleet samples them on the reconcile 
 The other pods export NaN, which `max()` skips, so aggregate all of these gauges with `max()`; `sum()` and `avg()` return NaN.
 In multiprocess pods each process is exported separately with a `pid` label, and the same `max()` must aggregate over that label too, so one process's NaN cannot hide the elected process's sample during a restart.
 A pod clears its gauges to NaN before each round, so a value from an earlier round never looks fresh.
-Each gauge statement runs with a 5-second server-side `statement_timeout`; a probe that times out skips its sample, except that the age gauge saturates at the probe window.
+Each gauge statement runs with a 5-second server-side `statement_timeout`; a freshness probe that times out skips its sample, except that the age gauge saturates at the probe window.
+The depth gauges do not go blank on a timeout, because a deep queue is exactly when the probe is slowest and a gap or a 0 reads as "the queue cleared".
+The depth probe runs two statements.
+The first counts the claimable set with an index-only walk of `sb_claimable_idx` and sets `warehouse_pg_queue_claimable_batches`.
+The second splits that set per run and per group (failed-run and executing probes) and sets the four concentration gauges.
+If a statement times out, the sampling pod repeats its last good value for the gauges it could not measure.
+`warehouse_pg_queue_depth_sample_age_seconds` is the seconds since the depth gauges were last measured in full; 0 means this round, and it rises while the probe times out.
+It is NaN when the pod has no sample yet.
+`warehouse_pg_queue_depth_probe_timeouts_total{stage="count"|"breakdown"}` counts the timeouts.
+A pod that does not hold the gauge slot drops its sample and exports NaN, never 0, so panels should aggregate with `max()` and not turn NaN into 0 (for example with `or vector(0)`).
 Failed polls record their elapsed time in `poll_duration_seconds`, so degraded polls stay visible in the latency percentiles; `poll_failures_total` carries the reason label and is the alertable poll-health counter.
 The maintenance queries (sweeps, reconcile passes, probes) report through `warehouse_pg_queue_query_duration_seconds` (labeled per query, observed on failure and timeout too) and `warehouse_pg_queue_query_failures_total`; the August 2026 stall came from a query with no latency signal at all.
 

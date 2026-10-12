@@ -43,6 +43,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeletePersons",
     "DeletePersonsBatchForTeam",
     "DeleteTombstonedPersons",
+    "EnsurePersonVersionFloors",
     "FencePerson",
     "FencePersons",
     "FoldPersonDocument",

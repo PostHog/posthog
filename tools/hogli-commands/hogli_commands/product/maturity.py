@@ -4,7 +4,7 @@ Scores each product across five actionable dimensions that map to the
 sequential work a team does when isolating their product:
 
   1. Models     — move models into products/
-  2. Facade     — add contracts.py + facade/api.py + logic.py
+  2. Facade     — add contracts.py + facade/api.py
   3. Presentation — views through facade, serializers on contracts
   4. Boundaries — tach interfaces + fix cross-product imports
   5. Codegen    — schema annotations, generated TS client adoption
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import json
+import tomllib
 import textwrap
 import warnings
 import subprocess
@@ -29,16 +30,18 @@ from .ast_helpers import (
     get_frozen_dataclass_names,
     get_model_names,
     get_orm_bound_serializer_names,
-    get_public_function_names,
-    has_any_function_defs,
     imports_any,
     view_facade_usage,
 )
 from .isolation import (
+    IsolationRung,
     IsolationStatus,
     compute_isolation_status,
+    facade_function_names,
     has_legacy_interface_leaks,
+    has_real_facade,
     has_tach_interface,
+    iter_facade_logic_modules,
     presentation_bypass_entries,
 )
 from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
@@ -156,24 +159,9 @@ def _count_tach_depends_on(block: str) -> tuple[int, list[str]]:
     Cross-product dependencies are the coupling signal.
     """
     baseline = {"posthog", "ee"}
-    deps: list[str] = []
-    in_depends = False
-    for line in block.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("depends_on"):
-            if "[" in stripped and "]" in stripped:
-                for dep in re.findall(r'"([^"]+)"', stripped):
-                    if dep not in baseline:
-                        deps.append(dep)
-                break
-            in_depends = True
-            continue
-        if in_depends:
-            if stripped == "]":
-                break
-            dep = stripped.strip('"').strip(",").strip('"')
-            if dep and dep not in baseline:
-                deps.append(dep)
+    modules = tomllib.loads(block).get("modules", [])
+    depends_on = modules[0].get("depends_on", []) if modules else []
+    deps = [dep for dep in depends_on if dep not in baseline]
     return len(deps), deps
 
 
@@ -226,17 +214,16 @@ def score_models(name: str, backend_dir: Path, assigned_model_counts: dict[str, 
 
 
 def score_facade(backend_dir: Path) -> DimensionScore:
-    """Facade + contracts + logic separation.
+    """Facade + contracts separation.
 
     Scores whether the facade layer is real or just scaffolding.
     A stub facade (1 method when the product has dozens of endpoints) shouldn't
     score high.
 
     Points breakdown (100 total):
-      contracts.py exists + pure + non-empty: 15
-      facade/api.py exists + pure:            15
-      facade has 3+ public methods:           15  (real surface, not a stub)
-      logic.py exists:                        15
+      contracts.py exists + pure + non-empty: 20
+      facade/api.py exists + pure:            20
+      facade has 3+ public methods:           20  (real surface, not a stub)
       views exist inside the product:         20  (facade is pointless if views
                                                    are still in posthog/ee)
       views use the facade:                   20
@@ -260,7 +247,7 @@ def score_facade(backend_dir: Path) -> DimensionScore:
         impure = imports_any(contracts_path, ["django", "rest_framework"])
         dc_names = get_frozen_dataclass_names(contracts_path)
         if dc_names and not impure:
-            score += 15
+            score += 20
             parts.append(f"contracts ({len(dc_names)} dataclasses)")
         elif dc_names:
             score += 5
@@ -285,60 +272,46 @@ def score_facade(backend_dir: Path) -> DimensionScore:
             "the public contract other products read against."
         )
 
-    # Facade — must have actual function definitions, not just re-exports
+    # Facade — must have actual function definitions in some facade module, not just re-exports
     facade_path = backend_dir / "facade" / "api.py"
-    real_facade = False
-    if facade_path.exists():
-        real_facade = has_any_function_defs(facade_path)
-        if not real_facade:
-            parts.append("facade (re-export only)")
-            next_steps.append(
-                "backend/facade/api.py only re-exports; it doesn't define any functions. Move "
-                "logic into real `def` entrypoints (`list_*`, `get_*`, `create_*`, `update_*`, "
-                "`delete_*`) that map ORM rows to contract dataclasses before returning."
-            )
+    fn_names = facade_function_names(backend_dir)
+    real_facade = has_real_facade(backend_dir)
+    if real_facade:
+        impure = any(imports_any(path, ["rest_framework"]) for path in iter_facade_logic_modules(backend_dir))
+        if not impure:
+            score += 20
         else:
-            impure = imports_any(facade_path, ["rest_framework"])
-            fn_names = get_public_function_names(facade_path)
-            if not impure:
-                score += 15
-            else:
-                score += 5
-                parts.append("facade (impure)")
-                next_steps.append(
-                    "Remove `rest_framework` imports from backend/facade/api.py. The facade must "
-                    "return contract dataclasses; serializing to DRF Response belongs in "
-                    "presentation/views.py."
-                )
+            score += 5
+            parts.append("facade (impure)")
+            next_steps.append(
+                "Remove `rest_framework` imports from the backend/facade/ modules. The facade must "
+                "return contract dataclasses; serializing to DRF Response belongs in "
+                "presentation/views.py."
+            )
 
-            if len(fn_names) >= 3:
-                score += 15
-                parts.append(f"facade ({len(fn_names)} methods)")
-            elif fn_names:
-                score += 5
-                parts.append(f"facade (stub, {len(fn_names)} method)")
-                next_steps.append(
-                    f"Facade is a stub ({len(fn_names)} method). Add a method per capability the "
-                    "product exposes — list, retrieve, create, update, delete, plus any async "
-                    "task entrypoints. Each viewset action and Celery task should call exactly one."
-                )
+        if len(fn_names) >= 3:
+            score += 20
+            parts.append(f"facade ({len(fn_names)} methods)")
+        elif fn_names:
+            score += 5
+            parts.append(f"facade (stub, {len(fn_names)} method)")
+            next_steps.append(
+                f"Facade is a stub ({len(fn_names)} method). Add a method per capability the "
+                "product exposes — list, retrieve, create, update, delete, plus any async "
+                "task entrypoints. Each viewset action and Celery task should call exactly one."
+            )
+    elif facade_path.exists():
+        parts.append("facade (re-export only)")
+        next_steps.append(
+            "backend/facade/api.py only re-exports; it doesn't define any functions. Move "
+            "logic into real `def` entrypoints (`list_*`, `get_*`, `create_*`, `update_*`, "
+            "`delete_*`) that map ORM rows to contract dataclasses before returning."
+        )
     else:
         parts.append("no facade")
         next_steps.append(
             "Create backend/facade/api.py with public functions wrapping logic. Use "
             "products/visual_review/backend/facade/api.py as the reference shape."
-        )
-
-    # Logic
-    has_logic = (backend_dir / "logic.py").exists() or (backend_dir / "logic").is_dir()
-    if has_logic:
-        score += 15
-        parts.append("logic")
-    else:
-        parts.append("no logic")
-        next_steps.append(
-            "Add backend/logic.py (or a logic/ package) that owns business rules and ORM access. "
-            "The facade should be a thin orchestration layer that calls into logic."
         )
 
     # Views inside product + using facade
@@ -455,8 +428,7 @@ def score_presentation(name: str, backend_dir: Path, pyproject_text: str | None 
     orm_queries = len(orm_locations)
 
     # Check if the facade is real (has function definitions, not re-exports)
-    facade_api = backend_dir / "facade" / "api.py"
-    real_facade = facade_api.exists() and has_any_function_defs(facade_api)
+    real_facade = has_real_facade(backend_dir)
 
     # Ground truth wins over the AST heuristic: each open import-linter deferral is a
     # view that still bypasses the facade, so the product is not internally sealed.
@@ -954,11 +926,9 @@ def _dim_line(dim: DimensionScore, connector: str = "\u251c\u2500") -> str:
 
 def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     """(state, reason) for the isolated-tests certificate \u2014 the contract-check skip."""
-    if status.isolated_tests_enabled:
+    if status.test_skip_configured:
         return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
-    # Eligibility deliberately excludes the tach interface (see IsolationStatus), but the skip
-    # is unsound without the external boundary, so READY also requires it.
-    if status.eligible_for_isolated_tests and status.externally_sealed:
+    if status.is_sealed:
         missing = []
         if not status.has_contract_check_script:
             missing.append("add backend:contract-check")
@@ -966,7 +936,7 @@ def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
             missing.append("narrow turbo.json inputs")
         return "READY", f"{' + '.join(missing)} to turn the skip on"
     blockers: list[str] = []
-    if not status.is_isolated:
+    if not status.has_facade_contracts:
         blockers.append("add a facade (contracts.py + api.py)")
     elif not status.has_real_facade:
         blockers.append("make facade/api.py real (define functions, not re-exports)")
@@ -977,6 +947,14 @@ def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     if not status.has_tach_interface:
         blockers.append("add the tach [[interfaces]] block")
     return "OFF", "; ".join(blockers) if blockers else "prerequisites incomplete"
+
+
+_RUNG_DETAIL: dict[IsolationRung, str] = {
+    IsolationRung.LENIENT: "no facade/contracts.py, lenient lint",
+    IsolationRung.STRICT: "facade/contracts.py present, strict lint",
+    IsolationRung.SEALED: "both seals and a real facade, isolated tests not on",
+    IsolationRung.ISOLATED: "sealed, isolated tests on",
+}
 
 
 def _isolation_capstone(status: IsolationStatus) -> list[str]:
@@ -993,8 +971,10 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     else:
         ext_state, ext_detail = "open", "legacy interface leak block present \u2014 core still imports internals"
 
-    if not status.is_isolated:
-        int_state, int_detail = "n/a", "no facade yet \u2014 product not isolated"
+    if not status.has_facade_contracts:
+        int_state, int_detail = "n/a", "no facade yet, so the product is Lenient"
+    elif not status.has_real_facade:
+        int_state, int_detail = "n/a", "facade/api.py defines no functions, so there is nothing to seal yet"
     elif status.internally_sealed:
         int_state, int_detail = "sealed", "presentation reaches internals only through the facade"
     else:
@@ -1006,6 +986,7 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     tests_state, tests_detail = _isolated_tests_state(status)
 
     rows = [
+        ("rung", status.rung, _RUNG_DETAIL[status.rung]),
         ("external boundary", ext_state, ext_detail),
         ("internal seal", int_state, int_detail),
         ("isolated tests", tests_state, tests_detail),
@@ -1016,21 +997,21 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     return lines
 
 
-SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=not isolated"
+SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
 
 
 def _seal_token(status: IsolationStatus | None) -> str:
     """Compact seal state for the --all grid. Each token names the remaining blocker."""
-    if status is None or not status.is_isolated:
+    if status is None or not status.has_facade_contracts:
         return "\u2014"
-    if status.isolated_tests_enabled:
+    if status.test_skip_configured:
         return "on"
     if not status.externally_sealed:
         return "ext\u2717"
     if status.deferred_count > 0:
         # externally sealed but internally unsealed \u2014 looks done, isn't
         return f"int:{status.deferred_count}"
-    if status.eligible_for_isolated_tests:
+    if status.is_sealed:
         return "ready"
     return "partial"
 

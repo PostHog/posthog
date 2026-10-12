@@ -5,13 +5,17 @@ import requests
 import structlog
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+    ADMIN_TOKEN_INVALID_ERROR,
+    ADMIN_TOKEN_MISSING_ERROR,
     NOTION_VERSION_2025_09_03,
     NOTION_VERSION_2026_03_11,
+    NotionAdminTokenMissingError,
+    get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
 
 NOTION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
@@ -69,12 +73,6 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    def test_get_schemas_returns_all_endpoints_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
     def test_get_schemas_honors_names_filter(self) -> None:
         schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1, names=["users"])
         assert [s.name for s in schemas] == ["users"]
@@ -97,15 +95,6 @@ class TestNotionSource:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_time"]
 
-    def test_source_for_pipeline_users_has_no_partition(self) -> None:
-        inputs = _make_inputs("users")
-        manager = self.source.get_resumable_source_manager(inputs)
-        response = self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
-
-        assert response.name == "users"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://api.notion.com/v1/search",),
@@ -116,12 +105,49 @@ class TestNotionSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(pattern in error_message for pattern in non_retryable)
 
-    def test_other_errors_are_retryable(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "admin_token_rejected",
+                "401 Client Error: Unauthorized for url: https://api.notion.com/admin/v1/spaces/ws-1/groups",
+                ADMIN_TOKEN_INVALID_ERROR,
+            ),
+            (
+                "integration_token_rejected",
+                "401 Client Error: Unauthorized for url: https://api.notion.com/v1/users",
+                "Your Notion integration token is invalid or expired. Please generate a new token and reconnect.",
+            ),
+        ]
+    )
+    def test_non_retryable_error_shows_the_message_for_the_failing_token(
+        self, _name: str, error_message: str, expected_message: str
+    ) -> None:
         non_retryable = self.source.get_non_retryable_errors()
-        assert not any(
-            pattern in "429 Client Error: Too Many Requests for url: https://api.notion.com/v1/search"
-            for pattern in non_retryable
+        matching = [
+            message for pattern, message in non_retryable.items() if error_message_matches(error_message, [pattern])
+        ]
+        assert matching[0] == expected_message
+
+    def test_permission_groups_sync_without_admin_token_fails_with_setup_guidance(self) -> None:
+        with mock.patch(f"{NOTION_MODULE}.make_tracked_session"):
+            with pytest.raises(NotionAdminTokenMissingError) as exc_info:
+                list(
+                    get_rows("tok", "permission_groups", mock.MagicMock(), mock.MagicMock(), NOTION_VERSION_2026_03_11)
+                )
+
+        non_retryable = self.source.get_non_retryable_errors()
+        matching = [
+            message
+            for pattern, message in non_retryable.items()
+            if error_message_matches(str(exc_info.value), [pattern])
+        ]
+        assert matching == [ADMIN_TOKEN_MISSING_ERROR]
+
+    def test_endpoint_permissions_only_flag_permission_groups_without_admin_token(self) -> None:
+        permissions = self.source.get_endpoint_permissions(
+            NotionSourceConfig(api_key="tok"), team_id=1, endpoints=["pages", "permission_groups"]
         )
+        assert permissions == {"pages": None, "permission_groups": ADMIN_TOKEN_MISSING_ERROR}
 
     @parameterized.expand(
         [

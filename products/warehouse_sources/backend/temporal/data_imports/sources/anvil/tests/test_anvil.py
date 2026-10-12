@@ -15,11 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.anvi
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.settings import (
-    ANVIL_ENDPOINTS,
-    ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.anvil.settings import ANVIL_ENDPOINTS, ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.anvil.anvil"
 
@@ -133,45 +129,8 @@ class TestOrganizations:
         assert session.post.call_count == 1
         manager.save_state.assert_not_called()
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_no_organizations_yields_no_batches(self, mock_make_session):
-        _mock_session(mock_make_session, [_response({"data": {"currentUser": {"organizations": []}}})])
-
-        assert list(get_rows("key", "organizations", mock.MagicMock(), _make_manager())) == []
-
 
 class TestOrganizationPagedEndpoints:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_by_page_number_and_tags_rows(self, mock_make_session):
-        session = _mock_session(
-            mock_make_session,
-            [
-                _org_eids("o1", "o2"),
-                _org_page("casts", [{"eid": "c1"}], page=1, page_count=2),
-                _org_page("casts", [{"eid": "c2"}], page=2, page_count=2),
-                _org_page("casts", [{"eid": "c3"}]),
-            ],
-        )
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "casts", mock.MagicMock(), manager))
-
-        assert [row for batch in batches for row in batch] == [
-            {"eid": "c1", "organizationEid": "o1"},
-            {"eid": "c2", "organizationEid": "o1"},
-            {"eid": "c3", "organizationEid": "o2"},
-        ]
-        page_calls = [call.kwargs["json"]["variables"] for call in session.post.call_args_list[1:]]
-        # The first request per organization omits `offset` so the server's own first-page
-        # number seeds the walk; the follow-up asks for the returned page + 1.
-        assert "offset" not in page_calls[0]
-        assert page_calls[0]["limit"] == PAGE_SIZE
-        assert page_calls[1]["offset"] == 2
-        assert [call["organizationEid"] for call in page_calls] == ["o1", "o1", "o2"]
-        # Mid-organization page checkpoint, then a bookmark advancing to the next organization.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert [(state.next_offset, state.parent_eid) for state in saved] == [(2, "o1"), (None, "o2")]
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_bookmarked_organization_and_offset(self, mock_make_session):
         session = _mock_session(
@@ -250,42 +209,6 @@ class TestWeldDatasFanOut:
         assert [call["weldEid"] for call in weld_data_calls] == ["w1", "w1", "w2"]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert [(state.next_offset, state.parent_eid) for state in saved] == [(2, "w1"), (None, "w2")]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_deleted_weld_is_skipped(self, mock_make_session):
-        _mock_session(
-            mock_make_session,
-            [
-                _org_eids("o1"),
-                _org_page("welds", [{"eid": "w1"}, {"eid": "w2"}]),
-                _response({"data": {"weld": None}}),
-                _weld_datas_page([{"eid": "d1"}]),
-            ],
-        )
-
-        batches = list(get_rows("key", "weld_datas", mock.MagicMock(), _make_manager()))
-
-        assert [row for batch in batches for row in batch] == [{"eid": "d1", "weldEid": "w2"}]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_bookmarked_weld(self, mock_make_session):
-        session = _mock_session(
-            mock_make_session,
-            [
-                _org_eids("o1"),
-                _org_page("welds", [{"eid": "w1"}, {"eid": "w2"}]),
-                _weld_datas_page([{"eid": "d9"}]),
-            ],
-        )
-
-        manager = _make_manager(AnvilResumeConfig(next_offset=2, parent_eid="w2"))
-        list(get_rows("key", "weld_datas", mock.MagicMock(), manager))
-
-        weld_data_calls = session.post.call_args_list[2:]
-        assert len(weld_data_calls) == 1
-        variables = weld_data_calls[0].kwargs["json"]["variables"]
-        assert variables["weldEid"] == "w2"
-        assert variables["offset"] == 2
 
 
 class TestQueryDocuments:

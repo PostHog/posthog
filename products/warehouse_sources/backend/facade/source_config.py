@@ -163,6 +163,15 @@ class SourceFieldCredentialAccountSelectConfig(BaseModel):
             " exactly these, and the listing endpoint accepts exactly these."
         ),
     )
+    integrationField: str | None = Field(
+        default=None,
+        description=(
+            "Name of an OAuth integration id field that lists the same accounts, for a source"
+            " offering both a typed-in credential and a connected account. The form sends this"
+            " instead of `credentialFields` when it holds a value, and the listing endpoint"
+            " accepts it on the same allowlist."
+        ),
+    )
     label: str
     name: str
     placeholder: str | None = None

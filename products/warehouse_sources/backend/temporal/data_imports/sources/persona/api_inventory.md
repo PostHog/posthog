@@ -14,18 +14,19 @@ Reference: <https://docs.withpersona.com/reference> · Base URL: `https://api.wi
 
 ## Endpoints synced
 
-| Endpoint            | Path                                    | Sync mode    | Primary key | Partition key        |
-| ------------------- | --------------------------------------- | ------------ | ----------- | -------------------- |
-| `inquiries`         | `/inquiries`                            | Incremental  | `id`        | `created_at`         |
-| `verifications`     | `/inquiries/{id}?include=verifications` | Incremental  | `id`        | `inquiry_created_at` |
-| `accounts`          | `/accounts`                             | Incremental  | `id`        | `created_at`         |
-| `cases`             | `/cases`                                | Incremental  | `id`        | `created_at`         |
-| `transactions`      | `/transactions`                         | Incremental  | `id`        | `created_at`         |
-| `events`            | `/events`                               | Append only  | `id`        | `created_at`         |
-| `inquiry_templates` | `/inquiry-templates`                    | Full refresh | `id`        | —                    |
+| Endpoint                    | Path                                                          | Sync mode    | Primary key | Partition key        |
+| --------------------------- | ------------------------------------------------------------- | ------------ | ----------- | -------------------- |
+| `inquiries`                 | `/inquiries`                                                  | Incremental  | `id`        | `created_at`         |
+| `verifications`             | `/inquiries/{id}?include=verifications`                       | Incremental  | `id`        | `inquiry_created_at` |
+| `accounts`                  | `/accounts`                                                   | Incremental  | `id`        | `created_at`         |
+| `cases`                     | `/cases`                                                      | Incremental  | `id`        | `created_at`         |
+| `transactions`              | `/transactions`                                               | Incremental  | `id`        | `created_at`         |
+| `events`                    | `/events`                                                     | Append only  | `id`        | `created_at`         |
+| `inquiry_templates`         | `/inquiry-templates`                                          | Full refresh | `id`        | —                    |
+| `inquiry_template_versions` | `/inquiry-template-versions?filter[inquiry-template-id]={id}` | Full refresh | `id`        | —                    |
 
 Object ids are globally unique and type-prefixed (`inq_`, `ver_`, `acc_`, `case_`, `txn_`, `evt_`,
-`itmpl_`), so `id` is a safe standalone primary key. Persona kebab-case attributes (`created-at`)
+`itmpl_`, `itmplv_`), so `id` is a safe standalone primary key. Persona kebab-case attributes (`created-at`)
 normalize to the snake_case warehouse columns (`created_at`).
 
 ## Verifications are a fan-out, not a list endpoint
@@ -46,6 +47,19 @@ Because the window is applied to the inquiry list, the advertised incremental cu
 timestamp would skip inquiries created before the watermark that gained a verification after it.
 Retries added to an already-synced inquiry are therefore picked up on a full refresh, consistent with
 how this source treats updates elsewhere.
+
+## Inquiry template versions are a per-template list
+
+`GET /inquiry-template-versions` requires `filter[inquiry-template-id]` and returns the published
+versions and the current draft of that one template
+([reference](https://docs.withpersona.com/api-reference/inquiry-templates/list-all-inquiry-template-versions)).
+So `inquiry_template_versions` walks `/inquiry-templates` and pages through the versions of each
+template, copying the template id onto every row as `inquiry_template_id`. The endpoint has no
+created-at filter, so the table is full refresh only. Persona does not serve template versions to
+sandbox API keys, so the table is off by default.
+
+`GET /workflow-versions` is not synced. It requires `filter[workflow-id]`, and Persona has no
+endpoint that lists workflows, so there is no set of workflow ids to fan out over.
 
 ## Verification note
 

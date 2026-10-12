@@ -12,6 +12,9 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab } from '../replayScannerSceneLogic'
+import { scannerDashboardLogic } from '../scannerDashboardLogic'
+import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { SCANNER_TYPE_OPTIONS, modelName, scannerTypeLabel } from '../types'
 import { PromptPreview } from './PromptPreview'
 import { ScannerRecordingFilters } from './ScannerRecordingFilters'
@@ -22,6 +25,7 @@ function EnabledText({ enabled }: { enabled: boolean }): JSX.Element {
 
 export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
+    const { dashboardId } = useValues(scannerDashboardLogic({ scannerId }))
     if (!scanner) {
         return null
     }
@@ -38,7 +42,7 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    to={urls.replayVisionScannerConfigure(scannerId)}
+                    to={scannerEditUrl(scannerId, ReplayScannerTab.Overview)}
                     disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
                     data-attr="vision-setup-edit"
                 >
@@ -141,6 +145,13 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                         {' · '}
                         {scopeVariantsLabel(scope, 'every variant')}
                     </span>
+                </LabeledRow>
+            )}
+            {dashboardId !== null && (
+                <LabeledRow label="Dashboard">
+                    <Link to={urls.dashboard(dashboardId)} data-attr="vision-setup-open-dashboard">
+                        Open dashboard
+                    </Link>
                 </LabeledRow>
             )}
             <LabeledRow label="Filters">

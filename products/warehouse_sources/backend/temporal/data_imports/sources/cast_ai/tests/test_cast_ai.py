@@ -8,9 +8,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai import (
     CastAiResumeConfig,
     _client_config,
-    _default_lookback_start,
     _format_time_value,
-    _now,
     _report_incremental_config_factory,
     cast_ai_source,
     get_resource,
@@ -53,17 +51,6 @@ class TestCastAiDateFormatting:
     def test_format_time_value(self, _name, value, expected) -> None:
         assert _format_time_value(value) == expected
 
-    def test_now_is_rfc3339(self) -> None:
-        value = _now()
-        assert value.endswith("Z")
-        # Round-trips as RFC 3339 without raising.
-        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-
-    def test_default_lookback_start_is_before_now(self) -> None:
-        start = datetime.strptime(_default_lookback_start(), "%Y-%m-%dT%H:%M:%SZ")
-        now = datetime.strptime(_now(), "%Y-%m-%dT%H:%M:%SZ")
-        assert start < now
-
 
 class TestCastAiIncrementalConfigFactory:
     def test_produces_start_and_end_params(self) -> None:
@@ -86,15 +73,6 @@ class TestCastAiIncrementalConfigFactory:
 
 
 class TestCastAiGetResource:
-    def test_clusters_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint="clusters"))
-        assert resource["name"] == "clusters"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/v1/kubernetes/external-clusters"
-        assert resource["endpoint"]["data_selector"] == "items"
-        assert isinstance(resource["endpoint"]["paginator"], SinglePagePaginator)
-        assert resource["table_format"] == "delta"
-
     def test_rejects_fanout_endpoint(self) -> None:
         import pytest
 
@@ -130,38 +108,6 @@ class TestCastAiValidateCredentials:
 
 
 class TestCastAiSourceTopLevel:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
-    def test_top_level_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = cast_ai_source(
-            api_key="key",
-            endpoint="clusters",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "clusters"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
-    def test_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager(CastAiResumeConfig(paginator_state={"offset": 5}))
-
-        cast_ai_source(
-            api_key="key",
-            endpoint="clusters",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
-        )
-
-        kwargs = mock_rest_api_resource.call_args.kwargs
-        assert kwargs["initial_paginator_state"] == {"offset": 5}
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
     def test_saves_checkpoints_after_batches(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()

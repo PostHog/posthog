@@ -1,10 +1,10 @@
 /**
- * Client-side bot detection — mirrors `posthog.hogql_queries.web_analytics.bot_definitions`
+ * Client-side bot detection — mirrors `products.web_analytics.backend.hogql_queries.bot_definitions`
  * and the `getBotName` / `isLikelyBot` / `getTrafficCategory`
  * HogQL functions. Used by real-time dashboards where events arrive via the
  * livestream SSE feed and therefore cannot be classified server-side.
  *
- * Keep this file in sync with `posthog/hogql_queries/web_analytics/bot_definitions.py`.
+ * Keep this file in sync with `products/web_analytics/backend/hogql_queries/bot_definitions.py`.
  */
 
 export type BotTrafficType = 'AI Agent' | 'Bot' | 'Automation' | 'Regular'

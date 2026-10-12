@@ -2,6 +2,7 @@ import re
 import json
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -15,8 +16,13 @@ from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    CREATED_AT,
+    ID,
+    resolve_schema_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
     ShopifyGraphQLObject,
@@ -554,6 +560,37 @@ def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | Non
     return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
 
 
+# The comparisons Shopify's search syntax has for a date field.
+CREATED_AT_FILTER_OPERATORS = (">", ">=", "<", "<=")
+
+
+def row_filter_search_terms(schema_name: str, row_filters: list[ValidatedRowFilter] | None) -> list[str]:
+    """Shopify search terms for the row filters of one resource.
+
+    Raises on a filter that has no search term. A filter that is dropped here would sync every
+    row while the schema still shows the filter.
+    """
+    if not row_filters:
+        return []
+    endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+    search_field = endpoint_config.created_at_search_field if endpoint_config else None
+    terms: list[str] = []
+    for row_filter in row_filters:
+        if (
+            search_field is None
+            or row_filter.column != CREATED_AT
+            or row_filter.operator not in CREATED_AT_FILTER_OPERATORS
+            or not isinstance(row_filter.value, datetime)
+        ):
+            raise ValueError(
+                f"Shopify cannot apply the row filter on {row_filter.column!r} to {schema_name}. "
+                "Remove the row filter in the schema's configuration to resume syncing."
+            )
+        value = row_filter.value if row_filter.value.tzinfo else row_filter.value.replace(tzinfo=UTC)
+        terms.append(f"{search_field}:{row_filter.operator}'{value.isoformat()}'")
+    return terms
+
+
 def shopify_source(
     shopify_store_id: str,
     shopify_client_id: str | None,
@@ -566,11 +603,13 @@ def shopify_source(
     api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
     shopify_access_token: str | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ):
     store_id = normalize_store_id(shopify_store_id)
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _resolve_access_token(store_id, shopify_client_id, shopify_client_secret, shopify_access_token)
     schema_name = resolve_schema_name(graphql_object_name)
+    filter_terms = row_filter_search_terms(schema_name, row_filters)
 
     def get_rows():
         sess = make_tracked_session(
@@ -615,6 +654,7 @@ def shopify_source(
                 sess,
                 graphql_object,
                 logger,
+                query=" AND ".join(filter_terms) or None,
                 phase=PHASE_ALL,
                 initial_cursor=initial_cursor,
                 resumable_source_manager=resumable_source_manager,
@@ -633,7 +673,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating earliest objects from source: {query_filter} < {db_incremental_field_earliest_value}"
             )
-            query = f"{query_filter}:<'{db_incremental_field_earliest_value}'"
+            query = " AND ".join([f"{query_filter}:<'{db_incremental_field_earliest_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_EARLIEST else None
             )
@@ -653,7 +693,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating latest objects from source: {query_filter} > {db_incremental_field_last_value}"
             )
-            query = f"{query_filter}:>'{db_incremental_field_last_value}'"
+            query = " AND ".join([f"{query_filter}:>'{db_incremental_field_last_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_LATEST else None
             )

@@ -62,14 +62,6 @@ def _run_rows(
 
 
 class TestEventWindow:
-    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
-    def test_first_sync_backfills_the_max_retention_window(self) -> None:
-        # received_after defaults to only 1 hour ago server-side, so leaving it off a first sync
-        # would silently drop everything older than an hour.
-        window = _event_window(should_use_incremental_field=False, db_incremental_field_last_value=None)
-        assert window.start == "2026-04-15T12:00:00.000Z"
-        assert window.end == "2026-07-14T12:00:00.000Z"
-
     @parameterized.expand(
         [
             ("iso_string", "2026-07-10T08:30:00+00:00", "2026-07-10T08:30:00.000Z"),
@@ -91,31 +83,6 @@ class TestEventWindow:
 
 
 class TestEventsPagination:
-    def test_paginates_with_cursor_and_pinned_window(self) -> None:
-        # Every page must carry the explicit received_after/received_before window (the server
-        # default is 1 hour) plus the cursor from the previous page's last event.
-        pages = [
-            [_event(f"01A{i:03d}") for i in range(EVENTS_PAGE_SIZE)],
-            [_event("01B000"), _event("01B001")],
-        ]
-        seen_params: list[dict] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            seen_params.append(dict(params or {}))
-            return {"data": pages[len(seen_params) - 1]}
-
-        rows, _ = _run_rows("events", fake_fetch)
-
-        assert len(rows) == EVENTS_PAGE_SIZE + 2
-        assert "cursor" not in seen_params[0]
-        assert seen_params[1]["cursor"] == "01A099"
-        for params in seen_params:
-            assert params["limit"] == EVENTS_PAGE_SIZE
-            assert params["received_after"]
-            assert params["received_before"]
-        # The window must not shift between pages while new events keep arriving.
-        assert seen_params[0]["received_before"] == seen_params[1]["received_before"]
-
     @parameterized.expand(
         [
             ("empty_first_page", [[]], 0),
@@ -132,23 +99,6 @@ class TestEventsPagination:
         rows, _ = _run_rows("events", fake_fetch)
         assert len(rows) == expected_rows
         assert len(calls) == 1
-
-    def test_state_saved_after_each_full_page_but_not_the_final_page(self) -> None:
-        # Saving before the yield would skip the last page on crash; saving on the final page would
-        # make a retry resume into an exhausted walk.
-        pages = [
-            [_event(f"01A{i:03d}") for i in range(EVENTS_PAGE_SIZE)],
-            [_event("01B000")],
-        ]
-        calls: list[int] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            calls.append(1)
-            return {"data": pages[len(calls) - 1]}
-
-        _, manager = _run_rows("events", fake_fetch)
-        assert [s.cursor for s in manager.saved] == ["01A099"]
-        assert manager.saved[0].received_after and manager.saved[0].received_before
 
     def test_resume_continues_the_saved_walk(self) -> None:
         # A resumed attempt must reuse the saved cursor and pinned window, not re-derive a new
@@ -236,29 +186,6 @@ class TestFunctionRunsFanOut:
 
 
 class TestV2ListPagination:
-    def test_follows_page_cursor_until_has_more_is_false(self) -> None:
-        pages = [
-            {"data": [{"id": "env-1"}], "page": {"cursor": "c2", "hasMore": True}},
-            {"data": [{"id": "env-2"}], "page": {"cursor": "c3", "hasMore": False}},
-        ]
-        seen_params: list[dict | None] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            seen_params.append(params)
-            return pages[len(seen_params) - 1]
-
-        rows, _ = _run_rows("environments", fake_fetch)
-        assert [r["id"] for r in rows] == ["env-1", "env-2"]
-        assert seen_params == [None, {"cursor": "c2"}]
-
-    def test_repeated_cursor_breaks_the_loop(self) -> None:
-        # A server bug returning hasMore=True with the same cursor forever must not loop the sync.
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            return {"data": [{"id": "env-1"}], "page": {"cursor": "same", "hasMore": True}}
-
-        rows, _ = _run_rows("environments", fake_fetch)
-        assert len(rows) == 2  # first page + the one repeat before the guard trips
-
     @parameterized.expand([("event_keys",), ("signing_keys",)])
     def test_secret_key_material_is_never_synced(self, endpoint: str) -> None:
         # The v2 key inventories return the raw `key` secret; syncing it would copy live

@@ -283,8 +283,10 @@ export interface webAnalyticsLogicActions {
     cancelAllLoading: () => {} // dataNodeCollectionLogic
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: (() => void) | undefined
+        successCallback?: (() => void) | undefined,
+        failureCallback?: (() => void) | undefined
     ) => {
+        failureCallback: (() => void) | undefined
         successCallback: (() => void) | undefined
         user: Partial<UserType>
     } // userLogic
