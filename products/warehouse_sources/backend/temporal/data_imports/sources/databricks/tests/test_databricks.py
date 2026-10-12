@@ -415,6 +415,13 @@ class TestDatabricksSource:
         assert message == "Host is not allowed"
         mock_get_schemas.assert_not_called()
 
+    def test_get_retryable_errors_matches_stopped_warehouse(self, source):
+        # A command in flight when the SQL warehouse auto-suspends fails with this message;
+        # Databricks auto-starts the warehouse on the next query, so it must stay retryable
+        # rather than disabling the source.
+        observed_error = "Command failed because warehouse abc123 was stopped."
+        assert any(key in observed_error for key in source.get_retryable_errors())
+
 
 class TestGetSchemasDeadline:
     def test_discovery_that_hangs_raises_before_the_activity_timeout(self, mocker):

@@ -10,6 +10,7 @@ import {
     AutoresearchSuggestionPriorityEnumApi,
     AutoresearchSuggestionStatusEnumApi,
 } from '../generated/api.schemas'
+import { SectionCard } from './SectionCard'
 import { SuggestionForm } from './SuggestionForm'
 
 const SUGGESTION_STATUS: Record<
@@ -31,11 +32,10 @@ export function SuggestionsTab(): JSX.Element {
     const { suggestions, suggestionsLoading, suggestionsError } = useValues(autoresearchPipelineLogic)
     const { loadSuggestions } = useActions(autoresearchPipelineLogic)
     return (
-        <div className="space-y-4">
-            <p className="text-sm text-muted">
-                Inject a free-text hypothesis into the training loop. The agent reads queued suggestions at the start of
-                each iteration batch and decides whether to act on, apply, or dismiss each one.
-            </p>
+        <SectionCard
+            title="Steer the agent"
+            description="Inject a free-text hypothesis into the training loop. The agent reads queued suggestions at the start of each iteration batch and decides whether to act on, apply, or dismiss each one."
+        >
             <SuggestionForm />
             {suggestionsLoading ? (
                 <Spinner />
@@ -55,7 +55,7 @@ export function SuggestionsTab(): JSX.Element {
             ) : (
                 <div className="space-y-2">
                     {suggestions.map((s: AutoresearchSuggestionApi) => (
-                        <div key={s.id} className="border rounded p-3 space-y-1">
+                        <div key={s.id} className="rounded bg-surface-secondary p-3 space-y-1">
                             <div className="flex items-center gap-2">
                                 <LemonTag type={SUGGESTION_STATUS[s.status].type}>
                                     {SUGGESTION_STATUS[s.status].label}
@@ -73,6 +73,6 @@ export function SuggestionsTab(): JSX.Element {
                     ))}
                 </div>
             )}
-        </div>
+        </SectionCard>
     )
 }

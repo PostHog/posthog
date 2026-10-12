@@ -30,6 +30,7 @@ from products.signals.backend.scout_harness.precheck import (
     resolve_effective_precheck,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 NOW = datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC)
 SKILL = "signals-scout-errors"
@@ -37,6 +38,7 @@ NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp 
 # An access-scoped system table: a query with no user is denied it.
 DASHBOARDS_QUERY = "SELECT count() FROM system.dashboards"
 SURVEYS_SKILL = "signals-scout-surveys"
+REVENUE_SKILL = "signals-scout-revenue-analytics"
 ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
 
@@ -333,6 +335,63 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
         assert result is not None
         assert (result.outcome, result.query_source) == (outcome, "skill_default")
         assert capture.call_args.kwargs["properties"].get("error_type") is None
+
+
+@time_machine.travel(NOW, tick=False)
+class TestRevenueDefaultPrecheck(NonAtomicBaseTest):
+    # The system tables read Postgres through ClickHouse, which sees only committed rows.
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team, name=REVENUE_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=REVENUE_SKILL)
+
+    @parameterized.expand(
+        [
+            ("nothing_configured", None, False, None, "skip", "no_rows", 0),
+            ("config_without_events", None, False, [], "skip", "no_rows", 0),
+            (
+                "revenue_events_only",
+                None,
+                False,
+                [{"eventName": "purchase", "revenueProperty": "amount"}],
+                "run",
+                "rows",
+                1,
+            ),
+            ("stripe_source_only", "Stripe", False, None, "run", "rows", 1),
+            ("deleted_stripe_source", "Stripe", True, None, "skip", "no_rows", 0),
+            ("non_payment_source", "Postgres", False, None, "skip", "no_rows", 0),
+        ]
+    )
+    def test_revenue_default_gates_the_run(
+        self, _name, source_type, deleted, events, outcome, reason, row_count
+    ) -> None:
+        if source_type is not None:
+            ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="s1",
+                connection_id="c1",
+                status="Running",
+                source_type=source_type,
+                deleted=deleted,
+            )
+        if events is not None:
+            config = self.team.revenue_analytics_config
+            config.events = events
+            config.save()
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, REVENUE_SKILL)
+
+        assert result is not None
+        assert (result.outcome, result.reason, result.row_count) == (outcome, reason, row_count)
 
 
 class TestResolveEffectivePrecheck(SimpleTestCase):

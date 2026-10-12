@@ -32,6 +32,7 @@ export interface displayLogicActions {
         settings: ChartSettings
     } // dataVisualizationLogic
     addGoalLine: () => {
+        label: string
         yData: AxisSeries<number | null>[]
     }
     removeGoalLine: (goalLineIndex: number) => {
@@ -72,7 +73,10 @@ export const displayLogic = kea<displayLogicType>([
         actions: [dataVisualizationLogic, ['setQuery', 'updateChartSettings', '_setQuery']],
     })),
     actions(({ values }) => ({
-        addGoalLine: () => ({ yData: values.yData }),
+        addGoalLine: () => ({
+            yData: values.yData,
+            label: values.query.kind === 'BIVisualizationNode' ? 'Reference' : 'Q4 Goal',
+        }),
         updateGoalLine: (goalLineIndex: number, key: string, value: string | number | boolean) => ({
             goalLineIndex,
             key,
@@ -85,7 +89,7 @@ export const displayLogic = kea<displayLogicType>([
         goalLines: [
             [] as GoalLine[],
             {
-                addGoalLine: (state, { yData }) => {
+                addGoalLine: (state, { yData, label }) => {
                     const yDataFlat =
                         yData?.flatMap((n) => n.data).filter((value): value is number => value !== null) ?? []
                     const yDataAvg = Math.round(d3.mean(yDataFlat) ?? 0)
@@ -93,7 +97,7 @@ export const displayLogic = kea<displayLogicType>([
                     return [
                         ...state,
                         {
-                            label: 'Q4 Goal',
+                            label,
                             value: yDataAvg ?? 0,
                             displayLabel: true,
                         },

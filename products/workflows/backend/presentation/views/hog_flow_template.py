@@ -11,12 +11,12 @@ from rest_framework.response import Response
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cdp.validation import HogFunctionFiltersSerializer
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
+from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
 from products.workflows.backend.facade.contracts import WorkflowTemplate, WorkflowTemplateNotFound
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 from products.workflows.backend.facade.templates import (
