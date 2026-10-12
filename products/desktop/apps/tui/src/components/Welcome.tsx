@@ -4,13 +4,19 @@ import type { OpenModal } from "../hooks/useSheets";
 import { renderSheet } from "../sheet";
 import { BRAND_STRIPES } from "./Sidebar";
 
-// Where a first run is: picking a PostHog, waiting on the browser, picking who pays, or getting the Claude token.
-export type WelcomeStep = "signIn" | "signingIn" | "billing" | "token";
+// Where a first run is: picking a PostHog, waiting on the browser, picking who pays, or signing in to the plan picked.
+export type WelcomeStep =
+  | "signIn"
+  | "signingIn"
+  | "billing"
+  | "token"
+  | "chatgpt";
 
-const STEPS: { step: WelcomeStep[]; label: string }[] = [
+const STEPS: { step: WelcomeStep[]; label: string; plan?: true }[] = [
   { step: ["signIn", "signingIn"], label: "Sign in" },
   { step: ["billing"], label: "Who pays" },
-  { step: ["token"], label: "Claude token" },
+  { step: ["token"], label: "Claude token", plan: true },
+  { step: ["chatgpt"], label: "ChatGPT", plan: true },
 ];
 
 const MAX_WIDTH = 72;
@@ -27,9 +33,9 @@ export function Welcome({
 }): ReactElement {
   const { columns } = useWindowSize();
   const width = Math.max(20, Math.min(MAX_WIDTH, columns - 4));
-  // The token step only exists on the Claude plan, so it shows once reached.
+  // A plan's own step only exists on that plan, so it shows once reached.
   const steps = STEPS.filter(
-    (entry) => entry.label !== "Claude token" || step === "token",
+    (entry) => !entry.plan || entry.step.includes(step),
   );
   const sheet = modal ? renderSheet(modal.sheet, modal.index, width) : [];
   return (

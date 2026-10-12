@@ -1,4 +1,5 @@
 import { CHATGPT_MODEL } from "./chatgpt";
+import type { ChatPlace } from "./prefs";
 import type { Sheet } from "./sheet";
 
 // Who pays for a chat's model use. It decides the agent too: pi on PostHog, Claude Code on a Claude plan,
@@ -46,9 +47,7 @@ export function localStartFor(
   if (localHarnessFor(billing) === "claude") return { harness: "claude" };
   if (billing === "chatgpt") {
     if (!state.chatgptAccount)
-      throw new Error(
-        "Log in to ChatGPT in settings (Ctrl+;), or pick another /billing",
-      );
+      throw new Error("Log in to ChatGPT first, or pick another /billing");
     return { harness: "pi", model: CHATGPT_MODEL };
   }
   return { harness: "pi" };
@@ -62,16 +61,34 @@ const NOTICES: Record<Billing, string> = {
 
 export const billingNotice = (billing: Billing): string => NOTICES[billing];
 
-// What the plan still needs before a chat can run on it; null when it is ready.
+// What the plan still needs before a chat can run on it in `place`; null when it is ready.
+// ChatGPT needs a login per place: pi's own here, and the account PostHog holds for cloud Codex runs.
 export function billingBlocker(
   billing: Billing,
-  state: { chatgptAccount: string | null; claudeToken: boolean },
+  state: {
+    chatgptAccount: string | null;
+    chatgptCloud: boolean;
+    claudeToken: boolean;
+  },
+  place: ChatPlace = "cloud",
 ): string | null {
-  if (billing === "chatgpt" && !state.chatgptAccount)
-    return "Log in to ChatGPT in settings (Ctrl+;) first";
+  if (billing === "chatgpt" && place === "cloud" && !state.chatgptCloud)
+    return "Connect ChatGPT for cloud runs first";
+  if (billing === "chatgpt" && place === "local" && !state.chatgptAccount)
+    return "Log in to ChatGPT first";
   if (billing === "anthropic" && !state.claudeToken)
-    return "Add your Claude token in settings (Ctrl+;) first";
+    return "Add your Claude token first";
   return null;
+}
+
+// A question pi's ChatGPT login asks, such as the code the browser shows, answered in its one item.
+export function chatgptLoginSheet(question: string): Sheet {
+  return {
+    title: "Sign in to ChatGPT",
+    description: question,
+    items: [{ label: "Answer", input: { placeholder: "", text: "" } }],
+    footer: "Enter to send · Esc to cancel the sign-in",
+  };
 }
 
 export const TOKEN_SHEET_RUN = 0;
