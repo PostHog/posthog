@@ -152,4 +152,52 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Time the webhook was last updated.",
         },
     },
+    "campaign_subscriber_activity": {
+        "description": "One row per recipient of a sent MailerLite campaign, with that recipient's opens and clicks.",
+        "docs_url": "https://developers.mailerlite.com/api/campaigns#get-subscribers-activity-of-a-sent-campaign",
+        "columns": {
+            "id": "Unique identifier for the recipient's activity record.",
+            "campaign_id": "The ID of the sent campaign the activity belongs to.",
+            "opens_count": "The number of times the recipient opened the campaign.",
+            "clicks_count": "The number of times the recipient clicked a link in the campaign.",
+            "subscriber": "The subscriber who received the campaign.",
+        },
+    },
+    "group_subscribers": {
+        "description": "Active subscribers in each MailerLite group, one row per group and subscriber.",
+        "docs_url": "https://developers.mailerlite.com/api/groups#get-subscribers-belonging-to-a-group",
+        "columns": {
+            "id": "Unique identifier for the subscriber.",
+            "group_id": "The ID of the group the subscriber belongs to.",
+            "email": "The subscriber's email address.",
+            "status": "Subscription status of the subscriber.",
+            "created_at": "Time the subscriber was created.",
+        },
+    },
+    "segment_subscribers": {
+        "description": "Active subscribers that match each MailerLite segment, one row per segment and subscriber.",
+        "docs_url": "https://developers.mailerlite.com/api/segments",
+        "columns": {
+            "id": "Unique identifier for the subscriber.",
+            "segment_id": "The ID of the segment the subscriber matches.",
+            "email": "The subscriber's email address.",
+            "status": "Subscription status of the subscriber.",
+            "created_at": "Time the subscriber was created.",
+        },
+    },
+    "automation_activity": {
+        "description": "A subscriber's run through a MailerLite automation, whether active, completed, canceled or failed.",
+        "docs_url": "https://developers.mailerlite.com/api/automations#get-the-subscriber-activity-for-an-automation",
+        "columns": {
+            "id": "Unique identifier for the automation run.",
+            "automation_id": "The ID of the automation the run belongs to.",
+            "status": "Status of the run (Active, Completed, Canceled or Failed).",
+            "date": "Time of the run's latest status.",
+            "reason": "Why the run was canceled or failed, if applicable.",
+            "reason_description": "A readable explanation of the reason.",
+            "stepRuns": "The automation steps the run has gone through.",
+            "currentStep": "The automation step the run is on.",
+            "nextStep": "The automation step the run moves to next.",
+        },
+    },
 }
