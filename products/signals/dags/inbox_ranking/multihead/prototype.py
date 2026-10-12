@@ -136,18 +136,18 @@ def project_context(rows: pd.DataFrame, labels: pa.Table, embeddings: pa.Table) 
         )
         for position, (team_id, kind, n_reports) in enumerate(
             zip(
-                day.column("team_id").to_pylist(),
+                day.column("team_id").to_numpy(),
                 day.column("kind").to_pylist(),
-                day.column("n_reports").to_pylist(),
+                day.column("n_reports").to_numpy(),
                 strict=True,
             )
         ):
-            pair = teams.get(team_id)
+            pair = teams.get(int(team_id))
             if pair is None:
                 continue
             kind_index = VECTOR_KINDS.index(kind)
             vectors[pair, kind_index] = day_vectors[position]
-            has_history[pair, kind_index] = float(n_reports >= MIN_HISTORY_REPORTS)
+            has_history[pair, kind_index] = float(int(n_reports) >= MIN_HISTORY_REPORTS)
     index = np.array(
         [pair_of[(int(team_id), date)] for team_id, date in zip(rows["report_team_id"], rows["snapshot_date"])],
         dtype=np.int64,

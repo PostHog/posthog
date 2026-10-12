@@ -232,4 +232,5 @@ def test_every_model_is_graded_on_the_champion_holdout_rows_and_each_head_reads_
         assert set(scores) == {CHAMPION_RECIPE, *ABLATIONS}
         assert len({(score.holdout_rows, score.holdout_positives) for score in scores.values()}) == 1
         for ablation in ABLATIONS:
-            assert scores[ablation].auc is not None and scores[ablation].auc > 0.75
+            auc = scores[ablation].auc
+            assert auc is not None and auc > 0.75

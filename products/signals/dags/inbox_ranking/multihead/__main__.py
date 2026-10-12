@@ -1,7 +1,7 @@
 """Run the multi-head prototype against the snapshots `bin/sync_snapshots_local.sh` cached on disk.
 
     INBOX_RANKING_SYNC_EMBEDDINGS=1 products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
-    python -m products.signals.dags.inbox_ranking.multihead [--partition YYYY-MM-DD] [--output results.json]
+    DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead [--partition YYYY-MM-DD] [--output results.json]
 
 The cache must hold the state, labels and report embeddings tables. The title embeddings are never
 read, so the run holds one set of vectors.
@@ -39,6 +39,9 @@ def _arguments() -> argparse.Namespace:
 def main() -> None:
     arguments = _arguments()
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+    # The run reads only the disk cache. Without this, setup in DEBUG resolves a self-capture team
+    # from Postgres, so the script would need the dev stack up.
+    os.environ.setdefault("OPT_OUT_CAPTURE", "1")
     django.setup()
     # The dataset and training modules load Django models at import time, so they wait for setup.
     from products.signals.dags.inbox_ranking.multihead.local import run_from_cache  # noqa: PLC0415
