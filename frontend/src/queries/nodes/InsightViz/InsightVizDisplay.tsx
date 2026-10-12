@@ -48,6 +48,7 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
+import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -598,6 +599,7 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
+                                        {!inSharedMode && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
                             )}
