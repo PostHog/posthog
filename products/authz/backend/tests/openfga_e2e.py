@@ -149,6 +149,33 @@ class TestOpenFgaDashboardMirror(BaseTest):
         assert listed.complete
         assert (str(id) in listed.ids) == (Action.VIEW in expected)
 
+    def test_viewer_default_with_member_editor_grant_on_only_one_dashboard(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            access_control_testing.set_access_control_level(
+                team_id=self.team.id, rule_id=self.category_rule_id, access_level="viewer"
+            )
+            third_dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
+            another_reader = User.objects.create_and_join(
+                self.organization, "another-reader@example.com", "test-password"
+            )
+        self._grant("editor")
+
+        self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["editor"])
+        for dashboard_id in (self.second_dashboard_id, third_dashboard_id):
+            self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"], dashboard_id=dashboard_id)
+        viewable = api.list_resources(resource=self._resource(), action=Action.VIEW, subject=self.subject)
+        assert viewable.complete and viewable.ids == frozenset(
+            str(id) for id in (self.dashboard_id, self.second_dashboard_id, third_dashboard_id)
+        )
+        editable = api.list_resources(resource=self._resource(), action=Action.EDIT, subject=self.subject)
+        assert editable.complete and editable.ids == frozenset({str(self.dashboard_id)})
+        self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"], subject=Subject(user_id=another_reader.id))
+
+        self._grant(None)
+        self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"])
+        editable = api.list_resources(resource=self._resource(), action=Action.EDIT, subject=self.subject)
+        assert editable.complete and not editable.ids
+
     def test_rule_crud_dashboard_lifecycle_and_scoped_listing(self) -> None:
         assert not self._check(Action.VIEW)
         self._grant("viewer")
