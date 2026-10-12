@@ -612,8 +612,15 @@ export class ApiClient {
         })
     }
 
-    private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
+    /** Pass `idempotent` for a non-GET request that has no upstream effect, so
+     *  a transport fault retries it like a safe method. */
+    private async fetchJson<T>(
+        url: string,
+        options?: RequestInit,
+        { idempotent = false }: { idempotent?: boolean } = {}
+    ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
+        const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
@@ -627,7 +634,6 @@ export class ApiClient {
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
-                const isSafeMethod = SAFE_HTTP_METHODS.has(method.toUpperCase())
                 const canRetry = !isAbortError(error) && isSafeMethod && transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
                     console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
@@ -757,14 +763,19 @@ export class ApiClient {
     oauth(): Endpoint {
         return {
             introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
-                return this.fetchJson<ApiOAuthIntrospection>(`${this.baseUrl}/oauth/introspect`, {
-                    method: 'POST',
-                    body: JSON.stringify({ token }),
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`,
+                // RFC 7662 introspection only reads the token state.
+                return this.fetchJson<ApiOAuthIntrospection>(
+                    `${this.baseUrl}/oauth/introspect`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ token }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
                     },
-                })
+                    { idempotent: true }
+                )
             },
         }
     }
