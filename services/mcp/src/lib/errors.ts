@@ -315,6 +315,11 @@ export class PostHogRateLimitError extends PostHogApiError {
     }
 }
 
+/** True for an error raised by a request deadline, as opposed to a cancellation or a network fault. */
+export function isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'TimeoutError'
+}
+
 export interface PostHogTransportErrorOptions {
     url: string
     method: string
@@ -355,7 +360,7 @@ export class PostHogTransportError extends Error {
         this.url = options.url
         this.method = options.method
         this.attempts = options.attempts
-        this.timedOut = options.cause instanceof Error && options.cause.name === 'TimeoutError'
+        this.timedOut = isTimeoutError(options.cause)
         ;(this as Error & { cause?: unknown }).cause = options.cause
     }
 }

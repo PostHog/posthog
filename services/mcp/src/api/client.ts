@@ -5,6 +5,7 @@ import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-si
 import { getUserAgent } from '@/lib/constants'
 import {
     ErrorCode,
+    isTimeoutError,
     parseRetryAfterSeconds,
     PostHogApiError,
     PostHogPermissionError,
@@ -57,7 +58,7 @@ const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
  *  would only wait for a deadline that has already passed. Everything else
  *  thrown out of `fetch` or a body read is a transport fault. */
 function isAbortError(error: unknown): boolean {
-    return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
+    return (error instanceof Error && error.name === 'AbortError') || isTimeoutError(error)
 }
 
 // Per-attempt deadline for a JSON API request. Without it, an upstream request that
