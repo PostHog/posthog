@@ -1,0 +1,36 @@
+import { Meta, StoryFn } from '@storybook/react'
+
+import { useStorybookMocks } from '~/mocks/browser'
+
+import type { WorkflowSendingLimitsApi } from 'products/workflows/frontend/generated/api.schemas'
+
+import { SendingLimitsBanner } from './SendingLimitsBanner'
+
+const sendingLimitsEndpoint = '/api/projects/:team_id/hog_flows/sending_limits/'
+
+const meta: Meta = {
+    title: 'Products/Workflows/SendingLimitsBanner',
+    component: SendingLimitsBanner,
+    parameters: {
+        layout: 'padded',
+        testOptions: { waitForSelector: '.LemonBanner' },
+    },
+}
+export default meta
+
+interface StoryProps {
+    limits: WorkflowSendingLimitsApi
+}
+
+const Template: StoryFn<StoryProps> = ({ limits }) => {
+    useStorybookMocks({ get: { [sendingLimitsEndpoint]: limits } })
+    return <SendingLimitsBanner />
+}
+
+export const QuotaLimited: StoryFn<StoryProps> = Template.bind({})
+QuotaLimited.args = {
+    limits: {
+        email_quota_limited: true,
+        destination_quota_limited: true,
+    },
+}

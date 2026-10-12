@@ -22,6 +22,7 @@ import {
     MessagingNavTabKey,
     isMessagingSetupTab,
 } from '../messagingTabs'
+import { SendingLimitsBanner } from '../SendingLimitsBanner'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
@@ -79,6 +80,7 @@ export function BroadcastsScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
+            <SendingLimitsBanner />
             <LemonTabs<'broadcasts' | 'library' | 'messaging-setup'>
                 activeKey={currentTab === 'broadcasts' || currentTab === 'library' ? currentTab : 'messaging-setup'}
                 tabs={[
