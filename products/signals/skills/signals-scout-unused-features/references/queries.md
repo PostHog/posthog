@@ -47,16 +47,16 @@ LIMIT 200
 
 ## Use share per element
 
-Each element is measured against its busiest route (`home_route`).
-`routes <= 3` keeps navigation and other global controls out of the bottom of the list, since one page's reach is the wrong denominator for them.
+Clicks and views are counted per route, and each element is measured on the route with the most viewers among those it was clicked on (`home_route`).
+Clickers and viewers then come from the same page, so a share never passes 100%, and a global control is judged on the busiest page that shows it.
 A prefix with more than 20 distinct values in the window is treated as a templated family and collapsed to `prefix-*`.
 
 ```sql
 WITH raw AS (
-  SELECT <element expr on a> AS item, <route expr> AS route, distinct_id, timestamp
+  SELECT <element expr on a> AS item, <route expr> AS route, distinct_id
   FROM (
     SELECT arrayJoin(arrayDistinct(extractAll(elements_chain, 'attr__{attr}="([^"]+)"'))) AS a,
-           properties.$pathname, distinct_id, timestamp
+           properties.$pathname, distinct_id
     FROM events
     WHERE event = '$autocapture'
       AND properties.$event_type = 'click'
@@ -69,21 +69,29 @@ fam AS (
   FROM raw GROUP BY prefix
 ),
 items AS (
-  SELECT if(fam.variants > 20, concat(fam.prefix, '-*'), raw.item) AS item, raw.route AS route, raw.distinct_id AS distinct_id, raw.timestamp AS timestamp
+  SELECT if(fam.variants > 20, concat(fam.prefix, '-*'), raw.item) AS item, raw.route AS route, raw.distinct_id AS distinct_id
   FROM raw JOIN fam ON arrayStringConcat(arraySlice(splitByChar('-', raw.item), 1, 2), '-') = fam.prefix
 ),
-per AS (
-  SELECT item, uniq(distinct_id) AS clickers, topK(1)(route)[1] AS home_route, uniq(route) AS routes, min(timestamp) AS first_seen
-  FROM items GROUP BY item
+views AS (<page reach query without ORDER BY / LIMIT>),
+per_route AS (
+  SELECT items.item AS item, items.route AS route, uniq(items.distinct_id) AS clickers, any(views.viewers) AS viewers
+  FROM items JOIN views ON items.route = views.route
+  GROUP BY item, route
 ),
-views AS (<page reach query without ORDER BY / LIMIT>)
-SELECT per.item, per.clickers, per.routes, per.home_route, per.first_seen, views.viewers,
-       round(per.clickers / views.viewers, 5) AS use_share
-FROM per JOIN views ON per.home_route = views.route
-WHERE views.viewers >= {min_viewers} AND per.routes <= 3
+per AS (
+  SELECT item, argMax(route, viewers) AS home_route, argMax(clickers, viewers) AS clickers,
+         max(viewers) AS viewers, count() AS routes
+  FROM per_route GROUP BY item
+)
+SELECT item, clickers, viewers, routes, home_route, round(clickers / viewers, 5) AS use_share
+FROM per
+WHERE viewers >= {min_viewers}
 ORDER BY use_share ASC
 LIMIT 50
 ```
+
+For the candidate cutoff, run the same query once without `ORDER BY` / `LIMIT` and take `quantile(0.1)(clickers / viewers)` over the rows that pass the reach floor.
+Items below that value are the candidates; store it in `pattern:unused_features:baseline` so later audits compare against the same bar.
 
 Read the bottom of the list with the families in mind: a suffix that still looks like an id or a name after collapsing is customer content, so report the family and never the suffix.
 
@@ -116,7 +124,32 @@ LIMIT 30
 
 Run it once for the page's viewers and once restricted to the item's clickers (`AND distinct_id IN (<clickers subquery>)`), then compare the shares.
 
+## Too new
+
+The audit window cannot date an item, so check the surviving candidates against a longer window.
+The `LIKE` prefilter keeps the scan cheap; the `position` check then matches each value exactly.
+
+```sql
+SELECT item,
+       countIf(timestamp < now() - INTERVAL 14 DAY) AS clicks_before_14d,
+       min(timestamp) AS first_seen
+FROM (
+  SELECT arrayJoin(['<item 1>', '<item 2>']) AS item, timestamp, elements_chain
+  FROM events
+  WHERE event = '$autocapture'
+    AND timestamp > now() - INTERVAL 60 DAY
+    AND (elements_chain LIKE '%<item 1>%' OR elements_chain LIKE '%<item 2>%')
+    {host_filter}
+)
+WHERE position(elements_chain, concat('attr__{attr}="', item, '"')) > 0
+GROUP BY item
+```
+
+`clicks_before_14d = 0` means the item is too new to judge.
+A templated family (`prefix-*`) needs a `LIKE '%attr__{attr}="prefix-%'` match instead of an exact one.
+
 ## Faded check
 
 Run the use share query for an earlier window of the same length (`timestamp BETWEEN now() - INTERVAL {2 x days} DAY AND now() - INTERVAL {days} DAY`) and compare per item.
+Start the comparison from the earlier window's items and left-join the current ones, filling a missing current count with zero: an item nobody clicked this window has no current row, and it is the biggest decline there is.
 An item whose share fell to under a third, on a page whose reach held, has faded.
