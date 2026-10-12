@@ -13,7 +13,7 @@ import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE } from '../types'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
-import { watchReasonCopy } from './WatchFeedCard'
+import { watchFeedRowWhy } from './WatchFeedCard'
 import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
@@ -46,7 +46,7 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
                     <span className={cn('relative block overflow-hidden rounded', observation.viewed && 'opacity-60')}>
                         <ObservationThumbnail observation={observation} className="w-full rounded-none border-0">
                             <span className="sr-only">
-                                {title}. {citedTextToPlainText(watchReasonCopy(reason), undefined)}
+                                {title}. {citedTextToPlainText(watchFeedRowWhy(reason), undefined)}
                             </span>
                         </ObservationThumbnail>
                         {rank !== undefined && <WatchPickRankBadge rank={rank} />}

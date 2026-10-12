@@ -2834,12 +2834,12 @@ Today (7): `campaigns`, `contacts`, `events`, `lists`, `segments`, `suppressions
 
 Diffed against: <https://api.elasticemail.com/public/v4/swagger>
 
-- [ ] `/statistics/campaigns (Load Campaigns Stats)` — per-campaign delivery/engagement aggregates (sent, opened, clicked, bounced, unsubscribed) — the headline metric for the campaigns we already sync (high)
-- [ ] `/lists/{listname}/contacts (Load Contacts in List)` — list membership join table linking the contacts and lists we already sync (high)
-- [ ] `/statistics (Load Statistics)` — account-level delivery stats over a date range, the top-level deliverability rollup (high)
+- [x] `/statistics/campaigns (Load Campaigns Stats)` — per-campaign delivery/engagement aggregates (sent, opened, clicked, bounced, unsubscribed) — the headline metric for the campaigns we already sync (high)
+- [x] `/lists/{listname}/contacts (Load Contacts in List)` — list membership join table linking the contacts and lists we already sync (high)
+- [x] `/statistics (Load Statistics)` — account-level delivery stats over a date range, the top-level deliverability rollup (high)
 - [ ] `/statistics/channels + /statistics/channels/{name}` — per-channel send stats for attributing volume across sending channels (medium)
 - [ ] `/subaccounts` — lookup resolving the sub-account that owns campaigns, events and statistics rows (medium)
-- [ ] `/verifications (Get Emails Verification Results)` — email verification outcomes per address, useful for list hygiene analysis (medium)
+- [x] `/verifications (Get Emails Verification Results)` — email verification outcomes per address, useful for list hygiene analysis (medium)
 - [ ] `/events/channels/{name} (Load Channel Events)` — channel-scoped event stream for splitting engagement events by sending channel (low)
 - [ ] `/suppressions/bounces, /suppressions/complaints, /suppressions/unsubscribes` — typed suppression sub-lists; only worth adding if the generic /suppressions payload does not carry the suppression type (low)
 
@@ -5334,12 +5334,12 @@ Diffed against: <https://developers.mailerlite.com/llms.txt>
 - [x] `GET /api/groups/{group_id}/subscribers` — group membership join table for the groups and subscribers we already sync (high)
 - [x] `GET /api/automations/{automation_id}/activity` — subscribers flowing through each automation, the automation-side event stream (high)
 - [x] `GET /api/segments/{segment_id}/subscribers` — segment membership join table (high)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/orders` — purchase transactions — the highest-value analytical object in the e-commerce API (high)
-- [ ] `GET /api/ecommerce/shops` — lookup resolving shop ids for every e-commerce record (high)
+- [x] `GET /api/ecommerce/shops/{shop_id}/orders` — purchase transactions — the highest-value analytical object in the e-commerce API (high)
+- [x] `GET /api/ecommerce/shops` — lookup resolving shop ids for every e-commerce record (high)
 - [ ] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/products` — product catalog resolving order line items (medium)
+- [x] `GET /api/ecommerce/shops/{shop_id}/products` — product catalog resolving order line items (medium)
 - [ ] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/categories` — category dimension for product and order breakdowns (medium)
+- [x] `GET /api/ecommerce/shops/{shop_id}/categories` — category dimension for product and order breakdowns (medium)
 - [ ] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
 - [ ] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
 
@@ -5711,14 +5711,14 @@ Note: GraphQL API pinned to version 2024-10 in monday.py. The boards query selec
 
 ## MonteCarlo — **thin**
 
-Today (5): `alerts`, `monitors`, `tables`, `users`, `warehouses`
+Today (7): `alerts`, `domains`, `events`, `monitors`, `tables`, `users`, `warehouses`
 
 Diffed against: <https://apidocs.getmontecarlo.com/>
 
-- [ ] `getIncidents` — incidents group related alerts and are the unit teams triage — the headline object above alerts (high)
-- [ ] `getEvents / getEventGroups` — raw detector events (freshness, volume, schema change) underlying alerts (high)
-- [ ] `getEventsForIncidents` — incident timeline / state-transition history (high)
-- [ ] `getDomainsV2 + getDomainsForMcons` — domain lookup and the domain-to-asset membership join for the mcons already synced (high)
+- ~~`getIncidents`~~ — deprecated in the GraphQL schema; `getAlerts` replaced it and is already synced as `alerts`
+- [x] `getEvents / getEventGroups` — raw detector events (freshness, volume, schema change) underlying alerts (high). Added as `events` (incremental on `createdTime`). `getEventGroups` skipped: it takes one required `alertId` and regroups the same events, which carry their alert id.
+- ~~`getEventsForIncidents`~~ — deprecated in the GraphQL schema; the timeline events it returned are in `events` (`INCIDENT_*` event types)
+- [x] `getDomainsV2 + getDomainsForMcons` — domain lookup and the domain-to-asset membership join for the mcons already synced (high). Added as `domains`; its `assignments` column holds the member MCONs. `getDomainsForMcons` skipped: it returns per-warehouse domain counts for a batch of at most 250 MCONs, not a per-asset membership row.
 - [ ] `getFhEvents / getFhEventsByMonitor` — field-health event series per monitor — the per-field metric history behind monitor results (medium)
 - [ ] `getDbtRuns / getDbtJobExecutions / getDbtTestResults` — dbt run and test outcomes tied to the same tables already synced (medium)
 - [ ] `getQueryLogs / getAggregatedQueries` — warehouse query logs attributed to tables — usage and cost analysis (medium)
