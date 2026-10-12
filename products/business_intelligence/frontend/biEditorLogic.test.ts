@@ -137,7 +137,7 @@ describe('biEditorLogic', () => {
         logic.unmount()
     })
 
-    it('duplicates a timeline field for date-part grouping and keeps both definitions across reload', () => {
+    it.each(['rows', 'columns'] as const)('copies a timeline field into %s without changing the original', (target) => {
         const logic = biEditorLogic({ tabId: TAB_ID })
         logic.mount()
         const date = {
@@ -152,17 +152,47 @@ describe('biEditorLogic', () => {
             editorView: BIEditorView.BI,
             config: { ...config, rows: [date], columns: [], values: [] },
         })
-        logic.actions.duplicateField('rows', 0)
-        logic.actions.setFieldDatePart('rows', 1, 'month')
-        expect(logic.values.config.rows[0]).toEqual(date)
-        expect(logic.values.config.rows[1].id).not.toBe(date.id)
+        logic.actions.duplicateField('rows', 0, target, 0)
+        logic.actions.setFieldDatePart(target, 0, 'month')
+        expect(logic.values.config.rows[target === 'rows' ? 1 : 0]).toEqual(date)
+        expect(logic.values.config[target][0].id).not.toBe(date.id)
         expect(logic.values.generatedQuery?.query).toContain('toStartOfMonth(timestamp)')
         expect(logic.values.generatedQuery?.query).toContain('toMonth(timestamp)')
         const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))!
-        expect(restored.config.rows[1].datePart).toBe('month')
-        logic.actions.setFieldDateBucket('rows', 1, 'year')
-        expect(logic.values.config.rows[1].datePart).toBeUndefined()
+        expect(restored.config[target][0].datePart).toBe('month')
+        logic.actions.setFieldDateBucket(target, 0, 'year')
+        expect(logic.values.config[target][0].datePart).toBeUndefined()
         expect(logic.values.generatedQuery?.query).toContain('toStartOfYear(timestamp)')
+        logic.unmount()
+    })
+
+    it('copies a calculated measure at the drop position and keeps filters attached to the original', () => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        logic.actions.setAutoUpdate(false)
+        const measure = {
+            field: { ...eventField, type: 'float' as const },
+            aggregation: 'custom' as const,
+            customExpression: 'sum(revenue) / nullIf(count(), 0)',
+            label: 'Revenue per event',
+            shelf: 'columns' as const,
+            tableCalculation: { type: 'running_total' as const },
+        }
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: {
+                ...config,
+                values: [measure],
+                resultFilters: [{ id: 'original', measureIndex: 0, operator: 'greater_than', value: '5' }],
+                topN: { fieldId: eventField.id, count: 5, measureIndex: 0, includeOther: false },
+            },
+        })
+        logic.actions.duplicateField('values', 0, 'values', 0)
+        expect(logic.values.config.values).toEqual([measure, measure])
+        expect(logic.values.config.resultFilters?.[0].measureIndex).toBe(1)
+        expect(logic.values.config.topN?.measureIndex).toBe(1)
+        logic.actions.duplicateField('values', 0, 'rows')
+        expect(logic.values.config.values).toEqual([measure, measure, { ...measure, shelf: 'rows' }])
         logic.unmount()
     })
 
