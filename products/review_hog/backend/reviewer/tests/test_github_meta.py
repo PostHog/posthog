@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
-from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser, _patch_omitted
 
 _META = "products.review_hog.backend.reviewer.tools.github_meta"
 
@@ -596,3 +596,20 @@ class TestFetchPrData:
         fetcher = PRFetcher("owner", "repo", 123, token="test-token")
         with pytest.raises(GitHubAPIError):
             fetcher.fetch_pr_data()
+
+
+@pytest.mark.parametrize(
+    "file, omitted",
+    [
+        ({"filename": "big.py", "status": "modified", "additions": 900, "deletions": 0}, True),
+        ({"filename": "logo.png", "status": "added", "additions": 0, "deletions": 0}, True),
+        ({"filename": "lib.so", "status": "modified", "additions": 0, "deletions": 0}, True),
+        ({"filename": "new_name.py", "status": "renamed", "additions": 0, "deletions": 0}, False),
+        (
+            {"filename": "small.py", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -1 +1 @@\n+x"},
+            False,
+        ),
+    ],
+)
+def test_patch_omitted_marks_every_unseen_change(file: dict[str, Any], omitted: bool) -> None:
+    assert _patch_omitted(file) is omitted

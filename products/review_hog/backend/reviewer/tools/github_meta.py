@@ -271,11 +271,14 @@ class FetchedPR:
 
 
 def _patch_omitted(file: dict[str, Any]) -> bool:
-    """True when GitHub sent no patch for a file with changed lines, for example a large file.
+    """True when GitHub sent no patch for a changed file, for example a large or binary file.
 
-    The review then sees the file name but none of its changes, so the file counts as skipped.
+    The review then sees the file name but none of its changes, so the file counts as skipped. Only a
+    pure rename has no changes to see.
     """
-    return not file.get("patch") and bool(file["additions"] or file["deletions"])
+    if file.get("patch"):
+        return False
+    return not (file.get("status") == "renamed" and not (file["additions"] or file["deletions"]))
 
 
 def _merge_base_sha(comparison: dict[str, Any]) -> str | None:
