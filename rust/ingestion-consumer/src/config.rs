@@ -273,12 +273,8 @@ pub struct Config {
     pub debug_api_secret: String,
 
     // ---- Ordering sentinels ----
-    /// Kill switch for the ordering sentinels (per-partition commit
-    /// contiguity/monotonicity checks and per-key send-order checks). They are
-    /// pure observers with per-batch lock/state overhead bounded by in-flight
-    /// work; disable only if that overhead is ever implicated. The commit-result
-    /// and rebalance metrics from the consumer context stay on regardless. The
-    /// worker-side feed-order sentinel has its own flag
+    /// Kill switch for the per-key send-order sentinel. The worker-side
+    /// feed-order sentinel has its own flag
     /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
