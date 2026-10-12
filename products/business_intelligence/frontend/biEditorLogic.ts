@@ -428,11 +428,15 @@ export interface biEditorLogicActions {
     }
     duplicateField: (
         shelf: Exclude<BIShelf, 'filters'>,
-        index: number
+        index: number,
+        toShelf?: BIShelf,
+        toIndex?: number
     ) => {
         fieldId: string
         index: number
         shelf: 'columns' | 'rows' | 'values'
+        toIndex: number | undefined
+        toShelf: BIShelf
     }
     editCalculatedField: (field?: BIField) => {
         field: BIField | undefined
@@ -760,7 +764,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setColorBy: (colorBy: string | null | undefined) => ({ colorBy }),
         editCalculatedField: (field?: BIField) => ({ field }),
         removeLocalField: (fieldId: string) => ({ fieldId }),
-        duplicateField: (shelf: Exclude<BIShelf, 'filters'>, index: number) => ({ shelf, index, fieldId: uuid() }),
+        duplicateField: (
+            shelf: Exclude<BIShelf, 'filters'>,
+            index: number,
+            toShelf: BIShelf = shelf,
+            toIndex?: number
+        ) => ({ shelf, index, toShelf, toIndex, fieldId: uuid() }),
         setFieldDatePart: (shelf: BIShelf, index: number, datePart: BIField['datePart']) => ({
             shelf,
             index,
@@ -1118,27 +1127,44 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     setFieldDateBucketInConfig(config, shelf, index, dateBucket),
                 setFieldDatePart: (config, { shelf, index, datePart }) =>
                     setFieldDateBucketInConfig(config, shelf, index, null, datePart),
-                duplicateField: (config, { shelf, index, fieldId }) => {
+                duplicateField: (config, { shelf, index, fieldId, toShelf, toIndex }) => {
+                    let duplicated: BIConfig
                     if (shelf === 'values') {
                         const value = config.values[index]
-                        return value ? { ...config, values: [...config.values, { ...value }] } : config
+                        if (!value || (toShelf === 'filters' && value.label)) {
+                            return config
+                        }
+                        duplicated = {
+                            ...config,
+                            values: [
+                                ...config.values,
+                                {
+                                    ...value,
+                                    shelf:
+                                        toShelf === 'values' && toIndex !== undefined
+                                            ? (config.values[toIndex]?.shelf ?? value.shelf)
+                                            : value.shelf,
+                                },
+                            ],
+                        }
+                    } else {
+                        const field = config[shelf][index]
+                        if (!field) {
+                            return config
+                        }
+                        duplicated = {
+                            ...config,
+                            [shelf]: [
+                                ...config[shelf],
+                                {
+                                    ...field,
+                                    id: fieldId,
+                                    localFieldId: field.localDefinition ? (field.localFieldId ?? field.id) : undefined,
+                                },
+                            ],
+                        }
                     }
-                    const field = config[shelf][index]
-                    return field
-                        ? {
-                              ...config,
-                              [shelf]: [
-                                  ...config[shelf],
-                                  {
-                                      ...field,
-                                      id: fieldId,
-                                      localFieldId: field.localDefinition
-                                          ? (field.localFieldId ?? field.id)
-                                          : undefined,
-                                  },
-                              ],
-                          }
-                        : config
+                    return moveFieldInConfig(duplicated, shelf, config[shelf].length, toShelf, toIndex)
                 },
                 setValueCustomExpression: (config, { index, customExpression }) => ({
                     ...config,

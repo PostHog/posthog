@@ -88,7 +88,7 @@ Calculated fields appear in Dimensions or Measures with a ƒ indicator. Drag or 
 
 The result footer reports distinct dimension groups and non-empty measure values (marks), rather than source-row counts. It excludes total rows and marks truncated results as limited. The grouping labels describe the executed query while edits await Run.
 
-Date and timestamp drops start with daily buckets. A date pill offers **Timeline (keeps the year)** buckets and **Date part (combines years)** choices: month of year, quarter of year, and day of week. **Duplicate** creates an independently configurable shelf field, so the same date can appear at two granularities.
+Date and timestamp drops start with daily buckets. A date pill offers **Timeline (keeps the year)** buckets and **Date part (combines years)** choices: month of year, quarter of year, and day of week. **Duplicate** creates an independently configurable shelf field, so the same date can appear at two granularities. Hold **Alt** (**Option** on Mac) while dragging a dimension or measure to copy it to another shelf or position. Copies retain calculations and settings; dropping with the modifier outside a shelf leaves the original in place.
 
 **Marks → Color** separates series coloring from shelf grouping. **Single color** preserves every group and series while using one color; switching back restores automatic or customized colors. With two categorical dimensions, select either field to define the colored series and use the other on the axis. Date dimensions remain on the timeline. Automatic uses lines for dates, grouped bars for one or two categorical dimensions, and a number for a single total. Explicit chart choices remain selected. **New worksheet** is available directly in the worksheet header.
 
