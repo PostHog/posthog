@@ -69,6 +69,7 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_background_backoff,
     withheld_skills_for_team,
 )
+from products.signals.backend.scout_harness.tool_catalogue import scout_tool_access_enabled
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -991,6 +992,9 @@ async def _spawn_and_run(
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
+    narrowed_tool_set = config.allowed_mcp_tools is not None and await database_sync_to_async(
+        scout_tool_access_enabled, thread_sensitive=False
+    )(team)
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1021,6 +1025,8 @@ async def _spawn_and_run(
         triggered_by=triggered_by,
         is_private_trial=trial is not None,
         precheck_rows=precheck_rows,
+        # The same predicate the API and the MCP server enforce the picked list on.
+        narrowed_tool_set=narrowed_tool_set,
     )
     logger.info(
         "signals_scout: spawning sandbox",

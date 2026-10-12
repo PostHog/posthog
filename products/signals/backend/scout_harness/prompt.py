@@ -869,6 +869,9 @@ _WRITE_ACCESS_OBJECTS: dict[str, str] = {
 }
 
 
+_NARROWED_TOOL_SET_LINE = """Your owner picked the tools this scout holds, so you hold a narrowed tool set. A `tool_not_granted` refusal is final: do not retry the tool, and do not reach the same operation another way."""
+
+
 def _write_access_section(write_scopes: Sequence[str]) -> str:
     """Compose the write-access section, or empty for a scout holding no grant.
 
@@ -1339,6 +1342,7 @@ def build_run_prompt(
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     is_private_trial: bool = False,
     precheck_rows: str | None = None,
+    narrowed_tool_set: bool = False,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -1418,6 +1422,9 @@ def build_run_prompt(
     render in a `<precheck_result>` block in the per-run block, capped at `MAX_PRECHECK_ROWS_BYTES`.
     Blank or None renders nothing, which is every run without a pre-check.
 
+    `narrowed_tool_set` must be True only when the MCP server and the API enforce a picked tool
+    list for this run. It renders one line that tells the scout a refusal is final.
+
     Every prompt carries the self-validation follow-ups section: the scout keeps a `followup:`
     scratchpad queue and decides for itself, run by run, whether to spend the run validating it —
     there is no harness-side cadence or trigger. The section's re-surface guidance is
@@ -1492,6 +1499,7 @@ def build_run_prompt(
             _governed_metrics_section(project_has_governed_metrics),
             _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else "",
             write_access_section,
+            _NARROWED_TOOL_SET_LINE if narrowed_tool_set else "",
             checkout_section,
             structured_output_section,
             run_identity,

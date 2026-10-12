@@ -55,6 +55,7 @@ class TestScoutToolPolicy(APIBaseTest):
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return token.token
 
     def _request(self, operation: str):
         ticket_id = uuid4()
@@ -112,3 +113,26 @@ class TestScoutToolPolicy(APIBaseTest):
 
         allowlist.assert_not_called()
         assert response.json().get("code") != SCOUT_TOOL_NOT_GRANTED_CODE
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_self_introspection_returns_held_tools(self, _name, flag_on):
+        sandbox_task_id = uuid4()
+        token = self._client(sandbox_task_id=sandbox_task_id)
+        with (
+            mock.patch(
+                "products.signals.backend.facade.tool_access.tasks_facade.get_task_mcp_tool_allowlist",
+                return_value=["conversations-tickets-notes-create"],
+            ),
+            mock.patch("products.signals.backend.facade.tool_access.scout_tool_access_enabled", return_value=flag_on),
+        ):
+            response = self.client.post("/oauth/introspect/", {"token": token}, format="json")
+
+        body = response.json()
+        assert body["active"] is True, body
+        assert body["sandbox_task_id"] == str(sandbox_task_id)
+        if flag_on:
+            assert "conversations-tickets-notes-create" in body["mcp_allowed_tools"]
+            assert "scout-emit-report" in body["mcp_allowed_tools"]
+            assert "conversations-tickets-reply-create" not in body["mcp_allowed_tools"]
+        else:
+            assert "mcp_allowed_tools" not in body
