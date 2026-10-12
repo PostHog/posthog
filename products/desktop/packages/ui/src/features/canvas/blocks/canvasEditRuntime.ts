@@ -272,6 +272,16 @@ export function installCanvasEditing(
     }
   };
 
+  const openAround = (element: Element) => {
+    const rootElement = document.getElementById("root")?.firstElementChild;
+    let block = element.parentElement?.closest("[data-ph-block]") ?? null;
+    while (block && block !== rootElement) {
+      const key = sourceKey(block);
+      if (key) openBlocks.add(key);
+      block = block.parentElement?.closest("[data-ph-block]") ?? null;
+    }
+  };
+
   const closeOutside = (element: Element | null) => {
     for (const key of Array.from(openBlocks)) {
       const block = sourceAt(key);
@@ -843,7 +853,7 @@ export function installCanvasEditing(
   };
 
   const onKey = (event: KeyboardEvent) => {
-    if (!enabled || !event.isTrusted) return;
+    if (!enabled || !event.isTrusted || event.defaultPrevented) return;
     const target = event.target as HTMLElement | null;
     if (
       target &&
@@ -969,6 +979,7 @@ export function installCanvasEditing(
       ? document.querySelector(`[data-ph-block-id="${CSS.escape(id)}"]`)
       : bySource;
     if (element instanceof HTMLElement) {
+      openAround(element);
       remember(element);
       post({ type: "canvas-edit-select", element: describe(element) });
       const arrived =

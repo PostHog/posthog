@@ -855,6 +855,15 @@
 			if (!element || block.contains(element)) openBlocks.delete(key);
 		}
 	};
+	const openAround = (element) => {
+		const rootElement = document.getElementById("root")?.firstElementChild;
+		let block = element.parentElement?.closest("[data-ph-block]") ?? null;
+		while (block && block !== rootElement) {
+			const key = sourceKey(block);
+			if (key) openBlocks.add(key);
+			block = block.parentElement?.closest("[data-ph-block]") ?? null;
+		}
+	};
 	const closeOutside = (element) => {
 		for (const key of Array.from(openBlocks)) {
 			const block = sourceAt(key);
@@ -1320,7 +1329,7 @@
 		return true;
 	};
 	const onKey = (event) => {
-		if (!enabled || !event.isTrusted) return;
+		if (!enabled || !event.isTrusted || event.defaultPrevented) return;
 		const target = event.target;
 		if (target && (target.isContentEditable || [
 			"INPUT",
@@ -1421,6 +1430,7 @@
 		const bySource = focusSource ? sourceAt(focusSource) : sameBlock ? previous : null;
 		const element = id ? document.querySelector(`[data-ph-block-id="${CSS.escape(id)}"]`) : bySource;
 		if (element instanceof HTMLElement) {
+			openAround(element);
 			remember(element);
 			post({
 				type: "canvas-edit-select",
