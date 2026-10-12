@@ -33,7 +33,6 @@ import {
     getDisplayOrderedIndices,
     getEventCountQuery,
     getFunnelDropoffReason,
-    getOrderedMetricsWithResults,
     getSessionLinkabilityEventNames,
     isEvenlyDistributed,
     isLegacyExperiment,
@@ -736,7 +735,7 @@ describe('hasLegacyMetrics', () => {
     })
 })
 
-describe('getOrderedMetricsWithResults', () => {
+describe('metricResults over inline and shared metrics', () => {
     const baseExperiment = {
         ...experimentJson,
         metrics: [],
@@ -767,7 +766,7 @@ describe('getOrderedMetricsWithResults', () => {
             const results = [mockResult({ result: 'data1' })]
             const errors = [null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = metricResults(experiment)(results, errors, 'primary')
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.uuid).toBe('metric-1')
@@ -798,7 +797,7 @@ describe('getOrderedMetricsWithResults', () => {
             const results = [mockResult({ result: 'data1' }), mockResult({ result: 'data2' })]
             const errors = [null, null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = metricResults(experiment)(results, errors, 'primary')
 
             expect(ordered).toHaveLength(2)
             expect(ordered[0].metric.uuid).toBe('metric-2')
@@ -831,7 +830,7 @@ describe('getOrderedMetricsWithResults', () => {
             const results = [mockResult({ result: 'shared-data' })]
             const errors = [null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = metricResults(experiment)(results, errors, 'primary')
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.uuid).toBe('shared-uuid')
@@ -874,22 +873,8 @@ describe('getOrderedMetricsWithResults', () => {
             const primaryResults = [mockResult({ result: 'primary-data' })]
             const secondaryResults = [mockResult({ result: 'secondary-data' })]
 
-            const primaryOrdered = getOrderedMetricsWithResults(
-                experiment,
-                primaryResults,
-                [null],
-                secondaryResults,
-                [null],
-                false
-            )
-            const secondaryOrdered = getOrderedMetricsWithResults(
-                experiment,
-                primaryResults,
-                [null],
-                secondaryResults,
-                [null],
-                true
-            )
+            const primaryOrdered = metricResults(experiment)(primaryResults, [null], 'primary')
+            const secondaryOrdered = metricResults(experiment)(secondaryResults, [null], 'secondary')
 
             expect(primaryOrdered).toHaveLength(1)
             expect(primaryOrdered[0].metric.uuid).toBe('primary-uuid')
@@ -930,7 +915,7 @@ describe('getOrderedMetricsWithResults', () => {
             const results = [mockResult({ result: 'inline-data' }), mockResult({ result: 'shared-data' })]
             const errors = [null, null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = metricResults(experiment)(results, errors, 'primary')
 
             expect(ordered).toHaveLength(2)
             expect(ordered[0].metric.uuid).toBe('shared-1')
@@ -947,7 +932,7 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: [],
             }
 
-            const ordered = getOrderedMetricsWithResults(experiment, [], [], [], [], false)
+            const ordered = metricResults(experiment)([], [], 'primary')
 
             expect(ordered).toEqual([])
         })
@@ -966,7 +951,7 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['metric-1'],
             }
 
-            const ordered = getOrderedMetricsWithResults(experiment, [mockResult({})], [null], [], [], false)
+            const ordered = metricResults(experiment)([mockResult({})], [null], 'primary')
 
             expect(ordered[0].metricIndex).toBe(0)
         })

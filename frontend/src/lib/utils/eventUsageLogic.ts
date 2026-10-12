@@ -2037,9 +2037,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             queryId,
             context,
         }),
-        // Single event for the whole recalc lifecycle — see docs/superpowers/specs/2026-06-04-experiment-metric-
-        // recalculation-events.md. status discriminates the moment ('triggered' / 'completed' / 'failed' —
-        // 'polled' is deliberately not emitted); the property bag carries the fields relevant to that moment.
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
             experimentId,

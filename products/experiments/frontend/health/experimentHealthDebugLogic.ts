@@ -1,9 +1,14 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
-import { type ExperimentLogicProps, type ExperimentWarning, experimentLogic } from 'scenes/experiments/experimentLogic'
+import {
+    type ExperimentLogicProps,
+    type ExperimentWarning,
+    experimentLogic,
+    getSectionMetricUuids,
+} from 'scenes/experiments/experimentLogic'
 import { resolveMultipleVariantHandling } from 'scenes/experiments/utils'
 
-import type { ExperimentExposureCriteria, ExperimentMetricUnion } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 import type { Experiment, ExperimentIdType } from '~/types'
 
 import {
@@ -28,20 +33,6 @@ export interface experimentHealthDebugLogicValues {
     exposuresLoading: boolean // experimentLogic
     healthFindings: HealthPanelFinding[] | null // experimentLogic
     isExperimentDraft: boolean // experimentLogic
-    orderedPrimaryMetricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[] // experimentLogic
-    orderedSecondaryMetricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[] // experimentLogic
     healthDebugChecks: HealthDebugCheck[]
     healthDebugFacts: HealthDebugFact[]
     pageMetricCounts: HealthDebugInput['pageMetricCounts']
@@ -51,22 +42,7 @@ export interface experimentHealthDebugLogicValues {
 export interface experimentHealthDebugLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
-        pageMetricCounts: (
-            orderedPrimaryMetricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[],
-            orderedSecondaryMetricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[]
-        ) => HealthDebugInput['pageMetricCounts']
+        pageMetricCounts: (experiment: Experiment) => HealthDebugInput['pageMetricCounts']
         healthDebugChecks: (
             experiment: Experiment,
             healthFindings: HealthPanelFinding[] | null,
@@ -117,18 +93,16 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
                 'exposuresLoading',
                 'exposureCriteria',
                 'isExperimentDraft',
-                'orderedPrimaryMetricsWithResults',
-                'orderedSecondaryMetricsWithResults',
                 'experimentLoadCount',
             ],
         ],
     })),
     selectors({
         pageMetricCounts: [
-            (s) => [s.orderedPrimaryMetricsWithResults, s.orderedSecondaryMetricsWithResults],
-            (primary: unknown[], secondary: unknown[]): HealthDebugInput['pageMetricCounts'] => ({
-                primary: primary.length,
-                secondary: secondary.length,
+            (s) => [s.experiment],
+            (experiment: Experiment): HealthDebugInput['pageMetricCounts'] => ({
+                primary: getSectionMetricUuids(experiment, false).length,
+                secondary: getSectionMetricUuids(experiment, true).length,
             }),
         ],
         healthDebugChecks: [

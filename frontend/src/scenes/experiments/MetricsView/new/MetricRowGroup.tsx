@@ -7,11 +7,9 @@ import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
@@ -518,7 +516,6 @@ interface MetricRowGroupProps {
     result: NewExperimentQueryResponse | null
     experiment: Experiment
     metricType: InsightType
-    metricIndex: number
     displayOrder: number
     axisRange: number
     isSecondary: boolean
@@ -551,7 +548,6 @@ export function MetricRowGroup({
     result,
     experiment,
     metricType,
-    metricIndex,
     displayOrder,
     axisRange,
     isSecondary,
@@ -655,29 +651,14 @@ export function MetricRowGroup({
 
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
-        useActions(experimentLogic)
+    const { reportExperimentTimeseriesViewed, refreshExperimentResults } = useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { isRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
 
-    /**
-     * On the recalculation flow, retrying a single metric re-runs the whole recalculation (plus exposures)
-     * as a manual_retry: the run reuses the latest window, so metrics with rows load from cache and only
-     * the failed ones recompute. The legacy flow retries the single metric in place.
-     */
     const handleRetry = (): void => {
-        if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-            triggerRecalculation('manual_retry')
-            refreshExperimentResults(true, 'manual')
-            return
-        }
-        if (isSecondary) {
-            retrySecondaryMetric(metricIndex)
-        } else {
-            retryPrimaryMetric(metricIndex)
-        }
+        triggerRecalculation('manual_retry')
+        refreshExperimentResults(true, 'manual')
     }
 
     // Build query for debugger link
