@@ -38,7 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MezmoSource(ResumableSource[MezmoSourceConfig, MezmoResumeConfig]):
-    codebase_detection = detect(env=("^MEZMO_",))
+    codebase_detection = detect(
+        env=("^MEZMO_", "^MZ_INGESTION_KEY$", "^LOGDNA_"),
+        npm=("@logdna/logger", "logdna"),
+        pypi=("logdna",),
+        go=("github.com/logdna/logdna-go",),
+        rubygems=("logdna",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v3",)

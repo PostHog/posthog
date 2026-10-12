@@ -109,10 +109,19 @@ class StripeSource(
     OAuthMixin,
 ):
     codebase_detection = detect(
-        env=("^STRIPE_(SECRET|API)_KEY$",),
-        npm=("stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"),
+        env=("^STRIPE_(SECRET|API)_KEY$", "^STRIPE_PUBLISHABLE_KEY$", "^STRIPE_WEBHOOK_SECRET$"),
+        script_hosts=("js.stripe.com",),
+        npm=("stripe", "@stripe/stripe-js", "@stripe/react-stripe-js", "@stripe/stripe-react-native"),
         pypi=("stripe",),
+        cargo=("async-stripe",),
+        cocoapods=("Stripe", "StripePaymentSheet", "StripePayments"),
+        composer=("stripe/stripe-php",),
+        go=("github.com/stripe/stripe-go",),
+        hex=("stripity_stripe",),
+        maven=("com.stripe:stripe-java", "com.stripe:stripe-android"),
+        pub=("flutter_stripe",),
         rubygems=("stripe",),
+        swiftpm=("github.com/stripe/stripe-ios",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

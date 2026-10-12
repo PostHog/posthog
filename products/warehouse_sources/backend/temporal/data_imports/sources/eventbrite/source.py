@@ -34,7 +34,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EventbriteSource(ResumableSource[EventbriteSourceConfig, EventbriteResumeConfig]):
-    codebase_detection = detect(env=("^EVENTBRITE_",), pypi=("eventbrite",))
+    codebase_detection = detect(
+        env=("^EVENTBRITE_",),
+        script_hosts=("www.eventbrite.com",),
+        npm=("eventbrite",),
+        pypi=("eventbrite",),
+        rubygems=("eventbrite_sdk",),
+    )
 
     supported_versions = ("v3",)
     default_version = "v3"

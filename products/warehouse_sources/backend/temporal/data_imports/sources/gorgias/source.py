@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
-    codebase_detection = detect(env=("^GORGIAS_",))
+    codebase_detection = detect(env=("^GORGIAS_",), script_hosts=("config.gorgias.chat", "assets.gorgias.chat"))
 
     api_docs_url = "https://developers.gorgias.com"
 

@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,7 +39,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = detect(
+        script_hosts=("connect.withmono.com",),
+        npm=("@mono.co/connect.js", "@mono.co/connect-react-native", "mono-node"),
+        pub=("mono_connect",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

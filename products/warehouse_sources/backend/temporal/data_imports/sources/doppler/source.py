@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DopplerSource(ResumableSource[DopplerSourceConfig, DopplerResumeConfig]):
-    codebase_detection = detect(env=("^DOPPLER_",), npm=("@dopplerhq/node-sdk",))
+    codebase_detection = detect(env=("^DOPPLER_",), npm=("@dopplerhq/node-sdk",), pypi=("doppler-sdk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

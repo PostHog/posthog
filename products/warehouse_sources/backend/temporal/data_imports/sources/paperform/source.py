@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaperformSource(ResumableSource[PaperformSourceConfig, PaperformResumeConfig]):
-    codebase_detection = detect(env=("^PAPERFORM_",))
+    codebase_detection = detect(env=("^PAPERFORM_",), script_hosts=("paperform.co",))
 
     api_docs_url = "https://paperform.readme.io/reference/getting-started-1"
 

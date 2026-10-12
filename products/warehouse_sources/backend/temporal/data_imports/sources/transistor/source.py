@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import NO_CODE_SIGNAL, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TransistorSource(ResumableSource[TransistorSourceConfig, TransistorResumeConfig]):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = not_detectable(NO_CODE_SIGNAL)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `/v1` is the only path Transistor has ever published and is not a documented version

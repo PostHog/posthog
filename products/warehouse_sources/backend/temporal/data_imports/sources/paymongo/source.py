@@ -60,7 +60,7 @@ def webhook_error(error: HTTPError) -> str:
 
 @SourceRegistry.register
 class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig], WebhookSource[PaymongoSourceConfig]):
-    codebase_detection = detect(env=("^PAYMONGO_",))
+    codebase_detection = detect(env=("^PAYMONGO_", "^PAYMONGO_SECRET_KEY$"))
 
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.paymongo.com/reference/list-all-payments"

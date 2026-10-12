@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CratesIOSource(SimpleSource[CratesIOSourceConfig]):
-    codebase_detection = detect(env=("^(CRATES_IO|CRATESIO)_",))
+    codebase_detection = detect(env=("^(CRATES_IO|CRATESIO)_", "^CARGO_REGISTRY_TOKEN$"))
 
     supported_versions = ("v1",)
     default_version = "v1"

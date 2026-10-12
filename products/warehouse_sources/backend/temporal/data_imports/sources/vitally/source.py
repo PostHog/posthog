@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
-    codebase_detection = detect(env=("^VITALLY_",))
+    codebase_detection = detect(env=("^VITALLY_",), script_hosts=("cdn.vitally.io",))
 
     api_docs_url = "https://docs.vitally.io"
 

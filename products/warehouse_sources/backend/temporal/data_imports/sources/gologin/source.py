@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
-    codebase_detection = detect(env=("^(GO_LOGIN|GOLOGIN)_",))
+    codebase_detection = detect(env=("^(GO_LOGIN|GOLOGIN)_",), npm=("gologin",), pypi=("gologin",))
 
     lists_tables_without_credentials = True
     api_docs_url = "https://api.gologin.com/docs"

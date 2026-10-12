@@ -37,7 +37,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
     codebase_detection = detect(
-        env=("^DESCOPE_",), npm=("@descope/node-sdk", "@descope/nextjs-sdk", "@descope/react-sdk"), pypi=("descope",)
+        env=("^DESCOPE_", "^NEXT_PUBLIC_DESCOPE_PROJECT_ID$"),
+        npm=(
+            "@descope/node-sdk",
+            "@descope/nextjs-sdk",
+            "@descope/react-sdk",
+            "@descope/web-component",
+            "@descope/web-js-sdk",
+            "@descope/vue-sdk",
+            "@descope/angular-sdk",
+            "@descope/react-native-sdk",
+        ),
+        pypi=("descope",),
+        composer=("descope/descope-php",),
+        go=("github.com/descope/go-sdk",),
+        maven=("com.descope:java-sdk",),
+        pub=("descope",),
+        rubygems=("descope",),
+        swiftpm=("github.com/descope/descope-swift",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

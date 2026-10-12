@@ -48,7 +48,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinGeckoSource(ResumableSource[CoinGeckoSourceConfig, CoinGeckoResumeConfig]):
-    codebase_detection = detect(env=("^(COIN_GECKO|COINGECKO)_",))
+    codebase_detection = detect(
+        env=("^(COIN_GECKO|COINGECKO)_",),
+        npm=("@coingecko/coingecko-typescript",),
+        pypi=("coingecko-sdk", "pycoingecko"),
+    )
 
     supported_versions = ("v3",)
     default_version = "v3"

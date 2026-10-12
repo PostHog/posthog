@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TrustPilotSource(ResumableSource[TrustPilotSourceConfig, TrustpilotResumeConfig]):
-    codebase_detection = detect(env=("^(TRUST_PILOT|TRUSTPILOT)_",))
+    codebase_detection = detect(env=("^(TRUST_PILOT|TRUSTPILOT)_",), script_hosts=("widget.trustpilot.com",))
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("v1",)

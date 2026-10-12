@@ -59,7 +59,15 @@ class MailerLiteSource(
     ResumableSource[MailerLiteSourceConfig, MailerLiteResumeConfig],
     WebhookSource[MailerLiteSourceConfig],
 ):
-    codebase_detection = detect(env=("^MAILERLITE_",), npm=("@mailerlite/mailerlite-nodejs",), pypi=("mailerlite",))
+    codebase_detection = detect(
+        env=("^MAILERLITE_",),
+        script_hosts=("assets.mailerlite.com", "static.mailerlite.com"),
+        npm=("@mailerlite/mailerlite-nodejs",),
+        pypi=("mailerlite",),
+        composer=("mailerlite/mailerlite-php",),
+        go=("github.com/mailerlite/mailerlite-go",),
+        rubygems=("mailerlite-ruby",),
+    )
 
     api_docs_url = "https://developers.mailerlite.com"
 

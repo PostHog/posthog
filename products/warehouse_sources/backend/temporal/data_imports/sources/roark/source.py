@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RoarkSource(ResumableSource[RoarkSourceConfig, RoarkResumeConfig]):
-    codebase_detection = detect(env=("^ROARK_",))
+    codebase_detection = detect(
+        env=("^ROARK_", "^ROARK_API_BEARER_TOKEN$"), npm=("@roarkanalytics/sdk",), pypi=("roark-analytics",)
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)

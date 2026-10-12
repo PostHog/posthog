@@ -34,7 +34,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConfig]):
     codebase_detection = detect(
-        env=("^MAILCHIMP_",), npm=("@mailchimp/mailchimp_marketing",), pypi=("mailchimp-marketing",)
+        env=("^MAILCHIMP_",),
+        script_hosts=("chimpstatic.com",),
+        npm=("@mailchimp/mailchimp_marketing",),
+        pypi=("mailchimp-marketing", "mailchimp3"),
+        composer=("mailchimp/marketing", "drewm/mailchimp-api"),
+        rubygems=("MailchimpMarketing", "gibbon"),
     )
 
     supported_versions = ("3.0",)

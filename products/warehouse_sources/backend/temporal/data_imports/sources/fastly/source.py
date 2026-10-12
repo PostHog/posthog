@@ -28,7 +28,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FastlySource(ResumableSource[FastlySourceConfig, FastlyResumeConfig]):
-    codebase_detection = detect(env=("^FASTLY_",), npm=("fastly",), pypi=("fastly",))
+    codebase_detection = detect(
+        env=("^FASTLY_",),
+        npm=("fastly", "@fastly/js-compute"),
+        pypi=("fastly",),
+        cargo=("fastly",),
+        composer=("fastly/fastly",),
+        go=("github.com/fastly/go-fastly",),
+        rubygems=("fastly",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.fastly.com/documentation/reference/api/"

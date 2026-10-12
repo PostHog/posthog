@@ -34,7 +34,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PersonaSource(ResumableSource[PersonaSourceConfig, PersonaResumeConfig]):
-    codebase_detection = detect(env=("^PERSONA_",))
+    codebase_detection = detect(
+        env=("^PERSONA_",),
+        script_hosts=("cdn.withpersona.com",),
+        npm=("persona", "persona-react", "react-native-persona"),
+        cocoapods=("PersonaInquirySDK2",),
+        maven=("com.withpersona.sdk2:inquiry",),
+        swiftpm=("github.com/persona-id/inquiry-ios-2",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.withpersona.com/reference"

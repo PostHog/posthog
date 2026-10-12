@@ -56,7 +56,12 @@ class LemonSqueezySource(
     ResumableSource[LemonSqueezySourceConfig, LemonSqueezyResumeConfig],
     WebhookSource[LemonSqueezySourceConfig],
 ):
-    codebase_detection = detect(env=("^LEMONSQUEEZY_", "^LEMON_SQUEEZY_"), npm=("@lemonsqueezy/lemonsqueezy.js",))
+    codebase_detection = detect(
+        env=("^LEMONSQUEEZY_", "^LEMON_SQUEEZY_"),
+        script_hosts=("app.lemonsqueezy.com", "assets.lemonsqueezy.com"),
+        npm=("@lemonsqueezy/lemonsqueezy.js",),
+        composer=("lemonsqueezy/laravel",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.lemonsqueezy.com/api"

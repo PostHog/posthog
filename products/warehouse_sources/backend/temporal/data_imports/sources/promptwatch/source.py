@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResumeConfig]):
-    codebase_detection = detect(env=("^(PROMPT_WATCH|PROMPTWATCH)_",))
+    codebase_detection = detect(env=("^(PROMPT_WATCH|PROMPTWATCH)_",), script_hosts=("ingest.promptwatch.com",))
 
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

@@ -38,7 +38,15 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConfig]):
-    codebase_detection = detect(env=("^FIRECRAWL_",), npm=("@mendable/firecrawl-js",), pypi=("firecrawl-py",))
+    codebase_detection = detect(
+        env=("^FIRECRAWL_",),
+        npm=("@mendable/firecrawl-js", "firecrawl"),
+        pypi=("firecrawl-py", "firecrawl"),
+        cargo=("firecrawl",),
+        go=("github.com/firecrawl/firecrawl-go", "github.com/mendableai/firecrawl-go"),
+        maven=("com.firecrawl:firecrawl-java",),
+        rubygems=("firecrawl-sdk",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
     supported_versions = ("v2",)

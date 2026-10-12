@@ -58,7 +58,7 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class BettermodeSource(ResumableSource[BettermodeSourceConfig, BettermodeResumeConfig]):
-    codebase_detection = detect(env=("^BETTERMODE_",))
+    codebase_detection = detect(env=("^BETTERMODE_",), npm=("@tribeplatform/gql-client", "@tribeplatform/react-sdk"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

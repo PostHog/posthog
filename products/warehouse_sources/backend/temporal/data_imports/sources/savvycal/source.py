@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SavvyCalSource(ResumableSource[SavvyCalSourceConfig, SavvyCalResumeConfig]):
-    codebase_detection = detect(env=("^(SAVVY_CAL|SAVVYCAL)_",))
+    codebase_detection = detect(env=("^(SAVVY_CAL|SAVVYCAL)_",), script_hosts=("embed.savvycal.com",))
 
     supported_versions = ("v1",)
     default_version = "v1"

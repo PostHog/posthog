@@ -43,7 +43,7 @@ _CONNECTION_DETAILS_MESSAGE = (
 
 @SourceRegistry.register
 class MotherduckSource(SQLSource[MotherduckSourceConfig]):
-    codebase_detection = detect(env=("^MOTHERDUCK_",), npm=("@motherduck/wasm-client",))
+    codebase_detection = detect(env=("^MOTHERDUCK_", "^motherduck_token$"), npm=("@motherduck/wasm-client",))
 
     # MotherDuck speaks the DuckDB wire protocol through the `duckdb` client, which carries no
     # vendor API version of its own.

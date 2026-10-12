@@ -29,7 +29,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlainSource(SimpleSource[PlainSourceConfig]):
-    codebase_detection = detect(env=("^PLAIN_",), npm=("@team-plain/typescript-sdk",))
+    codebase_detection = detect(
+        env=("^PLAIN_API_KEY$", "^PLAIN_WEBHOOK_SECRET$"),
+        script_hosts=("chat.cdn-plain.com",),
+        npm=("@team-plain/typescript-sdk", "@team-plain/graphql", "@team-plain/webhooks", "@team-plain/ui-components"),
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

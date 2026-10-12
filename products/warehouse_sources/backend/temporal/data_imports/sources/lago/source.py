@@ -32,7 +32,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
-    codebase_detection = detect(env=("^LAGO_",), npm=("lago-javascript-client",), pypi=("lago-python-client",))
+    codebase_detection = detect(
+        env=("^LAGO_",),
+        npm=("lago-javascript-client",),
+        pypi=("lago-python-client",),
+        go=("github.com/getlago/lago-go-client",),
+        rubygems=("lago-ruby-client",),
+    )
 
     api_docs_url = "https://docs.getlago.com/api-reference"
 

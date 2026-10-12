@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NebiusAISource(ResumableSource[NebiusAISourceConfig, NebiusAIResumeConfig]):
-    codebase_detection = detect(env=("^(NEBIUS_AI|NEBIUSAI)_",))
+    codebase_detection = detect(env=("^NEBIUS_API_KEY$",))
 
     api_docs_url = "https://docs.tokenfactory.nebius.com/"
 

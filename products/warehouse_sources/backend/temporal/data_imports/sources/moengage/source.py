@@ -48,7 +48,15 @@ _DATA_CENTER_LABELS = {
 
 @SourceRegistry.register
 class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]):
-    codebase_detection = detect(env=("^(MO_ENGAGE|MOENGAGE)_",))
+    codebase_detection = detect(
+        env=("^(MO_ENGAGE|MOENGAGE)_",),
+        script_hosts=("cdn.moengage.com",),
+        npm=("@moengage/web-sdk", "react-native-moengage"),
+        cocoapods=("MoEngage-iOS-SDK", "MoEngageSDK"),
+        maven=("com.moengage:moe-android-sdk",),
+        pub=("moengage_flutter",),
+        swiftpm=("github.com/moengage/apple-sdk",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # MoEngage versions per endpoint family through the URL path (the V5 campaign search, the

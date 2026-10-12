@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeConfig]):
-    codebase_detection = detect(env=("^(SERVICE_NOW|SERVICENOW)_",))
+    codebase_detection = detect(env=("^(SERVICE_NOW|SERVICENOW)_", "^SN_SDK_"), npm=("@servicenow/sdk",))
 
     api_docs_url = "https://www.servicenow.com/docs/r/washingtondc/api-reference/rest-apis/c_TableAPI.html"
 

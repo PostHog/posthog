@@ -39,7 +39,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResumeConfig]):
-    codebase_detection = detect(env=("^(ZENDESK_SELL|ZENDESKSELL)_",))
+    codebase_detection = detect(
+        env=("^(ZENDESK_SELL|ZENDESKSELL)_",),
+        pypi=("basecrm",),
+        composer=("basecrm/basecrm-php",),
+        maven=("com.getbase:basecrm-java",),
+        rubygems=("basecrm",),
+    )
 
     # v2 is the terminal Core API version this source syncs (Zendesk versions its separate Search
     # API independently). The vendor ships no Core API successor, so there is no version to repin

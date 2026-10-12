@@ -41,7 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OnePasswordSource(ResumableSource[OnePasswordSourceConfig, OnePasswordResumeConfig]):
     codebase_detection = detect(
-        env=("^ONEPASSWORD_", "^OP_SERVICE_ACCOUNT_TOKEN$"), npm=("@1password/sdk",), pypi=("onepassword-sdk",)
+        env=("^ONEPASSWORD_", "^OP_SERVICE_ACCOUNT_TOKEN$", "^OP_CONNECT_HOST$", "^OP_CONNECT_TOKEN$"),
+        npm=("@1password/sdk", "@1password/connect", "@1password/op-js"),
+        pypi=("onepassword-sdk", "onepasswordconnectsdk"),
+        go=("github.com/1password/onepassword-sdk-go", "github.com/1Password/connect-sdk-go"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TallySource(ResumableSource[TallySourceConfig, TallyResumeConfig]):
     # Tally is also an accounting product, so we match the exact key.
-    codebase_detection = detect(env=("^TALLY_API_KEY$",))
+    codebase_detection = detect(env=("^TALLY_API_KEY$",), script_hosts=("tally.so",))
 
     # Tally versions its API by date. 2025-02-01 is the newest version the docs describe, and it is
     # the shape this source is written against (paginated envelopes on the list endpoints).

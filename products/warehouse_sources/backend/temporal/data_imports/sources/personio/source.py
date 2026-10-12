@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PersonioSource(ResumableSource[PersonioSourceConfig, PersonioResumeConfig]):
-    codebase_detection = detect(env=("^PERSONIO_",))
+    codebase_detection = detect(env=("^PERSONIO_", "^PERSONIO_CLIENT_ID$", "^PERSONIO_CLIENT_SECRET$"))
 
     supported_versions = ("v2",)
     default_version = "v2"

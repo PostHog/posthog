@@ -36,7 +36,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeConfig]):
     codebase_detection = detect(
-        env=("^FUSIONAUTH_", "^FUSION_AUTH_"), npm=("@fusionauth/typescript-client",), pypi=("fusionauth-client",)
+        env=("^FUSIONAUTH_", "^FUSION_AUTH_"),
+        npm=(
+            "@fusionauth/typescript-client",
+            "@fusionauth/react-sdk",
+            "@fusionauth/vue-sdk",
+            "@fusionauth/angular-sdk",
+        ),
+        pypi=("fusionauth-client",),
+        composer=("fusionauth/fusionauth-client",),
+        go=("github.com/FusionAuth/go-client",),
+        maven=("io.fusionauth:fusionauth-java-client",),
+        pub=("fusionauth_dart_client",),
+        rubygems=("fusionauth_client",),
+        swiftpm=("github.com/fusionauth/fusionauth-swift-sdk",),
     )
 
     api_docs_url = "https://fusionauth.io/docs/apis/"

@@ -35,7 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HatchetSource(ResumableSource[HatchetSourceConfig, HatchetResumeConfig]):
-    codebase_detection = detect(env=("^HATCHET_",), npm=("@hatchet-dev/typescript-sdk",), pypi=("hatchet-sdk",))
+    codebase_detection = detect(
+        env=("^HATCHET_",),
+        npm=("@hatchet-dev/typescript-sdk",),
+        pypi=("hatchet-sdk",),
+        go=("github.com/hatchet-dev/hatchet",),
+        rubygems=("hatchet-sdk",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.hatchet.run"

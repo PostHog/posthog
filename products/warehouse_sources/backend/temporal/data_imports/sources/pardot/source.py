@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAuthMixin):
-    codebase_detection = detect(env=("^PARDOT_",))
+    codebase_detection = detect(env=("^PARDOT_",), script_hosts=("pi.pardot.com", "cdn.pardot.com"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v5",)

@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
-    codebase_detection = detect(env=("^ARGOCD_",))
+    codebase_detection = detect(env=("^ARGOCD_",), go=("github.com/argoproj/argo-cd",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

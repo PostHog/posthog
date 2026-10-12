@@ -38,7 +38,18 @@ TRANSACTIONS_ENDPOINT = "transactions"
 
 @SourceRegistry.register
 class XenditSource(ResumableSource[XenditSourceConfig, XenditResumeConfig]):
-    codebase_detection = detect(env=("^XENDIT_",))
+    codebase_detection = detect(
+        env=("^XENDIT_",),
+        script_hosts=("js.xendit.co",),
+        npm=("xendit-node",),
+        pypi=("xendit-python",),
+        cocoapods=("Xendit",),
+        composer=("xendit/xendit-php",),
+        go=("github.com/xendit/xendit-go",),
+        maven=("com.xendit:xendit-java-lib",),
+        rubygems=("xendit",),
+        swiftpm=("github.com/xendit/xendit-sdk-ios-src",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Xendit has no account-wide API version: the endpoints this source calls take no version

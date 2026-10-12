@@ -106,7 +106,10 @@ class PlanetScaleMySQLSource(MySQLSource):
     different wire protocol — see `planetscale_postgres`.
     """
 
-    codebase_detection = detect(env=("^PLANETSCALE_",), npm=("@planetscale/database",))
+    codebase_detection = detect(
+        env=("^PLANETSCALE_", "^PLANETSCALE_SERVICE_TOKEN$", "^PLANETSCALE_SERVICE_TOKEN_ID$", "^PLANETSCALE_ORG$"),
+        npm=("@planetscale/database",),
+    )
 
     api_docs_url = "https://planetscale.com/docs"
 

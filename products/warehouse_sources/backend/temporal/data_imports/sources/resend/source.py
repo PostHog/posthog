@@ -40,7 +40,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAuthMixin):
-    codebase_detection = detect(env=("^RESEND_API_KEY$",), npm=("resend",), pypi=("resend",))
+    codebase_detection = detect(
+        env=("^RESEND_API_KEY$",),
+        npm=("resend",),
+        pypi=("resend",),
+        cargo=("resend-rs",),
+        composer=("resend/resend-php", "resend/resend-laravel"),
+        go=("github.com/resend/resend-go",),
+        hex=("resend",),
+        maven=("com.resend:resend-java",),
+        rubygems=("resend",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://resend.com/docs/api-reference/introduction"

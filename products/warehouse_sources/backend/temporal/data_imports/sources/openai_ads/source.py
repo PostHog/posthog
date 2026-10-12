@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAIAdsSource(ResumableSource[OpenAIAdsSourceConfig, OpenAIAdsResumeConfig]):
-    codebase_detection = detect(env=("^(OPEN_AI_ADS|OPENAIADS)_",))
+    codebase_detection = detect(env=("^(OPEN_AI_ADS|OPENAIADS)_",), script_hosts=("bzrcdn.openai.com",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.openai.com/ads/api-overview"

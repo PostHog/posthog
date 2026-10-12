@@ -33,7 +33,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JiraSource(ResumableSource[JiraSourceConfig, JiraResumeConfig]):
-    codebase_detection = detect(env=("^JIRA_",), npm=("jira-client",), pypi=("jira", "atlassian-python-api"))
+    codebase_detection = detect(
+        env=("^JIRA_",),
+        npm=("jira-client", "jira.js"),
+        pypi=("jira", "atlassian-python-api"),
+        composer=("lesstif/php-jira-rest-client",),
+        go=("github.com/andygrunwald/go-jira",),
+        rubygems=("jira-ruby",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("3",)

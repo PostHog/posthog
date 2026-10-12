@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NewsApiSource(ResumableSource[NewsApiSourceConfig, NewsApiResumeConfig]):
-    codebase_detection = detect(env=("^(NEWS_API|NEWSAPI)_",))
+    codebase_detection = detect(env=("^(NEWS_API|NEWSAPI)_",), npm=("newsapi",), pypi=("newsapi-python",))
 
     supported_versions = ("v2",)
     default_version = "v2"

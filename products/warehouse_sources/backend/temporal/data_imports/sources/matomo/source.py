@@ -38,7 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], ValidateDatabaseHostMixin):
-    codebase_detection = detect(env=("^MATOMO_",), npm=("matomo-tracker",), competes_with=(ProductKey.WEB_ANALYTICS,))
+    codebase_detection = detect(
+        env=("^MATOMO_",),
+        script_hosts=("cdn.matomo.cloud",),
+        npm=("matomo-tracker",),
+        composer=("matomo/matomo-php-tracker",),
+        competes_with=(ProductKey.WEB_ANALYTICS,),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

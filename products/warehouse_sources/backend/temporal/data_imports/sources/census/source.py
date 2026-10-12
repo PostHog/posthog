@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
-    codebase_detection = detect(env=("^CENSUS_",))
+    codebase_detection = detect(pypi=("airflow-provider-census",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://fivetran.com/docs/activations/rest-api"

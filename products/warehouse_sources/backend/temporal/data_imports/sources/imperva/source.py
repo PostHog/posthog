@@ -46,7 +46,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ImpervaSource(ResumableSource[ImpervaSourceConfig, ImpervaResumeConfig]):
-    codebase_detection = detect(env=("^IMPERVA_",))
+    codebase_detection = detect(env=("^IMPERVA_", "^INCAPSULA_API_ID$", "^INCAPSULA_API_KEY$"))
 
     lists_tables_without_credentials = True
     supported_versions = ("v3",)

@@ -37,7 +37,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FlutterwaveSource(ResumableSource[FlutterwaveSourceConfig, FlutterwaveResumeConfig]):
     codebase_detection = detect(
-        env=("^FLUTTERWAVE_", "^FLW_(PUBLIC|SECRET)_KEY$"), npm=("flutterwave-node-v3",), pypi=("flutterwave",)
+        env=("^FLUTTERWAVE_", "^FLW_(PUBLIC|SECRET)_KEY$"),
+        script_hosts=("checkout.flutterwave.com",),
+        npm=("flutterwave-node-v3", "flutterwave-react-v3", "flutterwave-angular-v3"),
+        pypi=("flutterwave", "rave-python"),
+        composer=("flutterwavedev/flutterwave-v3",),
+        pub=("flutterwave_standard",),
+        rubygems=("flutterwave_sdk",),
     )
 
     # v3 is Flutterwave's generally available API and the version every request below calls (the

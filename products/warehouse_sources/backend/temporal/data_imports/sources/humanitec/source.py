@@ -41,7 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HumanitecSource(ResumableSource[HumanitecSourceConfig, HumanitecResumeConfig]):
-    codebase_detection = detect(env=("^HUMANITEC_",))
+    codebase_detection = detect(
+        env=("^HUMANITEC_",), npm=("@humanitec/autogen",), go=("github.com/humanitec/humanitec-go-autogen",)
+    )
 
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL

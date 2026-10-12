@@ -58,7 +58,7 @@ def _credentials_from_config(config: AdobeCommerceSourceConfig) -> AdobeCommerce
 
 @SourceRegistry.register
 class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommerceResumeConfig]):
-    codebase_detection = detect(env=("^(ADOBE_COMMERCE|ADOBECOMMERCE)_",))
+    codebase_detection = detect(env=("^(ADOBE_COMMERCE|ADOBECOMMERCE)_", "^MAGENTO_CLOUD_"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

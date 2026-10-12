@@ -56,7 +56,15 @@ PARTITION_FIELDS: dict[str, list[str]] = {
 
 @SourceRegistry.register
 class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
-    codebase_detection = detect(env=("^BLUESKY_",))
+    codebase_detection = detect(
+        env=("^BLUESKY_",),
+        script_hosts=("embed.bsky.app",),
+        npm=("@atproto/api",),
+        pypi=("atproto",),
+        cargo=("atrium-api", "bsky-sdk"),
+        go=("github.com/bluesky-social/indigo",),
+        pub=("bluesky",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

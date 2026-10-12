@@ -39,13 +39,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConfig]):
     codebase_detection = detect(
         env=("^AMPLITUDE_",),
+        script_hosts=("cdn.amplitude.com",),
         npm=(
             "@amplitude/analytics-browser",
             "@amplitude/analytics-node",
             "@amplitude/analytics-react-native",
             "amplitude-js",
+            "@amplitude/unified",
         ),
         pypi=("amplitude-analytics",),
+        cocoapods=("AmplitudeSwift", "Amplitude"),
+        go=("github.com/amplitude/analytics-go",),
+        maven=("com.amplitude:analytics-android", "com.amplitude:android-sdk"),
+        pub=("amplitude_flutter",),
+        swiftpm=("github.com/amplitude/amplitude-swift", "github.com/amplitude/amplitude-ios"),
         competes_with=(ProductKey.PRODUCT_ANALYTICS,),
     )
 

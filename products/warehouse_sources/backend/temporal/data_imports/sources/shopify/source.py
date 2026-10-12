@@ -65,7 +65,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     codebase_detection = detect(
-        env=("^SHOPIFY_",), npm=("@shopify/shopify-api", "shopify-api-node"), pypi=("shopifyapi",)
+        env=("^SHOPIFY_",),
+        script_hosts=("cdn.shopify.com", "sdks.shopifycdn.com"),
+        npm=(
+            "@shopify/shopify-api",
+            "shopify-api-node",
+            "@shopify/shopify-app-remix",
+            "@shopify/shopify-app-react-router",
+            "@shopify/shopify-app-express",
+            "@shopify/hydrogen",
+            "@shopify/app-bridge",
+            "@shopify/app-bridge-react",
+            "@shopify/storefront-api-client",
+            "@shopify/admin-api-client",
+        ),
+        pypi=("shopifyapi",),
+        composer=("shopify/shopify-api",),
+        go=("github.com/bold-commerce/go-shopify",),
+        rubygems=("shopify_api", "shopify_app"),
     )
 
     supported_versions = (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07)

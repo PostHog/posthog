@@ -36,7 +36,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InngestSource(ResumableSource[InngestSourceConfig, InngestResumeConfig]):
-    codebase_detection = detect(env=("^INNGEST_",), npm=("inngest",), pypi=("inngest",))
+    codebase_detection = detect(
+        env=("^INNGEST_",),
+        npm=("inngest",),
+        pypi=("inngest",),
+        go=("github.com/inngest/inngestgo",),
+        maven=("com.inngest:inngest", "com.inngest:inngest-spring-boot-adapter"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api-docs.inngest.com"

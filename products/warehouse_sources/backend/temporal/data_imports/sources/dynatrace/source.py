@@ -59,7 +59,15 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConfig]):
-    codebase_detection = detect(env=("^DYNATRACE_",))
+    codebase_detection = detect(
+        env=("^DYNATRACE_", "^DT_API_TOKEN$", "^DT_API_URL$"),
+        script_hosts=("js-cdn.dynatrace.com",),
+        npm=("@dynatrace/oneagent-sdk", "@dynatrace/oneagent", "@dynatrace/react-native-plugin"),
+        pypi=("oneagent-sdk",),
+        cocoapods=("Dynatrace",),
+        maven=("com.dynatrace.oneagent.sdk.java:oneagent-sdk", "com.dynatrace.tools.android:gradle-plugin"),
+        pub=("dynatrace_flutter_plugin",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -41,7 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
-    codebase_detection = detect(env=("^(ROKT_ADS|ROKTADS)_",))
+    codebase_detection = detect(
+        env=("^(ROKT_ADS|ROKTADS)_",), script_hosts=("apps.rokt.com", "apps.rokt-api.com", "apps.roktecommerce.com")
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Rokt's Query API carries a single `/v1/` path segment with no documented version choice, so

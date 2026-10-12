@@ -34,7 +34,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OctopusDeploySource(ResumableSource[OctopusDeploySourceConfig, OctopusDeployResumeConfig]):
-    codebase_detection = detect(env=("^(OCTOPUS_DEPLOY|OCTOPUSDEPLOY)_",))
+    codebase_detection = detect(
+        env=("^OCTOPUS_URL$", "^OCTOPUS_API_KEY$", "^OCTOPUS_ACCESS_TOKEN$", "^OCTOPUS_SPACE$"),
+        npm=("@octopusdeploy/api-client",),
+        go=("github.com/OctopusDeploy/go-octopusdeploy",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

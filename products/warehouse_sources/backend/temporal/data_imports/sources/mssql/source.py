@@ -88,7 +88,16 @@ class MSSQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
-    codebase_detection = detect(env=("^MSSQL_",), npm=("mssql", "tedious"), pypi=("pyodbc", "pymssql"))
+    codebase_detection = detect(
+        env=("^MSSQL_",),
+        npm=("mssql", "tedious"),
+        pypi=("pyodbc", "pymssql", "mssql-python", "mssql-django"),
+        cargo=("tiberius",),
+        go=("github.com/microsoft/go-mssqldb", "github.com/denisenkom/go-mssqldb"),
+        hex=("tds",),
+        maven=("com.microsoft.sqlserver:mssql-jdbc",),
+        rubygems=("tiny_tds", "activerecord-sqlserver-adapter"),
+    )
 
     @property
     def get_implementation(self) -> MSSQLImplementation:

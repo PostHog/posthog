@@ -74,7 +74,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     # is a file upload, and the terminal prompt collects single-line text, so
     # there is no in-cli path that can accept it. Deep-link to the app's
     # new-source form instead of dead-ending on an unpasteable credential.
-    codebase_detection = detect(env=("^BIGQUERY_",), npm=("@google-cloud/bigquery",), pypi=("google-cloud-bigquery",))
+    codebase_detection = detect(
+        env=("^BIGQUERY_",),
+        npm=("@google-cloud/bigquery",),
+        pypi=("google-cloud-bigquery", "sqlalchemy-bigquery", "pandas-gbq"),
+        cargo=("gcp-bigquery-client",),
+        composer=("google/cloud-bigquery",),
+        go=("cloud.google.com/go/bigquery",),
+        hex=("google_api_big_query",),
+        maven=("com.google.cloud:google-cloud-bigquery",),
+        rubygems=("google-cloud-bigquery",),
+    )
 
     # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;
     # new sources start on v2. Both resolve to the same /bigquery/v2/ REST endpoint, so the default

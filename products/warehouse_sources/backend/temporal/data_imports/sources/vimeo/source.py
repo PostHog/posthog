@@ -38,7 +38,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
-    codebase_detection = detect(env=("^VIMEO_",))
+    codebase_detection = detect(
+        env=("^VIMEO_",),
+        script_hosts=("player.vimeo.com",),
+        npm=("@vimeo/vimeo", "@vimeo/player"),
+        pypi=("pyvimeo",),
+        cocoapods=("VimeoNetworking",),
+        composer=("vimeo/vimeo-api",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("3.4",)

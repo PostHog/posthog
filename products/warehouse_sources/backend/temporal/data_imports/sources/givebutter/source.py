@@ -41,7 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GivebutterSource(ResumableSource[GivebutterSourceConfig, GivebutterResumeConfig]):
-    codebase_detection = detect(env=("^GIVEBUTTER_",))
+    codebase_detection = detect(
+        env=("^GIVEBUTTER_",), script_hosts=("widgets.givebutter.com",), npm=("@givebutter/sdk",)
+    )
 
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.givebutter.com/api-reference/authentication"

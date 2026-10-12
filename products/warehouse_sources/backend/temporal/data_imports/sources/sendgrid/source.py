@@ -42,7 +42,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]):
     codebase_detection = detect(
-        env=("^SENDGRID_",), npm=("@sendgrid/mail", "@sendgrid/client"), pypi=("sendgrid",), rubygems=("sendgrid-ruby",)
+        env=("^SENDGRID_",),
+        npm=("@sendgrid/mail", "@sendgrid/client", "sendgrid", "@sendgrid/eventwebhook"),
+        pypi=("sendgrid",),
+        composer=("sendgrid/sendgrid",),
+        go=("github.com/sendgrid/sendgrid-go",),
+        maven=("com.sendgrid:sendgrid-java",),
+        rubygems=("sendgrid-ruby",),
     )
 
     supported_versions = ("v3",)

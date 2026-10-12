@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SecodaSource(ResumableSource[SecodaSourceConfig, SecodaResumeConfig]):
-    codebase_detection = detect(env=("^SECODA_",))
+    codebase_detection = detect(env=("^SECODA_",), pypi=("secodadk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)

@@ -36,7 +36,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CampaignMonitorSource(ResumableSource[CampaignMonitorSourceConfig, CampaignMonitorResumeConfig]):
-    codebase_detection = detect(env=("^CAMPAIGN_MONITOR_", "^CREATESEND_"), npm=("createsend-node",))
+    codebase_detection = detect(
+        env=("^CAMPAIGN_MONITOR_", "^CREATESEND_"),
+        script_hosts=("js.createsend1.com",),
+        npm=("createsend-node",),
+        pypi=("createsend",),
+        composer=("campaignmonitor/createsend-php",),
+        rubygems=("createsend",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3.3",)

@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, FinancialModellingResumeConfig]):
-    codebase_detection = detect(env=("^(FINANCIAL_MODELLING|FINANCIALMODELLING)_",))
+    codebase_detection = detect(env=("^(FINANCIAL_MODELLING|FINANCIALMODELLING)_", "^FMP_API_KEY$"))
 
     supported_versions = ("stable",)
     default_version = "stable"

@@ -33,7 +33,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DigitalOceanSource(SimpleSource[DigitalOceanSourceConfig]):
     # DO_ is too short to be safe, so we match the full product name.
-    codebase_detection = detect(env=("^DIGITALOCEAN_",))
+    codebase_detection = detect(
+        env=("^DIGITALOCEAN_",),
+        npm=("@digitalocean/dots",),
+        pypi=("pydo",),
+        go=("github.com/digitalocean/godo",),
+        rubygems=("droplet_kit",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

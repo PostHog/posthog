@@ -40,7 +40,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ReferralHeroSource(ResumableSource[ReferralHeroSourceConfig, ReferralHeroResumeConfig]):
-    codebase_detection = detect(env=("^(REFERRAL_HERO|REFERRALHERO)_",))
+    codebase_detection = detect(
+        env=("^(REFERRAL_HERO|REFERRALHERO)_",), script_hosts=("referralhero-global-code.s3.amazonaws.com",)
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

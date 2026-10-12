@@ -35,7 +35,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InfisicalSource(ResumableSource[InfisicalSourceConfig, InfisicalResumeConfig]):
-    codebase_detection = detect(env=("^INFISICAL_",), npm=("@infisical/sdk",), pypi=("infisicalsdk",))
+    codebase_detection = detect(
+        env=("^INFISICAL_",),
+        npm=("@infisical/sdk", "@infisical/cli"),
+        pypi=("infisicalsdk", "infisical-python"),
+        cargo=("infisical",),
+        go=("github.com/infisical/go-sdk",),
+        maven=("com.infisical:sdk",),
+        rubygems=("infisical-sdk",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

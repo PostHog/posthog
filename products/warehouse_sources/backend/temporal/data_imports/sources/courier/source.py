@@ -39,7 +39,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
     # COURIER_ is a generic shipping word, so we match the exact key.
-    codebase_detection = detect(env=("^COURIER_AUTH_TOKEN$",), npm=("@trycourier/courier",), pypi=("trycourier",))
+    codebase_detection = detect(
+        env=("^COURIER_AUTH_TOKEN$", "^COURIER_API_KEY$"),
+        npm=(
+            "@trycourier/courier",
+            "@trycourier/courier-js",
+            "@trycourier/courier-react",
+            "@trycourier/react-provider",
+            "@trycourier/courier-react-native",
+        ),
+        pypi=("trycourier",),
+        cocoapods=("Courier_iOS",),
+        composer=("trycourier/courier",),
+        go=("github.com/trycourier/courier-go",),
+        maven=("com.courier:courier-java",),
+        pub=("courier_flutter",),
+        rubygems=("trycourier",),
+        swiftpm=("github.com/trycourier/courier-ios",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.courier.com/docs/reference/get-started/"

@@ -32,7 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceConfig]):
-    codebase_detection = detect(env=("^(GOOGLE_PAGE_SPEED_INSIGHTS|GOOGLEPAGESPEEDINSIGHTS)_",))
+    codebase_detection = detect(
+        env=("^(GOOGLE_PAGE_SPEED_INSIGHTS|GOOGLEPAGESPEEDINSIGHTS)_",),
+        npm=("@googleapis/pagespeedonline",),
+        maven=("com.google.apis:google-api-services-pagespeedonline",),
+        rubygems=("google-apis-pagespeedonline_v5",),
+    )
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.

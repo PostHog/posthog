@@ -60,7 +60,14 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
-    codebase_detection = detect(env=("^HUBSPOT_",), npm=("@hubspot/api-client",), pypi=("hubspot-api-client",))
+    codebase_detection = detect(
+        env=("^HUBSPOT_",),
+        script_hosts=("js.hs-scripts.com", "js.hsforms.net"),
+        npm=("@hubspot/api-client",),
+        pypi=("hubspot-api-client",),
+        composer=("hubspot/api-client",),
+        rubygems=("hubspot-api-client",),
+    )
 
     supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_09)
     default_version = HUBSPOT_API_VERSION_2026_09

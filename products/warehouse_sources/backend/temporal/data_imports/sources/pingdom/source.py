@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PingdomSource(ResumableSource[PingdomSourceConfig, PingdomResumeConfig]):
-    codebase_detection = detect(env=("^PINGDOM_",))
+    codebase_detection = detect(env=("^PINGDOM_",), script_hosts=("rum-static.pingdom.net",))
 
     supported_versions = ("3.1",)
     default_version = "3.1"

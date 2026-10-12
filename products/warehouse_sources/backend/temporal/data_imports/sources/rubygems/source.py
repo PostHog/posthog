@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RubygemsSource(SimpleSource[RubygemsSourceConfig]):
-    codebase_detection = detect(env=("^RUBYGEMS_",))
+    codebase_detection = detect(env=("^RUBYGEMS_", "^GEM_HOST_API_KEY$"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://guides.rubygems.org/rubygems-org-api/"

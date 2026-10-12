@@ -39,7 +39,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeConfig]):
     codebase_detection = detect(
-        env=("^GOCARDLESS_",), npm=("gocardless-nodejs",), pypi=("gocardless-pro",), rubygems=("gocardless_pro",)
+        env=("^GOCARDLESS_",),
+        script_hosts=("pay.gocardless.com",),
+        npm=("gocardless-nodejs", "@gocardless/react-dropin"),
+        pypi=("gocardless-pro",),
+        composer=("gocardless/gocardless-pro",),
+        go=("github.com/gocardless/gocardless-pro-go",),
+        maven=("com.gocardless:gocardless-pro",),
+        rubygems=("gocardless_pro",),
     )
 
     supported_versions = ("2015-07-06",)

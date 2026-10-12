@@ -39,7 +39,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, CommercetoolsResumeConfig]):
     codebase_detection = detect(
-        env=("^CTP_", "^COMMERCETOOLS_"), npm=("@commercetools/platform-sdk",), pypi=("commercetools",)
+        env=("^CTP_", "^COMMERCETOOLS_"),
+        npm=(
+            "@commercetools/platform-sdk",
+            "@commercetools/ts-client",
+            "@commercetools/sdk-client-v2",
+            "@commercetools/importapi-sdk",
+        ),
+        pypi=("commercetools",),
+        composer=("commercetools/commercetools-sdk", "commercetools/php-sdk"),
+        go=("github.com/labd/commercetools-go-sdk",),
+        maven=("com.commercetools.sdk:commercetools-sdk-java-api",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

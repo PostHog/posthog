@@ -33,7 +33,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SquareSource(ResumableSource[SquareSourceConfig, SquareResumeConfig]):
-    codebase_detection = detect(env=("^SQUARE_",), npm=("square",), pypi=("squareup",), rubygems=("square",))
+    codebase_detection = detect(
+        env=("^SQUARE_",),
+        script_hosts=("web.squarecdn.com", "sandbox.web.squarecdn.com"),
+        npm=("square", "@square/web-sdk"),
+        pypi=("squareup",),
+        cocoapods=("SquareInAppPaymentsSDK",),
+        composer=("square/square",),
+        go=("github.com/square/square-go-sdk",),
+        maven=("com.squareup:square",),
+        pub=("square_in_app_payments",),
+        rubygems=("square.rb",),
+    )
 
     supported_versions = ("v2",)
     default_version = "v2"

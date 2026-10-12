@@ -36,7 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BrowserbaseSource(SimpleSource[BrowserbaseSourceConfig]):
     codebase_detection = detect(
-        env=("^BROWSERBASE_",), npm=("@browserbasehq/sdk", "@browserbasehq/stagehand"), pypi=("browserbase",)
+        env=("^BROWSERBASE_",),
+        npm=("@browserbasehq/sdk", "@browserbasehq/stagehand"),
+        pypi=("browserbase", "stagehand"),
+        go=("github.com/browserbase/stagehand-go",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

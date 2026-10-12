@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodaSource(SimpleSource[CodaSourceConfig]):
-    codebase_detection = detect(env=("^CODA_API_",))
+    codebase_detection = detect(env=("^CODA_API_",), npm=("@codahq/packs-sdk",), pypi=("codaio",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

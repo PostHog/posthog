@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RetentlySource(ResumableSource[RetentlySourceConfig, RetentlyResumeConfig]):
-    codebase_detection = detect(env=("^RETENTLY_",))
+    codebase_detection = detect(env=("^RETENTLY_",), script_hosts=("cdn.retently.com",))
 
     supported_versions = ("v2",)
     default_version = "v2"

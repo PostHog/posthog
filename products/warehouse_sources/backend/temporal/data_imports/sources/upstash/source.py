@@ -32,7 +32,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UpstashSource(SimpleSource[UpstashSourceConfig]):
-    codebase_detection = detect(env=("^UPSTASH_",), npm=("@upstash/redis",), pypi=("upstash-redis",))
+    codebase_detection = detect(
+        env=("^UPSTASH_", "^QSTASH_"),
+        npm=(
+            "@upstash/redis",
+            "@upstash/ratelimit",
+            "@upstash/qstash",
+            "@upstash/vector",
+            "@upstash/workflow",
+            "@upstash/search",
+        ),
+        pypi=("upstash-redis", "upstash-ratelimit", "qstash", "upstash-vector", "upstash-workflow"),
+        go=("github.com/upstash/vector-go", "github.com/upstash/qstash-go"),
+    )
 
     supported_versions = ("v2",)
     default_version = "v2"

@@ -58,7 +58,12 @@ class WebflowSource(
     ResumableSource[WebflowSourceConfig, WebflowResumeConfig],
     WebhookSource[WebflowSourceConfig],
 ):
-    codebase_detection = detect(env=("^WEBFLOW_",), npm=("webflow-api",))
+    codebase_detection = detect(
+        env=("^WEBFLOW_",),
+        script_hosts=("cdn.prod.website-files.com",),
+        npm=("webflow-api", "@webflow/webflow-cli", "@webflow/react", "@webflow/data-types"),
+        pypi=("webflow",),
+    )
 
     supported_versions = ("v2",)
     default_version = "v2"

@@ -51,7 +51,15 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
     # have no Firestore data to import. We accept the false positives - the
     # package is a strong signal for the common case.
     codebase_detection = detect(
-        env=("^FIREBASE_", "^NEXT_PUBLIC_FIREBASE_"), npm=("firebase-admin", "firebase"), pypi=("firebase-admin",)
+        env=("^FIREBASE_", "^NEXT_PUBLIC_FIREBASE_"),
+        npm=("firebase-admin", "firebase"),
+        pypi=("firebase-admin",),
+        cocoapods=("FirebaseFirestore",),
+        composer=("kreait/firebase-php",),
+        go=("firebase.google.com/go",),
+        maven=("com.google.firebase:firebase-firestore",),
+        pub=("cloud_firestore",),
+        swiftpm=("github.com/firebase/firebase-ios-sdk",),
     )
 
     # Firestore and Identity Platform both keep `v1beta*` channels alongside `v1`; `v1` is GA.

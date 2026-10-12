@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import NO_CODE_SIGNAL, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EConomicSource(ResumableSource[EConomicSourceConfig, EConomicResumeConfig]):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = not_detectable(NO_CODE_SIGNAL)
 
     api_docs_url = "https://restdocs.e-conomic.com"
 

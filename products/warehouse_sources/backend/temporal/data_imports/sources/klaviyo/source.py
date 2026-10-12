@@ -46,7 +46,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     codebase_detection = detect(
-        env=("^KLAVIYO_",), npm=("klaviyo-api",), pypi=("klaviyo-api",), competes_with=(ProductKey.WORKFLOWS,)
+        env=("^KLAVIYO_",),
+        script_hosts=("static.klaviyo.com",),
+        npm=("klaviyo-api", "klaviyo-react-native-sdk"),
+        pypi=("klaviyo-api",),
+        cocoapods=("KlaviyoSwift",),
+        composer=("klaviyo/api",),
+        pub=("klaviyo_flutter_sdk",),
+        rubygems=("klaviyo-api-sdk",),
+        swiftpm=("github.com/klaviyo/klaviyo-swift-sdk",),
+        competes_with=(ProductKey.WORKFLOWS,),
     )
 
     supported_versions = (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2026_07_15)

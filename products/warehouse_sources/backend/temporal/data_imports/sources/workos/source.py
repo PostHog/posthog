@@ -52,7 +52,25 @@ class WorkOSSource(
     ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig],
     WebhookSource[WorkOSSourceConfig],
 ):
-    codebase_detection = detect(env=("^WORKOS_",), npm=("@workos-inc/node",), pypi=("workos",))
+    codebase_detection = detect(
+        env=("^WORKOS_", "^NEXT_PUBLIC_WORKOS_REDIRECT_URI$"),
+        npm=(
+            "@workos-inc/node",
+            "@workos-inc/authkit-nextjs",
+            "@workos-inc/authkit-react",
+            "@workos-inc/authkit-js",
+            "@workos-inc/authkit-remix",
+            "@workos-inc/authkit-react-router",
+            "@workos-inc/widgets",
+        ),
+        pypi=("workos",),
+        cargo=("workos",),
+        composer=("workos/workos-php", "workos/workos-php-laravel"),
+        go=("github.com/workos/workos-go",),
+        hex=("workos",),
+        maven=("com.workos:workos",),
+        rubygems=("workos",),
+    )
 
     api_docs_url = "https://workos.com/docs/reference"
 

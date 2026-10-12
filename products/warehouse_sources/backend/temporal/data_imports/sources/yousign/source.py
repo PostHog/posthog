@@ -67,7 +67,7 @@ class YouSignSource(
     ResumableSource[YouSignSourceConfig, YousignResumeConfig],
     WebhookSource[YouSignSourceConfig],
 ):
-    codebase_detection = detect(env=("^(YOU_SIGN|YOUSIGN)_",))
+    codebase_detection = detect(env=("^(YOU_SIGN|YOUSIGN)_",), script_hosts=("cdn.yousign.tech",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SleekplanSource(ResumableSource[SleekplanSourceConfig, SleekplanResumeConfig]):
-    codebase_detection = detect(env=("^SLEEKPLAN_",))
+    codebase_detection = detect(env=("^SLEEKPLAN_",), script_hosts=("client.sleekplan.com",))
 
     # `get_schemas` iterates a static endpoint catalog with no I/O -- safe for public docs.
     lists_tables_without_credentials = True

@@ -40,7 +40,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeConfig]):
-    codebase_detection = detect(env=("^FORMBRICKS_",), npm=("@formbricks/js",))
+    codebase_detection = detect(
+        env=("^FORMBRICKS_",),
+        npm=("@formbricks/js", "@formbricks/react-native", "@formbricks/api"),
+        cocoapods=("FormbricksSDK",),
+        maven=("com.formbricks:android",),
+        pub=("formbricks",),
+        swiftpm=("github.com/formbricks/ios",),
+    )
 
     supported_versions = FORMBRICKS_SUPPORTED_VERSIONS
     default_version = FORMBRICKS_DEFAULT_VERSION

@@ -5,9 +5,22 @@ from products.warehouse_sources.backend.facade.codebase_detection import Detecti
 # Competitors with no released warehouse source. Every source declares its own `codebase_detection`,
 # so only these live here. The wizard detects and reports them, and never offers them as a source.
 COMPETITORS_WITHOUT_SOURCE: dict[str, Detection] = {
-    "Heap": detect(env=("^HEAP_",), competes_with=(ProductKey.PRODUCT_ANALYTICS,)),
+    "Heap": detect(
+        script_hosts=("cdn.heapanalytics.com", "cdn.us.heap-api.com"),
+        npm=("@heap/react-native-heap", "@heap/heap-react-native-autocapture"),
+        cocoapods=("Heap", "HeapSwiftCore", "HeapIOSAutocapture"),
+        maven=(
+            "io.heap.core:heap-android-core",
+            "io.heap.autocapture:heap-autocapture-view",
+            "com.heapanalytics.android:heap-android-client",
+        ),
+        rubygems=("heap",),
+        swiftpm=("github.com/heap/heap-swift-core-sdk", "github.com/heap/heap-ios-autocapture-sdk"),
+        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+    ),
     "Hotjar": detect(
         env=("^HOTJAR_",),
+        script_hosts=("static.hotjar.com", "script.hotjar.com"),
         npm=("@hotjar/browser", "react-hotjar"),
         competes_with=(ProductKey.SESSION_REPLAY, ProductKey.HEATMAPS, ProductKey.SURVEYS),
     ),

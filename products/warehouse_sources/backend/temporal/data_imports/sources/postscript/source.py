@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PostscriptSource(ResumableSource[PostscriptSourceConfig, PostscriptResumeConfig]):
-    codebase_detection = detect(env=("^POSTSCRIPT_",))
+    codebase_detection = detect(env=("^POSTSCRIPT_",), script_hosts=("sdk.postscript.io",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `v2` is the `/api/v2/` path segment every request uses, and the version Postscript took

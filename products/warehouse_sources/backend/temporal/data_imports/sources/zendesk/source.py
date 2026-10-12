@@ -44,8 +44,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
     codebase_detection = detect(
         env=("^ZENDESK_",),
-        npm=("node-zendesk",),
+        script_hosts=("static.zdassets.com",),
+        npm=("node-zendesk", "zendesk_app_framework_sdk", "@zendesk/zcli"),
         pypi=("zenpy",),
+        cocoapods=("ZendeskSupportSDK", "ZendeskSDKMessaging"),
+        composer=("zendesk/zendesk_api_client_php",),
+        rubygems=("zendesk_api",),
+        swiftpm=("github.com/zendesk/sdk_messaging_ios",),
         competes_with=(ProductKey.CONVERSATIONS,),
         setup_requires_ui=True,
     )

@@ -35,7 +35,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
-    codebase_detection = detect(env=("^MAXIO_",))
+    codebase_detection = detect(
+        env=("^MAXIO_",),
+        script_hosts=("js.chargify.com",),
+        npm=("@maxio-com/advanced-billing-sdk",),
+        pypi=("maxio-advanced-billing-sdk",),
+        composer=("maxio/advanced-billing-sdk",),
+        go=("github.com/maxio-com/ab-golang-sdk",),
+        maven=("com.maxio:advanced-billing-sdk",),
+        rubygems=("maxio-advanced-billing-sdk",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.maxio.com/"

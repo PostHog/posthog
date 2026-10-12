@@ -34,7 +34,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SinglestoreSource(SimpleSource[SinglestoreSourceConfig]):
-    codebase_detection = detect(env=("^SINGLESTORE_",), pypi=("singlestoredb",))
+    codebase_detection = detect(
+        env=("^SINGLESTORE_", "^SINGLESTOREDB_"),
+        npm=("@singlestore/client",),
+        pypi=("singlestoredb", "sqlalchemy-singlestoredb"),
+    )
 
     # get_schemas below just iterates the static ENDPOINTS catalog — no network call.
     lists_tables_without_credentials = True

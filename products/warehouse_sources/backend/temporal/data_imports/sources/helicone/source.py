@@ -39,7 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HeliconeSource(ResumableSource[HeliconeSourceConfig, HeliconeResumeConfig]):
     codebase_detection = detect(
-        env=("^HELICONE_",), npm=("@helicone/helpers",), competes_with=(ProductKey.LLM_ANALYTICS,)
+        env=("^HELICONE_",),
+        npm=("@helicone/helpers", "@helicone/helicone"),
+        pypi=("helicone", "helicone-helpers"),
+        competes_with=(ProductKey.LLM_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

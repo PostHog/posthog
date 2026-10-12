@@ -62,7 +62,7 @@ class GiteaSource(
     WebhookSource[GiteaSourceConfig],
     ValidateDatabaseHostMixin,
 ):
-    codebase_detection = detect(env=("^GITEA_",), npm=("gitea-js",))
+    codebase_detection = detect(env=("^GITEA_",), npm=("gitea-js",), go=("code.gitea.io/sdk/gitea",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

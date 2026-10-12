@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PylonSource(ResumableSource[PylonSourceConfig, PylonResumeConfig]):
-    codebase_detection = detect(env=("^PYLON_",))
+    codebase_detection = detect(env=("^PYLON_",), script_hosts=("widget.usepylon.com", "widget.eu.usepylon.com"))
 
     api_docs_url = "https://docs.usepylon.com"
 

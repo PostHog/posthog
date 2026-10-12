@@ -37,7 +37,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PagerDutySource(ResumableSource[PagerDutySourceConfig, PagerDutyResumeConfig]):
-    codebase_detection = detect(env=("^PAGERDUTY_", "^PD_API_KEY$"), npm=("@pagerduty/pdjs",), pypi=("pdpyras",))
+    codebase_detection = detect(
+        env=("^PAGERDUTY_", "^PD_API_KEY$"),
+        npm=("@pagerduty/pdjs",),
+        pypi=("pdpyras", "pagerduty"),
+        go=("github.com/PagerDuty/go-pagerduty",),
+    )
 
     supported_versions = ("2",)
     default_version = "2"

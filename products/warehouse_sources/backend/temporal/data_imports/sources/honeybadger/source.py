@@ -38,9 +38,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResumeConfig]):
     codebase_detection = detect(
         env=("^HONEYBADGER_",),
-        npm=("@honeybadger-io/js",),
+        script_hosts=("js.honeybadger.io",),
+        npm=(
+            "@honeybadger-io/js",
+            "@honeybadger-io/react",
+            "@honeybadger-io/vue",
+            "@honeybadger-io/react-native",
+            "@honeybadger-io/nextjs",
+            "@honeybadger-io/webpack",
+        ),
         pypi=("honeybadger",),
+        cocoapods=("Honeybadger",),
+        composer=("honeybadger-io/honeybadger-php", "honeybadger-io/honeybadger-laravel"),
+        go=("github.com/honeybadger-io/honeybadger-go",),
+        hex=("honeybadger",),
+        maven=("io.honeybadger:honeybadger-java",),
         rubygems=("honeybadger",),
+        swiftpm=("github.com/honeybadger-io/honeybadger-cocoa",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BugherdSource(ResumableSource[BugherdSourceConfig, BugherdResumeConfig]):
-    codebase_detection = detect(env=("^BUGHERD_",))
+    codebase_detection = detect(env=("^BUGHERD_",), script_hosts=("www.bugherd.com",))
 
     # `get_schemas` iterates a static endpoint catalog with no I/O -- safe for public docs.
     lists_tables_without_credentials = True

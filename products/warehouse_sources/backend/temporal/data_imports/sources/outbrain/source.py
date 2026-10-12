@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]):
-    codebase_detection = detect(env=("^OUTBRAIN_",))
+    codebase_detection = detect(env=("^OUTBRAIN_",), script_hosts=("amplify.outbrain.com", "widgets.outbrain.com"))
 
     supported_versions = ("v0.1",)
     default_version = "v0.1"

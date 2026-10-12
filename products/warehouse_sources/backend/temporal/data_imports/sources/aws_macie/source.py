@@ -43,7 +43,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]):
-    codebase_detection = detect(env=("^(AWS_MACIE|AWSMACIE)_",))
+    codebase_detection = detect(
+        env=("^(AWS_MACIE|AWSMACIE)_",),
+        npm=("@aws-sdk/client-macie2",),
+        cargo=("aws-sdk-macie2",),
+        go=("github.com/aws/aws-sdk-go-v2/service/macie2",),
+        maven=("software.amazon.awssdk:macie2", "com.amazonaws:aws-java-sdk-macie2"),
+        rubygems=("aws-sdk-macie2",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (MACIE_API_VERSION,)

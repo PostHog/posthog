@@ -38,7 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
-    codebase_detection = detect(env=("^ROOTLY_",))
+    codebase_detection = detect(
+        env=("^ROOTLY_",), npm=("@rootly/pulumi",), pypi=("rootly",), go=("github.com/rootlyhq/rootly-go",)
+    )
 
     api_docs_url = "https://docs.rootly.com/api-reference"
 

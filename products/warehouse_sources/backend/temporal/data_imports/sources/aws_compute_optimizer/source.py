@@ -41,7 +41,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig, AwsComputeOptimizerResumeConfig]):
-    codebase_detection = detect(env=("^(AWS_COMPUTE_OPTIMIZER|AWSCOMPUTEOPTIMIZER)_",))
+    codebase_detection = detect(
+        env=("^(AWS_COMPUTE_OPTIMIZER|AWSCOMPUTEOPTIMIZER)_",),
+        npm=("@aws-sdk/client-compute-optimizer",),
+        cargo=("aws-sdk-computeoptimizer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/computeoptimizer",),
+        maven=("software.amazon.awssdk:computeoptimizer", "com.amazonaws:aws-java-sdk-computeoptimizer"),
+        rubygems=("aws-sdk-computeoptimizer",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

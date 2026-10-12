@@ -77,7 +77,7 @@ _API_HEADER_BY_VERSION = {
 
 @SourceRegistry.register
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
-    codebase_detection = detect(env=("^LINKEDIN_ADS_",))
+    codebase_detection = detect(env=("^LINKEDIN_ADS_",), script_hosts=("snap.licdn.com",))
 
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
 

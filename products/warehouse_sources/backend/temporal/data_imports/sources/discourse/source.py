@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DiscourseSource(ResumableSource[DiscourseSourceConfig, DiscourseResumeConfig]):
-    codebase_detection = detect(env=("^DISCOURSE_",))
+    codebase_detection = detect(env=("^DISCOURSE_",), rubygems=("discourse_api",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

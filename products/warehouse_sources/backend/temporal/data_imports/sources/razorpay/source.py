@@ -37,7 +37,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]):
-    codebase_detection = detect(env=("^RAZORPAY_",), npm=("razorpay",), pypi=("razorpay",), rubygems=("razorpay",))
+    codebase_detection = detect(
+        env=("^RAZORPAY_",),
+        script_hosts=("checkout.razorpay.com",),
+        npm=("razorpay", "react-native-razorpay"),
+        pypi=("razorpay",),
+        cocoapods=("razorpay-pod",),
+        composer=("razorpay/razorpay",),
+        go=("github.com/razorpay/razorpay-go",),
+        maven=("com.razorpay:razorpay-java", "com.razorpay:checkout"),
+        pub=("razorpay_flutter",),
+        rubygems=("razorpay",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://razorpay.com/docs/api/"

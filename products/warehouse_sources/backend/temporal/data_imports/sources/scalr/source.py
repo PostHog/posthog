@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScalrSource(ResumableSource[ScalrSourceConfig, ScalrResumeConfig]):
-    codebase_detection = detect(env=("^SCALR_",))
+    codebase_detection = detect(env=("^SCALR_",), go=("github.com/scalr/go-scalr",))
 
     lists_tables_without_credentials = True
     supported_versions = ("v3",)

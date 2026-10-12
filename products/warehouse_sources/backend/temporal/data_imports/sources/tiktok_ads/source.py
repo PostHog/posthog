@@ -56,7 +56,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConfig], OAuthMixin):
-    codebase_detection = detect(env=("^TIKTOK_ADS_",))
+    codebase_detection = detect(env=("^TIKTOK_ADS_",), script_hosts=("analytics.tiktok.com",))
 
     supported_versions = ("v1.3",)
     default_version = "v1.3"

@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ConvertKitSource(ResumableSource[ConvertKitSourceConfig, ConvertKitResumeConfig]):
-    codebase_detection = detect(env=("^CONVERTKIT_",))
+    codebase_detection = detect(env=("^CONVERTKIT_",), script_hosts=("f.convertkit.com",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

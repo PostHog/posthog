@@ -28,7 +28,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinodeSource(ResumableSource[LinodeSourceConfig, LinodeResumeConfig]):
-    codebase_detection = detect(env=("^LINODE_",))
+    codebase_detection = detect(
+        env=("^LINODE_",),
+        npm=("@linode/api-v4",),
+        pypi=("linode-api4", "linode-cli"),
+        go=("github.com/linode/linodego",),
+    )
 
     # get_schemas iterates the static ENDPOINTS catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.

@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JudgeMeReviewsSource(ResumableSource[JudgeMeReviewsSourceConfig, JudgeMeReviewsResumeConfig]):
-    codebase_detection = detect(env=("^(JUDGE_ME_REVIEWS|JUDGEMEREVIEWS)_",))
+    codebase_detection = detect(env=("^(JUDGE_ME_REVIEWS|JUDGEMEREVIEWS)_",), script_hosts=("cdnwidget.judge.me",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://judge.me/api/docs"

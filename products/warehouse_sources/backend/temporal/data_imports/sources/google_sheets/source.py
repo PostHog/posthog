@@ -39,7 +39,13 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
-    codebase_detection = detect(env=("^GOOGLE_SHEETS_",), npm=("google-spreadsheet",), pypi=("gspread",))
+    codebase_detection = detect(
+        env=("^GOOGLE_SHEETS_",),
+        npm=("google-spreadsheet", "@googleapis/sheets"),
+        pypi=("gspread", "pygsheets"),
+        maven=("com.google.apis:google-api-services-sheets",),
+        rubygems=("google-apis-sheets_v4",),
+    )
 
     api_docs_url = "https://developers.google.com/sheets/api"
     uses_stable_schema_resource_ids = True

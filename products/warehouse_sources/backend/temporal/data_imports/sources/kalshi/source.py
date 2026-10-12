@@ -32,7 +32,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
-    codebase_detection = detect(env=("^KALSHI_",))
+    codebase_detection = detect(
+        env=("^KALSHI_",),
+        npm=("kalshi-typescript",),
+        pypi=("kalshi-python", "kalshi-python-sync", "kalshi-python-async"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

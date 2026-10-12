@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodesceneSource(ResumableSource[CodesceneSourceConfig, CodesceneResumeConfig]):
-    codebase_detection = detect(env=("^CODESCENE_",))
+    codebase_detection = detect(env=("^CODESCENE_", "^CS_ACCESS_TOKEN$", "^CS_ONPREM_URL$", "^CS_ONPREM_API_URL$"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

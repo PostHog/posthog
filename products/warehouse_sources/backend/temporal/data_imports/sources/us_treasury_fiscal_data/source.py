@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.codebase_detection import NO_CODE_SIGNAL, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UsTreasuryFiscalDataSource(ResumableSource[UsTreasuryFiscalDataSourceConfig, FiscalDataResumeConfig]):
-    codebase_detection = detect(env=("^(US_TREASURY_FISCAL_DATA|USTREASURYFISCALDATA)_",))
+    codebase_detection = not_detectable(NO_CODE_SIGNAL)
 
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL

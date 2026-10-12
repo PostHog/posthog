@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
-    codebase_detection = detect(env=("^(BLAND_AI|BLANDAI)_",))
+    codebase_detection = detect(env=("^(BLAND_AI|BLANDAI)_", "^BLAND_API_KEY$"), npm=("bland-ai",), pypi=("bland",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.bland.ai"

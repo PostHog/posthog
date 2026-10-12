@@ -28,7 +28,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZepSource(ResumableSource[ZepSourceConfig, ZepResumeConfig]):
-    codebase_detection = detect(env=("^ZEP_API_KEY$",), npm=("@getzep/zep-cloud",), pypi=("zep-cloud",))
+    codebase_detection = detect(
+        env=("^ZEP_API_KEY$", "^ZEP_API_URL$"),
+        npm=("@getzep/zep-cloud", "@getzep/zep-js"),
+        pypi=("zep-cloud", "zep-python"),
+        go=("github.com/getzep/zep-go",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

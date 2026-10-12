@@ -33,7 +33,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LingoDevSource(ResumableSource[LingoDevSourceConfig, LingoDevResumeConfig]):
-    codebase_detection = detect(env=("^(LINGO_DEV|LINGODEV)_",))
+    codebase_detection = detect(
+        env=("^LINGODOTDEV_", "^LINGO_API_KEY$", "^LINGO_API_URL$"),
+        npm=("lingo.dev", "@lingo.dev/compiler"),
+        pypi=("lingodotdev",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://lingo.dev/en/docs/api"

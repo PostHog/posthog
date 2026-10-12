@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
-    codebase_detection = detect(env=("^VERCEL_API_TOKEN$",), npm=("@vercel/sdk",))
+    codebase_detection = detect(
+        env=("^VERCEL_API_TOKEN$", "^VERCEL_TOKEN$", "^VERCEL_ORG_ID$"), npm=("@vercel/sdk", "vercel"), pypi=("vercel",)
+    )
 
     api_docs_url = "https://vercel.com/docs/rest-api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

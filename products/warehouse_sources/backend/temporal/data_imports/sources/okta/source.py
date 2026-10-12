@@ -30,7 +30,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OktaSource(ResumableSource[OktaSourceConfig, OktaResumeConfig]):
     codebase_detection = detect(
-        env=("^OKTA_",), npm=("@okta/okta-sdk-nodejs", "@okta/okta-auth-js", "@okta/okta-react"), pypi=("okta",)
+        env=("^OKTA_",),
+        script_hosts=("global.oktacdn.com",),
+        npm=(
+            "@okta/okta-sdk-nodejs",
+            "@okta/okta-auth-js",
+            "@okta/okta-react",
+            "@okta/okta-signin-widget",
+            "@okta/okta-vue",
+            "@okta/okta-angular",
+            "@okta/jwt-verifier",
+            "@okta/okta-react-native",
+        ),
+        pypi=("okta", "okta-jwt-verifier"),
+        cocoapods=("OktaOidc",),
+        composer=("okta/sdk", "okta/jwt-verifier"),
+        go=("github.com/okta/okta-sdk-golang", "github.com/okta/okta-jwt-verifier-golang"),
+        maven=(
+            "com.okta.sdk:okta-sdk-api",
+            "com.okta.spring:okta-spring-boot-starter",
+            "com.okta.jwt:okta-jwt-verifier",
+            "com.okta.android:okta-oidc-android",
+        ),
+        swiftpm=("github.com/okta/okta-mobile-swift",),
     )
 
     supported_versions = ("v1",)

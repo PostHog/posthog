@@ -41,8 +41,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConfig]):
     codebase_detection = detect(
         env=("^HONEYCOMB_",),
-        npm=("@honeycombio/opentelemetry-node", "honeycomb-beeline"),
-        pypi=("honeycomb-beeline", "libhoney"),
+        npm=("@honeycombio/opentelemetry-node", "honeycomb-beeline", "@honeycombio/opentelemetry-web", "libhoney"),
+        pypi=("honeycomb-beeline", "libhoney", "honeycomb-opentelemetry"),
+        go=(
+            "github.com/honeycombio/beeline-go",
+            "github.com/honeycombio/libhoney-go",
+            "github.com/honeycombio/otel-config-go",
+        ),
+        maven=("io.honeycomb.libhoney:libhoney-java", "io.honeycomb:honeycomb-opentelemetry-sdk"),
+        rubygems=("honeycomb-beeline", "libhoney"),
         competes_with=(ProductKey.TRACING,),
     )
 

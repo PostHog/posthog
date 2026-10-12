@@ -36,7 +36,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
-    codebase_detection = detect(env=("^TABOOLA_",))
+    codebase_detection = detect(
+        env=("^TABOOLA_",),
+        script_hosts=("cdn.taboola.com",),
+        cocoapods=("TaboolaSDK",),
+        maven=("com.taboola:android-sdk",),
+    )
 
     supported_versions = ("1.0",)
     default_version = "1.0"

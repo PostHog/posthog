@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodefreshSource(ResumableSource[CodefreshSourceConfig, CodefreshResumeConfig]):
-    codebase_detection = detect(env=("^CODEFRESH_",))
+    codebase_detection = detect(env=("^CODEFRESH_",), npm=("codefresh",), go=("github.com/codefresh-io/go-sdk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://codefresh.io/docs/docs/integrations/codefresh-api/"

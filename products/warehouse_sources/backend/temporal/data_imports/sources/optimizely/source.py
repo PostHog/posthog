@@ -32,8 +32,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
     codebase_detection = detect(
         env=("^OPTIMIZELY_",),
-        npm=("@optimizely/optimizely-sdk",),
+        script_hosts=("cdn.optimizely.com",),
+        npm=("@optimizely/optimizely-sdk", "@optimizely/react-sdk"),
         pypi=("optimizely-sdk",),
+        cocoapods=("OptimizelySwiftSDK",),
+        composer=("optimizely/optimizely-sdk",),
+        go=("github.com/optimizely/go-sdk",),
+        maven=("com.optimizely.ab:core-api", "com.optimizely.ab:android-sdk"),
+        pub=("optimizely_flutter_sdk",),
+        rubygems=("optimizely-sdk",),
+        swiftpm=("github.com/optimizely/swift-sdk",),
         competes_with=(ProductKey.EXPERIMENTS,),
     )
 

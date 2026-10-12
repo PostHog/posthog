@@ -44,7 +44,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GenesysCloudSource(ResumableSource[GenesysCloudSourceConfig, GenesysCloudResumeConfig]):
-    codebase_detection = detect(env=("^(GENESYS_CLOUD|GENESYSCLOUD)_",))
+    codebase_detection = detect(
+        env=("^(GENESYS_CLOUD|GENESYSCLOUD)_",),
+        script_hosts=("apps.mypurecloud.com", "apps.mypurecloud.ie"),
+        npm=("purecloud-platform-client-v2",),
+        pypi=("purecloudplatformclientv2",),
+        cocoapods=("GenesysCloudMessengerTransport",),
+        go=("github.com/mypurecloud/platform-client-sdk-go",),
+        maven=("com.mypurecloud:platform-client-v2", "cloud.genesys:messenger-transport-mobile-sdk"),
+        rubygems=("purecloudplatformclientv2",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

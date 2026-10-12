@@ -43,7 +43,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SemaphoreSource(ResumableSource[SemaphoreSourceConfig, SemaphoreResumeConfig]):
-    codebase_detection = detect(env=("^SEMAPHORE_",))
+    codebase_detection = detect(
+        env=("^SEMAPHORE_(GIT|JOB|WORKFLOW|PIPELINE|PROJECT|ORGANIZATION|AGENT|BLOCK|CACHE|REGISTRY)_",)
+    )
 
     lists_tables_without_credentials = True
     # Semaphore Cloud documents v1alpha as its public API despite the version name.
