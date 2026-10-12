@@ -223,6 +223,9 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 }
 
 .TodayPane {
+    // The pane sits on the shell's chrome, not the app background.
+    --quill-icon-stack-ring: var(--chrome);
+
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
