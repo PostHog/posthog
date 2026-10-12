@@ -115,6 +115,7 @@ export interface editorSceneLogicValues {
     sourceQuery: DataVisualizationNode // sqlEditorLogic
     viewLoading: boolean // sqlEditorLogic
     breadcrumbs: Breadcrumb[]
+    isCreateViewFlow: boolean
     isHistoryModalOpen: boolean
     projectTreeRef: ProjectTreeRef | null
     saveAsMenuItems: {
@@ -199,6 +200,11 @@ export interface editorSceneLogicMeta {
             editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
         ) => ProjectTreeRef | null
         breadcrumbs: (activeTab: QueryTab | null, editorUrl: string) => Breadcrumb[]
+        isCreateViewFlow: (
+            editorSource: SqlEditorSource,
+            editingView: DataWarehouseSavedQuery | undefined,
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
+        ) => boolean
         titleSectionProps: (
             editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
             insightLoading: boolean,
@@ -351,6 +357,15 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 }
                 return [first]
             },
+        ],
+        // Matches the state that titleSectionProps names "New view".
+        isCreateViewFlow: [
+            (s) => [s.editorSource, s.editingView, s.editingInsight],
+            (
+                editorSource: import('./sqlEditorLogic').SqlEditorSource,
+                editingView: import('~/types').DataWarehouseSavedQuery | undefined,
+                editingInsight: null | import('~/types').InsightModel
+            ): boolean => editorSource === 'view' && !editingView && !editingInsight,
         ],
         titleSectionProps: [
             (s) => [

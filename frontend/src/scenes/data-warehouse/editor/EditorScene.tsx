@@ -1,11 +1,13 @@
 import './EditorScene.scss'
 
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { editorSceneLogic } from './editorSceneLogic'
@@ -21,6 +23,17 @@ export const scene: SceneExport = {
 export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     const resolvedTabId = tabId ?? 'default'
     const { shareTab } = useActions(editorSceneLogic({ tabId: resolvedTabId }))
+    const { isCreateViewFlow } = useValues(editorSceneLogic({ tabId: resolvedTabId }))
+    const { setLayoutNavCollapsedOverride } = useActions(panelLayoutLogic)
+
+    // The override follows this component, so the nav returns to the saved choice when the scene leaves the screen.
+    useEffect(() => {
+        if (!isCreateViewFlow) {
+            return
+        }
+        setLayoutNavCollapsedOverride(true)
+        return () => setLayoutNavCollapsedOverride(null)
+    }, [isCreateViewFlow, setLayoutNavCollapsedOverride])
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
