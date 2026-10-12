@@ -225,7 +225,7 @@ A device can produce sustained taps on content that never changes (touch-screen 
 Do this check before you attribute a dead-click cluster to users:
 
 - Do not read cadence from `$dead_click`. posthog-js drops a dead-click candidate when the same element already has a queued candidate less than 1 s old. Fast taps on one element thus arrive as about one `$dead_click` per second, whatever the real rate. A regular ~1 s interval comes from this filter, not from the person.
-- Read raw cadence and context from the cluster's sessions instead (the `$session_id`s from the element query):
+- Read raw cadence and context from the cluster's sessions instead (the `$session_id`s on the cluster's `$dead_click` events):
 
 ```sql
 SELECT properties.$session_id AS session_id,
