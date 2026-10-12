@@ -761,7 +761,7 @@ impl IngestionConsumer {
             tokio::select! {
                 completion = completions.recv() => match completion {
                     Some(completion) => self
-                        .apply_completions(in_flight_polls, completions, completion)
+                        .apply_completion(in_flight_polls, &completion)
                         .map_err(Failure::Commit)?,
                     None => return Err(Failure::Batch(anyhow::anyhow!(
                         "batcher completion channel closed"
@@ -821,42 +821,28 @@ impl IngestionConsumer {
         }
     }
 
-    fn apply_completions(
+    fn apply_completion(
         &self,
         in_flight_polls: &mut VecDeque<InFlightPoll>,
-        completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
-        first: GroupCompletion,
+        completion: &GroupCompletion,
     ) -> anyhow::Result<()> {
         if self.completion_granularity == CompletionGranularity::Poll {
-            apply_completion(in_flight_polls, &first, |_, _, _| {});
+            apply_completion(in_flight_polls, completion, |_, _, _| {});
             return Ok(());
         }
-
-        let mut settle = |topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]| {
-            settle_run(
-                &self.topic_offset_ledger,
-                &self.commit_pacer,
-                topic_partition,
-                generation,
-                offsets,
-            )
-        };
-        let mut completion = first;
-        loop {
-            apply_completion(in_flight_polls, &completion, &mut settle);
-            // A redelivered offset can sit in a later poll too; the caller
-            // pops a covered head before the next completion is matched.
-            if in_flight_polls
-                .front()
-                .is_some_and(InFlightPoll::is_complete)
-            {
-                break;
-            }
-            let Ok(next) = completions.try_recv() else {
-                break;
-            };
-            completion = next;
-        }
+        apply_completion(
+            in_flight_polls,
+            completion,
+            |topic_partition, generation, offsets| {
+                settle_run(
+                    &self.topic_offset_ledger,
+                    &self.commit_pacer,
+                    topic_partition,
+                    generation,
+                    offsets,
+                )
+            },
+        );
         self.commit_due()
     }
 
