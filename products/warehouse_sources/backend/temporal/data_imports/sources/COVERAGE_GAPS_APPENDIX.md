@@ -2852,9 +2852,9 @@ Today (4): `agents`, `conversations`, `history`, `voices`
 Diffed against: <https://api.elevenlabs.io/openapi.json>
 
 - [ ] `/v1/usage/character-stats` — the vendor's headline usage metric — character/credit consumption over time, broken down by voice, model and workspace user (high)
-- [ ] `/v1/models` — lookup table resolving the model_id carried on history items and conversations (high)
-- [ ] `/v1/workspace/members (and /v1/workspace/groups)` — lookup resolving the workspace user ids attached to history, conversations and usage rows (high)
-- [ ] `/v1/convai/tools and /v1/convai/tools/{tool_id}/executions` — agent tool catalog plus per-execution records — the analytical detail behind agent conversations (medium)
+- [x] `/v1/models` — lookup table resolving the model_id carried on history items and conversations (high)
+- [x] `/v1/workspace/members (and /v1/workspace/groups)` — lookup resolving the workspace user ids attached to history, conversations and usage rows (high)
+- [x] `/v1/convai/tools and /v1/convai/tools/{tool_id}/executions` — agent tool catalog plus per-execution records — the analytical detail behind agent conversations (medium)
 - [ ] `/v1/convai/phone-numbers` — lookup resolving the phone number a Conversational AI call came in on (medium)
 - [ ] `/v1/convai/batch-calling/workspace` — batch calling jobs, the campaign-level grouping over outbound conversations (medium)
 - [ ] `/v1/user/subscription` — plan quota and current-period usage, needed to turn character stats into utilization (medium)
@@ -4585,16 +4585,16 @@ Note: AQL is the connector's main mechanism and it already uses the items and bu
 
 ## Jira — gaps
 
-Today (10): `dashboards`, `fields`, `filters`, `issue_types`, `issues`, `priorities`, `projects`, `resolutions`, `statuses`, `users`
+Today (14): `boards`, `dashboards`, `fields`, `filters`, `issue_types`, `issues`, `priorities`, `projects`, `resolutions`, `sprint_issues`, `sprints`, `statuses`, `users`, `worklogs`
 
 Diffed against: <https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json>
 
 - [ ] `/rest/api/3/issue/{id}/changelog (and /changelog/bulkfetch)` — issue field transition history - the only source for cycle time, time-in-status and reopen rate (high)
-- [ ] `/rest/agile/1.0/board/{boardId}/sprint` — sprints, the unit every agile velocity and commitment metric is built on (high)
-- [ ] `/rest/agile/1.0/board` — boards lookup that scopes sprints and backlogs to teams (high)
-- [ ] `/rest/agile/1.0/sprint/{sprintId}/issue` — sprint-to-issue membership edges needed for velocity and scope-change analysis (high)
+- [x] `/rest/agile/1.0/board/{boardId}/sprint` — sprints, the unit every agile velocity and commitment metric is built on (high)
+- [x] `/rest/agile/1.0/board` — boards lookup that scopes sprints and backlogs to teams (high)
+- [x] `/rest/agile/1.0/sprint/{sprintId}/issue` — sprint-to-issue membership edges needed for velocity and scope-change analysis (high). Added as `sprint_issues` from the Sprint field via `/rest/api/3/search/jql`, because the spec marks this endpoint and the other agile issue listings deprecated.
 - [ ] `/rest/api/3/issue/{id}/comment (or /rest/api/3/comment/list)` — comment volume and response latency, the main collaboration signal on an issue (high)
-- [ ] `/rest/api/3/issue/{id}/worklog (with /worklog/updated for incrementals)` — logged time per issue and user, the basis for effort and cost reporting (high)
+- [x] `/rest/api/3/issue/{id}/worklog (with /worklog/updated for incrementals)` — logged time per issue and user, the basis for effort and cost reporting (high). Added as `worklogs` via `/worklog/updated` plus `POST /worklog/list`, which avoids one request per issue.
 - [ ] `/rest/api/3/project/{projectIdOrKey}/versions` — lookup resolving the fixVersions/affectedVersions IDs carried on synced issues (medium)
 - [ ] `/rest/api/3/project/{projectIdOrKey}/components` — lookup resolving the component IDs carried on synced issues (medium)
 - [ ] `/rest/api/3/statuscategory` — lookup rolling the already-synced statuses into To Do / In Progress / Done buckets (medium)
