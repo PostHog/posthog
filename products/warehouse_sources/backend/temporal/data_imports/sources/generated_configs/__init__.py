@@ -2,8 +2,17 @@
 # `pnpm generate:source-configs` (re)writes the per-source modules; it never touches this file.
 import importlib
 
+from products.warehouse_sources.backend.temporal.data_imports.sources import PLUGIN_SOURCES_PACKAGE, source_module_path
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+def _config_module_name(source: ExternalDataSourceType) -> str:
+    source_module = source_module_path(source)
+    if source_module is not None and source_module.startswith(f"{PLUGIN_SOURCES_PACKAGE}."):
+        return f"{source_module.removesuffix('.source')}._config"
+    name = source.name if isinstance(source, ExternalDataSourceType) else source
+    return f"{__package__}.{name.lower()}"
 
 
 def get_config_for_source(source: ExternalDataSourceType) -> type[Config]:
@@ -11,9 +20,11 @@ def get_config_for_source(source: ExternalDataSourceType) -> type[Config]:
 
     Module and class names are derived from the enum member (`<name.lower()>.py`,
     `<value>SourceConfig`) — the same rule the generator uses to emit them — so adding a
-    source needs no change here. Static importers should import the class from its
-    per-source module directly (e.g. `from ...generated_configs.stripe import
+    source needs no change here. A vendor in the `products.warehouse_sources.sources` package keeps its
+    config in `products/warehouse_sources/sources/<vendor>/_config.py` instead. Static importers should import the
+    class from its per-source module directly (e.g. `from ...generated_configs.stripe import
     StripeSourceConfig`).
     """
-    module = importlib.import_module(f".{source.name.lower()}", __package__)
-    return getattr(module, f"{source.value}SourceConfig")
+    module = importlib.import_module(_config_module_name(source))
+    # `str()` is the member's value, and the plugin string itself.
+    return getattr(module, f"{source}SourceConfig")

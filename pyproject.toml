@@ -549,6 +549,7 @@ exclude = [
     "products/stamphog/packages/**",
     "tools/**",
     "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
+    "products/warehouse_sources/sources/*/_config.py",
     "rust/deltalite/python/**",
 ]
 
@@ -572,6 +573,27 @@ name = "packages/owners-yaml is a leaf"
 type = "forbidden"
 source_modules = ["owners_yaml"]
 forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
+
+# A vendor directory under products/warehouse_sources/sources/ imports shared code only from its
+# SDK, products.warehouse_sources.sources.sdk. tach checks this for vendor code. `hogli lint:tach`
+# leaves test files out of its dependency pass, so this contract also covers the vendor tests.
+# Only direct imports are checked: the SDK itself imports the product. The vendors share the
+# `products.warehouse_sources.sources` package with the SDK, so imports inside that package are
+# ignored here; tach covers vendor-to-vendor imports in vendor code.
+[[tool.importlinter.contracts]]
+name = "sources vendors import shared code only from the sources SDK"
+type = "forbidden"
+source_modules = ["products.warehouse_sources.sources.*"]
+forbidden_modules = ["posthog", "ee", "common", "products.*"]
+allow_indirect_imports = true
+ignore_imports = [
+    "products.warehouse_sources.sources.** -> products.warehouse_sources.sources.**",
+    "products.warehouse_sources.sources.sdk -> posthog",
+    "products.warehouse_sources.sources.sdk -> products.**",
+    "products.warehouse_sources.sources.sdk.** -> posthog",
+    "products.warehouse_sources.sources.sdk.** -> products.**",
+    "products.warehouse_sources.sources.conftest -> products.**",
+]
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.

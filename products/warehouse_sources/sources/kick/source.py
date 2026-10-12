@@ -1,0 +1,29 @@
+from typing import cast
+
+from products.warehouse_sources.sources.kick._config import KickSourceConfig
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
+)
+
+
+@SourceRegistry.register
+class KickSource(SimpleSource[KickSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.KICK
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.KICK,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Kick (Kick.com / Kick Dev API)",
+            iconPath="/static/services/kick.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )
