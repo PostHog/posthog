@@ -1,11 +1,18 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Elastic Email v4 caps each request at 1000 items and most list endpoints accept limit/offset.
 # Use the max page size so we make as few round-trips as possible.
 PAGE_SIZE = 1000
+
+# `/statistics` returns one rollup for a `from`/`to` range, so we request one day at a time. A full
+# refresh (or the first incremental sync) backfills this many days, one request per day.
+STATISTICS_LOOKBACK_DAYS = 365
 
 
 @dataclass
@@ -26,6 +33,13 @@ class ElasticEmailEndpointConfig:
     # events force ascending order so the watermark advances correctly).
     extra_params: dict[str, list[str] | str] = field(default_factory=dict)
     should_sync_default: bool = True
+    # Child endpoints fan out over a parent listing (e.g. contacts per list).
+    fanout: Optional[DependentEndpointConfig] = None
+    # `/statistics` is a single aggregate per date range; it's fetched one UTC day per request and each
+    # row is stamped with that day.
+    daily_window: bool = False
+    page_size: int = PAGE_SIZE
+    default_incremental_field: Optional[str] = None
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -85,6 +99,48 @@ ELASTICEMAIL_ENDPOINTS: dict[str, ElasticEmailEndpointConfig] = {
         name="suppressions",
         path="/suppressions",
         primary_keys=["Email"],
+    ),
+    "list_contacts": ElasticEmailEndpointConfig(
+        name="list_contacts",
+        path="/lists/{listname}/contacts",
+        # A contact can belong to many lists, so the membership row is keyed by list + email.
+        primary_keys=["ListName", "Email"],
+        partition_key="DateAdded",
+        fanout=DependentEndpointConfig(
+            parent_name="lists",
+            resolve_param="listname",
+            # List names can contain spaces and slashes; the parent data map adds a percent-encoded copy.
+            resolve_field="EncodedListName",
+            include_from_parent=["ListName"],
+            parent_field_renames={"ListName": "ListName"},
+        ),
+    ),
+    "campaign_statistics": ElasticEmailEndpointConfig(
+        name="campaign_statistics",
+        path="/statistics/campaigns",
+        # Each row is one campaign's lifetime totals; ChannelName holds the campaign name.
+        primary_keys=["ChannelName"],
+    ),
+    "statistics": ElasticEmailEndpointConfig(
+        name="statistics",
+        path="/statistics",
+        primary_keys=["Date"],
+        daily_window=True,
+        incremental_fields=[
+            {
+                "label": "Date",
+                "type": IncrementalFieldType.Date,
+                "field": "Date",
+                "field_type": IncrementalFieldType.Date,
+            }
+        ],
+        default_incremental_field="Date",
+    ),
+    "verifications": ElasticEmailEndpointConfig(
+        name="verifications",
+        path="/verifications",
+        primary_keys=["Email"],
+        partition_key="DateAdded",
     ),
 }
 
