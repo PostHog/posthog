@@ -6,6 +6,9 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
+
 from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, WizardBridgeInputs
 from products.growth.backend.enrichment.fit_score import score_company
 from products.growth.backend.enrichment.icp_lists import build_curated_lists, clear_lists_cache
@@ -123,6 +126,65 @@ class TestBackfillIcpFitScores(BaseTest):
         record.refresh_from_db()
         assert record.data["icp_fit_evaluation_kind"] == "backfill"
         assert record.data["icp_fit_evaluated_at"]
+
+    def _member_org_record(self, email: str, data: dict) -> tuple[User, OrganizationEnrichment]:
+        organization = Organization.objects.create(name=email)
+        user = User.objects.create_user(email=email, password=None, first_name="signup")
+        OrganizationMembership.objects.create(organization=organization, user=user)
+        OrganizationEnrichmentFetch.objects.create(organization=organization, provider="harmonic", payload=_PAYLOAD)
+        return user, OrganizationEnrichment.objects.create(organization=organization, data=data)
+
+    def _backfill(self, pha_client: MagicMock) -> None:
+        with (
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", return_value=OrganizationBridgeInputs()),
+        ):
+            call_command("backfill_icp_fit_scores", "--delay=0")
+
+    @parameterized.expand(
+        [
+            (
+                "stored_signup_domain",
+                "founder@stripe.com",
+                {"icp_fit_signup": {"role": "", "domain": "proton.me", "wizard_ai_sdk": True}},
+            ),
+            ("member_email_without_a_stored_domain", "founder@proton.me", {"icp_fit_flags": {"wizard_ai_sdk": True}}),
+        ]
+    )
+    def test_clears_the_fit_of_an_org_scored_with_a_personal_email_domain(self, _name, email, saved):
+        IcpScoringConfig.objects.filter(is_active=True).update(
+            scoring_rules={"source": "return {'status': 'disqualified', 'score': 0, 'dq_reason': 'any'};"}
+        )
+        clear_lists_cache()
+        user, record = self._member_org_record(
+            email, {"icp_fit_status": "scored", "icp_fit_score": 75, "icp_fit_version": "v0.7", **saved}
+        )
+        pha_client = MagicMock()
+
+        self._backfill(pha_client)
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_status"] == "not_found"
+        assert "icp_fit_score" not in record.data
+        assert record.data["work_email"] is False
+        assert record.data["icp_fit_signup"] == {"role": "", "domain": "proton.me", "wizard_ai_sdk": True}
+        assert pha_client.group_identify.call_args.kwargs["properties"] == {"icp_fit_status": "not_found"}
+        pha_client.set.assert_called_once_with(distinct_id=user.distinct_id, properties={"icp_fit_status": "not_found"})
+
+    def test_keeps_scoring_with_the_stored_domain_after_the_member_switches_to_a_personal_email(self):
+        _, record = self._member_org_record(
+            "founder@gmail.com",
+            {"icp_fit_status": "scored", "icp_fit_score": 75, "icp_fit_signup": {"domain": "stripe.com"}},
+        )
+        pha_client = MagicMock()
+
+        self._backfill(pha_client)
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_signup"]["domain"] == "stripe.com"
+        assert "work_email" not in record.data
+        pha_client.set.assert_not_called()
 
     def test_policy_change_stops_an_old_backfill_before_it_overwrites_a_new_score(self):
         record = self._record({})
