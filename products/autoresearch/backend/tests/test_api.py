@@ -304,6 +304,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 holdout_score=holdout,
                 status="kept" if number == 0 else "discarded",
                 agent_description=description,
+                summary=f"Plain {description}",
             )
 
         with CaptureQueriesContext(connection) as queries:
@@ -342,6 +343,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                     "experiment_count": 2,
                     "best_holdout_score": 0.72,
                     "latest_agent_description": "try fewer features",
+                    "latest_summary": "Plain try fewer features",
                 },
             ),
             "No positives": (None, 0, 0, [], None),
