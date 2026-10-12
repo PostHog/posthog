@@ -76,6 +76,7 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
     TrackReviewStartedInput,
+    TurnEndedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
@@ -93,6 +94,7 @@ from products.review_hog.backend.temporal.activities import (
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
+    nudge_stamphog_activity,
     post_status_comment_activity,
     publish_review_activity,
     record_turn_marker_activity,
@@ -840,6 +842,9 @@ class ReviewPRWorkflow:
                     )
                 except Exception:
                     workflow.logger.warning("Could not mark the status comment as failed")
+                # After the failure is recorded, so a stamphog re-run reads this head as failed.
+                if workflow.patched("reviewhog-nudge-stamphog-2026-10") and meta.pr_number is not None:
+                    await self._nudge_stamphog(repository, meta.pr_number, head_sha)
             # The signal report's log records a failed turn too (a receipt per executed turn,
             # completion or failure); best-effort so it can never mask the original error.
             await self._append_code_review_receipt(
@@ -873,6 +878,9 @@ class ReviewPRWorkflow:
                 await self._remove_eyes_reaction(inputs.team_id, repository, meta.pr_number, eyes_reaction_id)
 
         posted = publish_result is not None and publish_result.posted
+        # After publish, so a stamphog re-run finds this turn's findings on the PR.
+        if workflow.patched("reviewhog-nudge-stamphog-2026-10") and publishes_to_pr and meta.pr_number is not None:
+            await self._nudge_stamphog(repository, meta.pr_number, head_sha)
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
         # best-effort — a review must never fail over its own telemetry.
         try:
@@ -1154,6 +1162,18 @@ class ReviewPRWorkflow:
         except ActivityError:
             workflow.logger.warning("Could not add the review reaction; continuing without it")
             return None
+
+    @staticmethod
+    async def _nudge_stamphog(repository: str, pr_number: int, head_sha: str) -> None:
+        try:
+            await workflow.execute_activity(
+                nudge_stamphog_activity,
+                TurnEndedInput(repository=repository, pr_number=pr_number, head_sha=head_sha),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not ask stamphog to re-review")
 
     @staticmethod
     async def _remove_eyes_reaction(team_id: int, repository: str, pr_number: int, reaction_id: int) -> None:

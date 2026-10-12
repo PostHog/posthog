@@ -38,7 +38,7 @@ from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER,
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
-from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
+from products.stamphog.backend.tasks.tasks import process_inbox_pr_review, rereview_after_external_review
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
@@ -1745,6 +1745,55 @@ def test_engine_context_after_the_wait_holds_the_review_posted_during_it(team, s
     context = json.loads(activities._review_invocation(run, None).context_json)
     assert [review["id"] for review in context["reviews"]] == [7171]
     assert context["review_status"]["state"] == "completed"
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "verdict, nudged_heads, live_head, enabled, expected_new_runs",
+    [
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, 1, id="wait-on-the-head-reruns"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b", "sha123b"], "sha123b", True, 1, id="repeated-nudge-reruns-once"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123a"], "sha123b", True, 0, id="nudge-for-an-older-head"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123c", True, 0, id="head-moved-since"),
+        pytest.param(ReviewVerdict.APPROVED, ["sha123b"], "sha123b", True, 0, id="approved-verdict"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", False, 0, id="disconnected-repo"),
+    ],
+)
+def test_finished_external_review_reruns_only_a_waiting_verdict(
+    team,
+    stamphog_chain: StamphogChain,
+    verdict: ReviewVerdict,
+    nudged_heads: list[str],
+    live_head: str,
+    enabled: bool,
+    expected_new_runs: int,
+) -> None:
+    # A WAIT keeps a PR unapproved until something runs stamphog again. Any other verdict, head or
+    # repo state must stay as it is, because a stray re-run can retract or replace a real verdict.
+    repo_config = _repo_config(team.id)
+    repo_config.enabled = enabled
+    repo_config.save()
+    live_pr = _pr_object(123, "devex-dev", live_head) | {"state": "open", "author_association": "MEMBER"}
+    stamphog_chain.recorder.register_pr(REPO, 123, live_pr, _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=123, author_login="devex-dev"
+    )
+    waiting = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha123b",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=verdict,
+    )
+
+    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start:
+        for head_sha in nudged_heads:
+            rereview_after_external_review(REPO, 123, head_sha)
+
+    new_runs = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).exclude(id=waiting.id)
+    assert new_runs.count() == expected_new_runs
+    assert start.call_count == expected_new_runs
+    assert all(run.output.get("rereview_after_external_review") for run in new_runs)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

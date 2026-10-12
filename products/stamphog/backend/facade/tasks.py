@@ -13,6 +13,7 @@ from products.stamphog.backend.tasks.tasks import (
     process_inbox_pr_review,
     process_installation_event,
     process_pull_request_event,
+    rereview_after_external_review,
 )
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "process_installation_event",
     "process_pull_request_event",
     "queue_inbox_pr_review",
+    "request_rereview_after_external_review",
     "send_daily_digests",
 ]
 
@@ -51,3 +53,13 @@ def queue_inbox_pr_review(
         signal_report_id=signal_report_id,
         task_run_id=task_run_id,
     )
+
+
+def request_rereview_after_external_review(*, repository: str, pr_number: int, head_sha: str) -> None:
+    """Tell stamphog that an automated review of ``head_sha`` finished, without waiting.
+
+    Called by review_hog when a review turn ends, completed or failed. Stamphog decides whether
+    anything happens: it re-reviews only a PR whose latest verdict is a WAIT at that head, while the
+    head is still current. Any other call is a no-op, so a caller may call it for every turn.
+    """
+    rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)

@@ -1399,7 +1399,12 @@ class _HeadQueueResult:
 
 
 def _queue_review_at_head(
-    repo_config: StamphogRepoConfig, pr: dict[str, Any], head_sha: str, *, output: dict[str, Any]
+    repo_config: StamphogRepoConfig,
+    pr: dict[str, Any],
+    head_sha: str,
+    *,
+    output: dict[str, Any],
+    replacing_run_id: str | None = None,
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1408,6 +1413,9 @@ def _queue_review_at_head(
     delivered run at this head is returned as is, and a QUEUED one lost its workflow start, so its
     workflow restarts on commit. Otherwise older live runs are superseded and a fresh run starts
     once the row commits. Errors propagate so the caller can retry or report them.
+
+    ``replacing_run_id`` names a finished run at this head that does not count as covering it,
+    because the caller wants that run's verdict revisited.
     """
     team_id = repo_config.team_id
     run_write_db = router.db_for_write(ReviewRun)
@@ -1423,15 +1431,16 @@ def _queue_review_at_head(
         ):
             return _HeadQueueResult(run=None, created=False)
         # Dedupe repeat requests against the current head; the row lock serializes races.
-        existing = (
+        covering_runs = (
             ReviewRun.objects.for_team(team_id)
             .using(run_write_db)
             .select_for_update()
             .filter(pull_request=pr_obj, head_sha=head_sha)
             .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
-            .order_by("-created_at")
-            .first()
         )
+        if replacing_run_id is not None:
+            covering_runs = covering_runs.exclude(id=replacing_run_id)
+        existing = covering_runs.order_by("-created_at").first()
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
         reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
@@ -1697,3 +1706,70 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         team_id=team_id,
     )
     return QueuedReview(run=queued.run, created=queued.created)
+
+
+def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> None:
+    """Queue a new review when this PR's latest verdict is a WAIT at ``head_sha`` that is still the PR head."""
+    team_id = repo_config.team_id
+    latest = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number)
+        .order_by("-created_at")
+        .first()
+    )
+    # Only an engine WAIT can change when another reviewer finishes. A GATED WAIT waits on a check.
+    if (
+        latest is None
+        or latest.head_sha != head_sha
+        or latest.status != ReviewRunStatus.COMPLETED
+        or latest.verdict != ReviewVerdict.WAIT
+    ):
+        return
+    previous_output = latest.output or {}
+    # Inbox runs carry the self-driving carve-out, which only the inbox trigger paths may grant.
+    if previous_output.get("inbox_review"):
+        return
+    repo = repo_config.repository
+    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
+    if (pr.get("state") or "") != "open" or (pr.get("head") or {}).get("sha") != head_sha:
+        return
+    if _review_skip_reason(pr) is not None:
+        return
+    is_manual = bool(previous_output.get("manual_review"))
+    label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
+    if repo_config.review_mode == ReviewMode.LABEL and not is_manual and repo_config.trigger_label not in label_names:
+        return
+    if _author_lacks_write_permission(repo_config, repo, pr):
+        return
+    output: dict[str, Any] = {"rereview_after_external_review": True}
+    for key in ("manual_review", "review_trigger"):
+        if key in previous_output:
+            output[key] = previous_output[key]
+    queued = _queue_review_at_head(repo_config, pr, head_sha, output=output, replacing_run_id=str(latest.id))
+    logger.info(
+        "stamphog_rereview_after_external_review",
+        repository=repo,
+        pr_number=pr_number,
+        review_run_id=str(queued.run.id) if queued.run is not None else None,
+        created=queued.created,
+        team_id=team_id,
+    )
+
+
+@shared_task(ignore_result=True)
+def rereview_after_external_review(repository: str, pr_number: int, head_sha: str) -> None:
+    """Re-run a review that ended in WAIT, because an automated reviewer finished with ``head_sha``.
+
+    The caller knows only the repository, so the configs are read across teams. Each config acts on
+    its own runs, and every check runs again here, so a stray call never starts a review that the
+    webhook path would refuse.
+    """
+    repo_configs = (
+        StamphogRepoConfig.objects.unscoped()
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+    )
+    for repo_config in repo_configs:
+        _rereview_waiting_run(repo_config, pr_number, head_sha)
