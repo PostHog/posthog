@@ -46,3 +46,10 @@ export function withEmailSender(definition: Record<string, unknown>, integration
         }),
     }
 }
+
+/** How many email steps of a workflow have no sender yet. */
+export function emailStepsMissingSender(actions: Record<string, any>[]): number {
+    return actions.filter(
+        (action) => action.type === 'function_email' && !action.config?.inputs?.email?.value?.from?.integrationId
+    ).length
+}

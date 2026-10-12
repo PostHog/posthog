@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -94,6 +95,28 @@ class TestWorkflowIdeasAPI(APIBaseTest):
         )
         again = self.client.post(self._url(f"{row.id}/accept/"), {"hog_flow_id": str(flow.id)})
         assert again.status_code == 409
+
+    @parameterized.expand([("draft", True), ("active", False), ("archived", False)])
+    @patch("products.workflows.backend.presentation.views.workflow_ideas.people_reached_since", return_value=37)
+    def test_a_used_idea_stays_listed_while_its_workflow_is_a_draft(
+        self, status: str, listed: bool, _mock_reach
+    ) -> None:
+        [used, _waiting] = create_ideas(
+            team_id=self.team.id, items=[_idea("used", priority=5), _idea("waiting", priority=1)], source="manual"
+        )
+        flow = self._flow()
+        self.client.post(self._url(f"{used.id}/accept/"), {"hog_flow_id": str(flow.id)})
+        HogFlow.objects.filter(id=flow.id).update(status=status)
+
+        results = self.client.get(self._url()).json()["results"]
+
+        if listed:
+            assert [(r["key"], r["hog_flow_status"], r["reached_since_used"]) for r in results] == [
+                ("used", "draft", 37),
+                ("waiting", None, None),
+            ]
+        else:
+            assert [r["key"] for r in results] == ["waiting"]
 
     @parameterized.expand(
         [("another project's workflow", "other_team"), ("a workflow not made from an idea", "manual")]

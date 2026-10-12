@@ -14,10 +14,17 @@ from posthog.models import User
 from products.workflows.backend.facade.contracts import (
     WorkflowIdeaAlreadyResolved,
     WorkflowIdeaNotFound,
+    WorkflowIdeaRecord,
     WorkflowIdeaWorkflowMismatch,
 )
 from products.workflows.backend.facade.enums import WorkflowIdeaStatus, WorkflowIdeaValueTier
-from products.workflows.backend.facade.workflow_ideas import accept_idea, dismiss_idea, list_open_ideas, mark_viewed
+from products.workflows.backend.facade.workflow_ideas import (
+    accept_idea,
+    dismiss_idea,
+    list_open_ideas,
+    mark_viewed,
+    people_reached_since,
+)
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -83,13 +90,28 @@ class WorkflowIdeaSerializer(serializers.Serializer):
     hog_flow_id = serializers.UUIDField(
         read_only=True, allow_null=True, help_text="The draft workflow made from this idea, once it is used."
     )
+    hog_flow_status = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Status of that workflow, or null before use."
+    )
+    reached_since_used = serializers.SerializerMethodField(
+        help_text="For a used idea still in draft: people the workflow would have emailed since it was saved."
+    )
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_reached_since_used(self, obj: WorkflowIdeaRecord) -> int | None:
+        if obj.status != WorkflowIdeaStatus.ACCEPTED or not obj.resolved_at:
+            return None
+        return people_reached_since(
+            obj.team_id, obj.evidence.get("trigger_event", ""), obj.evidence.get("goal_events", []), obj.resolved_at
+        )
 
 
 # many=False: the `list` action returns one {"results": [...]} body, not an array of them.
 @extend_schema_serializer(many=False)
 class WorkflowIdeaListSerializer(serializers.Serializer):
     results = WorkflowIdeaSerializer(
-        many=True, help_text="Ideas still waiting for a decision, the one to try first at the top."
+        many=True,
+        help_text="Used ideas whose workflow is still a draft, then ideas waiting for a decision, the one to try first at the top.",
     )
 
 
