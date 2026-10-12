@@ -18,9 +18,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{GroupCompletion, Offset, Partition};
-use metrics::{gauge, histogram};
+use metrics::{counter, gauge, histogram};
 
-use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentRun};
+use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentMessage};
 use super::key_queues::{KeyQueues, KeyRun};
 use super::packer::Packer;
 use super::request::{Request, RequestClass};
@@ -142,9 +142,23 @@ impl BatcherStateMachine {
         })
     }
 
-    /// A worker accepts a whole request or none of it. The failed request's
-    /// messages go back to the front of their keys' queues and are sent again
-    /// as replay after the retry delay.
+    /// The worker finished every message except `timed_out`. Those go back to
+    /// the front of their keys' queues and are sent again at once as replay.
+    pub fn on_request_partial(
+        self,
+        now: Instant,
+        workers: &[WorkerId],
+        request: RequestId,
+        accepted: u32,
+        timed_out: Vec<SerializedKafkaMessage>,
+    ) -> (Self, Effects) {
+        self.act(|active, draining| {
+            active.on_request_partial(now, workers, draining, request, accepted, timed_out)
+        })
+    }
+
+    /// The failed request's messages go back to the front of their keys'
+    /// queues and are sent again as replay after the retry delay.
     pub fn on_request_failed(
         self,
         now: Instant,
@@ -322,10 +336,56 @@ impl ActiveState {
         }
         let assignment_epoch = sent.class.assignment_epoch;
         let runs = sent.accepted();
-        effects.completions = completions(assignment_epoch, &runs);
-        effects.key_acks = key_acks(&runs);
+        effects.completions =
+            completions(assignment_epoch, runs.iter().flat_map(|run| &run.messages));
+        effects.key_acks = key_acks(
+            runs.iter()
+                .map(|run| (&run.routing_key, run.messages.as_slice())),
+        );
         for run in runs {
             self.settle_key(&run.routing_key, Vec::new(), None, now, &mut effects)?;
+        }
+        self.advance(now, workers, draining, &mut effects)?;
+        Ok(effects)
+    }
+
+    fn on_request_partial(
+        &mut self,
+        now: Instant,
+        workers: &[WorkerId],
+        draining: bool,
+        request: RequestId,
+        accepted: u32,
+        timed_out: Vec<SerializedKafkaMessage>,
+    ) -> Result<Effects, String> {
+        let mut effects = Effects::default();
+        let sent = self.take_request(request, &mut effects)?;
+        effects.worker_outcomes.push(WorkerOutcome {
+            worker: sent.worker.clone(),
+            fault: false,
+        });
+        if accepted > 0 {
+            self.last_progress = now;
+        }
+        let assignment_epoch = sent.class.assignment_epoch;
+        let timed_out_count = timed_out.len();
+        let splits = sent.split(accepted, timed_out)?;
+        counter!("ingestion_consumer_request_budget_partials_total").increment(1);
+        counter!("ingestion_consumer_request_budget_timed_out_messages_total")
+            .increment(timed_out_count as u64);
+        effects.completions = completions(
+            assignment_epoch,
+            splits.iter().flat_map(|split| &split.accepted),
+        );
+        // The order sentinel's ACK mark stops at a run's first timed-out
+        // message, so resending that message stays legal.
+        effects.key_acks = key_acks(
+            splits
+                .iter()
+                .map(|split| (&split.routing_key, &split.accepted[..split.accepted_prefix])),
+        );
+        for split in splits {
+            self.settle_key(&split.routing_key, split.timed_out, None, now, &mut effects)?;
         }
         self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
@@ -518,15 +578,16 @@ impl ActiveState {
     }
 }
 
-fn completions(assignment_epoch: u64, runs: &[SentRun]) -> Vec<GroupCompletion> {
+fn completions<'a>(
+    assignment_epoch: u64,
+    messages: impl IntoIterator<Item = &'a SentMessage>,
+) -> Vec<GroupCompletion> {
     let mut by_partition: HashMap<i32, Vec<Offset>> = HashMap::new();
-    for run in runs {
-        for message in &run.messages {
-            by_partition
-                .entry(message.partition)
-                .or_default()
-                .push(Offset(message.offset));
-        }
+    for message in messages {
+        by_partition
+            .entry(message.partition)
+            .or_default()
+            .push(Offset(message.offset));
     }
     let mut completions: Vec<GroupCompletion> = by_partition
         .into_iter()
@@ -541,19 +602,20 @@ fn completions(assignment_epoch: u64, runs: &[SentRun]) -> Vec<GroupCompletion> 
     completions
 }
 
-fn key_acks(runs: &[SentRun]) -> Vec<KeyAck> {
-    runs.iter()
-        .filter_map(|run| {
-            let max_offset = run
-                .messages
-                .iter()
-                // An unkeyed message lives on an arbitrary partition under a
-                // synthetic key, so it does not advance an ACK high-water mark.
-                .filter(|message| message.keyed)
+fn key_acks<'a>(runs: impl IntoIterator<Item = (&'a Arc<str>, &'a [SentMessage])>) -> Vec<KeyAck> {
+    runs.into_iter()
+        .filter_map(|(routing_key, messages)| {
+            // An unkeyed message lives on an arbitrary partition under a
+            // synthetic key, so it does not advance an ACK high-water mark.
+            let mut keyed = messages.iter().filter(|message| message.keyed);
+            let first = keyed.next()?;
+            // The order sentinel tracks a key on its first keyed partition.
+            let max_offset = keyed
+                .filter(|message| message.partition == first.partition)
                 .map(|message| message.offset)
-                .max()?;
+                .fold(first.offset, i64::max);
             Some(KeyAck {
-                routing_key: Arc::clone(&run.routing_key),
+                routing_key: Arc::clone(routing_key),
                 max_offset,
             })
         })
@@ -1272,7 +1334,7 @@ mod tests {
     }
 
     #[test]
-    fn every_offset_completes_exactly_once_across_failures_retries_and_packing() {
+    fn every_offset_completes_exactly_once_across_failures_partials_retries_and_packing() {
         let now = Instant::now();
         let retry_at = now + FAULT_DELAY;
         let workers = pool(&["w1", "w2"]);
@@ -1319,7 +1381,13 @@ mod tests {
             vec![("a", vec![1, 2]), ("b", vec![3])]
         );
         let replay = effects.sends[0].request;
-        let (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, replay, 3);
+        let (batcher, effects) =
+            batcher.on_request_partial(retry_at, &workers, replay, 2, vec![message("a", 0, 1)]);
+        record(&effects);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+        let resend = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, resend, 1);
         record(&effects);
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![7])]);
         let last = effects.sends[0].request;
@@ -1346,7 +1414,8 @@ mod tests {
     }
 
     #[test]
-    fn an_accepted_request_completes_each_partition_and_acks_only_keyed_messages() {
+    fn an_accepted_request_completes_each_partition_and_acks_keyed_messages_on_the_first_partition()
+    {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let batcher = packing_batcher(2, Duration::ZERO, 4, now);
@@ -1375,7 +1444,7 @@ mod tests {
             effects.key_acks,
             vec![KeyAck {
                 routing_key: "a".into(),
-                max_offset: 2
+                max_offset: 1
             }]
         );
 
@@ -1466,6 +1535,93 @@ mod tests {
         assert!(matches!(batcher, BatcherStateMachine::Failed));
         assert!(effects.fatal.is_some());
         assert!(effects.completions.is_empty());
+    }
+
+    #[test]
+    fn a_partial_completes_the_accepted_offsets_and_requeues_the_timed_out_ones_at_the_front() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = packing_batcher(4, Duration::ZERO, 4, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![run("a", &[1, 2, 3]), run("b", &[4])],
+        );
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("a", vec![1, 2, 3]), ("b", vec![4])]
+        );
+        let request = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[5])]);
+        assert!(effects.sends.is_empty(), "a's run is in flight");
+
+        let (batcher, effects) =
+            batcher.on_request_partial(now, &workers, request, 3, vec![message("a", 0, 2)]);
+        assert_eq!(
+            effects.completions[0].offsets,
+            vec![Offset(1), Offset(3), Offset(4)]
+        );
+        assert_eq!(
+            effects.key_acks,
+            vec![
+                KeyAck {
+                    routing_key: "a".into(),
+                    max_offset: 1
+                },
+                KeyAck {
+                    routing_key: "b".into(),
+                    max_offset: 4
+                },
+            ]
+        );
+        assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("b")]);
+        assert_eq!(
+            effects.sends.len(),
+            1,
+            "a's fresh message waits for the replay"
+        );
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2])]);
+        let replay = effects.sends[0].request;
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, replay, 1);
+        assert_eq!(effects.completions[0].offsets, vec![Offset(2)]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![5])]);
+    }
+
+    #[test]
+    fn a_partial_that_does_not_match_the_request_fails_the_state_machine() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) =
+            batcher.on_request_partial(now, &workers, request, 0, vec![message("a", 0, 2)]);
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
+        assert!(effects.fatal.is_some());
+    }
+
+    #[test]
+    fn partials_that_accept_nothing_do_not_hold_off_the_watchdog() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_request_partial(
+            now + STALL / 2,
+            &workers,
+            request,
+            0,
+            vec![message("a", 0, 1)],
+        );
+        assert!(effects.fatal.is_none());
+        let resend = effects.sends[0].request;
+        let (batcher, effects) =
+            batcher.on_request_partial(now + STALL, &workers, resend, 0, vec![message("a", 0, 1)]);
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
+        assert!(effects.fatal.is_some());
     }
 
     #[test]
