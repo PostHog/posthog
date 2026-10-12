@@ -199,6 +199,42 @@ Creative, audience, demographic, and publisher reports are excluded to avoid cou
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
 
+## Registering external Delta tables in the managed warehouse
+
+A manually linked Delta table can be copied into the project's managed warehouse without creating another database import source.
+Enrollment is explicit. Refreshes require a provisioned warehouse with the `data-warehouse-scene` flag enabled.
+
+```sh
+python manage.py register_external_warehouse_tables \
+    --team-id PROJECT_ID \
+    --table-id WAREHOUSE_TABLE_UUID \
+    --interval-minutes 60
+```
+
+Repeat `--table-id` to enroll several tables.
+The command creates a Temporal schedule per table and triggers its first refresh immediately.
+Running it again updates the interval while preserving any pause set in Temporal.
+The minimum interval is five minutes.
+
+Supported sources are manually linked `Delta` and `DeltaS3Wrapper` tables in S3, including AWS S3 HTTPS locations.
+Synced-source tables, materialized-view backing tables, and plain Parquet file sources use their own workflows.
+Source credentials remain in the existing warehouse credential store; Temporal receives only project and table IDs.
+The reader uses the Delta transaction log and streams the selected snapshot into warehouse-owned Parquet files.
+Delta protocol features unsupported by the Arrow reader fail the refresh and preserve the previous publication.
+
+Each changed snapshot is a full copy, so choose the interval with table size and cross-region transfer costs in mind.
+An unchanged Delta version skips the copy.
+Registration verifies row counts and atomically publishes the new table with its source identity and Delta version.
+An older or repeated snapshot cannot replace a newer publication.
+The destination marker also lets the next run recover a committed publication whose response was lost.
+
+Physical names are `external_<warehouse-table-uuid-without-hyphens>` in the project's data-imports schema.
+After the first successful publication, the warehouse compiler maps the existing logical table name to that physical table.
+Enrollment, the last published version, refresh time, and sanitized failure category are recorded in `ManagedWarehouseExternalTable`.
+Deleting the source table or changing its location removes its compiler binding.
+A changed location or replaced Delta identity requires enrollment through a new warehouse table ID.
+Pause the table's Temporal schedule to stop further refreshes while retaining the last published copy.
+
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
 Selecting a source in the `Advertising` category records Marketing analytics product intent as well as Data warehouse intent.

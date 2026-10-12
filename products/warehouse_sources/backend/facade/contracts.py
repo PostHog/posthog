@@ -165,6 +165,15 @@ class DuckLakeImportedTable:
 
 
 @dataclass(frozen=True)
+class ExternalDeltaTable:
+    id: UUID
+    name: str
+    uri: str
+    fingerprint: str
+    storage_options: dict[str, str] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
 class TableSourceLocation:
     """Where a synced table is administered: the source and schema its detail page hangs off."""
 

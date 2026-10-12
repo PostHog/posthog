@@ -61,6 +61,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_started_metric,
     record_ducklake_register_data_imports_stage_duration,
 )
+from products.managed_warehouse.backend.temporal.parquet_registration import ParquetRegistration
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -679,10 +680,6 @@ def _add_data_files_path_batches(landing_paths: Sequence[str], *, batch_size: in
     ]
 
 
-def _duckdb_varchar_list_literal(values: Sequence[str]) -> psql.Composed:
-    return psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(value) for value in values))
-
-
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
@@ -698,7 +695,6 @@ def _register_prepared_parquet_files(
         job_id=inputs.job_id,
         prepared_queryable_folder=inputs.metadata.prepared_queryable_folder,
     )
-    parquet_glob = psql.Literal(f"{landing_uri}/{_PARQUET_FILE_GLOB}")
     partition_columns = _hive_partition_columns(landing_uri, landing_paths)
 
     _raise_if_duckgres_cancel_requested(cancel_requested)
@@ -706,66 +702,17 @@ def _register_prepared_parquet_files(
     shadow_is_published = False
     publish_attempted = False
     try:
+        registration = ParquetRegistration(
+            schema_name=schema_name,
+            table_name=table_name,
+            shadow_name=registration_names.shadow_name,
+            previous_name=registration_names.previous_name,
+            parquet_glob=f"{landing_uri}/{_PARQUET_FILE_GLOB}",
+        )
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
-            _raise_if_duckgres_cancel_requested(cancel_requested)
-            conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
-            _raise_if_duckgres_cancel_requested(cancel_requested)
-            conn.execute(
-                psql.SQL(
-                    "CREATE TABLE {}.{} AS SELECT * FROM "
-                    "read_parquet({}, union_by_name=true, hive_partitioning=true) LIMIT 0"
-                ).format(
-                    psql.Identifier(schema_name),
-                    psql.Identifier(registration_names.shadow_name),
-                    parquet_glob,
-                )
-            )
-            if partition_columns:
-                _raise_if_duckgres_cancel_requested(cancel_requested)
-                conn.execute(
-                    psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
-                        psql.Identifier(schema_name),
-                        psql.Identifier(registration_names.shadow_name),
-                        psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
-                    )
-                )
-            _raise_if_duckgres_cancel_requested(cancel_requested)
-            for path_batch in _add_data_files_path_batches(landing_paths):
-                _raise_if_duckgres_cancel_requested(cancel_requested)
-                conn.execute(
-                    psql.SQL(
-                        "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
-                        "allow_missing => true, hive_partitioning => true)"
-                    ).format(
-                        psql.Literal("ducklake"),
-                        psql.Literal(registration_names.shadow_name),
-                        _duckdb_varchar_list_literal(path_batch),
-                        psql.Literal(schema_name),
-                    )
-                )
-
+            registration.prepare(conn, _add_data_files_path_batches(landing_paths), partition_columns, cancel_requested)
         with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
-            _raise_if_duckgres_cancel_requested(cancel_requested)
-            source_row = conn.execute(
-                psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
-                    parquet_glob
-                )
-            ).fetchone()
-            _raise_if_duckgres_cancel_requested(cancel_requested)
-            registered_row = conn.execute(
-                psql.SQL("SELECT count(*) FROM {}.{}").format(
-                    psql.Identifier(schema_name),
-                    psql.Identifier(registration_names.shadow_name),
-                )
-            ).fetchone()
-            source_count = int(source_row[0]) if source_row else 0
-            registered_count = int(registered_row[0]) if registered_row else 0
-            if source_count != registered_count:
-                raise ApplicationError(
-                    "DuckLake prepared-file registration row count mismatch: "
-                    f"source={source_count}, registered={registered_count}",
-                    non_retryable=True,
-                )
+            registered_count = registration.verify(conn, cancel_requested)
 
         generation_is_stale = False
         with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id) as timer:
@@ -776,21 +723,7 @@ def _register_prepared_parquet_files(
                 # Keep this transaction limited to publication. DuckLake flushes staged file
                 # metadata at commit, so including registration makes the catalog commit expensive.
                 with conn.transaction():
-                    conn.execute(
-                        psql.SQL("ALTER TABLE IF EXISTS {}.{} RENAME TO {}").format(
-                            psql.Identifier(schema_name),
-                            psql.Identifier(table_name),
-                            psql.Identifier(registration_names.previous_name),
-                        )
-                    )
-                    _raise_if_duckgres_cancel_requested(cancel_requested)
-                    conn.execute(
-                        psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
-                            psql.Identifier(schema_name),
-                            psql.Identifier(registration_names.shadow_name),
-                            psql.Identifier(table_name),
-                        )
-                    )
+                    registration.publish(conn, cancel_requested)
                 shadow_is_published = True
             else:
                 timer.set_status("STALE")

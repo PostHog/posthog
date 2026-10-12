@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from posthog.hogql.database.trino_locator import TrinoTableLocator
+
+from posthog.dataclasses import frozen
 
 from products.managed_warehouse.backend.common import (
     duckgres_data_imports_schema,
@@ -14,6 +16,8 @@ from products.managed_warehouse.backend.common import (
     ducklake_data_modeling_schema,
     ducklake_data_modeling_table_name,
 )
+from products.managed_warehouse.backend.models import ManagedWarehouseExternalTable
+from products.warehouse_sources.backend.facade.external_delta import list_external_delta_tables
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 logger = logging.getLogger(__name__)
@@ -36,6 +40,7 @@ def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
     """
     _bind_materialized_models(database, team_id)
     _bind_source_tables(database, team_id)
+    _bind_external_tables(database, team_id)
 
 
 def get_data_modeling_table_names(team_id: int, saved_query_ids: Sequence[UUID]) -> dict[UUID, str]:
@@ -95,7 +100,53 @@ def build_trino_table_locators(
             if database.has_table(logical_name):
                 locators[logical_name] = locator
 
+    for binding in _external_table_bindings(team_id):
+        if database.has_table(binding.logical_name):
+            locators[binding.logical_name] = (catalog_name, binding.schema_name, binding.table_name)
     return locators
+
+
+@frozen
+class ExternalTableBinding:
+    logical_name: str
+    schema_name: str
+    table_name: str
+
+
+def _external_table_bindings(team_id: int) -> Iterator[ExternalTableBinding]:
+    registrations = list(
+        ManagedWarehouseExternalTable.objects.for_team(team_id).filter(published_version__isnull=False)
+    )
+    if not registrations:
+        return
+    sources = list_external_delta_tables(team_id, [registration.table_id for registration in registrations])
+    for registration in registrations:
+        source = sources.get(registration.table_id)
+        if source is not None and source.fingerprint == registration.source_fingerprint:
+            yield ExternalTableBinding(
+                logical_name=source.name,
+                schema_name=registration.warehouse_schema,
+                table_name=registration.warehouse_table,
+            )
+
+
+def _bind_external_tables(database: Any, team_id: int) -> None:
+    from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+    from posthog.hogql.errors import ResolutionError
+
+    for binding in _external_table_bindings(team_id):
+        try:
+            node = database.get_table_node(binding.logical_name.split("."))
+        except ResolutionError:
+            continue
+        if node.table is not None:
+            node.table = DirectPostgresTable(
+                name=binding.logical_name,
+                external_data_source_id="",
+                postgres_schema=binding.schema_name,
+                postgres_table_name=binding.table_name,
+                fields=node.table.fields,
+            )
 
 
 def _bind_materialized_models(database: Any, team_id: int) -> None:

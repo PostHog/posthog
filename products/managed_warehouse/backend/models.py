@@ -156,6 +156,27 @@ class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
         ]
 
 
+class ManagedWarehouseExternalTable(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    table_id = models.UUIDField()
+    source_fingerprint = models.CharField(max_length=64)
+    warehouse_schema = models.CharField(max_length=255)
+    warehouse_table = models.CharField(max_length=255)
+    delta_table_id = models.CharField(max_length=255, null=True, blank=True)
+    published_version = models.PositiveBigIntegerField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    latest_error = models.TextField(null=True, blank=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        db_table = "posthog_managedwarehouseexternaltable"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "table_id"], name="unique_managed_external_table"),
+        ]
+
+
 class ManagedWarehouseViewTranslationJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class TriggerSource(models.TextChoices):
         ADMIN = "admin", "Django admin"
