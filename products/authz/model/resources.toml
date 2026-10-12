@@ -1,0 +1,46 @@
+# Access-controlled resource types. The model build generates one OpenFGA type for each table from resource.fga.
+# A table name must be a ResourceType value in products/authz/backend/facade/enums.py.
+#
+# Keys:
+#   shareable  Adds "can_share: can_edit" for resources that share links can expose.
+#   relations  Relations to add, or a template permission (can_*) to replace. Each one needs a definition and a why.
+#
+# Most resources need only a table name. Read products/authz/AGENTS.md before you add relations.
+
+[dashboard]
+shareable = true
+
+[dashboard.relations.restricted]
+definition = "[user:*] and access_control_enabled from project"
+why = "Legacy collaborator restrictions remain an independent write gate."
+
+[dashboard.relations.collaborator]
+definition = "[organization_member#user]"
+why = "Members with a legacy collaborator privilege can edit a restricted dashboard."
+
+[dashboard.relations.legacy_editor]
+definition = "creator or admin from project or collaborator or ((member from project) but not restricted)"
+why = "The legacy rule: anyone in the project can edit, except on a restricted dashboard."
+
+[dashboard.relations.can_edit]
+definition = "editor and legacy_editor"
+why = "An edit must pass both the access rules and the legacy collaborator rule."
+
+[insight]
+shareable = true
+
+[insight.relations.dashboard]
+definition = "[dashboard]"
+why = "An insight takes the legacy edit rule from the dashboards that show it."
+
+[insight.relations.has_dashboard]
+definition = "[user:*]"
+why = "This marker distinguishes an unattached insight from one with no editable dashboards."
+
+[insight.relations.legacy_editor]
+definition = "legacy_editor from dashboard or ((member from project) but not has_dashboard)"
+why = "An insight on a dashboard is editable by the dashboard's legacy editors; an unattached insight is editable by project members."
+
+[insight.relations.can_edit]
+definition = "editor and legacy_editor"
+why = "An edit must pass both the access rules and the legacy dashboard rule."
