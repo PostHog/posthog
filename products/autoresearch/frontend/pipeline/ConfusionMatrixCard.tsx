@@ -19,7 +19,7 @@ const CELL_TINT = {
 function Cell({ count, label, tint }: { count: number; label: string; tint: keyof typeof CELL_TINT }): JSX.Element {
     return (
         <div className={`rounded p-3 min-w-0 ${CELL_TINT[tint]}`}>
-            <div className="text-2xl font-semibold tabular-nums truncate">{count.toLocaleString()}</div>
+            <div className="text-xl @xl:text-2xl font-semibold tabular-nums">{count.toLocaleString()}</div>
             <div className="text-xs text-secondary">{label}</div>
         </div>
     )
@@ -37,7 +37,7 @@ function Rate({
     tooltip: string
 }): JSX.Element {
     return (
-        <div className="min-w-0 self-center">
+        <div className="min-w-0 max-w-32 self-center">
             <Tooltip title={tooltip}>
                 <div className="text-xs font-semibold text-muted cursor-help">{label}</div>
             </Tooltip>
@@ -89,34 +89,36 @@ export function ConfusionMatrixCard(): JSX.Element {
                             scores did.
                         </LemonBanner>
                     ) : (
-                        <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-stretch">
-                            <div />
-                            <div className="text-sm font-semibold">Did it</div>
-                            <div className="text-sm font-semibold">Didn't</div>
-                            <div />
+                        <div className="@container">
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-stretch">
+                                <div />
+                                <div className="text-sm font-semibold">Did it</div>
+                                <div className="text-sm font-semibold">Didn't</div>
+                                <div />
 
-                            <div className="text-sm font-semibold self-center">Flagged</div>
-                            <Cell count={confusion.tp} label="Caught" tint="caught" />
-                            <Cell count={confusion.fp} label="False alarm" tint="falseAlarm" />
-                            <Rate
-                                label="Hit rate"
-                                value={confusion.precision}
-                                detail={`${confusion.tp.toLocaleString()} of ${confusion.flagged.toLocaleString()} flagged`}
-                                tooltip={`Precision: the share of flagged people who did ${target}.`}
-                            />
+                                <div className="text-sm font-semibold self-center">Flagged</div>
+                                <Cell count={confusion.tp} label="Caught" tint="caught" />
+                                <Cell count={confusion.fp} label="False alarm" tint="falseAlarm" />
+                                <Rate
+                                    label="Hit rate"
+                                    value={confusion.precision}
+                                    detail={`${confusion.tp.toLocaleString()} of ${confusion.flagged.toLocaleString()} flagged`}
+                                    tooltip={`Precision: the share of flagged people who did ${target}.`}
+                                />
 
-                            <div className="text-sm font-semibold self-center">Not flagged</div>
-                            <Cell count={confusion.fn} label="Missed" tint="missed" />
-                            <Cell count={confusion.tn} label="Correctly ignored" tint="ignored" />
-                            <div />
+                                <div className="text-sm font-semibold self-center">Not flagged</div>
+                                <Cell count={confusion.fn} label="Missed" tint="missed" />
+                                <Cell count={confusion.tn} label="Correctly ignored" tint="ignored" />
+                                <div />
 
-                            <div />
-                            <Rate
-                                label="Coverage"
-                                value={confusion.recall}
-                                detail={`${confusion.tp.toLocaleString()} of ${(confusion.tp + confusion.fn).toLocaleString()} who did it`}
-                                tooltip={`Recall: the share of everyone who did ${target} that the model flagged.`}
-                            />
+                                <div />
+                                <Rate
+                                    label="Coverage"
+                                    value={confusion.recall}
+                                    detail={`${confusion.tp.toLocaleString()} of ${(confusion.tp + confusion.fn).toLocaleString()} who did it`}
+                                    tooltip={`Recall: the share of everyone who did ${target} that the model flagged.`}
+                                />
+                            </div>
                         </div>
                     )}
                 </>
