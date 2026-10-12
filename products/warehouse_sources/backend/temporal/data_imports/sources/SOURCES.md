@@ -507,6 +507,7 @@ the row lists both.
 | lob                              | HTTP                        | requests                                                        | ✅                          |
 | lodgify                          | HTTP                        | requests                                                        | ✅                          |
 | logicmonitor                     | HTTP                        | requests                                                        | ✅                          |
+| logrocket                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1253,7 +1254,6 @@ doesn't conflict with concurrent PRs.
 - linnworks
 - liveblocks
 - llama_cloud
-- logrocket
 - lokalise
 - looker
 - loom
