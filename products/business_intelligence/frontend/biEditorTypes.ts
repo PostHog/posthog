@@ -148,6 +148,13 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
     let normalized = normalizeBIDates(config)
+    if (
+        normalized.colorBy &&
+        (normalized.rows.length + normalized.columns.length !== 2 ||
+            ![...normalized.rows, ...normalized.columns].some((field) => field.id === normalized.colorBy))
+    ) {
+        normalized = { ...normalized, colorBy: undefined }
+    }
     if (normalized.comparisonPeriod) {
         normalized = { ...normalized, compareFilter: { ...normalized.compareFilter, compare: false } }
     }
@@ -355,6 +362,22 @@ export interface BIChartFit {
     requirement: string
 }
 
+export function getBIAutoChartType(config: BIConfig): ChartDisplayType {
+    const dimensions = [...config.rows, ...config.columns]
+    if (dimensions.length > 2) {
+        return ChartDisplayType.ActionsTable
+    }
+    if (dimensions.some(isDateTimeBIField)) {
+        return ChartDisplayType.ActionsLineGraph
+    }
+    if (dimensions.length) {
+        return config.values.length && config.values.every((value) => value.shelf === 'columns')
+            ? ChartDisplayType.ActionsBarValue
+            : ChartDisplayType.ActionsBar
+    }
+    return config.values.length <= 1 ? ChartDisplayType.BoldNumber : ChartDisplayType.ActionsTable
+}
+
 /** Describes the chart types panel: which chart types suit the fields on the shelves. */
 export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BIChartFit {
     const rowCount = config.rows.length
@@ -364,7 +387,11 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
 
     switch (chartType) {
         case ChartDisplayType.Auto:
-            return { fits: true, requirement: 'Picks a chart type from the query results' }
+            return {
+                fits: true,
+                requirement:
+                    'Uses lines for dates, bars for one or two categorical dimensions, and a number for a single total',
+            }
         case ChartDisplayType.ActionsTable:
             return { fits: true, requirement: 'any combination of fields' }
         case ChartDisplayType.ActionsLineGraph:
@@ -376,6 +403,7 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
                     : '1 date, up to 1 more dimension, and any measures',
             }
         case ChartDisplayType.ActionsBar:
+        case ChartDisplayType.ActionsBarValue:
         case ChartDisplayType.ActionsStackedBar:
             return {
                 fits: dimensionCount >= 1 && (dimensionCount <= 2 || !!config.compareFilter?.compare),
@@ -639,6 +667,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.comparisonPeriod ? { comparisonPeriod: candidate.comparisonPeriod } : {}),
         ...(candidate.rowFilterGroup ? { rowFilterGroup: candidate.rowFilterGroup } : {}),
@@ -1073,6 +1102,7 @@ export function getBIResultDimensions(config: BIConfig): { field: BIField; colum
             [
                 ChartDisplayType.Auto,
                 ChartDisplayType.ActionsBar,
+                ChartDisplayType.ActionsBarValue,
                 ChartDisplayType.ActionsStackedBar,
                 ChartDisplayType.ActionsLineGraph,
                 ChartDisplayType.ActionsAreaGraph,
@@ -1323,8 +1353,10 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
     let query = queryParts.join('\n')
 
     const chartDimensions = [...columnDimensions, ...rowDimensions]
-    const xDimension = chartDimensions.find(({ field }) => isDateTimeBIField(field)) ?? chartDimensions[0]
-    const breakdownDimension = chartDimensions.find((dimension) => dimension !== xDimension)
+    const colorDimension = chartDimensions.find(({ field }) => field.id === config.colorBy)
+    const axisDimensions = chartDimensions.filter((dimension) => dimension !== colorDimension)
+    const xDimension = axisDimensions.find(({ field }) => isDateTimeBIField(field)) ?? axisDimensions[0]
+    const breakdownDimension = colorDimension ?? chartDimensions.find((dimension) => dimension !== xDimension)
     let seriesSettings: ChartSettings | undefined =
         hasSeriesBreakdown && xDimension && breakdownDimension
             ? {

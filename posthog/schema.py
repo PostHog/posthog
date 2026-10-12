@@ -11347,6 +11347,7 @@ class BIConfig(BaseModel):
         extra="forbid",
     )
     chartType: ChartDisplayType
+    colorBy: str | None = None
     columns: list[BIField]
     compareFilter: CompareFilter | None = None
     comparisonPeriod: ComparisonPeriod | None = Field(

@@ -93,6 +93,7 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         ...config,
         source,
         localFields: undefined,
+        colorBy: undefined,
         comparisonPeriod: undefined,
         rows: [],
         columns: [],
@@ -510,6 +511,9 @@ export interface biEditorLogicActions {
     setChartTypesOpen: (chartTypesOpen: boolean) => {
         chartTypesOpen: boolean
     }
+    setColorBy: (colorBy: string | null | undefined) => {
+        colorBy: string | null | undefined
+    }
     setCompareFilter: (compareFilter: CompareFilter) => {
         compareFilter: CompareFilter
     }
@@ -753,6 +757,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         }),
         setMeasureShelf: (index: number, shelf: 'rows' | 'columns') => ({ index, shelf }),
         swapRowsAndColumns: true,
+        setColorBy: (colorBy: string | null | undefined) => ({ colorBy }),
         editCalculatedField: (field?: BIField) => ({ field }),
         removeLocalField: (fieldId: string) => ({ fieldId }),
         duplicateField: (shelf: Exclude<BIShelf, 'filters'>, index: number) => ({ shelf, index, fieldId: uuid() }),
@@ -1036,6 +1041,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                                   : config.chartType,
                     }),
                 setChartType: (config, { chartType }) => normalizeBIConfig({ ...config, chartType }),
+                setColorBy: (config, { colorBy }) => normalizeBIConfig({ ...config, colorBy }),
                 setDateRange: (config, { dateRange }) => ({ ...config, dateRange }),
                 setCompareFilter: (config, { compareFilter }) => ({ ...config, compareFilter }),
                 setMissingDates: (config, { missingDates }) => ({ ...config, missingDates }),
@@ -1394,6 +1400,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         addBlankFieldToShelf: () => actions.runAfterChange(),
         removeFieldFromShelf: () => actions.runAfterChange(),
         setChartType: () => actions.runAfterChange(),
+        setColorBy: () => actions.runAfterChange(),
         setDateRange: () => actions.runAfterChange(),
         setCompareFilter: () => actions.runAfterChange(),
         setMissingDates: () => actions.runAfterChange(),

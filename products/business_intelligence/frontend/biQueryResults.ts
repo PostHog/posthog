@@ -1,7 +1,15 @@
-import { AnyResponseType, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
+import { getSeriesColor } from 'lib/colors'
+
+import { AnyResponseType, ChartAxis, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
 
 import { getBIComparisonGroupLimit } from './biComparisonLimit'
 import { buildBIQuery, getBIResultDimensions, getBIResultMeasureColumns } from './biEditorTypes'
+
+export function getBISeriesSettings(query: VisualizationNode, settings: ChartAxis['settings']): ChartAxis['settings'] {
+    return query.kind === NodeKind.BIVisualizationNode && query.config.colorBy === null
+        ? { ...settings, display: { ...settings?.display, color: getSeriesColor(0) } }
+        : settings
+}
 
 export function getBIResultSummary(
     query: VisualizationNode,
