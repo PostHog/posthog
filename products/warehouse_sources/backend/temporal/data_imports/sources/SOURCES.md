@@ -759,6 +759,7 @@ the row lists both.
 | smaily                           | HTTP                        | requests                                                        | ✅                          |
 | smartengage                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smartlead                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smartlook                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smartreach                       | HTTP                        | requests                                                        | ✅                          |
 | smartsheet                       | HTTP                        | requests                                                        | ✅                          |
 | smartwaiver                      | HTTP                        | requests                                                        | ✅                          |
@@ -1433,7 +1434,6 @@ doesn't conflict with concurrent PRs.
 - skyvern
 - sleuth
 - smaily
-- smartlook
 - smartrecruiters
 - smartwaiver
 - smokeball
