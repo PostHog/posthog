@@ -1,6 +1,16 @@
 from posthog.test.base import BaseTest
 
-from posthog.schema import AssistantLifecycleEventsNode, AssistantLifecycleQuery, EventsNode, LifecycleQuery
+from parameterized import parameterized
+
+from posthog.schema import (
+    AssistantLifecycleEventsNode,
+    AssistantLifecycleFilter,
+    AssistantLifecycleQuery,
+    EventsNode,
+    LifecycleFilter,
+    LifecycleQuery,
+    LifecycleToggle,
+)
 
 from .. import LifecycleResultsFormatter
 
@@ -153,6 +163,46 @@ class TestLifecycleResultsFormatter(BaseTest):
             ).format(),
             "Date|New|Returning|Resurrecting|Dormant\n2025-01-01|100|0|0|-20\n2025-01-02|80|0|0|-15",
         )
+
+    @parameterized.expand(
+        [
+            (
+                "dormant_only",
+                [LifecycleToggle.DORMANT],
+                "Date|Dormant\n2025-01-01|-20\n2025-01-02|-15",
+            ),
+            (
+                "keeps_status_order",
+                [LifecycleToggle.DORMANT, LifecycleToggle.NEW],
+                "Date|New|Dormant\n2025-01-01|100|-20\n2025-01-02|80|-15",
+            ),
+            (
+                "empty_selects_none",
+                [],
+                "No lifecycle statuses are selected in lifecycleFilter.toggledLifecycles.",
+            ),
+        ]
+    )
+    def test_format_honors_toggled_lifecycles(self, _name, toggled, expected):
+        days = ["2025-01-01", "2025-01-02"]
+        results = [
+            _make_result("$pageview", "$pageview", "new", [100, 80], days),
+            _make_result("$pageview", "$pageview", "returning", [50, 40], days),
+            _make_result("$pageview", "$pageview", "resurrecting", [10, 8], days),
+            _make_result("$pageview", "$pageview", "dormant", [-20, -15], days),
+        ]
+        queries: list[AssistantLifecycleQuery | LifecycleQuery] = [
+            LifecycleQuery(
+                series=[EventsNode(event="$pageview")], lifecycleFilter=LifecycleFilter(toggledLifecycles=toggled)
+            ),
+            AssistantLifecycleQuery(
+                series=[AssistantLifecycleEventsNode(event="$pageview")],
+                lifecycleFilter=AssistantLifecycleFilter(toggledLifecycles=toggled),
+            ),
+        ]
+
+        for query in queries:
+            self.assertEqual(LifecycleResultsFormatter(query, results).format(), expected)
 
     def test_format_with_datetime_seconds(self):
         results = [
