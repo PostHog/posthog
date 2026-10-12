@@ -549,31 +549,45 @@ async def test_file_download_list_returns_run_ids_and_statuses(
         status=BatchExportRun.Status.COMPLETED,
     )
 
+    cancelled_run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.CANCELLED,
+    )
+
     running_run.created_at = dt.datetime(2026, 1, 1, 1, 1, 0, tzinfo=dt.UTC)
     await running_run.asave(update_fields=["created_at"])
     completed_run.created_at = dt.datetime(2026, 1, 1, 1, 1, 1, tzinfo=dt.UTC)
     await completed_run.asave(update_fields=["created_at"])
+    cancelled_run.created_at = completed_run.created_at
+    await cancelled_run.asave(update_fields=["created_at"])
 
     await async_client.aforce_login(user)
+
+    tied_runs = sorted([completed_run, cancelled_run], key=lambda run: run.id, reverse=True)
+    expected = [{"id": str(run.id), "status": run.status} for run in [*tied_runs, running_run]]
 
     response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports")
 
     assert response.status_code == status.HTTP_200_OK, response.json()
     data = response.json()
-    assert data["count"] == 2
-    assert data["results"] == [
-        {"id": str(completed_run.id), "status": BatchExportRun.Status.COMPLETED},
-        {"id": str(running_run.id), "status": BatchExportRun.Status.RUNNING},
-    ]
+    assert data["count"] == 3
+    assert data["results"] == expected
 
-    response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports?limit=1&offset=1")
+    pages = []
+    for offset in range(3):
+        response = await async_client.get(
+            f"/api/projects/{team.pk}/file_download_batch_exports?limit=1&offset={offset}"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["count"] == 3
+        pages.extend(data["results"])
 
-    assert response.status_code == status.HTTP_200_OK, response.json()
-    data = response.json()
-    assert data["count"] == 2
     assert data["next"] is None
     assert data["previous"] is not None
-    assert data["results"] == [{"id": str(running_run.id), "status": BatchExportRun.Status.RUNNING}]
+    assert pages == expected
 
 
 @requires_aws_credentials

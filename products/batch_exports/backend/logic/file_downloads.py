@@ -71,7 +71,7 @@ def _file_download_runs(team_id: int) -> QuerySet[BatchExportRun]:
             batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
             batch_export_on_demand__team_id=team_id,
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
     )
 
 
