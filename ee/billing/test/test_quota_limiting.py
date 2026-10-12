@@ -21,6 +21,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
+    ALREADY_LIMITED_NOTICE_KEY_PREFIX,
     INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     OrganizationUsageInfo,
@@ -663,6 +664,55 @@ class TestQuotaLimiting(BaseTest):
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             "survey_responses": {"usage": 10, "limit": 100, "todays_usage": 21},
         }
+
+    @patch("posthoganalytics.capture")
+    def test_already_limited_zero_usage_reported_once_per_day_and_period(self, patch_capture) -> None:
+        for key in self.redis_client.scan_iter(f"{ALREADY_LIMITED_NOTICE_KEY_PREFIX}{self.organization.id}/*"):
+            self.redis_client.delete(key)
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "posthog_code_credits": {"usage": 0, "limit": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        team_tokens = [self.team.api_token]
+        limited = {"quota_limited_until": 1612137599, "quota_limiting_suspended_until": None}
+
+        def check() -> Any:
+            return org_quota_limited_until(
+                self.organization, QuotaResource.POSTHOG_CODE_CREDITS, team_tokens, team_tokens
+            )
+
+        def already_limited_count() -> int:
+            return sum(
+                1
+                for call in patch_capture.call_args_list
+                if call.kwargs["properties"].get("event") == "already limited"
+            )
+
+        with time_machine.travel("2021-01-10T10:00:00Z", tick=False):
+            assert check() == limited
+            assert check() == limited
+        assert already_limited_count() == 1
+
+        with time_machine.travel("2021-01-10T23:30:00Z", tick=False):
+            assert check() == limited
+        assert already_limited_count() == 1
+
+        with time_machine.travel("2021-01-11T00:30:00Z", tick=False):
+            assert check() == limited
+            assert check() == limited
+        assert already_limited_count() == 2
+
+        self.organization.usage["period"] = ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"]
+        with time_machine.travel("2021-01-11T01:00:00Z", tick=False):
+            assert check() == {"quota_limited_until": 1614556799, "quota_limiting_suspended_until": None}
+        assert already_limited_count() == 3
+
+        self.organization.usage["posthog_code_credits"]["usage"] = 5
+        with time_machine.travel("2021-01-11T01:30:00Z", tick=False):
+            check()
+            check()
+        assert already_limited_count() == 5
 
     def test_org_quota_limited_until(self):
         self.organization.usage = None
