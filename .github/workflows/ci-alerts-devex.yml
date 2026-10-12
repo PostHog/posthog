@@ -66,7 +66,7 @@ env:
     # Frontend CI is split the same way: jest runs hourly, while typecheck, format and bundle size
     # run on every push. For Node.js, Dagster, Python and MCP the whole suite is on the cron, so
     # their push lane only proves the run dispatched and the scheduled lane carries the coverage.
-    SCHEDULED_GATING_WORKFLOWS: 'ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml,ci-warehouse-sources.yml'
+    SCHEDULED_GATING_WORKFLOWS: 'ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml'
     # Backend CI's hourly run is on Depot CI (.depot/workflows/ci-backend.yml), so GitHub has no
     # runs for that lane. The reconcile job writes its runs to DEPOT_SCHEDULED_RUNS_FILE first.
     DEPOT_SCHEDULED_GATING_WORKFLOW: 'ci-backend.yml'
