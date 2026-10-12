@@ -14,13 +14,23 @@ import { type ErrorScope, usableId } from 'products/tracing/frontend/errorCorrel
 
 import { LogErrorCount } from './LogErrorCount'
 
+export type LogContextLinksSurface = 'drawer' | 'row'
+
+// The drawer's trace attr shipped before this component existed.
+// pinned: data-attr values — renaming breaks autocapture dashboards.
+const TRACE_DATA_ATTR: Record<LogContextLinksSurface, string> = {
+    drawer: 'logs-details-view-trace',
+    row: 'logs-row-view-trace',
+}
+
 export interface LogContextLinksProps {
     log: ParsedLogMessage
+    surface: LogContextLinksSurface
     /** Called when the error count is clicked, with the scope the count was taken on. */
     onOpenRelatedErrors: (scope: ErrorScope) => void
 }
 
-export function LogContextLinks({ log, onOpenRelatedErrors }: LogContextLinksProps): JSX.Element | null {
+export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContextLinksProps): JSX.Element | null {
     const { configuredSessionIdKeys, configuredDistinctIdKeys } = useValues(logsConfigLogic)
 
     const traceId = usableId(log.trace_id)
@@ -40,17 +50,22 @@ export function LogContextLinks({ log, onOpenRelatedErrors }: LogContextLinksPro
                     timestamp={log.timestamp}
                     size="xsmall"
                     type="secondary"
-                    data-attr="logs-details-view-trace"
+                    data-attr={TRACE_DATA_ATTR[surface]}
                 />
             )}
             {(traceId || sessionId) && (
                 <LogErrorCount
                     logicProps={buildLogErrorsLogicProps(log, sessionId)}
+                    surface={surface}
                     onOpenRelatedErrors={onOpenRelatedErrors}
                 />
             )}
             {distinctId && (
-                <LemonTag size="small" className="bg-surface-primary min-w-0" data-attr="logs-context-links-person">
+                <LemonTag
+                    size="small"
+                    className="bg-surface-primary min-w-0"
+                    data-attr={`logs-${surface}-context-person`}
+                >
                     <span className="sr-only">Person</span>
                     <PersonDisplay person={{ distinct_id: distinctId }} withIcon="sm" />
                 </LemonTag>
@@ -62,7 +77,7 @@ export function LogContextLinks({ log, onOpenRelatedErrors }: LogContextLinksPro
                     size="xsmall"
                     openPlayerIn={RecordingPlayerType.Modal}
                     checkRecordingExists
-                    data-attr="logs-context-links-recording"
+                    data-attr={`logs-${surface}-context-recording`}
                 />
             )}
         </div>

@@ -11,6 +11,8 @@ import {
 } from 'products/tracing/frontend/components/TraceDrawer/traceErrorsLogic'
 import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 
+import type { LogContextLinksSurface } from './LogContextLinks'
+
 const SCOPE_WHERE: Record<ErrorScope, string> = {
     span: 'in this span',
     trace: 'in this trace',
@@ -19,10 +21,11 @@ const SCOPE_WHERE: Record<ErrorScope, string> = {
 
 export interface LogErrorCountProps {
     logicProps: TraceErrorsLogicProps
+    surface: LogContextLinksSurface
     onOpenRelatedErrors: (scope: ErrorScope) => void
 }
 
-export function LogErrorCount({ logicProps, onOpenRelatedErrors }: LogErrorCountProps): JSX.Element | null {
+export function LogErrorCount({ logicProps, surface, onOpenRelatedErrors }: LogErrorCountProps): JSX.Element | null {
     const { issues, issuesLoading, issuesFailed, effectiveScope } = useValues(traceErrorsLogic(logicProps))
 
     if (!effectiveScope) {
@@ -34,7 +37,7 @@ export function LogErrorCount({ logicProps, onOpenRelatedErrors }: LogErrorCount
 
     if (!issuesLoading && !issuesFailed && errorCount === 0) {
         return (
-            <span className="text-xs text-secondary" data-attr="logs-context-links-no-errors">
+            <span className="text-xs text-secondary" data-attr={`logs-${surface}-context-no-errors`}>
                 No errors {where}
             </span>
         )
@@ -48,7 +51,7 @@ export function LogErrorCount({ logicProps, onOpenRelatedErrors }: LogErrorCount
             icon={<IconWarning />}
             loading={issuesLoading}
             onClick={() => onOpenRelatedErrors(effectiveScope)}
-            data-attr="logs-context-links-errors"
+            data-attr={`logs-${surface}-context-errors`}
         >
             {issuesLoading
                 ? `Counting errors ${where}`
