@@ -48,8 +48,10 @@ _VERBS = (
     ("unrevoke", "clear llm_gateway_revoked_at (no-op if already null)"),
     ("set-allowance", "set llm_gateway_overspend_allowance_usd (USD, 0–10000, max 6 dp)"),
     ("clear-allowance", "clear llm_gateway_overspend_allowance_usd (unset → gateway falls back to its default)"),
-    ("refresh", "rewrite the team's policy cache entry from current DB state (no field change)"),
-    ("refresh-credentials", "re-project the team's gateway credential blobs now, e.g. after a gated-host flag flip"),
+    (
+        "refresh",
+        "rewrite the team's policy cache entry and gateway credential blobs from current state (no field change)",
+    ),
     ("status", "print the team's current admission state"),
     ("project-quota", "write or clear the team's llm_gateway_quota blob from the quota zsets and org state"),
 )
@@ -79,14 +81,12 @@ class Command(BaseCommand):
         if action == "status":
             _print_status(self.stdout, team)
             return
-        if action == "refresh-credentials":
-            if not settings.AI_GATEWAY_REDIS_URL:
-                raise CommandError("refresh-credentials needs AI_GATEWAY_REDIS_URL; credential projection is off")
-            reproject_team_gateway_credentials_task(team.id)
-            self.stdout.write(self.style.SUCCESS(f"team {team.id} ({team.api_token}): refresh-credentials ok"))
-            return
         if action == "refresh":
             update_team_llm_gateway_policy_cache(team)
+            # Credential blobs carry team state too (e.g. gated-host flags), which
+            # otherwise waits for the hourly refresh.
+            if settings.AI_GATEWAY_REDIS_URL:
+                reproject_team_gateway_credentials_task(team.id)
             self.stdout.write(self.style.SUCCESS(f"team {team.id} ({team.api_token}): refresh ok"))
             self.stdout.write(f"  {_snapshot(team)}")
             return

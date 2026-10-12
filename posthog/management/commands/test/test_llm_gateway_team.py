@@ -146,17 +146,13 @@ class TestLLMGatewayTeamCommand(BaseTest):
         child.refresh_from_db()
         self.assertIsNone(child.llm_gateway_overspend_allowance_usd)
 
-    @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6381")
+    @parameterized.expand([("projection_on", "redis://localhost:6381", True), ("projection_off", "", False)])
     @patch("posthog.management.commands.llm_gateway_team.reproject_team_gateway_credentials_task")
-    def test_refresh_credentials_reprojects_the_team_now(self, reproject) -> None:
-        out = self._run("refresh-credentials", str(self.team.id))
-        reproject.assert_called_once_with(self.team.id)
-        self.assertIn("refresh-credentials ok", out)
-
-    @override_settings(AI_GATEWAY_REDIS_URL="")
-    def test_refresh_credentials_needs_the_gateway_redis(self) -> None:
-        with self.assertRaises(CommandError):
-            self._run("refresh-credentials", str(self.team.id))
+    def test_refresh_reprojects_credentials_when_projection_is_on(self, _name, redis_url, expected, reproject) -> None:
+        # A gated-host flag flip otherwise waits for the hourly credential refresh.
+        with override_settings(AI_GATEWAY_REDIS_URL=redis_url):
+            self._run("refresh", str(self.team.id))
+        self.assertEqual(reproject.called, expected)
 
     def test_refresh_rewrites_cache_without_field_change(self) -> None:
         # refresh exists so an operator can re-warm a drifted cache without

@@ -130,7 +130,6 @@ class _RefreshMemo:
         self._access: dict[tuple[Any, Any], bool] = {}
         self._teams: dict[Any, Team | None] = {}
         self._org_roots: dict[Any, int | None] = {}
-        self._enabled_hosts: dict[Any, list[str]] = {}
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -153,11 +152,6 @@ class _RefreshMemo:
         if organization_id not in self._org_roots:
             self._org_roots[organization_id] = load()
         return self._org_roots[organization_id]
-
-    def enabled_hosts(self, team_id: Any, load: Callable[[], list[str]]) -> list[str]:
-        if team_id not in self._enabled_hosts:
-            self._enabled_hosts[team_id] = load()
-        return self._enabled_hosts[team_id]
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -334,7 +328,8 @@ def _policy_for_credential(
             logger.warning("gateway_credential: unrecognized tier override, not projecting", team_id=team.id, tier=tier)
 
     # Absent unless flagged in, so ordinary teams' blobs stay byte-identical.
-    enabled_hosts = memo.enabled_hosts(team.id, lambda: _enabled_hosts(team)) if memo else _enabled_hosts(team)
+    # Flags evaluate locally, in memory, so no per-run memo is needed.
+    enabled_hosts = _enabled_hosts(team)
     if enabled_hosts:
         policy[ENABLED_HOSTS_KEY] = enabled_hosts
 
