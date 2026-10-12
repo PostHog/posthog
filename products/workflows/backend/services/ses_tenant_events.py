@@ -1,8 +1,8 @@
 """AWS SES tenant reputation and VDM advisor events, delivered via EventBridge → SNS HTTPS subscription.
 
 Events are treated as change signals only — the handler never trusts the payload's state; it
-enqueues a tenant sync, or queues the identity's domain for the next new-sender sweep, and both
-read the authoritative state from the SES API. That makes duplicate,
+enqueues a tenant sync, or marks the identity's pending senders as due for the next 1-minute sender
+sweep, and both read the authoritative state from the SES API. That makes duplicate,
 reordered, or partially-shaped events harmless.
 
 The SNS message signature and the topic-ARN allowlist are checked by the ingress transport, which
@@ -104,7 +104,7 @@ def _handle_advisor_resolution(event: dict[str, Any]) -> None:
     identities = _extract_identities(event)
     logger.info("ses_advisor_resolution_webhook_accepted", identity_count=len(identities))
     for identity in identities:
-        EmailSenderVerification.queue_domain_check(identity)
+        EmailSenderVerification.request_domain_check(identity)
 
 
 def handle_ses_tenant_event(delivery: WebhookDelivery) -> None:

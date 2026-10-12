@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import dns.resolver
-from botocore.exceptions import EndpointConnectionError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from parameterized import param, parameterized
 
 from posthog.models.integration import Integration
@@ -88,6 +88,9 @@ class TestEmailSenderVerification(APIBaseTest):
         ses.set_identity_mail_from_domain.side_effect = RuntimeError("Background checks must not change MAIL FROM")
         return ses
 
+    def _timestamp(self, age: timedelta) -> int:
+        return int((timezone.now() - age).timestamp())
+
     def _verified(self, *senders: Integration) -> list[bool]:
         return [
             self.client.get(f"/api/projects/{self.team.id}/integrations/{sender.id}/").json()["config"]["verified"]
@@ -159,6 +162,19 @@ class TestEmailSenderVerification(APIBaseTest):
             ),
             param("settled_sender_not_in_minute_sweep", age=timedelta(hours=2), sweep=refresh_new_email_senders),
             param("stale_sender", age=timedelta(days=8), sweep=refresh_settled_email_senders),
+            param(
+                "old_sender_with_recent_request_every_minute",
+                age=timedelta(days=30),
+                requested_age=timedelta(minutes=10),
+                sweep=refresh_new_email_senders,
+                checked=True,
+            ),
+            param(
+                "new_sender_with_stale_request",
+                age=timedelta(minutes=10),
+                requested_age=timedelta(days=8),
+                sweep=refresh_new_email_senders,
+            ),
         ]
     )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
@@ -170,9 +186,13 @@ class TestEmailSenderVerification(APIBaseTest):
         mock_resolver: MagicMock,
         age: timedelta,
         sweep: Callable[[], None],
+        requested_age: timedelta | None = None,
         checked: bool = False,
     ) -> None:
-        sender = self._create_sender("example.com")
+        requested_at: dict[str, Any] = (
+            {} if requested_age is None else {"verification_requested_at": self._timestamp(requested_age)}
+        )
+        sender = self._create_sender("example.com", **requested_at)
         Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - age)
         ses = self._mock_ses(mock_boto_client, mock_resolver)
 
@@ -183,14 +203,14 @@ class TestEmailSenderVerification(APIBaseTest):
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
-    def test_queued_advisor_domain_checks_its_pending_senders_of_any_age_on_the_next_minute_sweep(
+    def test_advisor_event_makes_pending_senders_on_its_domain_due_on_the_next_minute_sweep(
         self, mock_boto_client: MagicMock, mock_resolver: MagicMock
     ) -> None:
         sender, other = (self._create_sender(domain) for domain in ["example.com", "other.example.com"])
         Integration.objects.filter(id__in=[sender.id, other.id]).update(created_at=timezone.now() - timedelta(days=30))
         ses = self._mock_ses(mock_boto_client, mock_resolver)
 
-        EmailSenderVerification.queue_domain_check("Example.com")
+        EmailSenderVerification.request_domain_check("Example.com")
         refresh_new_email_senders()
 
         assert self._verified(sender, other) == [True, False]
@@ -200,32 +220,23 @@ class TestEmailSenderVerification(APIBaseTest):
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
-    def test_advisor_domain_stays_queued_until_its_check_finishes(
+    def test_advisor_requested_sender_whose_check_fails_is_retried_on_the_next_sweep(
         self, mock_boto_client: MagicMock, mock_resolver: MagicMock
     ) -> None:
         sender = self._create_sender("example.com")
         Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=30))
         ses = self._mock_ses(mock_boto_client, mock_resolver)
-        read_statuses = ses.get_identity_verification_attributes.side_effect
-        sweep_clock = {"now": 0.0}
+        ses.list_resource_tenants.side_effect = [
+            ClientError({"Error": {"Code": "Throttling", "Message": "Rate exceeded"}}, "ListResourceTenants"),
+            {"ResourceTenants": [{"TenantName": f"team-{self.team.id}"}]},
+        ]
+        EmailSenderVerification.request_domain_check("example.com")
 
-        def slow_first_read(Identities: list[str]) -> dict[str, dict[str, dict[str, str]]]:
-            ses.get_identity_verification_attributes.side_effect = read_statuses
-            sweep_clock["now"] += 80
-            return read_statuses(Identities=Identities)
+        refresh_new_email_senders()
+        assert self._verified(sender) == [False]
 
-        ses.get_identity_verification_attributes.side_effect = slow_first_read
-        EmailSenderVerification.queue_domain_check("example.com")
-
-        with patch(
-            "products.workflows.backend.services.email_sender_verification.monotonic",
-            side_effect=lambda: sweep_clock["now"],
-        ):
-            refresh_new_email_senders()
-            assert self._verified(sender) == [False]
-
-            refresh_new_email_senders()
-            assert self._verified(sender) == [True]
+        refresh_new_email_senders()
+        assert self._verified(sender) == [True]
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")

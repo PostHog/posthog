@@ -648,6 +648,7 @@ class TestEmailIntegration:
             "mail_from_subdomain": "youmustnothavelikedmyemail",
             "verified": False,
             "provider": "ses",
+            "verification_requested_at": ANY,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
@@ -699,7 +700,9 @@ class TestEmailIntegration:
             created_by=self.user,
         )
         email_integration = EmailIntegration(integration)
-        verification_result = email_integration.verify()
+        clicked_at = timezone.now() + timedelta(hours=2)
+        with time_machine.travel(clicked_at, tick=False):
+            verification_result = email_integration.verify()
 
         assert verification_result == expected_result
 
@@ -715,6 +718,7 @@ class TestEmailIntegration:
             "mail_from_subdomain": "feedback",
             "verified": False,
             "provider": "ses",
+            "verification_requested_at": int(clicked_at.timestamp()),
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -751,6 +755,7 @@ class TestEmailIntegration:
             "mail_from_subdomain": "feedback",
             "verified": True,
             "provider": "ses",
+            "verification_requested_at": ANY,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")

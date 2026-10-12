@@ -136,7 +136,7 @@ class TestAcceptSesEvent(SimpleTestCase):
 
         accept_ses_event(_delivery(_notification(event)))
 
-        self.sender_check_mock.queue_domain_check.assert_called_once_with("team-5.example.com")
+        self.sender_check_mock.request_domain_check.assert_called_once_with("team-5.example.com")
         assert not self.sync_mock.delay.called
 
     def test_confirms_subscriptions_by_fetching_the_subscribe_url(self) -> None:

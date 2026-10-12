@@ -319,7 +319,8 @@ class SESProvider:
     ses_v2_metrics_client: "SESV2Client"
     ses_v2_recommendations_client: "SESV2Client"
 
-    def __init__(self, client_config: Config | None = None):
+    def __init__(self, client_config: Config | None = None, read_interval_seconds: float = 0.0):
+        self._read_interval_seconds = read_interval_seconds
         self._next_read_at: dict[str, float] = {}
         self.sts_client = boto3.client(
             "sts",
@@ -362,6 +363,10 @@ class SESProvider:
             region_name=settings.SES_REGION,
             config=RECOMMENDATIONS_RETRY_CONFIG,
         )
+
+    @classmethod
+    def for_background(cls) -> "SESProvider":
+        return cls(client_config=BACKGROUND_CLIENT_CONFIG, read_interval_seconds=READ_MIN_INTERVAL_SECONDS)
 
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"
@@ -771,7 +776,7 @@ class SESProvider:
         wait_seconds = self._next_read_at.get(operation, 0.0) - monotonic()
         if wait_seconds > 0:
             sleep(wait_seconds)
-        self._next_read_at[operation] = monotonic() + READ_MIN_INTERVAL_SECONDS
+        self._next_read_at[operation] = monotonic() + self._read_interval_seconds
 
     def _read_identity_statuses(self, domains: list[str]) -> dict[str, SESIdentityStatus]:
         verification: dict[str, str] = {}
