@@ -3189,4 +3189,22 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(workflowEmailDraftsCreateBodySourceIdMax)
         .describe('ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.'),
+
+ * @summary Create or update people from rows and add them to a new static cohort
+ */
+export const workflowPeopleImportsCreateBodyNameMax = 400
+
+export const workflowPeopleImportsCreateBodyRowsMax = 50000
+
+export const WorkflowPeopleImportsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workflowPeopleImportsCreateBodyNameMax)
+        .describe('Name of the static cohort that holds the imported people.'),
+    rows: zod
+        .array(zod.record(zod.string(), zod.string()))
+        .max(workflowPeopleImportsCreateBodyRowsMax)
+        .describe(
+            'One object per person. Each needs \"email\". An optional \"distinct_id\" picks the person to update or create; without it, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.'
+        ),
 })
