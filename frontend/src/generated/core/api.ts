@@ -1559,7 +1559,7 @@ export const getDataDeletionRequestsPreviewCreateUrl = (projectId: string) => {
 }
 
 /**
- * Validate a one-column HogQL query and count the selected event UUIDs.
+ * Validate a one-column HogQL query, count the selected event UUIDs, and count the event rows the deletion removes.
  */
 export const dataDeletionRequestsPreviewCreate = async (
     projectId: string,
