@@ -37,7 +37,8 @@ return response.body
             default: 'jev',
             choices: [
                 { label: 'Jev', value: 'jev' },
-                { label: 'GPT-6 Luna', value: 'gpt-6-luna' },
+                // Hidden until OpenAI's processing of workflow context is signed off. Enable it with the backend model.
+                // { label: 'GPT-6 Luna', value: 'gpt-6-luna' },
             ],
             description: 'The model that picks the category.',
         },

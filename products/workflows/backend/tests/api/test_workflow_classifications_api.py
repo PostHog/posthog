@@ -87,7 +87,6 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             ("model_omitted", {}, DEFAULT_DECISION_MODEL),
             ("model_null", {"model": None}, DEFAULT_DECISION_MODEL),
             ("jev", {"model": "jev"}, DEFAULT_DECISION_MODEL),
-            ("gpt_6_luna", {"model": "gpt-6-luna"}, "openai/gpt-6-luna"),
         ]
     )
     def test_returns_the_chosen_category(self, _name: str, body: dict, expected_model: str) -> None:
@@ -166,6 +165,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             ("too_many_categories", {"categories": {f"c{i}": "x" for i in range(17)}}),
             ("oversized_context", {"context": {"message": "x" * 65_536}}),
             ("unlisted_model", {"model": "openai/gpt-6-luna"}),
+            ("hidden_model", {"model": "gpt-6-luna"}),
             ("deeply_nested_context", {"context": reduce(lambda inner, _: {"a": inner}, range(255), cast(Any, "x"))}),
         ]
     )
