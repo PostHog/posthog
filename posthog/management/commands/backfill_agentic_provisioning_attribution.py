@@ -12,9 +12,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import F, Min
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import Organization
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -45,13 +44,13 @@ class OrganizationOutcome(StrEnum):
     SKIPPED_FIRST_TEAM_OTHER_APPLICATION = "skipped_first_team_other_application"
 
 
-Source = Organization.ProvisioningSource
+Partner = OrganizationProvisioning.Partner
 
 
 @frozen
 class _OrganizationClaim:
     organization_id: uuid.UUID
-    source: Source
+    partner: Partner
     application_id: uuid.UUID | None
 
 
@@ -178,76 +177,38 @@ def _first_team_claims(
         claims.append(
             _OrganizationClaim(
                 organization_id=team_organizations[team_id],
-                source=Source.PROVISIONING_API,
+                partner=Partner.PROVISIONING_API,
                 application_id=application_id,
             )
         )
     return claims
 
 
-def _log_organization_attribution(claim: _OrganizationClaim) -> None:
-    organization = Organization.objects.only("name").get(id=claim.organization_id)
-    changes = [
-        Change(type="Organization", action="created", field="provisioning_source", before=None, after=claim.source)
-    ]
-    if claim.application_id is not None:
-        application = OAuthApplication.objects.only("id", "name").get(id=claim.application_id)
-        changes.append(
-            Change(
-                type="Organization",
-                action="created",
-                field="provisioning_application",
-                before=None,
-                after={"id": str(application.id), "name": application.name},
-            )
-        )
-    log_activity(
-        organization_id=claim.organization_id,
-        team_id=None,
-        user=None,
-        item_id=claim.organization_id,
-        scope="Organization",
-        activity="updated",
-        was_impersonated=False,
-        detail=Detail(
-            name=organization.name,
-            changes=changes,
-            trigger=Trigger(
-                job_type="management_command", job_id="backfill_agentic_provisioning_attribution", payload={}
-            ),
-        ),
-    )
-
-
 def _record(claim: _OrganizationClaim) -> OrganizationOutcome:
-    if Organization.objects.filter(
-        id=claim.organization_id, provisioning_source__isnull=True, provisioning_application__isnull=True
-    ).update(provisioning_source=claim.source, provisioning_application_id=claim.application_id):
-        _log_organization_attribution(claim)
-        return OrganizationOutcome.CREATE
-    current = (
-        Organization.objects.filter(id=claim.organization_id)
-        .values_list("provisioning_source", "provisioning_application_id")
-        .first()
+    record, created = OrganizationProvisioning.objects.get_or_create(
+        organization_id=claim.organization_id,
+        defaults={"partner": claim.partner, "application_id": claim.application_id},
     )
-    if current == (claim.source, claim.application_id):
+    if created:
+        return OrganizationOutcome.CREATE
+    if (record.partner, record.application_id) == (claim.partner, claim.application_id):
         return OrganizationOutcome.ALREADY_RECORDED
     return OrganizationOutcome.SKIPPED_OTHER_PARTNER
 
 
 def backfill_organization_provisioning(
     rows: Iterable[Mapping[str, str | None]], *, live_run: bool
-) -> dict[Source, Counter[OrganizationOutcome]]:
-    outcomes: dict[Source, Counter[OrganizationOutcome]] = {
-        Source.PROVISIONING_API: Counter(),
+) -> dict[Partner, Counter[OrganizationOutcome]]:
+    outcomes: dict[Partner, Counter[OrganizationOutcome]] = {
+        Partner.PROVISIONING_API: Counter(),
     }
-    claims = _first_team_claims(_provisioning_partner_teams(rows), outcomes[Source.PROVISIONING_API])
+    claims = _first_team_claims(_provisioning_partner_teams(rows), outcomes[Partner.PROVISIONING_API])
     organization_ids = {claim.organization_id for claim in claims}
     recorded = {
-        organization_id: (source, application_id)
-        for organization_id, source, application_id in Organization.objects.filter(
-            id__in=organization_ids, provisioning_source__isnull=False
-        ).values_list("id", "provisioning_source", "provisioning_application_id")
+        organization_id: (partner, application_id)
+        for organization_id, partner, application_id in OrganizationProvisioning.objects.filter(
+            organization_id__in=organization_ids
+        ).values_list("organization_id", "partner", "application_id")
     }
 
     for claim in claims:
@@ -256,11 +217,11 @@ def backfill_organization_provisioning(
             outcome = _record(claim)
         elif existing is None:
             outcome = OrganizationOutcome.CREATE
-        elif existing == (claim.source, claim.application_id):
+        elif existing == (claim.partner, claim.application_id):
             outcome = OrganizationOutcome.ALREADY_RECORDED
         else:
             outcome = OrganizationOutcome.SKIPPED_OTHER_PARTNER
-        outcomes[claim.source][outcome] += 1
+        outcomes[claim.partner][outcome] += 1
     return outcomes
 
 
@@ -299,11 +260,11 @@ class Command(BaseCommand):
         for outcome in Outcome:
             label = f"would {outcome}" if not live_run and outcome in WRITE_OUTCOMES else str(outcome)
             self.stdout.write(f"{label}: {outcomes[outcome]}")
-        for source, source_outcomes in organization_outcomes.items():
+        for partner, partner_outcomes in organization_outcomes.items():
             for organization_outcome in OrganizationOutcome:
                 label = (
                     f"would {organization_outcome}"
                     if not live_run and organization_outcome is OrganizationOutcome.CREATE
                     else str(organization_outcome)
                 )
-                self.stdout.write(f"{source} organizations, {label}: {source_outcomes[organization_outcome]}")
+                self.stdout.write(f"{partner} organizations, {label}: {partner_outcomes[organization_outcome]}")

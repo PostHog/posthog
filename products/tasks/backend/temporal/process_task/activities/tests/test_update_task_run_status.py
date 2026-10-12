@@ -397,10 +397,11 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "error_type,expected_error_type",
+        "error_type,failure_state,expected_error_type",
         [
-            ("ActivityError", "ActivityError"),
-            (None, "unspecified"),
+            ("ActivityError", {}, "ActivityError"),
+            (None, {}, "unspecified"),
+            ("agent_reported", {"failure_error_type": "agent_declined"}, "agent_declined"),
         ],
     )
     @pytest.mark.parametrize(
@@ -419,12 +420,13 @@ class TestUpdateTaskRunStatusActivity:
         activity_environment: ActivityEnvironment,
         test_task_run: TaskRun,
         error_type: str | None,
+        failure_state: dict[str, str],
         expected_error_type: str,
         sandbox_backend: str | None,
         persisted_state: dict[str, str],
         expected_backend: str | None,
     ) -> None:
-        test_task_run.state = persisted_state
+        test_task_run.state = {**persisted_state, **failure_state}
         test_task_run.save(update_fields=["state"])
         error_message = "x" * 1400 + "TypeError: cannot read boot manifest"
         input_data = UpdateTaskRunStatusInput(

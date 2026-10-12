@@ -1,9 +1,6 @@
 from typing import Any
 
-from posthog.test.base import BaseTest
-
-from django.db import connection
-from django.db.migrations.loader import MigrationLoader
+from posthog.test.base import TestMigrations
 
 import structlog.testing
 
@@ -17,7 +14,7 @@ LEAK_REVOKED = "phs_backfill_test_leak_revoked_token"
 DOUBLE_COLLIDING = "phs_backfill_test_double_collision_token"
 
 
-class TestBackfillSecretTokensToPsak(BaseTest):
+class TestBackfillSecretTokensToPsak(TestMigrations):
     migrate_from = "1393_revokedteamsecrettoken"
     migrate_to = "1394_backfill_secret_tokens_to_psak"
 
@@ -92,13 +89,8 @@ class TestBackfillSecretTokensToPsak(BaseTest):
         ).id
 
     def setUp(self) -> None:
-        super().setUp()
-        loader = MigrationLoader(connection)
-        state = loader.project_state([("posthog", self.migrate_from)])
-        self.setUpBeforeMigration(state.apps)
-        migration = loader.get_migration("posthog", self.migrate_to)
-        with structlog.testing.capture_logs() as logs, connection.schema_editor(atomic=False) as schema_editor:
-            self.apps = migration.apply(state, schema_editor).apps
+        with structlog.testing.capture_logs() as logs:
+            super().setUp()
         self.logs = logs
 
     def test_backfill_covers_backup_dedup_label_collision_and_empty(self) -> None:

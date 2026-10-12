@@ -566,19 +566,27 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
         assert "firewall" in matches[0].lower()
 
-    def test_database_not_accepting_connections_surfaces_actionable_message(self, source):
-        # A paused/disallowed database must stop retrying and tell the customer to restore it,
-        # rather than storing the raw driver text (which echoes the host, IP, and database name).
-        # Mirror the finalizer's first-match selection so a future reorder that shadows it with an
-        # earlier None-valued key is caught. Host/db are invented, not a real value.
-        error_msg = 'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections'
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections',
+            # A role without the LOGIN privilege.
+            'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  role "example_user" is not permitted to log in',
+        ],
+    )
+    def test_connection_refusal_surfaces_actionable_message(self, source, error_msg):
+        # A paused/disallowed database or a role that can't log in must stop retrying and tell the
+        # customer what to fix, rather than storing the raw driver text (which echoes the host, IP,
+        # and database or role name). Mirror the finalizer's first-match selection so a future
+        # reorder that shadows it with an earlier None-valued key is caught. Hosts, databases and
+        # roles are invented, not real values.
         matches = [
             friendly
             for pattern, friendly in source.get_non_retryable_errors().items()
             if error_message_matches(error_msg, [pattern])
         ]
-        assert matches, "a database not accepting connections must be classified non-retryable"
-        assert matches[0] is not None, "a database not accepting connections must surface an actionable message"
+        assert matches, "a connection refusal must be classified non-retryable"
+        assert matches[0] is not None, "a connection refusal must surface an actionable message"
         assert "re-enable the sync" in matches[0].lower()
         assert "db.example.com" not in matches[0]
 
@@ -1751,12 +1759,14 @@ class TestPostgresSourceNonRetryableErrors:
             'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"',
+            'invalid input syntax for type uuid: "not-a-uuid"',
+            'InvalidTextRepresentation: invalid input syntax for type uuid: "not-a-uuid"',
         ],
     )
-    def test_fdw_timestamp_mismatch_is_non_retryable(self, source, error_msg):
+    def test_column_type_mismatch_is_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"FDW timestamp mismatch error should be non-retryable: {error_msg}"
+        assert is_non_retryable, f"Column type mismatch error should be non-retryable: {error_msg}"
 
     def test_fdw_timestamp_mismatch_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()

@@ -75,7 +75,7 @@ export function filterLowMultipleVariant<T extends { variant: string; percentage
 
 /**
  * Resolves the effective multi-variant handling, applying the backend default when unset.
- * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ * See products/experiments/backend/hogql_queries/exposure_query_logic.py (default = `EXCLUDE`).
  */
 export function resolveMultipleVariantHandling(
     handling: 'exclude' | 'first_seen' | undefined
@@ -1089,6 +1089,15 @@ export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> 
     original_experiment?: Record<string, any>
 }
 
+export type ExperimentUpdateRequest = ExperimentUpdatePayload & {
+    /**
+     * After a 409 conflict, show the server's copy of the sent fields instead of keeping the rejected values for
+     * review. A control that applies its value at once sets this. A kept value would look saved there, and the
+     * next save would send it over the change that caused the conflict.
+     */
+    discardOnConflict?: boolean
+}
+
 /** The scalar fields experiment surfaces PATCH, sent as base values so the server can three-way
  * merge them per field: a stale write only conflicts when the same field changed on both sides. */
 const CONCURRENCY_SCALAR_BASE_FIELDS = [
@@ -1251,26 +1260,3 @@ export const metricResults =
             metricIndex: index,
         }))
     }
-
-/**
- * {@link metricResults} over both sections' arrays, picking one. Kept for the legacy per-metric
- * results path and its selectors.
- */
-export function getOrderedMetricsWithResults(
-    experiment: Experiment,
-    primaryMetricsResults: CachedNewExperimentQueryResponse[],
-    primaryMetricsResultsErrors: any[],
-    secondaryMetricsResults: CachedNewExperimentQueryResponse[],
-    secondaryMetricsResultsErrors: any[],
-    isSecondary: boolean
-): Array<{
-    metric: ExperimentMetric
-    result: any
-    error: any
-    displayIndex: number
-    metricIndex: number
-}> {
-    return isSecondary
-        ? metricResults(experiment)(secondaryMetricsResults, secondaryMetricsResultsErrors, 'secondary')
-        : metricResults(experiment)(primaryMetricsResults, primaryMetricsResultsErrors, 'primary')
-}

@@ -362,6 +362,7 @@ const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
+  codex_max_subagents: optionalField(z.number().int().positive()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -808,6 +809,21 @@ export interface SignalReport {
   refund_ineligibility_reason?: string | null;
   /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
   channel_id?: string | null;
+  /** A product the team doesn't use that would have given this report better evidence. Set on the detail response only; null in list responses. */
+  source_suggestion?: SignalReportSourceSuggestion | null;
+}
+
+/** Products a report can suggest turning on. Mirrors `SuggestedSourceProduct` in the signals backend. */
+export type SuggestedSourceProduct =
+  | "logs"
+  | "session_replay"
+  | "error_tracking"
+  | "llm_analytics";
+
+export interface SignalReportSourceSuggestion {
+  product: SuggestedSourceProduct;
+  /** One sentence on what the product would have shown for this report. */
+  reason: string;
 }
 
 export type SignalReportRefundReason =

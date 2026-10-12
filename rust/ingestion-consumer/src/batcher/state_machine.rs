@@ -23,6 +23,7 @@ use metrics::{gauge, histogram};
 
 use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentRun};
 use super::key_queues::{KeyQueues, KeyRun};
+use super::packer::Packer;
 use super::request::{Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
 use super::worker_assigner::WorkerAssigner;
@@ -78,6 +79,7 @@ pub enum BatcherStateMachine {
 
 impl BatcherStateMachine {
     pub fn new(
+        packer: Packer,
         assigner: WorkerAssigner,
         retry: RetryPolicy,
         stall_timeout: Duration,
@@ -86,8 +88,22 @@ impl BatcherStateMachine {
         if stall_timeout.is_zero() {
             return Err("stall_timeout must be > 0".to_string());
         }
+        // Messages waiting for the pack deadline count toward a stall, so the
+        // budget must leave most of the stall window.
+        if packer.latency_budget() * 2 > stall_timeout {
+            return Err(
+                "the pack latency budget must be at most half the stall timeout".to_string(),
+            );
+        }
+        // Without a target, one request takes every ready run of a class,
+        // and one failure replays all of it.
+        let targets = packer.targets();
+        if targets.events.is_none() && targets.bytes.is_none() {
+            return Err("set a pack target in events or bytes".to_string());
+        }
         Ok(BatcherStateMachine::Running(ActiveState {
-            keys: KeyQueues::new(),
+            keys: KeyQueues::new(packer.targets().run_cap()),
+            packer,
             assigner,
             in_flight: InFlightRequests::new(),
             retry,
@@ -122,7 +138,9 @@ impl BatcherStateMachine {
         request: RequestId,
         accepted: u32,
     ) -> (Self, Effects) {
-        self.act(|active| active.on_request_succeeded(now, workers, request, accepted))
+        self.act(|active, draining| {
+            active.on_request_succeeded(now, workers, draining, request, accepted)
+        })
     }
 
     /// A worker accepts a whole request or none of it. The failed request's
@@ -136,13 +154,15 @@ impl BatcherStateMachine {
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
     ) -> (Self, Effects) {
-        self.act(|active| active.on_request_failed(now, workers, request, cause, messages))
+        self.act(|active, draining| {
+            active.on_request_failed(now, workers, draining, request, cause, messages)
+        })
     }
 
     pub fn on_wakeup(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
-        self.act(|active| {
+        self.act(|active, draining| {
             let mut effects = Effects::default();
-            active.advance(now, workers, &mut effects)?;
+            active.advance(now, workers, draining, &mut effects)?;
             Ok(effects)
         })
     }
@@ -155,7 +175,7 @@ impl BatcherStateMachine {
         now: Instant,
         partitions: &[(String, i32)],
     ) -> (Self, Effects) {
-        self.act(|active| active.on_partitions_revoked(now, partitions))
+        self.act(|active, _| active.on_partitions_revoked(now, partitions))
     }
 
     /// Takes no new groups from now on, and stops once nothing is pending or
@@ -189,15 +209,15 @@ impl BatcherStateMachine {
 
     fn act(
         self,
-        action: impl FnOnce(&mut ActiveState) -> Result<Effects, String>,
+        action: impl FnOnce(&mut ActiveState, bool) -> Result<Effects, String>,
     ) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(mut active) => {
-                let result = action(&mut active);
+                let result = action(&mut active, false);
                 Self::after(active, false, result)
             }
             BatcherStateMachine::Draining(mut active) => {
-                let result = action(&mut active);
+                let result = action(&mut active, true);
                 Self::after(active, true, result)
             }
             finished => (finished, Effects::default()),
@@ -236,6 +256,7 @@ impl BatcherStateMachine {
 
 pub struct ActiveState {
     keys: KeyQueues,
+    packer: Packer,
     assigner: WorkerAssigner,
     in_flight: InFlightRequests,
     retry: RetryPolicy,
@@ -273,7 +294,7 @@ impl ActiveState {
                 .push(run.routing_key, assignment_epoch, run.messages, now);
         }
         let mut effects = Effects::default();
-        self.advance(now, workers, &mut effects)?;
+        self.advance(now, workers, false, &mut effects)?;
         Ok(effects)
     }
 
@@ -281,6 +302,7 @@ impl ActiveState {
         &mut self,
         now: Instant,
         workers: &[WorkerId],
+        draining: bool,
         request: RequestId,
         accepted: u32,
     ) -> Result<Effects, String> {
@@ -306,7 +328,7 @@ impl ActiveState {
         for run in runs {
             self.settle_key(&run.routing_key, Vec::new(), None, now, &mut effects)?;
         }
-        self.advance(now, workers, &mut effects)?;
+        self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
     }
 
@@ -314,6 +336,7 @@ impl ActiveState {
         &mut self,
         now: Instant,
         workers: &[WorkerId],
+        draining: bool,
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
@@ -341,7 +364,7 @@ impl ActiveState {
                 &mut effects,
             )?;
         }
-        self.advance(now, workers, &mut effects)?;
+        self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
     }
 
@@ -398,6 +421,7 @@ impl ActiveState {
         &mut self,
         now: Instant,
         workers: &[WorkerId],
+        draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
         self.restart_stall_clock_if_quiet(now);
@@ -405,7 +429,7 @@ impl ActiveState {
         // failures drain to nothing in flight and the watchdog can fire.
         let stalled = self.pending_messages() > 0 && now >= self.last_progress + self.stall_timeout;
         if !stalled {
-            self.place(now, workers, effects)?;
+            self.place(now, workers, draining, effects)?;
         }
         self.finish(now, effects)
     }
@@ -414,15 +438,11 @@ impl ActiveState {
         &mut self,
         now: Instant,
         workers: &[WorkerId],
+        draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
         let free_slots = self.assigner.free_slots(workers);
-        let mut batch: Vec<Request> = self
-            .keys
-            .take_ready(now, free_slots)
-            .into_iter()
-            .map(Request::from_run)
-            .collect();
+        let mut batch = self.packer.pack(&mut self.keys, now, free_slots, draining);
         if self.assigner.prefers_largest_first() {
             // Bin-packing places the heavy requests first, so they drive
             // the load distribution.
@@ -465,7 +485,7 @@ impl ActiveState {
     }
 
     fn finish(&mut self, now: Instant, effects: &mut Effects) -> Result<(), String> {
-        // A stalled action and a revoke skip `take_ready`, so without this a due
+        // A stalled action and a revoke skip `pack`, so without this a due
         // retry would set the next wakeup at or before `now`.
         self.keys.promote_due(now);
         let pending = self.pending_messages();
@@ -478,10 +498,12 @@ impl ActiveState {
         if pending > 0 && in_flight == 0 && now >= stall_deadline {
             return Err("pending work made no progress within the stall timeout".to_string());
         }
+        // A passed deadline waits for a free slot like any other ready work.
+        let pack_deadline = self.packer.deadline().filter(|deadline| *deadline > now);
         effects.next_wakeup = [
             self.keys.next_retry_at(),
-            self.keys
-                .has_ready()
+            pack_deadline,
+            (pack_deadline.is_none() && self.keys.has_ready())
                 .then(|| self.retry.retry_at(now, RetryReason::NoWorker)),
             (pending > 0 && in_flight == 0).then_some(stall_deadline),
         ]
@@ -547,8 +569,10 @@ fn key_acks(runs: &[SentRun]) -> Vec<KeyAck> {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::num::NonZeroUsize;
 
     use super::*;
+    use crate::batcher::packer::PackTargets;
     use crate::batcher::test_support::{message, offsets};
     use crate::routing::{Router, RoutingStrategy};
 
@@ -563,12 +587,27 @@ mod tests {
     }
 
     fn batcher(max_requests_per_worker: usize, now: Instant) -> BatcherStateMachine {
+        packing_batcher(1, Duration::ZERO, max_requests_per_worker, now)
+    }
+
+    fn packing_batcher(
+        events: usize,
+        budget: Duration,
+        max_requests_per_worker: usize,
+        now: Instant,
+    ) -> BatcherStateMachine {
+        let packer = Packer::new(PackTargets {
+            events: NonZeroUsize::new(events),
+            bytes: None,
+            latency_budget: budget,
+        });
         let assigner = WorkerAssigner::new(
             Router::new(RoutingStrategy::BinPack),
             max_requests_per_worker,
         )
         .expect("valid request cap");
-        BatcherStateMachine::new(assigner, retry_policy(), STALL, now).expect("valid stall timeout")
+        BatcherStateMachine::new(packer, assigner, retry_policy(), STALL, now)
+            .expect("valid stall timeout")
     }
 
     fn pool(workers: &[&str]) -> Vec<WorkerId> {
@@ -700,14 +739,12 @@ mod tests {
     fn bin_packing_places_the_largest_request_first() {
         let now = Instant::now();
         let workers = pool(&["w1", "w2"]);
-        let batcher = batcher(4, now);
+        let batcher = packing_batcher(10, Duration::ZERO, 4, now);
 
-        let (_, effects) = batcher.on_groups(
-            now,
-            &workers,
-            0,
-            vec![run("small", &[1]), run("large", &[2, 3, 4])],
-        );
+        // Different epochs keep the two runs in separate requests.
+        let (batcher, _) = batcher.on_groups(now, &pool(&[]), 0, vec![run("small", &[1])]);
+        let (batcher, _) = batcher.on_groups(now, &pool(&[]), 1, vec![run("large", &[2, 3, 4])]);
+        let (_, effects) = batcher.on_wakeup(now, &workers);
         let placed: Vec<_> = effects
             .sends
             .iter()
@@ -740,14 +777,9 @@ mod tests {
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         assert_eq!(effects.sends.len(), 1);
         let request = effects.sends[0].request;
-        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("b", &[3])]);
 
         let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
-        assert_eq!(
-            shape(&effects.sends[0]),
-            vec![("b", vec![2, 3])],
-            "b was never claimed, so its later message joins the run"
-        );
+        assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
         // The freed slot is refilled in the same action, so the worker is
         // reported idle and then busy again.
         assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
@@ -806,6 +838,34 @@ mod tests {
     }
 
     #[test]
+    fn a_pack_budget_over_half_the_stall_timeout_is_rejected() {
+        let assigner =
+            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+        let packer = Packer::new(PackTargets {
+            events: NonZeroUsize::new(1),
+            bytes: None,
+            latency_budget: STALL / 2 + Duration::from_millis(1),
+        });
+        let created =
+            BatcherStateMachine::new(packer, assigner, retry_policy(), STALL, Instant::now());
+        assert!(created.is_err());
+    }
+
+    #[test]
+    fn a_packer_without_a_target_is_rejected() {
+        let assigner =
+            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+        let created = BatcherStateMachine::new(
+            Packer::new(PackTargets::default()),
+            assigner,
+            retry_policy(),
+            STALL,
+            Instant::now(),
+        );
+        assert!(created.is_err());
+    }
+
+    #[test]
     fn a_second_shutdown_keeps_a_waiting_retrys_wakeup() {
         let now = Instant::now();
         let workers = pool(&["w"]);
@@ -830,8 +890,16 @@ mod tests {
     fn a_zero_stall_timeout_is_rejected() {
         let assigner =
             WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
-        let created =
-            BatcherStateMachine::new(assigner, retry_policy(), Duration::ZERO, Instant::now());
+        let created = BatcherStateMachine::new(
+            Packer::new(PackTargets {
+                events: NonZeroUsize::new(1),
+                ..PackTargets::default()
+            }),
+            assigner,
+            retry_policy(),
+            Duration::ZERO,
+            Instant::now(),
+        );
         assert!(created.is_err());
     }
 
@@ -921,10 +989,341 @@ mod tests {
     }
 
     #[test]
+    fn keys_pack_into_one_request_and_their_next_runs_wait_for_the_response() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(100, Duration::ZERO, 4, now);
+
+        let (batcher, effects) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        assert_eq!(effects.sends.len(), 1);
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("a", vec![1]), ("b", vec![2])]
+        );
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[3])]);
+        assert!(effects.sends.is_empty(), "a's first run is still in flight");
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 2);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![3])]);
+        assert_eq!(effects.completions.len(), 1);
+        assert_eq!(effects.completions[0].offsets, vec![Offset(1), Offset(2)]);
+        assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("b")]);
+        assert_eq!(
+            effects.key_acks,
+            vec![
+                KeyAck {
+                    routing_key: "a".into(),
+                    max_offset: 1
+                },
+                KeyAck {
+                    routing_key: "b".into(),
+                    max_offset: 2
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_key_with_runs_under_two_epochs_sends_them_one_at_a_time() {
+        let now = Instant::now();
+        let budget = Duration::from_millis(30);
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(100, budget, 4, now);
+
+        let (batcher, _) = batcher.on_groups(now, &workers, 1, vec![run("k", &[1])]);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 2, vec![run("k", &[2])]);
+        assert!(effects.sends.is_empty());
+
+        let (batcher, effects) = batcher.on_wakeup(now + budget, &workers);
+        assert_eq!(
+            effects.sends.len(),
+            1,
+            "the epoch-2 message waits for k's run"
+        );
+        assert_eq!(effects.sends[0].class.assignment_epoch, 1);
+        assert_eq!(shape(&effects.sends[0]), vec![("k", vec![1])]);
+
+        let request = effects.sends[0].request;
+        let later = now + budget * 2;
+        let (batcher, _) = batcher.on_request_succeeded(later, &workers, request, 1);
+        let (_, effects) = batcher.on_wakeup(later + budget, &workers);
+        assert_eq!(effects.sends[0].class.assignment_epoch, 2);
+        assert_eq!(shape(&effects.sends[0]), vec![("k", vec![2])]);
+    }
+
+    #[test]
+    fn a_transport_failure_retries_on_its_own_delay_whatever_the_pack_budget() {
+        let now = Instant::now();
+        let budget = Duration::from_millis(10);
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(2, budget, 4, now);
+        let (batcher, effects) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let request = effects.sends[0].request;
+
+        let messages = vec![message("a", 0, 1), message("b", 0, 2)];
+        let (batcher, effects) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
+        assert_eq!(
+            effects.worker_outcomes,
+            vec![WorkerOutcome {
+                worker: WorkerId::from("w"),
+                fault: true
+            }]
+        );
+        assert!(effects.completions.is_empty());
+        assert_eq!(effects.next_wakeup, Some(now + FAULT_DELAY));
+
+        let (batcher, effects) = batcher.on_wakeup(now + budget, &workers);
+        assert!(
+            effects.sends.is_empty(),
+            "the pack budget does not pace retries"
+        );
+
+        let (_, effects) = batcher.on_wakeup(now + FAULT_DELAY, &workers);
+        assert_eq!(effects.sends.len(), 1, "the retries pack into one request");
+        assert!(effects.sends[0].class.replay);
+    }
+
+    #[test]
+    fn messages_below_the_target_leave_together_at_the_pack_deadline() {
+        let now = Instant::now();
+        let budget = Duration::from_millis(30);
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(100, budget, 4, now);
+
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        assert!(effects.sends.is_empty());
+        assert_eq!(effects.next_wakeup, Some(now + budget));
+        let (batcher, effects) =
+            batcher.on_groups(now + budget / 2, &workers, 0, vec![run("b", &[2])]);
+        assert!(effects.sends.is_empty());
+        assert_eq!(effects.next_wakeup, Some(now + budget));
+
+        let (_, effects) = batcher.on_wakeup(now + budget, &workers);
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("a", vec![1]), ("b", vec![2])]
+        );
+    }
+
+    #[test]
+    fn a_saturated_pool_keeps_requests_full_instead_of_claiming_keys_early() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(4, Duration::ZERO, 1, now);
+        let first: Vec<_> = (0..4).map(|n| run(&format!("k{n}"), &[n])).collect();
+        let (mut batcher, effects) = batcher.on_groups(now, &workers, 0, first);
+        let request = effects.sends[0].request;
+
+        for n in 4..10 {
+            let effects;
+            (batcher, effects) =
+                batcher.on_groups(now, &workers, 0, vec![run(&format!("k{n}"), &[n])]);
+            assert!(effects.sends.is_empty(), "the only slot is busy");
+        }
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("k4", &[10])]);
+        assert!(effects.sends.is_empty());
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 4);
+        assert_eq!(effects.sends.len(), 1);
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("k4", vec![4, 10]), ("k5", vec![5]), ("k6", vec![6]),],
+            "the freed slot gets a full request, and k4's later message joins its run"
+        );
+    }
+
+    #[test]
+    fn a_hot_keys_backlog_leaves_in_capped_runs_while_other_keys_keep_moving() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(2, Duration::ZERO, 2, now);
+        let (batcher, effects) = batcher.on_groups(
+            now,
+            &workers,
+            0,
+            vec![run("hot", &[1, 2, 3, 4, 5, 6]), run("other", &[10])],
+        );
+        assert_eq!(
+            effects.sends.iter().map(shape).collect::<Vec<_>>(),
+            vec![vec![("hot", vec![1, 2])], vec![("other", vec![10])]]
+        );
+
+        let (failed, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let (batcher, _) =
+            batcher.on_request_failed(now, &workers, failed, FailureCause::Fault, messages);
+        let retry_at = now + FAULT_DELAY;
+        let (mut batcher, effects) = batcher.on_wakeup(retry_at, &workers);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("hot", vec![1, 2])]);
+
+        let mut request = effects.sends[0].request;
+        for expected in [vec![3, 4], vec![5, 6]] {
+            let effects;
+            (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, request, 2);
+            assert_eq!(shape(&effects.sends[0]), vec![("hot", expected)]);
+            request = effects.sends[0].request;
+        }
+    }
+
+    #[test]
+    fn the_pack_budget_starts_when_a_slot_frees_not_when_messages_arrive() {
+        let now = Instant::now();
+        let budget = Duration::from_millis(30);
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(2, budget, 1, now);
+
+        let (batcher, effects) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let request = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("c", &[3])]);
+        assert!(effects.sends.is_empty());
+
+        let freed = now + budget * 2;
+        let (batcher, effects) = batcher.on_request_succeeded(freed, &workers, request, 2);
+        assert!(effects.sends.is_empty());
+        assert_eq!(effects.next_wakeup, Some(freed + budget));
+
+        let (_, effects) = batcher.on_wakeup(freed + budget, &workers);
+        assert_eq!(shape(&effects.sends[0]), vec![("c", vec![3])]);
+    }
+
+    #[test]
+    fn shutdown_sends_messages_waiting_for_the_pack_deadline_at_once() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(100, Duration::from_secs(10), 4, now);
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+
+        let (batcher, effects) = batcher.on_shutdown(now, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Draining(_)));
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
+        assert!(matches!(batcher, BatcherStateMachine::Stopped));
+        assert_eq!(effects.next_wakeup, None);
+    }
+
+    #[test]
+    fn messages_waiting_out_the_pack_budget_do_not_trip_the_stall_check() {
+        let start = Instant::now();
+        let budget = STALL / 2;
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(100, budget, 4, start);
+
+        let arrival = start + STALL * 3;
+        let (batcher, effects) = batcher.on_groups(arrival, &workers, 0, vec![run("a", &[1])]);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
+        assert_eq!(effects.next_wakeup, Some(arrival + budget));
+
+        let (batcher, effects) = batcher.on_wakeup(arrival + budget, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+
+        // A failure does not move the stall clock, so a replay that waited
+        // the budget again would be due after the stall deadline.
+        let failed_at = arrival + budget + Duration::from_secs(1);
+        let (batcher, _) = batcher.on_request_failed(
+            failed_at,
+            &workers,
+            effects.sends[0].request,
+            FailureCause::Fault,
+            vec![message("a", 0, 1)],
+        );
+        let (batcher, effects) = batcher.on_wakeup(failed_at + FAULT_DELAY, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+        assert!(effects.sends[0].class.replay);
+    }
+
+    #[test]
+    fn a_revoke_of_every_message_waiting_for_the_pack_deadline_releases_the_slot() {
+        let now = Instant::now();
+        let budget = Duration::from_secs(10);
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(100, budget, 4, now);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        assert!(effects.sends.is_empty());
+
+        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("a")]);
+        assert_eq!(batcher.pending_messages(), 0);
+
+        let (_, effects) = batcher.on_wakeup(now + budget, &workers);
+        assert!(effects.sends.is_empty());
+        assert_eq!(effects.next_wakeup, None);
+    }
+
+    #[test]
+    fn every_offset_completes_exactly_once_across_failures_retries_and_packing() {
+        let now = Instant::now();
+        let retry_at = now + FAULT_DELAY;
+        let workers = pool(&["w1", "w2"]);
+        let mut completed = Vec::new();
+        let mut record = |effects: &Effects| {
+            for completion in &effects.completions {
+                completed.extend(completion.offsets.iter().map(|offset| offset.0));
+            }
+        };
+
+        let (batcher, effects) = packing_batcher(3, Duration::ZERO, 2, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![
+                run("a", &[1, 2]),
+                run("b", &[3]),
+                run("c", &[4]),
+                run("d", &[5, 6]),
+            ],
+        );
+        assert_eq!(
+            effects.sends.iter().map(shape).collect::<Vec<_>>(),
+            vec![
+                vec![("a", vec![1, 2]), ("b", vec![3])],
+                vec![("c", vec![4]), ("d", vec![5, 6])],
+            ]
+        );
+        let (failed, failed_messages) =
+            (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let succeeded = effects.sends[1].request;
+
+        let (batcher, _) =
+            batcher.on_request_failed(now, &workers, failed, FailureCause::Fault, failed_messages);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[7])]);
+        assert!(effects.sends.is_empty(), "a is claimed by its replay");
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, succeeded, 3);
+        record(&effects);
+
+        let (batcher, effects) = batcher.on_wakeup(retry_at, &workers);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("a", vec![1, 2]), ("b", vec![3])]
+        );
+        let replay = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, replay, 3);
+        record(&effects);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![7])]);
+        let last = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, last, 1);
+        record(&effects);
+
+        completed.sort_unstable();
+        assert_eq!(completed, vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(batcher.pending_messages(), 0);
+        assert_eq!(batcher.in_flight_messages(), 0);
+    }
+
+    #[test]
     fn a_worker_accepting_fewer_messages_than_sent_fails_the_state_machine() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(4, now);
+        let batcher = packing_batcher(4, Duration::ZERO, 4, now);
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
         let request = effects.sends[0].request;
 
@@ -937,7 +1336,7 @@ mod tests {
     fn an_accepted_request_completes_each_partition_and_acks_only_keyed_messages() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(4, now);
+        let batcher = packing_batcher(2, Duration::ZERO, 4, now);
         let keyed = KeyRun {
             routing_key: "a".into(),
             messages: vec![message("a", 0, 1), message("a", 1, 2)],
@@ -980,7 +1379,8 @@ mod tests {
             routing_key: "a".into(),
             messages: vec![message("a", 0, 1), message("a", 1, 7)],
         };
-        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![spanning]);
+        let (batcher, effects) =
+            packing_batcher(4, Duration::ZERO, 4, now).on_groups(now, &workers, 0, vec![spanning]);
         let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
         let later = KeyRun {
             routing_key: "a".into(),
@@ -1010,8 +1410,12 @@ mod tests {
     fn a_revoke_then_reassign_drops_the_old_requeue_and_sends_the_new_epoch_run_once() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let (batcher, effects) =
-            batcher(4, now).on_groups(now, &workers, 1, vec![run("a", &[1, 2])]);
+        let (batcher, effects) = packing_batcher(4, Duration::ZERO, 4, now).on_groups(
+            now,
+            &workers,
+            1,
+            vec![run("a", &[1, 2])],
+        );
         let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
         let (batcher, _) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
         // The new owner of the partition replays the uncommitted offsets.

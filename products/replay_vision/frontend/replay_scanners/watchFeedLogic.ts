@@ -36,6 +36,7 @@ export interface watchFeedLogicValues {
     feedItems: WatchFeedItemApi[] | null
     feedItemsLoading: boolean
     feedRanker: WatchFeedRanker
+    feedRankerVariant: string | null
     hasFeedFilters: boolean
     scannerIdsFilter: string[]
     scannerTypeFilter: ScannerType | null
@@ -92,8 +93,12 @@ export interface watchFeedLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
-    setFeedRanker: (ranker: WatchFeedRanker) => {
+    setFeedRanker: (
+        ranker: WatchFeedRanker,
+        variant: string | null
+    ) => {
         ranker: RankerEnumApi
+        variant: string | null
     }
     setScannerIdsFilter: (scannerIds: string[]) => {
         scannerIds: string[]
@@ -148,6 +153,10 @@ export const DEFAULT_FEED_DATE_FROM: string = '-7d'
  * team, not the viewer), so the client reads it from the response instead of checking the flag. */
 export type WatchFeedRanker = WatchFeedResponseApi['ranker']
 
+/** The ranker experiment's flag. The server decides its variant per project, so the client can't
+ * evaluate it and reports the variant the response carries instead. */
+const WATCH_FEED_RANKER_FLAG = 'vision-watch-feed-ranker'
+
 function reportFiltered(values: watchFeedLogicValues): void {
     posthog.capture('replay_vision_watch_feed_filtered', {
         date_from: values.dateFrom,
@@ -188,7 +197,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         restoreFeedFilters: (search: string, scannerIds: string[], tags: string[]) => ({ search, scannerIds, tags }),
         clearFeedFilters: true,
         loadFeed: true,
-        setFeedRanker: (ranker: WatchFeedRanker) => ({ ranker }),
+        setFeedRanker: (ranker: WatchFeedRanker, variant: string | null) => ({ ranker, variant }),
     }),
 
     loaders(({ values, actions }) => ({
@@ -222,7 +231,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     const response = await visionScannersWatchFeedRetrieve(String(teamId), params)
                     // Drop out-of-order responses — the most recent filter change owns the feed.
                     breakpoint()
-                    actions.setFeedRanker(response.ranker ?? 'weighted-score')
+                    actions.setFeedRanker(response.ranker ?? 'weighted-score', response.ranker_variant ?? null)
                     return response.results
                 },
             },
@@ -293,6 +302,12 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 setFeedRanker: (_, { ranker }) => ranker,
             },
         ],
+        feedRankerVariant: [
+            null as string | null,
+            {
+                setFeedRanker: (_, { variant }) => variant,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -339,6 +354,10 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 scanner_count: new Set(items.map((item) => item.observation.scanner_id)).size,
                 reason_kind_counts: countByReasonKind,
                 ranker: values.feedRanker,
+                // The ranker experiment counts this event as its exposure, so it carries the project's variant.
+                ...(values.feedRankerVariant
+                    ? { [`$feature/${WATCH_FEED_RANKER_FLAG}`]: values.feedRankerVariant }
+                    : {}),
                 signal_share: items.length > 0 ? (countByReasonKind.signal_emitted ?? 0) / items.length : 0,
                 // Which dead end the reader hit, so the empty screens can be counted and ranked
                 // against each other instead of only showing up as a clip count of zero.

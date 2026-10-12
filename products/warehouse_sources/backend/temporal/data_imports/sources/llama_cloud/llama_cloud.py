@@ -45,9 +45,12 @@ def _project_rows(rows: list[dict[str, Any]], allowed_fields: frozenset[str]) ->
     return [{key: value for key, value in row.items() if key in allowed_fields} for row in rows]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LlamaCloudResumeConfig:
-    next_page_token: str
+    next_page_token: str = ""
+    # Fan-out endpoints resume from a parent id and a skip offset instead of a page token.
+    parent_id: str | None = None
+    skip: int = 0
 
 
 def get_base_url(region: str | None) -> str:
@@ -165,6 +168,71 @@ def _resolve_organization_id(session: requests.Session, base_url: str, headers: 
     return organization_id
 
 
+def _list_parent_ids(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    parent: LlamaCloudEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[LlamaCloudResumeConfig],
+) -> list[str]:
+    params: dict[str, Any] = {"page_size": parent.page_size}
+    parent_ids: list[str] = []
+    while True:
+        data = _fetch_page(session, f"{base_url}{parent.path}", headers, params)
+        parent_ids.extend(item["id"] for item in data.get("items") or [])
+        resumable_source_manager.safe_point()
+
+        next_page_token = data.get("next_page_token")
+        if not next_page_token:
+            return parent_ids
+        params["page_token"] = next_page_token
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: LlamaCloudEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[LlamaCloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent_endpoint is not None and config.parent_id_param is not None
+    parent_ids = _list_parent_ids(
+        session, base_url, headers, LLAMA_CLOUD_ENDPOINTS[config.parent_endpoint], resumable_source_manager
+    )
+
+    start_index, skip = 0, 0
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None and resume_config.parent_id in parent_ids:
+        start_index, skip = parent_ids.index(resume_config.parent_id), resume_config.skip
+        logger.debug(f"LlamaCloud: resuming {config.name} from {config.parent_id_param}={resume_config.parent_id}")
+
+    url = f"{base_url}{config.path}"
+    for index in range(start_index, len(parent_ids)):
+        parent_id = parent_ids[index]
+        while True:
+            data = _fetch_page(
+                session, url, headers, {config.parent_id_param: parent_id, "skip": skip, "limit": config.page_size}
+            )
+            items = data.get("items") or []
+            skip += len(items)
+            has_more = bool(items) and skip < data.get("total", 0)
+
+            if has_more:
+                resumable_source_manager.save_state(LlamaCloudResumeConfig(parent_id=parent_id, skip=skip))
+            elif index + 1 < len(parent_ids):
+                resumable_source_manager.save_state(LlamaCloudResumeConfig(parent_id=parent_ids[index + 1]))
+
+            if items:
+                yield _project_rows(items, config.output_fields) if config.output_fields else items
+            else:
+                resumable_source_manager.safe_point()
+
+            if not has_more:
+                break
+        skip = 0
+
+
 def get_rows(
     api_key: str,
     region: str | None,
@@ -182,6 +250,10 @@ def get_rows(
     # Endpoints whose raw responses carry secrets opt out of HTTP sample capture — the
     # sampler observes the upstream body before row projection runs.
     session = make_tracked_session(capture=config.capture_http_samples)
+
+    if config.parent_endpoint:
+        yield from _get_fan_out_rows(session, base_url, headers, config, logger, resumable_source_manager)
+        return
 
     if not config.paginated:
         data = _fetch_page(session, url, headers, {})

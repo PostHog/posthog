@@ -222,13 +222,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_criterion_user_list_user_list": "Resource name of the user list, when the criterion is a user list.",
         },
     },
+    "keyword_placement_stats": {
+        "description": "Daily keyword impression placement without click-type segmentation.",
+        "columns": {
+            **_IDS,
+            "ad_group_criterion_criterion_id": "The keyword criterion ID.",
+            "ad_group_criterion_keyword_text": "The keyword text.",
+            "ad_group_criterion_keyword_match_type": "The keyword match type.",
+            "segments_date": "The date the impressions are reported for.",
+            "segments_ad_network_type": "The ad network where the impressions were shown.",
+            "metrics_impressions": "Number of times the ad was shown.",
+            "metrics_top_impression_percentage": "Fraction of impressions shown among the top ads.",
+            "metrics_absolute_top_impression_percentage": "Fraction of impressions shown as the first ad.",
+        },
+    },
     "keyword_stats": {
         "description": "Daily performance metrics for keywords (keyword_view), segmented by date, device, and network.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/keyword_view",
         "columns": _stats_columns(
             ad_group_criterion_criterion_id="Unique ID of the keyword criterion the metrics belong to.",
-            metrics_top_impression_percentage="Fraction of Google Search ad impressions shown among the top ads.",
-            metrics_absolute_top_impression_percentage="Fraction of Google Search ad impressions shown as the first ad.",
         ),
     },
     "video": {
@@ -561,8 +573,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": _stats_columns(
             **{
                 "landing_page_view_unexpanded_final_url": "The final URL as entered by the advertiser, before URL expansion.",
-                "metrics_top_impression_percentage": "Fraction of Google Search ad impressions shown among the top ads.",
-                "metrics_absolute_top_impression_percentage": "Fraction of Google Search ad impressions shown as the first ad.",
                 "metrics_speed_score": "Google's 0-100 estimate of how fast the landing page loads on mobile, relative to other pages.",
                 "metrics_mobile_friendly_clicks_percentage": "Percentage of mobile clicks that went to a mobile-friendly page.",
                 "metrics_valid_accelerated_mobile_pages_clicks_percentage": "Percentage of clicks to a landing page that is a valid AMP page.",

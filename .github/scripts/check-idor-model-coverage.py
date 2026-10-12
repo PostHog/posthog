@@ -173,6 +173,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # OneToOne extension of Organization, read via the org relation
         # (enrichment_record), never looked up by user-supplied ID.
         "OrganizationEnrichment",
+        # Write-once OneToOne record of the partner that created an Organization, written by the
+        # partner account-creation paths; no API endpoint, never looked up by user-supplied ID.
+        # Remove this exemption the moment an endpoint exposes it, or the org_scoped rule stops
+        # protecting it silently.
+        "OrganizationProvisioning",
         # Write-once idempotency guard keyed on the org, claimed via get_or_create from an
         # internal enrichment write-back path, never looked up by user-supplied ID.
         "EnrichmentSignupSnapshot",
@@ -198,14 +203,19 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckgresServer",
         "EvaluationConfig",
         "RemoteConfig",
+        "TeamAccessControlConfig",
         "TeamConversationsSlackConfig",
         "TeamConversationsTeamsChannelSync",
+        "TeamConversationsTicketConfig",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
         "TeamBusinessKnowledgeConfig",
         "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        # Staff-only OneToOne extension keyed on the team, edited in Django admin and read by the
+        # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
+        "TeamEventsRetentionConfig",
         "TeamFeatureFlagsConfig",
         # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
         # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.

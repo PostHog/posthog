@@ -29,6 +29,14 @@ function withProjectId(
   return getPostHogUrl(path(projectId), overrides?.cloudRegion);
 }
 
+/** A page inside the current project, given its path after `/project/<id>/`. */
+export function projectPathUrl(
+  path: string,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId((pid) => `/project/${pid}/${path}`, overrides);
+}
+
 export function flagUrl(
   flagId: number,
   overrides?: LinkOverrides,

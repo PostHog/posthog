@@ -66,7 +66,7 @@ def _misconfig(url: str, api_key: str) -> str | None:
 
 
 def resolve_gateway_config() -> tuple[str, str] | None:
-    """Validated (anthropic_base_url, phs_api_key), or None to use direct Anthropic.
+    """Validated (base_url, phs_api_key), or None to use the direct provider key.
 
     Trailing /v1 is stripped; the Agent SDK re-appends /v1/messages.
     """
@@ -76,7 +76,7 @@ def resolve_gateway_config() -> tuple[str, str] | None:
         return None
     reason = _misconfig(url, api_key)
     if reason:
-        print(f"⚠️  ai-gateway misconfigured, falling back to direct Anthropic: {reason}")
+        print(f"⚠️  ai-gateway misconfigured, falling back to the direct provider key: {reason}")
         return None
     # Rebuild from parsed components (not raw-string slicing) so nothing past the
     # path can leak into the base; _misconfig already rejected query/fragment.

@@ -1,3 +1,4 @@
+import { toDisplayEntityFilter } from 'lib/components/EntityFilterInfo'
 import { alphabet } from 'lib/utils/strings'
 import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
@@ -19,7 +20,8 @@ export interface TrendsSeriesLabelDeps {
 }
 
 export function getTrendsSeriesDisplayLabel(r: IndexedTrendResult, deps: TrendsSeriesLabelDeps): string {
-    const seriesName = getDisplayNameFromEntityFilter(r.action) ?? humanizeSeriesLabel(r.label)
+    const seriesName =
+        getDisplayNameFromEntityFilter(r.action && toDisplayEntityFilter(r.action)) ?? humanizeSeriesLabel(r.label)
     if (r.breakdown_value != null) {
         const breakdownLabel = formatBreakdownLabel(
             r.breakdown_value,

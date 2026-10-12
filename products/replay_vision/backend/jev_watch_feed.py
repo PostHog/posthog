@@ -73,6 +73,9 @@ JEV_TIMEOUT_SECONDS = 30.0
 # wrongly not charging re-buys one batch next sweep. Auth and routing refusals, rate limits, server
 # errors, contract breaks reported as 200, and unknown statuses all retry free.
 _BATCH_FAULT_STATUSES = frozenset({400, 413, 422})
+# The gateway's rate limit. Every product's Jev calls share that limit, so a sweep that keeps
+# sending after it would take capacity from features people are waiting on.
+_RATE_LIMITED_STATUS = 429
 # How far a viewed row drops on the 0-1 probability scale, the same intent as WATCH_SEEN_PENALTY in
 # the weighted ranker: an unviewed peer with comparable evidence comes first, and a very strong seen
 # row still holds its place above weak unseen rows.
@@ -206,21 +209,39 @@ _ESTIMATED_COST = Counter(
 )
 
 
-def watch_feed_ranker(team_id: int) -> RankerMode:
-    """The team's arm of the watch feed ranker experiment. Any flag failure reads as the default
-    arm, so the sweep and the feed never fail on flag evaluation."""
+def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None:
+    """The team's variant of the ranker flag, or None when the team takes no part in the experiment.
+
+    Keyed on the project's uuid: both regions evaluate this one flag, and team ids repeat between
+    them. A region without the decision service has no sweep to fill the cache, so its teams take
+    no part rather than land on an empty `jev` feed. Any flag failure also reads as None."""
+    if not decision_api.decisions_available_here():
+        return None
     value = get_feature_flag_or_none(
         WATCH_FEED_RANKER_FLAG,
+        # Only a person-property condition reads the distinct id; a project-aggregated flag buckets
+        # and matches on the group below.
         f"team-{team_id}",
-        groups={"project": str(team_id)},
-        group_properties={"project": {"id": team_id}},
+        groups={"project": str(team_uuid)},
+        group_properties={"project": {"id": team_id, "uuid": str(team_uuid)}},
         send_feature_flag_events=False,
     )
-    if value == "jev-shadow":
+    return value if isinstance(value, str) else None
+
+
+def ranker_mode(variant: str | None) -> RankerMode:
+    """The ranker a flag variant selects. Any variant but the two Jev arms is the default arm."""
+    if variant == "jev-shadow":
         return "jev-shadow"
-    if value == "jev":
+    if variant == "jev":
         return "jev"
     return "weighted-score"
+
+
+def watch_feed_ranker(team_id: int, team_uuid: UUID | str) -> RankerMode:
+    """The team's arm of the watch feed ranker experiment. Any flag failure reads as the default
+    arm, so the sweep and the feed never fail on flag evaluation."""
+    return ranker_mode(watch_feed_ranker_variant(team_id, team_uuid))
 
 
 @frozen
@@ -248,8 +269,15 @@ class WindowJudgment:
     # breakdown, but prod workers do not ship their metrics into the product; the sweep's
     # judged event does, so a failing sweep names its error without log or cluster access.
     chunk_error_types: dict[str, int]
+    # The gateway rate-limited a request, so the window stopped there. The rows it did not reach
+    # retry free on the next sweep.
+    rate_limited: bool
     input_tokens: int
     estimated_cost_usd: float
+
+
+def _is_rate_limited(error: Exception) -> bool:
+    return isinstance(error, DecisionGatewayError) and error.status_code == _RATE_LIMITED_STATUS
 
 
 def _window_entry(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -397,6 +425,7 @@ def judge_scanner_window(
     failed_chunks = 0
     failed_reason_chunks = 0
     chunk_error_types: dict[str, int] = {}
+    rate_limited = False
     input_tokens = 0
     estimated_cost = 0.0
 
@@ -436,6 +465,9 @@ def judge_scanner_window(
                 scanner_id=str(scanner_id),
                 error_type=error_type,
             )
+            if _is_rate_limited(error):
+                rate_limited = True
+                break
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("ok").inc()
@@ -460,6 +492,9 @@ def judge_scanner_window(
                 scanner_id=str(scanner_id),
                 error_type=type(error).__name__,
             )
+            if _is_rate_limited(error):
+                rate_limited = True
+                break
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("reason_ok").inc()
@@ -475,6 +510,7 @@ def judge_scanner_window(
         chunks=len(chunks),
         failed_chunks=failed_chunks,
         chunk_error_types=chunk_error_types,
+        rate_limited=rate_limited,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
     )

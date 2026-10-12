@@ -47,7 +47,7 @@ export const workflowsEmptyState: SceneProductEmptyState = {
                 text: {
                     'needs-setup': {
                         headline: 'What do you want to build first?',
-                        lead: 'Message your users with email, SMS and push, or automate work with Slack alerts, webhooks and AI tasks. You can do both later. This choice only picks where we start.',
+                        lead: 'Message your users with email, SMS and push, send a one-off broadcast, or automate work with Slack alerts, webhooks and AI tasks. You can do all of them later. This choice only picks where we start.',
                     },
                 },
                 PrimaryAction: WorkflowsPathChoice,

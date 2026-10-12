@@ -27,6 +27,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_in
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1208,8 +1209,9 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         self, pays_for_customers: bool | None, partner_name: str = "Example Partner"
     ) -> OAuthApplication | None:
         if pays_for_customers is None:
-            self.organization.provisioning_source = Organization.ProvisioningSource.VERCEL
-            self.organization.save(update_fields=["provisioning_source"])
+            OrganizationProvisioning.objects.create(
+                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
+            )
             return None
         application = OAuthApplication.objects.create(
             client_id="example-partner",
@@ -1222,9 +1224,11 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             is_provisioning_partner=True,
         )
         application.update_provisioning(pays_for_customers=pays_for_customers)
-        self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
-        self.organization.provisioning_application = application
-        self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=application,
+        )
         return application
 
     @parameterized.expand(

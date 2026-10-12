@@ -998,6 +998,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         [
             ("impact", "get"),
             ("affected_cohort", "post"),
+            ("create_dashboard", "post"),
         ]
     )
     def test_recording_derived_action_rejected_without_session_recording_read(self, url_path: str, method: str) -> None:
@@ -1007,12 +1008,18 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertIn("session_recording", resp.json()["detail"])
 
-    def test_affected_cohort_rejected_without_cohort_edit_access(self) -> None:
+    @parameterized.expand(
+        [
+            ("affected_cohort", "cohort"),
+            ("create_dashboard", "dashboard"),
+        ]
+    )
+    def test_action_rejected_without_edit_access_to_what_it_creates(self, url_path: str, resource: str) -> None:
         scanner = self._create_scanner()
-        with self._patch_deny_resource("cohort"):
-            resp = self.client.post(f"{self.scanners_url}{scanner.id}/affected_cohort/", format="json")
+        with self._patch_deny_resource(resource):
+            resp = self.client.post(f"{self.scanners_url}{scanner.id}/{url_path}/", format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
-        self.assertIn("cohort", resp.json()["detail"])
+        self.assertIn(resource, resp.json()["detail"])
 
 
 class TestScannerScoutCallerRules(_VisionAPITestCase):
@@ -5061,13 +5068,15 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, {}, "jevk5-fp8-0.2"
         )
 
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
-        for mode in ("weighted-score", "jev-shadow"):
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
+        for mode in ("control", "jev-shadow", None):
             with patch(ranker, return_value=mode):
                 resp = self.client.get(self.feed_url)
             items = resp.json()["results"]
-            # The shadow arm ranks on the weighted score, so the response names that ranker too.
+            # The shadow arm ranks on the weighted score, so the response names that ranker too, but
+            # it still reports its own variant, which the client records as the experiment exposure.
             self.assertEqual(resp.json()["ranker"], "weighted-score", mode)
+            self.assertEqual(resp.json()["ranker_variant"], mode)
             # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
             self.assertEqual(
                 [item["observation"]["session_id"] for item in items],
@@ -5112,8 +5121,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             {str(old_interesting.id): "visible_error"},
         )
 
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
-        with patch(ranker, return_value="weighted-score"):
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
+        with patch(ranker, return_value="control"):
             resp = self.client.get(self.feed_url)
         self.assertNotIn("old-interesting", [item["observation"]["session_id"] for item in resp.json()["results"]])
 
@@ -5152,7 +5161,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         watchable[str(old_interesting.id)] = 0.6
         store_watch_ranks(self.team.id, scanner.id, set(watchable), watchable, {}, "jevk5-fp8-0.2")
 
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
         with patch(ranker, return_value="jev"):
             resp = self.client.get(f"{self.feed_url}?search=needle")
         items = resp.json()["results"]

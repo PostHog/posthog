@@ -11,6 +11,7 @@ class SlackClient(RecordedEgressClient):
     remaining-budget headers, so there is no single budget to draw from. Callers own reactive retries."""
 
     observability = slack_egress
+    egress_domain = "slack"
 
     def __init__(self, app_id: str) -> None:
         self._app_id = app_id

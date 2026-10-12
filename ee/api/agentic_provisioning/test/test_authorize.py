@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
@@ -221,8 +222,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
         assert code_data["team_id"] == self.team2.id
         assert code_data["org_id"] == str(self.org2.id)
-        self.org2.refresh_from_db()
-        assert (self.org2.provisioning_source, self.org2.provisioning_application_id) == (None, None)
+        assert not OrganizationProvisioning.objects.exists()
 
     def test_confirm_consumes_pending_state(self):
         self._set_pending_auth("state_consume", self.user.email)

@@ -187,6 +187,7 @@ tools:
             query, column schema, materialization status, sync frequency, and run history metadata. Also returns the
             view's semantic `description` and a `description` on each entry of `columns` when set — use this to see what
             a view and its columns mean.
+        hooks: dataWarehouse/viewGetHooks
     view-list:
         operation: warehouse_saved_queries_list
         enabled: true

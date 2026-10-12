@@ -34,7 +34,7 @@ common_filters = {
 
 
 template_create_contact: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-mailjet-create-contact",
@@ -89,7 +89,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 
 
 template_update_contact_list: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-mailjet-update-contact-list",
