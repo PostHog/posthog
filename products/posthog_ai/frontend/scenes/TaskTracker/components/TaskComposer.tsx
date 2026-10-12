@@ -132,7 +132,7 @@ export function TaskComposer({
         }
     }
 
-    const appliedPrefill = useRef(prefillRequest)
+    const appliedPrefill = useRef<ComposerPrefillRequest | null>(null)
     useEffect(() => {
         if (!prefillRequest || prefillRequest === appliedPrefill.current) {
             return
