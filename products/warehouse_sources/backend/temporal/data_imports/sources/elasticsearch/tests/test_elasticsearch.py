@@ -5,6 +5,12 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
     CLUSTER_UNAVAILABLE_ERROR,
     CREDENTIALS_REJECTED_ERROR,
@@ -17,21 +23,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     coerce_float_fields,
     elasticsearch_source,
     get_float_field_paths,
-    get_rows,
     list_indices,
     normalize_host,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source import ElasticsearchSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
+    ElasticsearchAuthMethodConfig,
+    ElasticsearchSourceConfig,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch"
 
 
-def _response(body: Any, status: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = status
-    resp.ok = status < 400
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        ElasticsearchSource(),
+        ElasticsearchSourceConfig(
+            host="https://es.example.com",
+            auth_method=ElasticsearchAuthMethodConfig(selection="api_key", api_key="k"),
+        ),
+    )
 
 
 def _scroll_page(hits: list[dict[str, Any]], scroll_id: str | None = "scroll-1") -> dict[str, Any]:
@@ -61,23 +73,17 @@ class TestNormalizeHost:
 
 
 class TestAuthWiring:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_api_key_auth_sets_header(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.get.return_value = _response({})
+    def test_api_key_auth_sets_header(self):
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="key123"))
 
-        validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="key123"))
+        assert network.requests_log[0].headers["authorization"] == "ApiKey key123"
 
-        assert mock_session.return_value.headers["Authorization"] == "ApiKey key123"
+    def test_basic_auth_sets_session_auth(self):
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials("https://es.example.com", ElasticsearchAuth(username="elastic", password="pw"))
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_basic_auth_sets_session_auth(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.get.return_value = _response({})
-
-        validate_credentials("https://es.example.com", ElasticsearchAuth(username="elastic", password="pw"))
-
-        assert mock_session.return_value.auth == ("elastic", "pw")
+        assert network.requests_log[0].headers["authorization"] == "Basic ZWxhc3RpYzpwdw=="
 
 
 class TestValidateCredentials:
@@ -92,15 +98,15 @@ class TestValidateCredentials:
             (500, False, CLUSTER_UNAVAILABLE_ERROR),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_error):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.get.return_value = _response({}, status=status_code)
-
-        is_valid, error = validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k"))
+    def test_validate_credentials_status_mapping(self, status_code, expected_valid, expected_error):
+        response = ScriptedResponse(status=status_code, json={})
+        script = always(response) if status_code in (429, 500) else [response]
+        with scripted_network(script) as network:
+            is_valid, error = validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k"))
 
         assert is_valid is expected_valid
         assert error == expected_error
+        assert {request.path for request in network.requests_log} == {"/"}
 
     @pytest.mark.parametrize(
         "raised, expected_error",
@@ -122,83 +128,86 @@ class TestValidateCredentials:
 
 
 class TestListIndices:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_filters_system_indices_and_sorts(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.get.return_value = _response(
-            [{"index": "orders"}, {"index": ".kibana"}, {"index": "accounts"}, {"index": ""}]
-        )
+    def test_filters_system_indices_and_sorts(self):
+        with scripted_network(
+            [ScriptedResponse(json=[{"index": "orders"}, {"index": ".kibana"}, {"index": "accounts"}, {"index": ""}])]
+        ) as network:
+            indices = list_indices("https://es.example.com", ElasticsearchAuth(api_key="k"))
 
-        assert list_indices("https://es.example.com", ElasticsearchAuth(api_key="k")) == ["accounts", "orders"]
+        assert indices == ["accounts", "orders"]
+        assert network.requests_log[0].path == "/_cat/indices"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_json_response_raises_clear_error(self, mock_session):
-        mock_session.return_value.headers = {}
-        response = _response(None)
-        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
-        mock_session.return_value.get.return_value = response
-
-        with pytest.raises(ValueError, match="non-JSON response"):
-            list_indices("https://es.example.com", ElasticsearchAuth(api_key="k"))
+    def test_non_json_response_raises_clear_error(self):
+        with scripted_network([ScriptedResponse(body=b"<html>")]):
+            with pytest.raises(ValueError, match="non-JSON response"):
+                list_indices("https://es.example.com", ElasticsearchAuth(api_key="k"))
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_scrolls_until_short_page(self, mock_session):
-        mock_session.return_value.headers = {}
+    def test_scrolls_until_short_page(self):
         full_hits = [{"_id": str(i), "_source": {"value": i}} for i in range(PAGE_SIZE)]
-        mock_session.return_value.post.side_effect = [
-            _response(_scroll_page(full_hits)),
-            _response(_scroll_page([{"_id": "last", "_source": {"value": -1}}])),
-        ]
+        result = _driver().run(
+            "orders",
+            [
+                ScriptedResponse(json={"orders": {"mappings": {"properties": {}}}}),
+                ScriptedResponse(json=_scroll_page(full_hits)),
+                ScriptedResponse(json=_scroll_page([{"_id": "last", "_source": {"value": -1}}])),
+                ScriptedResponse(json={}),
+            ],
+        )
 
-        batches = list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()))
+        assert result.raised is None
+        assert len(result.items) == 2
+        assert result.items[1] == [{"value": -1, "_id": "last"}]
+        assert result.paths == ["/orders/_mapping", "/orders/_search", "/_search/scroll", "/_search/scroll"]
+        assert result.requests[1].param("scroll") == "5m"
+        assert result.requests[2].json() == {"scroll": "5m", "scroll_id": "scroll-1"}
 
-        assert len(batches) == 2
-        assert batches[1] == [{"value": -1, "_id": "last"}]
-        urls = [call.args[0] for call in mock_session.return_value.post.call_args_list]
-        assert urls[0].endswith("/orders/_search?scroll=5m")
-        assert urls[1].endswith("/_search/scroll")
-        body = mock_session.return_value.post.call_args_list[1].kwargs["json"]
-        assert body == {"scroll": "5m", "scroll_id": "scroll-1"}
+    def test_scroll_context_is_cleared_after_walk(self):
+        result = _driver().run(
+            "orders",
+            [
+                ScriptedResponse(json={}),
+                ScriptedResponse(json=_scroll_page([{"_id": "1", "_source": {}}])),
+                ScriptedResponse(json={}),
+            ],
+        )
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_scroll_context_is_cleared_after_walk(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.post.return_value = _response(_scroll_page([{"_id": "1", "_source": {}}]))
+        assert result.raised is None
+        assert [request.method for request in result.requests] == ["GET", "POST", "DELETE"]
+        assert result.requests[2].path == "/_search/scroll"
+        assert result.requests[2].json() == {"scroll_id": ["scroll-1"]}
 
-        list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()))
-
-        mock_session.return_value.delete.assert_called_once()
-        assert mock_session.return_value.delete.call_args.kwargs["json"] == {"scroll_id": ["scroll-1"]}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_float_typed_fields_are_coerced_across_rows(self, mock_session):
+    def test_float_typed_fields_are_coerced_across_rows(self):
         # A float-typed field whose docs mix whole (40) and fractional (40.5) values must all
         # arrive as floats so the column infers a single Arrow type; the long id stays an int.
-        mock_session.return_value.headers = {}
-        mock_session.return_value.get.return_value = _response(
-            {"orders": {"mappings": {"properties": {"amount": {"type": "float"}, "id": {"type": "long"}}}}}
-        )
-        mock_session.return_value.post.return_value = _response(
-            _scroll_page(
-                [
-                    {"_id": "1", "_source": {"amount": 40, "id": 100}},
-                    {"_id": "2", "_source": {"amount": 40.5, "id": 200}},
-                ]
-            )
+        result = _driver().run(
+            "orders",
+            [
+                ScriptedResponse(
+                    json={"orders": {"mappings": {"properties": {"amount": {"type": "float"}, "id": {"type": "long"}}}}}
+                ),
+                ScriptedResponse(
+                    json=_scroll_page(
+                        [
+                            {"_id": "1", "_source": {"amount": 40, "id": 100}},
+                            {"_id": "2", "_source": {"amount": 40.5, "id": 200}},
+                        ]
+                    )
+                ),
+                ScriptedResponse(json={}),
+            ],
         )
 
-        batches = list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()))
-
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [
                 {"amount": 40.0, "id": 100, "_id": "1"},
                 {"amount": 40.5, "id": 200, "_id": "2"},
             ]
         ]
-        assert [type(row["amount"]) for row in batches[0]] == [float, float]
-        assert [type(row["id"]) for row in batches[0]] == [int, int]
+        assert [type(row["amount"]) for row in result.rows] == [float, float]
+        assert [type(row["id"]) for row in result.rows] == [int, int]
 
 
 class TestFloatFieldPaths:
@@ -238,21 +247,19 @@ class TestFloatFieldPaths:
             ({}, set()),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_collects_float_typed_paths(self, mock_session, mappings, expected):
-        mock_session.return_value.headers = {}
-        session = mock_session.return_value
-        session.get.return_value = _response({"orders": {"mappings": mappings}})
+    def test_collects_float_typed_paths(self, mappings, expected):
+        with scripted_network([ScriptedResponse(json={"orders": {"mappings": mappings}})]) as network:
+            paths = get_float_field_paths(requests.Session(), "https://es.example.com", "orders")
 
-        assert get_float_field_paths(session, "https://es.example.com", "orders") == expected
+        assert paths == expected
+        assert network.requests_log[0].path == "/orders/_mapping"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_unreadable_mapping_yields_no_paths(self, mock_session):
-        mock_session.return_value.headers = {}
-        session = mock_session.return_value
-        session.get.side_effect = requests.exceptions.ConnectionError("boom")
+    def test_unreadable_mapping_yields_no_paths(self):
+        with scripted_network(always(ConnectionResetError("boom"))) as network:
+            paths = get_float_field_paths(requests.Session(), "https://es.example.com", "orders")
 
-        assert get_float_field_paths(session, "https://es.example.com", "orders") == set()
+        assert paths == set()
+        assert network.requests_log[0].path == "/orders/_mapping"
 
 
 class TestCoerceFloatFields:

@@ -3,6 +3,10 @@ from typing import Literal
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.grafana import (
     GrafanaAuthMethodConfig,
     GrafanaSourceConfig,
@@ -41,6 +45,39 @@ class TestGrafanaSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["dashboards"])
         assert [s.name for s in schemas] == ["dashboards"]
 
+    def test_source_for_pipeline_plumbs_arguments(self):
+        result = SourceDriver(self.source, self.config).run(
+            "annotations",
+            [ScriptedResponse(json=[])],
+            team_id=42,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1784131261208,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].origin == "https://yourstack.grafana.net"
+        assert result.requests[0].path == "/api/annotations"
+        assert result.requests[0].headers["authorization"] == "Bearer glsa_secret"
+        assert result.params("from") == ["1784131261208"]
+
+    def test_source_for_pipeline_drops_watermark_for_full_refresh(self):
+        result = SourceDriver(self.source, self.config).run(
+            "annotations",
+            [ScriptedResponse(json=[])],
+            team_id=42,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1784131261208,
+        )
+
+        assert result.raised is None
+        assert result.params("from") == ["0"]
+
+
+class TestGrafanaSourceForwarding:
+    def setup_method(self):
+        self.source = GrafanaSource()
+        self.config = _config(token="glsa_secret")
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source.grafana_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_grafana_source):
         inputs = mock.MagicMock()
@@ -61,15 +98,3 @@ class TestGrafanaSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1784131261208
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source.grafana_source")
-    def test_source_for_pipeline_drops_watermark_for_full_refresh(self, mock_grafana_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "annotations"
-        inputs.team_id = 42
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = 1784131261208
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_grafana_source.call_args.kwargs["db_incremental_field_last_value"] is None

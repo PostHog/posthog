@@ -1,11 +1,9 @@
 from datetime import date
 from typing import Any
 
-import pytest
 import time_machine
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
@@ -14,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.cimi
     _flatten_record,
     _iter_data_records,
     cimis_source,
-    get_rows,
     parse_targets,
     validate_credentials,
 )
@@ -22,6 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.sett
     CIMIS_ENDPOINTS,
     CIMIS_RECORD_CAP,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
 
 
 class TestParseTargets:
@@ -109,96 +114,67 @@ def _data_payload(station: str, day: str) -> dict[str, Any]:
     }
 
 
+def _driver(targets: str | None = "2") -> SourceDriver:
+    return SourceDriver(CimisSource(), CimisSourceConfig(app_key="k", targets=targets, unit_of_measure="E"))
+
+
 class TestGetRowsMetadata:
-    def test_metadata_endpoint_yields_response_key_rows(self, monkeypatch: Any) -> None:
-        captured: list[str] = []
+    def test_metadata_endpoint_yields_response_key_rows(self) -> None:
+        rows = [{"StationNbr": "2"}, {"StationNbr": "8"}]
+        result = _driver(targets=None).run("stations", [ScriptedResponse(json={"Stations": rows})])
 
-        def fake_fetch(_session: Any, url: str, _logger: Any) -> dict[str, Any]:
-            captured.append(url)
-            return {"Stations": [{"StationNbr": "2"}, {"StationNbr": "8"}]}
-
-        monkeypatch.setattr(cimis, "_fetch", fake_fetch)
-        batches = list(get_rows(endpoint="stations", app_key="k", targets=[], unit_of_measure="E", logger=mock.Mock()))
-
-        assert batches == [[{"StationNbr": "2"}, {"StationNbr": "8"}]]
-        assert len(captured) == 1
-        assert "/station" in captured[0]
+        assert result.raised is None
+        assert result.items == [rows]
+        assert result.rows == rows
+        assert result.paths == ["/api/station"]
+        assert result.params("appKey") == ["k"]
 
 
 class TestGetRowsData:
     def test_data_endpoint_requires_targets(self) -> None:
-        with pytest.raises(ValueError):
-            list(get_rows(endpoint="daily_data", app_key="k", targets=[], unit_of_measure="E", logger=mock.Mock()))
+        result = _driver(targets=None).run("daily_data", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
     @time_machine.travel("2023-01-10 12:00:00", tick=False)
-    def test_daily_incremental_starts_from_last_value(self, monkeypatch: Any) -> None:
-        urls: list[str] = []
-
-        def fake_fetch(_session: Any, url: str, _logger: Any) -> dict[str, Any]:
-            urls.append(url)
-            return _data_payload("2", "2023-01-08")
-
-        monkeypatch.setattr(cimis, "_fetch", fake_fetch)
-        list(
-            get_rows(
-                endpoint="daily_data",
-                app_key="k",
-                targets=["2"],
-                unit_of_measure="E",
-                logger=mock.Mock(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2023, 1, 8),
-            )
+    def test_daily_incremental_starts_from_last_value(self) -> None:
+        result = _driver().run(
+            "daily_data",
+            [ScriptedResponse(json=_data_payload("2", "2023-01-08"))],
+            incremental_field="Date",
+            db_incremental_field_last_value=date(2023, 1, 8),
         )
         # The first window must begin at the saved watermark, not the epoch.
-        assert "startDate=2023-01-08" in urls[0]
+        assert result.raised is None
+        assert result.params("startDate") == ["2023-01-08"]
+        assert result.rows[0]["DayEto_Value"] == "0.05"
 
     @time_machine.travel("2023-01-02 12:00:00", tick=False)
-    def test_no_requests_when_watermark_in_future(self, monkeypatch: Any) -> None:
-        urls: list[str] = []
-
-        def fake_fetch(_session: Any, url: str, _logger: Any) -> dict[str, Any]:
-            urls.append(url)
-            return _data_payload("2", "2023-01-01")
-
-        monkeypatch.setattr(cimis, "_fetch", fake_fetch)
-        batches = list(
-            get_rows(
-                endpoint="daily_data",
-                app_key="k",
-                targets=["2"],
-                unit_of_measure="E",
-                logger=mock.Mock(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2030, 1, 1),
-            )
+    def test_no_requests_when_watermark_in_future(self) -> None:
+        result = _driver().run(
+            "daily_data", [], incremental_field="Date", db_incremental_field_last_value=date(2030, 1, 1)
         )
-        assert batches == []
-        assert urls == []
+        assert result.raised is None
+        assert result.items == []
+        assert result.requests == []
 
     @time_machine.travel("2020-01-01 12:00:00", tick=False)
-    def test_hourly_with_many_targets_keeps_each_request_under_cap(self, monkeypatch: Any) -> None:
+    def test_hourly_with_many_targets_keeps_each_request_under_cap(self) -> None:
         # 100 hourly targets over a single day would be 2400 records — over the cap — so the source
         # must split the target set and keep the date window at a single day.
-        seen_requests: list[tuple[str, str, int]] = []
-
-        def fake_fetch(_session: Any, url: str, _logger: Any) -> dict[str, Any]:
-            # Parse start/end + target count out of the URL to assert the per-request volume.
-            params = dict(p.split("=", 1) for p in url.split("?", 1)[1].split("&"))
-            n_targets = len(params["targets"].split("%2C")) if "%2C" in params["targets"] else 1
-            seen_requests.append((params["startDate"], params["endDate"], n_targets))
-            return _data_payload("1", "2019-12-31")
-
-        monkeypatch.setattr(cimis, "_fetch", fake_fetch)
         targets = [str(i) for i in range(1, 101)]
         # Single-day range so we only probe the target-splitting dimension.
         with mock.patch.object(cimis, "CIMIS_DATA_EPOCH", "2019-12-31"):
-            list(
-                get_rows(endpoint="hourly_data", app_key="k", targets=targets, unit_of_measure="E", logger=mock.Mock())
+            result = _driver(targets=",".join(targets)).run(
+                "hourly_data", always(ScriptedResponse(json=_data_payload("1", "2019-12-31")))
             )
 
-        assert seen_requests, "expected at least one request"
-        for _start, _end, n_targets in seen_requests:
+        assert result.raised is None
+        assert result.requests, "expected at least one request"
+        for request in result.requests:
+            assert request.param("startDate") == request.param("endDate")
+            n_targets = len((request.param("targets") or "").split(","))
             # 24 records/day/target * n_targets * window_days(=1) must stay under the cap.
             assert n_targets * 24 <= CIMIS_RECORD_CAP
 
@@ -213,19 +189,16 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        response = mock.Mock(spec=requests.Response)
-        response.status_code = status
-        session = mock.Mock()
-        session.get.return_value = response
-
-        with mock.patch.object(cimis, "make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             ok, _msg = validate_credentials("appkey", ["2"], mock.Mock())
         assert ok is expected
+        assert network.requests_log
+        assert {request.path for request in network.requests_log} == {"/api/data"}
+        assert {request.param("appKey") for request in network.requests_log} == {"appkey"}
+        assert {request.param("targets") for request in network.requests_log} == {"2"}
 
     def test_unreachable_api_is_not_valid(self) -> None:
-        session = mock.Mock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch.object(cimis, "make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionResetError("boom"))):
             ok, msg = validate_credentials("appkey", [], mock.Mock())
         assert ok is False
         assert msg is not None

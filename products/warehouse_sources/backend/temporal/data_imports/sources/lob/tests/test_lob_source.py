@@ -1,7 +1,9 @@
-from unittest.mock import patch
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lob import LobSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.source import LobSource
 
@@ -40,11 +42,12 @@ class TestLobValidateCredentials:
             ("unknown_error", (False, None), None, False),
         ]
     )
-    def test_validate(self, _name: str, probe_result, schema_name, expected_valid: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.lob.source.validate_lob_credentials",
-            return_value=probe_result,
-        ):
+    def test_validate(
+        self, _name: str, probe_result: tuple[bool, int | None], schema_name: str | None, expected_valid: bool
+    ) -> None:
+        status = probe_result[1]
+        script = [ScriptedResponse(status=status)] if status is not None else [ConnectionError("boom")]
+        with scripted_network(script):
             valid, _error = LobSource().validate_credentials(
                 LobSourceConfig(api_key="k"), team_id=1, schema_name=schema_name
             )

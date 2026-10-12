@@ -1,24 +1,24 @@
 from typing import Optional
 
-from unittest.mock import MagicMock, patch
+import time_machine
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impactpartner import (
     ImpactPartnerSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.source import ImpactPartnerSource
 
 
-def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = schema_name
-    inputs.api_version = overrides.get("api_version")
-    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
-    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2026-01-01T00:00:00")
-    return inputs
+def _driver() -> SourceDriver:
+    return SourceDriver(ImpactPartnerSource(), ImpactPartnerSourceConfig(account_sid="s", auth_token="t"))
 
 
 class TestImpactPartnerSourceClass:
@@ -44,41 +44,40 @@ class TestImpactPartnerSourceClass:
         ]
     )
     def test_validate_credentials(self, _name: str, api_result: bool, ok: bool, err: Optional[str]) -> None:
-        with patch.object(
-            source_module, "validate_impact_partner_credentials", return_value=api_result
-        ) as mock_validate:
+        with scripted_network([ScriptedResponse(status=200 if api_result else 401)]) as network:
             result = ImpactPartnerSource().validate_credentials(
                 ImpactPartnerSourceConfig(account_sid="s", auth_token="t"), team_id=1
             )
         assert result == (ok, err)
         # An unpinned source instance validates against the default vendor API version.
-        assert mock_validate.call_args.args[2] == "16"
+        assert network.requests_log[0].headers["ir-version"] == "16"
 
+    @time_machine.travel("2026-06-01", tick=False)
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        manager = MagicMock()
-        inputs = _inputs(schema_name="Actions")
-        with patch.object(source_module, "impact_partner_source") as mock_source:
-            ImpactPartnerSource().source_for_pipeline(
-                ImpactPartnerSourceConfig(account_sid="s", auth_token="t"), manager, inputs
-            )
+        result = _driver().run(
+            "Actions",
+            always(ScriptedResponse(json={"Actions": [], "@numpages": "1"})),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00",
+        )
 
-        mock_source.assert_called_once()
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["account_sid"] == "s"
-        assert kwargs["auth_token"] == "t"
-        assert kwargs["endpoint"] == "Actions"
-        assert kwargs["api_version"] == "16"
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00"
+        assert result.raised is None
+        assert result.requests[0].path == "/Mediapartners/s/Actions"
+        assert result.requests[0].headers["authorization"] == "Basic czp0"
+        assert result.requests[0].headers["ir-version"] == "16"
+        assert result.requests[0].param("ActionDateStart") == "2026-01-01T00:00:00Z"
 
+    @time_machine.travel("2026-06-01", tick=False)
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self) -> None:
-        manager = MagicMock()
-        inputs = _inputs(should_use_incremental_field=False)
-        with patch.object(source_module, "impact_partner_source") as mock_source:
-            ImpactPartnerSource().source_for_pipeline(
-                ImpactPartnerSourceConfig(account_sid="s", auth_token="t"), manager, inputs
-            )
+        result = _driver().run(
+            "Actions",
+            always(ScriptedResponse(json={"Actions": [], "@numpages": "1"})),
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2026-01-01T00:00:00",
+        )
 
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("ActionDateStart") == "2023-06-02T00:00:00Z"
 
     @parameterized.expand(
         [

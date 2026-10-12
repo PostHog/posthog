@@ -1,102 +1,55 @@
-import json
 from datetime import UTC, datetime
 from typing import Any, cast
 
-import pytest
-from unittest import mock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import (
     OpenAIResumeConfig,
     _flatten_bucket_result,
     _normalize_audit_log,
-    openai_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.settings import OPENAI_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.source import OpenAISource
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the openai module.
-OPENAI_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai.make_tracked_session"
-)
-# tenacity sleeps between retries — patch it so retryable-status tests don't actually wait.
-TENACITY_SLEEP_PATCH = "tenacity.nap.time.sleep"
-
 PROJECT_USERS_PATH = "/v1/organization/projects/{project_id}/users"
 
 
-def _response(body: dict[str, Any], status: int = 200, headers: dict[str, str] | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    resp.url = "https://api.openai.com/v1/organization/users"
-    if headers:
-        resp.headers.update(headers)
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(OpenAISource(), OpenAISourceConfig(api_key="sk-admin-test"))
 
 
-def _entity_page(items: list[dict[str, Any]], *, has_more: bool, last_id: str | None = None) -> Response:
+def _entity_page(items: list[dict[str, Any]], *, has_more: bool, last_id: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"data": items, "has_more": has_more}
     if last_id is not None:
         body["last_id"] = last_id
-    return _response(body)
+    return ScriptedResponse(json=body)
 
 
-def _bucket_page(buckets: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> Response:
-    return _response({"data": buckets, "has_more": has_more, "next_page": next_page})
+def _bucket_page(buckets: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": buckets, "has_more": has_more, "next_page": next_page})
 
 
-def _lookback_exceeded() -> Response:
-    return _response(
-        {"error": {"type": "invalid_request_error", "code": "reporting_lookback_exceeded", "message": "too far back"}},
+def _lookback_exceeded() -> ScriptedResponse:
+    return ScriptedResponse(
         status=400,
+        json={
+            "error": {
+                "type": "invalid_request_error",
+                "code": "reporting_lookback_exceeded",
+                "message": "too far back",
+            }
+        },
     )
-
-
-def _make_manager(resume_state: OpenAIResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, last_value: Any = None):
-    return openai_source(
-        api_key="sk-admin-test",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        db_incremental_field_last_value=last_value,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
 
 
 class TestFlattenBucketResult:
@@ -144,11 +97,9 @@ class TestBucketParams:
             ("stale_watermark", datetime(2021, 6, 1, tzinfo=UTC)),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_lookback_exceeded_retries_with_a_later_start(self, _name: str, last_value: Any, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_lookback_exceeded_retries_with_a_later_start(self, _name: str, last_value: Any) -> None:
+        result = _driver().run(
+            "usage_audio_speeches",
             [
                 _lookback_exceeded(),
                 _lookback_exceeded(),
@@ -156,49 +107,45 @@ class TestBucketParams:
                     [{"start_time": 1, "end_time": 2, "results": [{"model": "a"}]}], has_more=False, next_page=None
                 ),
             ],
+            resume_state=OpenAIResumeConfig(cursor="STALE"),
+            incremental_field="start_time",
+            db_incremental_field_last_value=last_value,
         )
 
-        manager = _make_manager(OpenAIResumeConfig(cursor="STALE"))
-        rows = _rows(_source("usage_audio_speeches", manager, last_value=last_value))
-
-        assert [r["model"] for r in rows] == ["a"]
-        starts = [p["params"]["start_time"] for p in params]
+        assert result.raised is None
+        assert [row["model"] for row in result.rows] == ["a"]
+        starts = [int(value) for value in result.params("start_time") if value is not None]
         assert starts[0] < starts[1] < starts[2]
         assert starts[2] > int(datetime.now(UTC).timestamp()) - 400 * 24 * 60 * 60
         # The saved page cursor belongs to the rejected start, so a fallback must not send it.
-        assert params[0]["params"]["page"] == "STALE"
-        assert "page" not in params[1]["params"]
+        assert result.params("page") == ["STALE", None, None]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_lookback_exceeded_on_every_start_raises_non_retryable_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_lookback_exceeded() for _ in range(10)])
+    def test_lookback_exceeded_on_every_start_raises_non_retryable_error(self) -> None:
+        result = _driver().run("usage_vector_stores", always(_lookback_exceeded()))
 
-        with pytest.raises(requests.HTTPError) as exc_info:
-            _rows(_source("usage_vector_stores", _make_manager()))
-
-        assert session.send.call_count == 7
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 7
         non_retryable = OpenAISource().get_non_retryable_errors()
-        assert any(key in str(exc_info.value) for key in non_retryable)
+        assert any(key in str(result.raised) for key in non_retryable)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_lookback_exceeded_on_recent_watermark_does_not_move_start(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_lookback_exceeded(), _bucket_page([], has_more=False, next_page=None)])
+    def test_lookback_exceeded_on_recent_watermark_does_not_move_start(self) -> None:
+        result = _driver().run(
+            "usage_vector_stores",
+            [_lookback_exceeded(), _bucket_page([], has_more=False, next_page=None)],
+            incremental_field="start_time",
+            db_incremental_field_last_value=datetime.now(UTC),
+        )
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("usage_vector_stores", _make_manager(), last_value=datetime.now(UTC)))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestBucketPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_next_page_token_stops_pagination(self, MockSession) -> None:
+    def test_empty_page_with_next_page_token_stops_pagination(self) -> None:
         # The costs endpoint is known to return a next_page token alongside an empty page; without
         # the guard, pagination would loop on the empty tail forever.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "costs",
             [
                 _bucket_page(
                     [{"start_time": 1, "end_time": 2, "results": [{"line_item": "x"}]}],
@@ -209,18 +156,15 @@ class TestBucketPagination:
             ],
         )
 
-        rows = _rows(_source("costs", _make_manager()))
-
-        assert [r["line_item"] for r in rows] == ["x"]
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert [row["line_item"] for row in result.rows] == ["x"]
+        assert result.params("page") == [None, "PAGE2"]
 
 
 class TestEntityPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cursor_pagination_uses_after_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_cursor_pagination_uses_after_and_stops(self) -> None:
+        result = _driver().run(
+            "users",
             [
                 _entity_page([{"id": "user_1"}], has_more=True, last_id="user_1"),
                 # Final page still carries a last_id — has_more must stop the walk with no extra call.
@@ -228,31 +172,25 @@ class TestEntityPagination:
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["user_1", "user_2"]
+        assert result.params("after") == [None, "user_1"]
+        assert result.params("limit") == ["100", "100"]
+        assert result.saved_states == [OpenAIResumeConfig(cursor="user_1")]
 
-        assert [r["id"] for r in rows] == ["user_1", "user_2"]
-        assert "after" not in params[0]["params"]
-        assert params[0]["params"]["limit"] == 100
-        assert params[1]["params"]["after"] == "user_1"
-        assert session.send.call_count == 2
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == OpenAIResumeConfig(cursor="user_1")
+    def test_resumes_from_saved_after_cursor(self) -> None:
+        result = _driver().run(
+            "users",
+            [_entity_page([{"id": "user_6"}], has_more=False, last_id="user_6")],
+            resume_state=OpenAIResumeConfig(cursor="user_5"),
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_after_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_entity_page([{"id": "user_6"}], has_more=False, last_id="user_6")])
+        assert result.raised is None
+        assert result.params("after") == ["user_5"]
 
-        _rows(_source("users", _make_manager(OpenAIResumeConfig(cursor="user_5"))))
-
-        assert params[0]["params"]["after"] == "user_5"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_admin_api_keys_flatten_owner(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_admin_api_keys_flatten_owner(self) -> None:
+        result = _driver().run(
+            "admin_api_keys",
             [
                 _entity_page(
                     [{"id": "key_1", "owner": {"type": "user", "id": "user_1", "name": "Ada"}}],
@@ -262,21 +200,18 @@ class TestEntityPagination:
             ],
         )
 
-        rows = _rows(_source("admin_api_keys", _make_manager()))
-
-        assert rows[0]["owner_id"] == "user_1"
-        assert "owner" not in rows[0]
+        assert result.raised is None
+        assert result.rows[0]["owner_id"] == "user_1"
+        assert "owner" not in result.rows[0]
 
 
 class TestAuditLogs:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_no_effective_at_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_full_refresh_sends_no_effective_at_filter(self) -> None:
+        result = _driver().run(
+            "audit_logs",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "data": [{"id": "audit_log-1", "type": "project.created", "effective_at": 1722470400}],
                         "has_more": False,
                     }
@@ -284,34 +219,35 @@ class TestAuditLogs:
             ],
         )
 
-        _rows(_source("audit_logs", _make_manager()))
-
-        assert "effective_at[gte]" not in params[0]["params"]
+        assert result.raised is None
+        assert result.params("effective_at[gte]") == [None]
 
 
 class TestProjectFanOut:
-    @mock.patch(TENACITY_SLEEP_PATCH, return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_one_project_500ing_is_skipped_and_others_land(self, MockSession, _sleep) -> None:
+    def test_one_project_500ing_is_skipped_and_others_land(self) -> None:
         # proj_1's resource keeps returning 500 past the client's retry budget; without per-project
         # tolerance that would fail the whole schema. The fan-out must skip proj_1 and still yield
         # proj_2's rows.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _entity_page([{"id": "proj_1"}, {"id": "proj_2"}], has_more=False, last_id="proj_2"),
-                *[_response({}, status=500) for _ in range(5)],
-                _entity_page([{"id": "user_2"}], has_more=False, last_id="user_2"),
-            ],
-        )
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v1/organization/projects":
+                return _entity_page([{"id": "proj_1"}, {"id": "proj_2"}], has_more=False, last_id="proj_2")
+            if request.path == PROJECT_USERS_PATH.format(project_id="proj_1"):
+                return ScriptedResponse(status=500, json={})
+            if request.path == PROJECT_USERS_PATH.format(project_id="proj_2"):
+                return _entity_page([{"id": "user_2"}], has_more=False, last_id="user_2")
+            raise AssertionError(f"Unexpected request: {request.path}")
 
-        manager = _make_manager()
-        rows = _rows(_source("project_users", manager))
+        result = _driver().run("project_users", respond)
 
-        assert [(r["project_id"], r["id"]) for r in rows] == [("proj_2", "user_2")]
+        assert result.raised is None
+        assert [(row["project_id"], row["id"]) for row in result.rows] == [("proj_2", "user_2")]
+        assert set(result.paths) == {
+            "/v1/organization/projects",
+            PROJECT_USERS_PATH.format(project_id="proj_1"),
+            PROJECT_USERS_PATH.format(project_id="proj_2"),
+        }
         # The skipped project stays off the completed checkpoint so a later run re-attempts it.
-        final = [call.args[0] for call in manager.save_state.call_args_list][-1].fanout_state
+        final = result.saved_states[-1].fanout_state
         assert final["completed"] == [PROJECT_USERS_PATH.format(project_id="proj_2")]
 
     def test_saved_state_shapes_still_parse(self) -> None:
@@ -331,31 +267,24 @@ class TestProjectFanOut:
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    @mock.patch(TENACITY_SLEEP_PATCH, return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int) -> None:
+        result = _driver().run(
+            "users",
             [
-                _response({}, status=status),
+                ScriptedResponse(status=status, json={}),
                 _entity_page([{"id": "user_1"}], has_more=False, last_id="user_1"),
             ],
         )
 
-        rows = _rows(_source("users", _make_manager()))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["user_1"]
+        assert len(result.requests) == 2
 
-        assert [r["id"] for r in rows] == ["user_1"]
-        assert session.send.call_count == 2
+    def test_client_error_raises_without_retry(self) -> None:
+        result = _driver().run("users", [ScriptedResponse(status=401, json={"error": "unauthorized"})])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_without_retry(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "unauthorized"}, status=401)])
-
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("users", _make_manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:
@@ -370,11 +299,12 @@ class TestValidateCredentials:
     def test_status_mapping(self, _name: str, status: int, expected: bool, fragment: str | None) -> None:
         # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key. Anything
         # else leaves the key unjudged, so it must not read as a rejection.
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(OPENAI_SESSION_PATCH, return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             is_valid, message = validate_credentials("sk-admin-test")
 
+        assert network.requests_log
+        assert {request.path for request in network.requests_log} == {"/v1/organization/projects"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
         assert is_valid is expected
         if fragment is None:
             assert message is None

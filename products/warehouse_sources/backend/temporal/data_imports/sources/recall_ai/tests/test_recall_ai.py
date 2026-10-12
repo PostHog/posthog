@@ -1,81 +1,34 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recallai import (
+    RecallAISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.recall_ai import (
     RecallAIResumeConfig,
     _to_iso8601,
     base_url_for_region,
-    recall_ai_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.source import RecallAISource
 
 BASE_URL = "https://us-east-1.recall.ai"
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    resp.url = f"{BASE_URL}/api/v1/recording/"
-    return resp
+def _page(body: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
-def _drive(
-    endpoint: str,
-    manager: MagicMock,
-    responses: list[Response],
-    *,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Drive ``recall_ai_source`` with a mocked HTTP session.
-
-    Returns ``(sent_urls, sent_params, rows)``. Params are captured as shallow copies at
-    send-time because the paginator mutates the Request object in place between pages.
-    """
-    sent_urls: list[str] = []
-    sent_params: list[dict[str, Any]] = []
-    response_iter = iter(responses)
-
-    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-        sent_urls.append(request.url)
-        sent_params.append(dict(request.params or {}))
-        return next(response_iter)
-
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-    ) as MockSession:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.side_effect = lambda req: req
-        mock_session.send.side_effect = fake_send
-
-        source_response = recall_ai_source(
-            api_key="test-key",
-            region="us-east-1",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            should_use_incremental_field=should_use_incremental_field,
-        )
-        rows = [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
-        return sent_urls, sent_params, rows
-
-
-def _manager(can_resume: bool = False) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    return manager
+def _drive(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    config = RecallAISourceConfig(api_key="test-key", region="us-east-1")
+    return SourceDriver(RecallAISource(), config).run(endpoint, script, **inputs)
 
 
 class TestRecallAIRequestShaping:
@@ -89,51 +42,50 @@ class TestRecallAIRequestShaping:
 
     @pytest.mark.parametrize("endpoint", sorted(INCREMENTAL_PARAMS))
     def test_incremental_sync_with_watermark_sends_iso_filter(self, endpoint: str) -> None:
-        _, sent_params, _ = _drive(
+        result = _drive(
             endpoint,
-            _manager(),
-            [_make_http_response({"next": None, "previous": None, "results": [{"id": "r1"}]})],
-            should_use_incremental_field=True,
+            [_page({"next": None, "previous": None, "results": [{"id": "r1"}]})],
+            incremental_field="created_at",
             db_incremental_field_last_value=datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC),
         )
 
-        assert sent_params[0][self.INCREMENTAL_PARAMS[endpoint]] == "2026-01-15T10:30:00Z"
+        assert result.requests[0].param(self.INCREMENTAL_PARAMS[endpoint]) == "2026-01-15T10:30:00Z"
 
 
 class TestRecallAIPaginationAndResume:
     def test_fresh_run_follows_next_urls_and_saves_state_per_page(self) -> None:
-        manager = _manager()
         page2 = f"{BASE_URL}/api/v1/recording/?cursor=page2"
         page3 = f"{BASE_URL}/api/v1/recording/?cursor=page3"
         responses = [
-            _make_http_response({"next": page2, "previous": None, "results": [{"id": "r1"}]}),
-            _make_http_response({"next": page3, "previous": None, "results": [{"id": "r2"}]}),
-            _make_http_response({"next": None, "previous": page2, "results": [{"id": "r3"}]}),
+            _page({"next": page2, "previous": None, "results": [{"id": "r1"}]}),
+            _page({"next": page3, "previous": None, "results": [{"id": "r2"}]}),
+            _page({"next": None, "previous": page2, "results": [{"id": "r3"}]}),
         ]
 
-        sent_urls, _, rows = _drive("recordings", manager, responses)
+        result = _drive("recordings", responses)
 
-        assert sent_urls == [f"{BASE_URL}/api/v1/recording/", page2, page3]
-        assert [row["id"] for row in rows] == ["r1", "r2", "r3"]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.urls == [f"{BASE_URL}/api/v1/recording/", page2, page3]
+        assert [row["id"] for row in result.rows] == ["r1", "r2", "r3"]
+        assert result.saved_states == [
             RecallAIResumeConfig(next_url=page2),
             RecallAIResumeConfig(next_url=page3),
         ]
 
     def test_resume_starts_at_saved_next_url(self) -> None:
-        manager = _manager(can_resume=True)
         saved_url = f"{BASE_URL}/api/v1/recording/?cursor=saved"
-        manager.load_state.return_value = RecallAIResumeConfig(next_url=saved_url)
 
-        sent_urls, _, _ = _drive(
+        result = _drive(
             "recordings",
-            manager,
-            [_make_http_response({"next": None, "previous": None, "results": [{"id": "r9"}]})],
+            [_page({"next": None, "previous": None, "results": [{"id": "r9"}]})],
+            resume_state=RecallAIResumeConfig(next_url=saved_url),
         )
 
-        assert sent_urls == [saved_url]
-        manager.load_state.assert_called_once()
+        assert result.urls == [saved_url]
+
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _drive("recordings", [_page({"next": None, "previous": None, "results": [{"id": "r9"}]})])
+
+        assert result.urls == [f"{BASE_URL}/api/v1/recording/"]
 
 
 class TestRecallAICalendarScrubbing:
@@ -147,13 +99,9 @@ class TestRecallAICalendarScrubbing:
             "status": "connected",
         }
 
-        _, _, rows = _drive(
-            "calendars",
-            _manager(),
-            [_make_http_response({"next": None, "previous": None, "results": [calendar]})],
-        )
+        result = _drive("calendars", [_page({"next": None, "previous": None, "results": [calendar]})])
 
-        assert rows == [
+        assert result.rows == [
             {
                 "id": "cal-1",
                 "platform": "google_calendar",
