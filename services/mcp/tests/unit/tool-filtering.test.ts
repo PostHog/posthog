@@ -1098,8 +1098,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
-                'loops',
-                'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
                 'organization-billing-api',
@@ -1118,20 +1116,10 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(40)
+        expect(flags).toHaveLength(38)
     })
 
-    it('every loops tool is gated on the loops flag', () => {
-        // Guards against a loops tool (hand-written like loops-review, or generated)
-        // shipping without the gate and leaking the unreleased surface pre-rollout.
-        const loopsTools = Object.entries(getToolDefinitions()).filter(([name]) => name.startsWith('loops-'))
-        expect(loopsTools.length).toBeGreaterThan(0)
-        for (const [name, definition] of loopsTools) {
-            expect({ name, feature_flag: definition.feature_flag }).toEqual({ name, feature_flag: 'loops' })
-        }
-    })
-
-    it('keeps human, task, and loop context wiki tools on separate scopes', () => {
+    it('keeps human and task context wiki tools on separate scopes', () => {
         const definitions = getToolDefinitions()
         expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
         expect(definitions['task-context-wiki-page-update']!.required_scopes).toEqual([
@@ -1139,15 +1127,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'internal_run:read',
             'context_layer_internal:write',
         ])
-        expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
-            'task:write',
-            'loop_context_internal:write',
-        ])
-        expect(definitions['loop-channel-instructions-update']!.required_scopes).toEqual([
-            'task:write',
-            'loop_context_internal:write',
-        ])
-        expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
     })
 
     it('shows task context writes only to write-enabled task credentials', async () => {
