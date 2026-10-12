@@ -360,7 +360,8 @@ export class PostHogTransportError extends Error {
         this.url = options.url
         this.method = options.method
         this.attempts = options.attempts
-        this.timedOut = isTimeoutError(options.cause)
+        // A forwarded request nests the local transport error, so look through the cause chain.
+        this.timedOut = hasTimeoutCause(options.cause)
         ;(this as Error & { cause?: unknown }).cause = options.cause
     }
 }

@@ -5,6 +5,7 @@ import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-si
 import { getUserAgent } from '@/lib/constants'
 import {
     ErrorCode,
+    hasTimeoutCause,
     isTimeoutError,
     parseRetryAfterSeconds,
     PostHogApiError,
@@ -660,7 +661,12 @@ export class ApiClient {
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
-                const canRetry = !isAbortError(error) && isSafeMethod && transportRetries < TRANSPORT_MAX_RETRIES
+                const canRetry =
+                    !signal.aborted &&
+                    !isAbortError(error) &&
+                    !hasTimeoutCause(error) &&
+                    isSafeMethod &&
+                    transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
                     console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
                     return {
