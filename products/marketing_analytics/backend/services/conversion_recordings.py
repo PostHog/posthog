@@ -101,12 +101,12 @@ class ConversionRecordingsQuery(MarketingAnalyticsTableQueryRunner):
 
         mapped_fields: dict[str, ast.Expr] = {field: ast.Field(chain=[field]) for field in grouping_fields}
         if level == MarketingAnalyticsDrillDownLevel.CAMPAIGN:
-            mapped_fields[self.config.campaign_field], mapped_fields[self.config.id_field] = ConversionGoalsAggregator(
-                [processor], self.config
-            )._apply_campaign_name_mappings(
-                mapped_fields[self.config.campaign_field],
-                mapped_fields[self.config.id_field],
-                mapped_fields[self.config.source_field],
+            mapped_fields[self.config.campaign_field], mapped_fields[self.config.id_field], _ = (
+                ConversionGoalsAggregator([processor], self.config)._apply_campaign_name_mappings(
+                    mapped_fields[self.config.campaign_field],
+                    mapped_fields[self.config.id_field],
+                    mapped_fields[self.config.source_field],
+                )
             )
         sessions = parse_select(
             "SELECT DISTINCT conversion_session_id FROM {conversions} WHERE {key} IN {keys}"

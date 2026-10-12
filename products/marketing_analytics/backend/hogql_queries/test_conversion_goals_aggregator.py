@@ -7,6 +7,8 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -790,6 +792,41 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert "Holiday Promo" in sql_string, "SQL should contain mapped campaign name"
         assert "spring_sale_2024" in sql_string, "SQL should contain original campaign name in mapping"
         assert "holiday_campaign" in sql_string, "SQL should contain original campaign name in mapping"
+
+    @parameterized.expand(
+        [
+            ("campaign_id", "summer_q1", "12345"),
+            ("campaign_id", "unmapped_campaign", "unmapped_campaign"),
+            ("campaign_name", "summer_q1", "Summer Sale"),
+        ]
+    )
+    def test_match_key_uses_the_mapped_value_of_the_source_match_field(
+        self, match_field: str, utm_campaign: str, expected_match_key: str
+    ):
+        clean_name = "12345" if match_field == "campaign_id" else "Summer Sale"
+        self.team.marketing_analytics_config.campaign_name_mappings = {"GoogleAds": {clean_name: ["summer_q1"]}}
+        self.team.marketing_analytics_config.campaign_field_preferences = {"GoogleAds": {"match_field": match_field}}
+        self.team.marketing_analytics_config.save()
+
+        goal = self._create_test_conversion_goal("match_key_test", "Match Key Test", "purchase")
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+        cte = aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
+        assert isinstance(cte.expr, ast.SelectQuery)
+        match_key = next(
+            col for col in cte.expr.select if isinstance(col, ast.Alias) and col.alias == self.config.match_key_field
+        )
+
+        conv_row = ast.SelectQuery(
+            select=[
+                ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value=utm_campaign)),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="google")),
+            ]
+        )
+        query = ast.SelectQuery(select=[match_key.expr], select_from=ast.JoinExpr(table=conv_row, alias="conv"))
+        response = execute_hogql_query(query=query, team=self.team)
+
+        assert response.results == [(expected_match_key,)]
 
     def test_touchpoints_precompute_materialized_once_across_goals(self):
         processors = [

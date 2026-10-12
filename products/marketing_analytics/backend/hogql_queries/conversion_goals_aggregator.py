@@ -168,20 +168,23 @@ class ConversionGoalsAggregator:
             group_by_exprs = [campaign_field_expr, source_field_expr]
         else:
             # Campaign level — apply campaign name mappings
-            mapped_campaign_expr, mapped_id_expr = self._apply_campaign_name_mappings(
+            mapped_campaign_expr, mapped_id_expr, match_key_expr = self._apply_campaign_name_mappings(
                 campaign_field_expr, id_field_expr, source_field_expr
             )
             final_select = [
                 ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
                 ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
                 ast.Alias(alias=self.config.source_field, expr=source_field_expr),
-                ast.Alias(alias=self.config.match_key_field, expr=mapped_campaign_expr),
+                ast.Alias(alias=self.config.match_key_field, expr=match_key_expr),
             ]
             group_by_exprs = [
                 mapped_campaign_expr,
                 mapped_id_expr,
                 source_field_expr,
             ]
+            # Only Campaign ID mappings make match_key differ from the mapped campaign name.
+            if match_key_expr != mapped_campaign_expr:
+                group_by_exprs.append(match_key_expr)
 
         # Add each conversion goal as a summed column
         count_processors = self._count_processors()
@@ -238,11 +241,14 @@ class ConversionGoalsAggregator:
 
     def _apply_campaign_name_mappings(
         self, campaign_expr: ast.Expr, id_expr: ast.Expr, source_expr: ast.Expr
-    ) -> tuple[ast.Expr, ast.Expr]:
+    ) -> tuple[ast.Expr, ast.Expr, ast.Expr]:
         """
         Apply campaign name mappings from team config.
 
-        Returns a tuple of (mapped_campaign_expr, mapped_id_expr).
+        Returns a tuple of (mapped_campaign_expr, mapped_id_expr, match_key_expr).
+
+        match_key_expr holds the mapped value in the field each source matches on, so it joins
+        the cost side's match_key. Unmapped rows keep the raw utm_campaign.
 
         When a source is configured to match on campaign_id, the mapping will:
         - Map utm_campaign values to campaign_id values
@@ -253,21 +259,22 @@ class ConversionGoalsAggregator:
         - Keep campaign_id unchanged
         """
         if not self.processors or not self.processors[0].team:
-            return campaign_expr, id_expr
+            return campaign_expr, id_expr, campaign_expr
 
         team = self.processors[0].team
 
         try:
             campaign_mappings = team.marketing_analytics_config.campaign_name_mappings
         except Exception:
-            return campaign_expr, id_expr
+            return campaign_expr, id_expr, campaign_expr
 
         if not campaign_mappings:
-            return campaign_expr, id_expr
+            return campaign_expr, id_expr, campaign_expr
 
         # Build separate mapping expressions for campaign_name and campaign_id
         campaign_name_conditions: list[ast.Expr] = []
         campaign_id_conditions: list[ast.Expr] = []
+        match_key_conditions: list[ast.Expr] = []
 
         lowercase_campaign = ast.Call(name="lower", args=[campaign_expr])
         lowercase_source = ast.Call(name="lower", args=[source_expr])
@@ -317,6 +324,8 @@ class ConversionGoalsAggregator:
 
                 # Combine source and campaign conditions
                 combined_condition = ast.Call(name="and", args=[source_condition, campaign_condition])
+                match_key_conditions.append(combined_condition)
+                match_key_conditions.append(ast.Constant(value=clean_name))
 
                 if match_field == "campaign_id":
                     # When matching on campaign_id, map utm_campaign -> campaign_id
@@ -332,6 +341,7 @@ class ConversionGoalsAggregator:
         # Build final expressions
         mapped_campaign_expr = campaign_expr
         mapped_id_expr = id_expr
+        match_key_expr = campaign_expr
 
         if campaign_name_conditions:
             campaign_name_conditions.append(campaign_expr)
@@ -341,7 +351,11 @@ class ConversionGoalsAggregator:
             campaign_id_conditions.append(id_expr)
             mapped_id_expr = ast.Call(name="multiIf", args=campaign_id_conditions)
 
-        return mapped_campaign_expr, mapped_id_expr
+        if match_key_conditions:
+            match_key_conditions.append(campaign_expr)
+            match_key_expr = ast.Call(name="multiIf", args=match_key_conditions)
+
+        return mapped_campaign_expr, mapped_id_expr, match_key_expr
 
     def get_conversion_goal_columns(self, include_cost_per: bool = True) -> dict[str, ast.Alias]:
         """Get the column mappings for accessing conversion goals from the unified CTE
