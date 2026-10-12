@@ -1,12 +1,16 @@
 from celery import shared_task
 
+from posthog.egress.limiter.policies import Priority
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     FirebaseIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
+    Integration,
     defer_repository_cache_fields,
     refresh_backoff_active,
 )
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -135,3 +139,21 @@ def push_vercel_secrets(team_id: int) -> None:
 
     team = Team.objects.get(id=team_id)
     VercelIntegration.push_secrets_to_vercel(team)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@skip_team_scope_audit
+def refresh_github_branch_cache(integration_id: str, repo: str, is_user_integration: bool) -> None:
+    """Refresh one repository's cached branch list for the branch picker, on the batch lane."""
+    github: GitHubIntegrationBase
+    if is_user_integration:
+        user_integration = UserIntegration.objects.filter(id=integration_id).first()
+        if user_integration is None:
+            return
+        github = UserGitHubIntegration(user_integration, source="github_branch_picker", priority=Priority.BATCH)
+    else:
+        integration = defer_repository_cache_fields(Integration.objects.filter(id=integration_id)).first()
+        if integration is None:
+            return
+        github = GitHubIntegration(integration, source="github_branch_picker", priority=Priority.BATCH)
+    github.refresh_branch_cache(repo)
