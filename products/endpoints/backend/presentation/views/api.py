@@ -820,7 +820,10 @@ class EndpointViewSet(
 
         try:
             result = suggest_materialization_fix(
-                team_id=self.team_id, query=version.query, original_columns=version.get_columns()
+                team_id=self.team_id,
+                query=version.query,
+                user=cast(User, request.user),
+                original_columns=version.get_columns(),
             )
         except APIConnectionError as e:
             capture_exception(e, {"team_id": self.team_id})
