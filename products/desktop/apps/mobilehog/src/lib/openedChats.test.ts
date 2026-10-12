@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => {
   };
   const auth = { session: session as typeof session | null };
 
-  function createMMKV({ id }: { id: string }) {
+  // One store per account, like accountStore in cache.ts.
+  function accountStore({ host, userId }: { host: string; userId: number }) {
+    const id = `${host}-${userId}`;
     let data = stores.get(id);
     if (!data) {
       data = new Map();
@@ -24,22 +26,13 @@ const mocks = vi.hoisted(() => {
     return {
       getString: (key: string) => values.get(key),
       set: (key: string, value: string) => values.set(key, value),
-      remove: (key: string) => values.delete(key),
     };
   }
 
-  return { auth, createMMKV, session, stores };
+  return { accountStore, auth, session, stores };
 });
 
-vi.mock("react-native-mmkv", () => ({
-  createMMKV: mocks.createMMKV,
-  deleteMMKV: (id: string) => mocks.stores.delete(id),
-}));
-vi.mock("expo-secure-store", () => ({
-  getItem: () => "secret",
-  setItem: vi.fn(),
-}));
-vi.mock("expo-crypto", () => ({ getRandomBytes: () => new Uint8Array(16) }));
+vi.mock("@/lib/cache", () => ({ accountStore: mocks.accountStore }));
 vi.mock("@/lib/auth", () => ({
   useAuth: { getState: () => mocks.auth },
 }));
@@ -51,8 +44,7 @@ function task(id: string): Task {
 }
 
 beforeEach(() => {
-  // cache.ts keeps its store handles, so empty the data instead of dropping it.
-  for (const values of mocks.stores.values()) values.clear();
+  mocks.stores.clear();
   mocks.auth.session = { ...mocks.session };
 });
 
