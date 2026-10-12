@@ -192,7 +192,7 @@ def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tup
     workflow_name = state.workflow_type.value
     if state.status == ManagedWarehouseSourceJobStatus.FAILED:
         return "needs_attention", (
-            f"The latest {workflow_name} workflow failed. To retry, sync this table again from its source page."
+            f"The latest {workflow_name} workflow failed. To retry, select Sync now for this table on its source page."
         )
     if state.status == ManagedWarehouseSourceJobStatus.RUNNING:
         return "backfilling", f"The {workflow_name} workflow is applying the latest source import."
@@ -299,7 +299,8 @@ def _source_summary_detail(readiness_state: ReadinessState, rows: list[SourceTab
         listed = f"{', '.join(names[:-1])} and {names[-1]}"
     else:
         listed = names[0]
-    return f"The latest workflow failed for {listed}. Select the source for details."
+    noun = "table" if len(names) == 1 else "tables"
+    return f"The latest workflow failed for {len(names)} {noun}: {listed}. Select the source for details."
 
 
 def _rollup_sources(tables: list[SourceTableStatus]) -> list[SourceSummary]:

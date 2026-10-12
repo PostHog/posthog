@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -96,19 +97,19 @@ export function OverviewTab(): JSX.Element {
             title: 'Source',
             key: 'source',
             render: (_, source) => (
-                <div>
-                    <Link
-                        className="font-medium"
-                        data-attr="managed-warehouse-source-schemas"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            openSourceSchemas(source)
-                        }}
-                    >
-                        {source.source_name}
-                    </Link>
-                    <div className="text-xs text-muted">{source.source_type}</div>
-                </div>
+                <LemonTableLink
+                    title={source.source_name}
+                    description={source.source_type}
+                    to={urls.dataWarehouseSource(`managed-${source.source_id}`, 'schemas')}
+                    data-attr="managed-warehouse-source-schemas"
+                    onClick={(e) => {
+                        // A plain click opens the table list. Cmd or Ctrl-click skips this handler
+                        // and opens the source page in a new tab.
+                        e.preventDefault()
+                        e.stopPropagation()
+                        openSourceSchemas(source)
+                    }}
+                />
             ),
             sorter: (a, b) => a.source_name.localeCompare(b.source_name),
         },
