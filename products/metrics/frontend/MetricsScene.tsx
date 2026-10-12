@@ -94,7 +94,7 @@ const MetricsSceneContent = (): JSX.Element => {
                 }}
                 actions={
                     <>
-                        {/* In a narrow scene, the tab bar has no space for the dashboard actions. */}
+                        {/* In a narrow scene, the tab bar has no space for the import menu. */}
                         <div className="@min-[48rem]/metrics-scene:hidden">
                             <MetricsDashboardActions />
                         </div>

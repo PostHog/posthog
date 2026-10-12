@@ -148,9 +148,6 @@ export interface metricsUsageTrackingLogicActions {
     exemplarDotClicked: (hasSpanId: boolean) => {
         hasSpanId: boolean
     }
-    newDashboardClicked: () => {
-        value: true
-    }
     sampleRowExpanded: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi
     }
@@ -232,7 +229,6 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         sampleRowExpanded: (sample: _MetricEventSampleApi) => ({ sample }),
         tracePivotClicked: (sample: _MetricEventSampleApi) => ({ sample }),
         exemplarDotClicked: (hasSpanId: boolean) => ({ hasSpanId }),
-        newDashboardClicked: true,
     }),
     listeners(({ actions, values, cache }) => ({
         sceneTabChanged: ({ activeTab }) => {
@@ -387,9 +383,6 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         },
         exemplarDotClicked: ({ hasSpanId }) => {
             posthog.capture('metrics exemplar dot clicked', { has_span_id: hasSpanId })
-        },
-        newDashboardClicked: () => {
-            posthog.capture('metrics new dashboard clicked')
         },
         // The step tells a new import from a reopened one that runs or ended.
         dashboardImportOpened: ({ source }) => {
