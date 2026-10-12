@@ -2,7 +2,7 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -272,6 +272,11 @@ export function DataTable({
         [sourceFeatures, columnsInResponse, columnsInQuery]
     )
     const contextColumns = context?.columns
+    const columnFormatsRef = useRef<(string | null)[] | undefined>(undefined)
+    columnFormatsRef.current =
+        isHogQLQuery(query.source) && response && 'column_formats' in response
+            ? (response.column_formats as (string | null)[] | undefined)
+            : undefined
     const columnsInLemonTable = useMemo(
         () =>
             allColumns.filter((colName) => {
@@ -355,7 +360,17 @@ export function DataTable({
                                 const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
                                     ? (result as any[])[index]
                                     : (result as Record<string, any>)[key]
-                                return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
+                                return renderColumn(
+                                    key,
+                                    value,
+                                    result,
+                                    recordIndex,
+                                    rowCount,
+                                    query,
+                                    setQuery,
+                                    context,
+                                    columnFormatsRef.current?.[index]
+                                )
                             }
                         },
                         sorter: undefined, // using custom sorting code

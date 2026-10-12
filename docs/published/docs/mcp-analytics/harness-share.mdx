@@ -27,3 +27,13 @@ Remaining named harnesses use brand colors or stable palette colors.
 
 PostHog assigns each call a harness from the client identity captured with it: the vendor header, the User-Agent, and the client name.
 [How the harness label is resolved](/docs/mcp-analytics/events#how-the-harness-label-is-resolved) lists the order PostHog checks them in, and what to check if most calls land in **Other harnesses**.
+
+In HogQL, use `properties.$virt_mcp_harness` to group calls by the same label. It is computed when you query and is empty on non-MCP events. SQL results show a logo beside known harnesses, including when you rename the column:
+
+```sql
+SELECT properties.$virt_mcp_harness AS harness, count() AS calls
+FROM events
+WHERE event = '$mcp_tool_call'
+GROUP BY harness
+ORDER BY calls DESC
+```

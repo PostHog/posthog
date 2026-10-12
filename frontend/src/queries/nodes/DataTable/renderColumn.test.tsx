@@ -66,6 +66,25 @@ describe('renderColumn', () => {
     afterEach(() => cleanup())
 
     it.each([
+        ['Claude Code', true],
+        ['Other', false],
+    ])('renders the MCP harness %s with its available logo', (label, hasLogo) => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'SELECT properties.$virt_mcp_harness AS client FROM events' },
+        }) as DataTableNode
+
+        render(
+            <Provider>
+                {renderColumn('client', label, [label], 0, 1, query, undefined, undefined, 'mcp_harness')}
+            </Provider>
+        )
+
+        expect(screen.getByText(label)).toBeInTheDocument()
+        expect(screen.queryByAltText(label) !== null).toBe(hasLogo)
+    })
+
+    it.each([
         ['a person profile supplied the name', 'someone@example.com', 1],
         ['the name fell back to the distinct ID', 'the-distinct-id', 0],
     ])('person_display_name links %s: %s', (_case, displayName, links) => {
