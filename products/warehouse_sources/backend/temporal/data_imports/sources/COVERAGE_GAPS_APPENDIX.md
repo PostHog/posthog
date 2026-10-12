@@ -5376,10 +5376,10 @@ Diffed against: <https://documentation.mailgun.com/docs/mailgun/api-reference/se
 - [x] `GET /v3/{domain}/stats/total and GET /v3/stats/total` — time-bucketed sent/delivered/opened/bounced counts per domain and account (high) — deprecated Stats API, covered by `metrics` and `domain_metrics` from the Metrics API instead
 - [x] `GET /v3/{domain}/tags/{tag}/stats and /stats/aggregates` — per-tag performance; tags are synced but carry no metrics without these (high) — deprecated, covered by `tag_metrics` from the Metrics API instead
 - [x] `GET /v3/{domain}/aggregates/devices, /providers, /countries` — device, mailbox provider and country breakdown dimensions for engagement (high) — deprecated, covered by `recipient_provider_metrics` and `country_metrics` from the Metrics API; the Metrics API documents no device dimension, so devices stay uncovered
-- [ ] `GET /v3/lists/{list_address}/members` — mailing list membership join table; mailing_lists gives only the list headers (high)
-- [ ] `POST /v1/analytics/logs` — the v1 log query API, richer and longer-retained than the v3 events feed already synced (high)
-- [ ] `GET /v3/{domain}/whitelists (allowlist)` — allowlist entries completing the suppression picture alongside bounces/complaints/unsubscribes (medium)
-- [ ] `GET /v5/accounts/subaccounts` — lookup resolving subaccount ids for multi-tenant sending (medium)
+- [x] `GET /v3/lists/{list_address}/members` — mailing list membership join table; mailing_lists gives only the list headers (high) — synced as `mailing_list_members` from the paged `/v3/lists/{list_address}/members/pages` route
+- [x] `POST /v1/analytics/logs` — the v1 log query API, richer and longer-retained than the v3 events feed already synced (high) — synced as incremental `logs`; it reads the same plan-bounded event store as `events`, so retention is not longer, but it is account-wide with no per-domain fan-out
+- [x] `GET /v3/{domain}/whitelists (allowlist)` — allowlist entries completing the suppression picture alongside bounces/complaints/unsubscribes (medium) — synced as `allowlist`
+- [x] `GET /v5/accounts/subaccounts` — lookup resolving subaccount ids for multi-tenant sending (medium) — synced as `subaccounts`
 - [ ] `GET /v1/bounce-classification/domains/{domain}/events and /stats` — classified bounce reasons, far more analyzable than raw bounce rows (medium)
 - [ ] `GET /v3/{domain}/templates/{name}/versions and /v4/templates/{name}/versions` — template version lookup resolving the version referenced on sends (medium)
 - [ ] `POST /v1/analytics/usage-metrics` — account usage/consumption metrics for cost attribution (medium)
@@ -5674,10 +5674,10 @@ Today (7): `chargebacks`, `customers`, `payment_links`, `payments`, `refunds`, `
 
 Diffed against: <https://raw.githubusercontent.com/mollie/openapi/main/specs.yaml>
 
-- [ ] `/v2/balances/{balanceId}/transactions` — per-transaction ledger of every movement (payment, refund, fee, payout) — the reconciliation fact table (high)
-- [ ] `/v2/balances` — balance accounts that transactions and settlements roll up to; lookup for balanceId (high)
-- [ ] `/v2/profiles` — lookup resolving the profileId carried on payments, payment links and methods (high)
-- [ ] `/v2/customers/{customerId}/mandates` — SEPA/card mandates that subscriptions and recurring payments reference (high)
+- [x] `/v2/balances/{balanceId}/transactions` — per-transaction ledger of every movement (payment, refund, fee, payout) — the reconciliation fact table (high)
+- [x] `/v2/balances` — balance accounts that transactions and settlements roll up to; lookup for balanceId (high)
+- [x] `/v2/profiles` — lookup resolving the profileId carried on payments, payment links and methods (high)
+- [x] `/v2/customers/{customerId}/mandates` — SEPA/card mandates that subscriptions and recurring payments reference (high)
 - [ ] `/v2/payouts` — bank payouts of settled funds — needed to tie settlements to money received (high)
 - [ ] `/v2/payments/{paymentId}/captures` — capture events on authorized payments; without them captured vs authorized amounts can't be split (medium)
 - [ ] `/v2/invoices` — Mollie's own invoices to the merchant (fees charged) for cost analysis (medium)
@@ -5691,18 +5691,18 @@ Note: Spec is the vendor's single-file OpenAPI (mollie/openapi repo, ~1.9 MB). C
 
 ## Monday — gaps
 
-Today (4): `boards`, `items`, `users`, `workspaces`
+Today (8): `board_activity_logs`, `board_columns`, `board_groups`, `boards`, `folders`, `items`, `users`, `workspaces`
 
 Diffed against: <https://raw.githubusercontent.com/mondaycom/monday-graphql-api/main/packages/api-types/generated/api-types.d.ts>
 
-- [ ] `boards { columns { id title type settings_str } }` — lookup that resolves the column ids inside every item's column_values — today those columns are unlabeled (high)
-- [ ] `boards { activity_logs }` — board change history (status transitions, moves, assignments) — the only source of state-transition data (high)
-- [ ] `boards { groups { id title } }` — lookup for the group ids items belong to, including groups with no items (medium)
+- [x] `boards { columns { id title type settings_str } }` — lookup that resolves the column ids inside every item's column_values — today those columns are unlabeled (high)
+- [x] `boards { activity_logs }` — board change history (status transitions, moves, assignments) — the only source of state-transition data (high)
+- [x] `boards { groups { id title } }` — lookup for the group ids items belong to, including groups with no items (medium)
 - [ ] `updates` — comments/updates on items — the collaboration activity stream (medium)
 - [ ] `teams` — team objects plus their users — resolves team owners/subscribers on boards (medium)
 - [ ] `boards { subscribers owners team_owners }` — board membership join table; boards currently sync with no ownership data (medium)
 - [ ] `tags` — tag lookup resolving tag ids stored in item column values (medium)
-- [ ] `folders` — workspace folder hierarchy that boards hang off via board_folder_id (medium)
+- [x] `folders` — workspace folder hierarchy that boards hang off via board_folder_id (medium)
 - [ ] `items { subitems }` — subitems live on separate boards and are missed by the current board-items walk (medium)
 - [ ] `docs` — workspace docs objects for content coverage alongside boards (low)
 - [ ] `boards { views }` — board view inventory for usage analysis (low)
