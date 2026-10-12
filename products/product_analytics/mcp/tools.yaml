@@ -165,10 +165,10 @@ tools:
         title: Run insight data checks
         description: >
             Check the events behind a saved insight for four common problems that make its numbers misleading: events
-            from internal and test users, events from local development, bot and crawler traffic, and events sent
-            twice. Pass the insight's numeric `id` or its 8-character `short_id`. Use it after you create or change a
-            trends, funnel, stickiness, or lifecycle insight, and when the user asks whether an insight's numbers can
-            be trusted. For a query that is not saved as an insight, use `query-data-checks-run`.
+            from internal and test users, events from local development, bot and crawler traffic, and events sent twice.
+            Pass the insight's numeric `id` or its 8-character `short_id`. Use it after you create or change a trends,
+            funnel, stickiness, or lifecycle insight, and when the user asks whether an insight's numbers can be
+            trusted. For a query that is not saved as an insight, use `query-data-checks-run`.
 
 
             Only event series are checked. The `status` is `unsupported` for a SQL insight, for a series built on an
@@ -444,8 +444,8 @@ tools:
             idempotent: true
         title: Run data checks on an insight query
         description: >
-            Run the insight data checks on a query that is not saved as an insight, such as one you are about to pass
-            to `insight-create`. For a saved insight, use `insight-data-checks-run` with its id instead. The checks look
+            Run the insight data checks on a query that is not saved as an insight, such as one you are about to pass to
+            `insight-create`. For a saved insight, use `insight-data-checks-run` with its id instead. The checks look
             for four common problems that make numbers misleading: events from internal and test users, events from
             local development, bot and crawler traffic, and events sent twice.
 
@@ -465,12 +465,12 @@ tools:
 
             Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix`
             when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to
-            true on the query. A large query is checked on a sample: when `sample_rate` is below 1, `events_checked`
-            and the `events` of each check count the sample only.
+            true on the query. A large query is checked on a sample: when `sample_rate` is below 1, `events_checked` and
+            the `events` of each check count the sample only.
         agent_note: >
             When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its
-            share of the events, and offer the fix. Do not change the query or the project's filter settings before
-            the user agrees. When every check passed, say so in a few words. Do not list the checks that passed.
+            share of the events, and offer the fix. Do not change the query or the project's filter settings before the
+            user agrees. When every check passed, say so in a few words. Do not list the checks that passed.
         exclude_params:
             - query
         param_overrides:
