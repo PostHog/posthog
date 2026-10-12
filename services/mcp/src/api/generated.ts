@@ -67996,6 +67996,33 @@ export namespace Schemas {
       NotRegex: 'not_regex',
     } as const;
 
+    export interface OpenFgaStatus {
+      /** Whether the OpenFGA server answered every status request. */
+      reachable: boolean;
+      /** OpenFGA API URL that the client uses, without any user name or password. */
+      api_url: string;
+      /**
+         * Name of the OpenFGA store. Null when no store was found or OpenFGA failed.
+         * @nullable
+         */
+      store_name: string | null;
+      /**
+         * ID of the OpenFGA store. Null when no store was found or OpenFGA failed.
+         * @nullable
+         */
+      store_id: string | null;
+      /**
+         * ID of the latest authorization model in the store. Null when the store has no model or OpenFGA failed.
+         * @nullable
+         */
+      authorization_model_id: string | null;
+      /**
+         * Class name of the error that made OpenFGA unreachable. Null when it is reachable.
+         * @nullable
+         */
+      error: string | null;
+    }
+
     export interface OpenToMergeBucket {
       /** Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;

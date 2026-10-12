@@ -1,9 +1,5 @@
-"""URL routes for authz."""
+"""URL routes for authz. The endpoints are registered in ``backend/routes.py``."""
 
-from rest_framework.routers import DefaultRouter
+from django.urls import URLPattern
 
-from .views import SplineReticulatorViewSet
-
-router = DefaultRouter()
-router.register(r"spline_reticulators", SplineReticulatorViewSet, basename="spline_reticulators")
-urlpatterns = router.urls
+urlpatterns: list[URLPattern] = []

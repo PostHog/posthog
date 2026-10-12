@@ -162,7 +162,7 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
-Select the `authz` intent to start OpenFGA. It uses in-memory storage and a local development bearer token, so its data resets when the container restarts. Edit `products/authz/model.fga` in OpenFGA DSL, then run `products/authz/generate_model.sh` to generate the JSON model. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 OPENFGA_API_TOKEN=local-dev-openfga-token python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version.
+Select the `authz` intent to start OpenFGA. It uses in-memory storage and a local development bearer token, so its data resets when the container restarts. Edit `products/authz/model.fga` in OpenFGA DSL, then run `products/authz/generate_model.sh` to generate the JSON model. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 OPENFGA_API_TOKEN=local-dev-openfga-token python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
 
 Run the authorization checks without starting the stack:
 
