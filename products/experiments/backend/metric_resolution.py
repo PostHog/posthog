@@ -5,6 +5,7 @@ effective definition from here, so that they calculate and hash the same metric.
 uuids between activities and re-resolve the definition at the point of use.
 """
 
+from collections.abc import Callable
 from typing import Any, Literal
 
 from posthog.schema import (
@@ -13,12 +14,26 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentWarehouseNativeMetric,
+    ExperimentWarehouseNativeMeanMetric,
+    ExperimentWarehouseNativeProportionMetric,
+    ExperimentWarehouseNativeRatioMetric,
 )
 
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+
+# The schema splits warehouse-native metrics by `statistic`; the rest of the product treats them as one type.
+ExperimentWarehouseNativeMetric = (
+    ExperimentWarehouseNativeProportionMetric
+    | ExperimentWarehouseNativeMeanMetric
+    | ExperimentWarehouseNativeRatioMetric
+)
+WAREHOUSE_NATIVE_METRICS_BY_STATISTIC: dict[str, type[ExperimentWarehouseNativeMetric]] = {
+    "proportion": ExperimentWarehouseNativeProportionMetric,
+    "mean": ExperimentWarehouseNativeMeanMetric,
+    "ratio": ExperimentWarehouseNativeRatioMetric,
+}
 
 ExperimentMetric = (
     ExperimentMeanMetric
@@ -28,14 +43,19 @@ ExperimentMetric = (
     | ExperimentWarehouseNativeMetric
 )
 
+
+def _build_warehouse_native_metric(**metric_dict: Any) -> ExperimentWarehouseNativeMetric:
+    return WAREHOUSE_NATIVE_METRICS_BY_STATISTIC[metric_dict["statistic"]](**metric_dict)
+
+
 # Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics carry no
 # metric_type and are filtered out by is_scheduled_metric, so they never reach build_metric.
-METRIC_BUILDERS: dict[str, type[ExperimentMetric]] = {
+METRIC_BUILDERS: dict[str, Callable[..., ExperimentMetric]] = {
     "mean": ExperimentMeanMetric,
     "funnel": ExperimentFunnelMetric,
     "ratio": ExperimentRatioMetric,
     "retention": ExperimentRetentionMetric,
-    "warehouse_native": ExperimentWarehouseNativeMetric,
+    "warehouse_native": _build_warehouse_native_metric,
 }
 
 # The daily timeseries activities compute every buildable type. A type the recalculation computes but the

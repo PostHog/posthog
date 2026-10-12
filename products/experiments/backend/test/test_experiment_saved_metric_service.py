@@ -23,11 +23,21 @@ _WAREHOUSE_NATIVE_METRIC: dict[str, object] = {
     "kind": "ExperimentMetric",
     "metric_type": "warehouse_native",
     "connection_id": "00000000-0000-0000-0000-000000000000",
-    "query": "SELECT variant, entity_id, value FROM metric_rows",
+    "statistic": "mean",
+    "source": {
+        "query": "SELECT user_id AS entity_id, paid_at AS timestamp, amount AS value FROM payments",
+        "aggregation": "sum",
+    },
 }
 
 _SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
     ("warehouse_native_behind_flag", _WAREHOUSE_NATIVE_METRIC, "warehouse-native metrics are not enabled"),
+    # The statistic picks the variant, so a ratio is validated against the ratio shape only.
+    (
+        "warehouse_native_ratio_without_denominator",
+        {**_WAREHOUSE_NATIVE_METRIC, "statistic": "ratio"},
+        "'loc': ('warehouse_native', 'ratio', 'denominator')",
+    ),
     (
         "funnel_without_steps",
         {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},

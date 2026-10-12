@@ -27571,16 +27571,20 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
-        "ExperimentWarehouseNativeMetric": {
+        "ExperimentWarehouseNativeMeanMetric": {
             "additionalProperties": false,
-            "description": "A metric computed inside the customer's own warehouse through a direct connection. The customer's SQL returns one row per user as `(variant, entity_id, value)`; PostHog wraps it in aggregation SQL at analysis time, so only aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog.",
+            "description": "One aggregated value per exposed entity.",
             "properties": {
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter"
                 },
                 "connection_id": {
-                    "description": "The direct-query source (an ExternalDataSource id) the query runs against.",
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
                     "type": "string"
+                },
+                "conversion_delay": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."
                 },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
@@ -27594,12 +27598,21 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
                 "isSharedMetric": {
                     "type": "boolean"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
+                },
+                "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
                 },
                 "metric_type": {
                     "const": "warehouse_native",
@@ -27608,14 +27621,23 @@
                 "name": {
                     "type": "string"
                 },
-                "query": {
-                    "description": "Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns.",
-                    "type": "string"
-                },
                 "response": {
                     "type": "object"
                 },
                 "sharedMetricId": {
+                    "type": "number"
+                },
+                "source": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "statistic": {
+                    "const": "mean",
+                    "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "uuid": {
@@ -27626,26 +27648,327 @@
                     "type": "number"
                 }
             },
-            "required": ["connection_id", "kind", "metric_type", "query"],
+            "required": ["connection_id", "kind", "metric_type", "source", "statistic"],
             "type": "object"
         },
-        "ExperimentWarehouseNativeMetricTypeProps": {
+        "ExperimentWarehouseNativeMeanMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
                 "connection_id": {
-                    "description": "The direct-query source (an ExternalDataSource id) the query runs against.",
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
                     "type": "string"
+                },
+                "conversion_delay": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
+                "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
                 },
                 "metric_type": {
                     "const": "warehouse_native",
                     "type": "string"
                 },
-                "query": {
-                    "description": "Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns.",
+                "source": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "statistic": {
+                    "const": "mean",
                     "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
                 }
             },
-            "required": ["metric_type", "connection_id", "query"],
+            "required": ["metric_type", "connection_id", "statistic", "source"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeMetric": {
+            "discriminator": {
+                "propertyName": "statistic"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeProportionMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeMeanMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRatioMetric"
+                }
+            ],
+            "required": ["statistic"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeMetricTypeProps": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeProportionMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeMeanMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRatioMetricTypeProps"
+                }
+            ]
+        },
+        "ExperimentWarehouseNativeProportionMetric": {
+            "additionalProperties": false,
+            "description": "Share of exposed entities with at least one outcome row in the window.",
+            "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "conversion_delay": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "metric_type": {
+                    "const": "warehouse_native",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
+                },
+                "source": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "statistic": {
+                    "const": "proportion",
+                    "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "kind", "metric_type", "source", "statistic"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeProportionMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "conversion_delay": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
+                "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "metric_type": {
+                    "const": "warehouse_native",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "statistic": {
+                    "const": "proportion",
+                    "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                }
+            },
+            "required": ["metric_type", "connection_id", "statistic", "source"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeRatioMetric": {
+            "additionalProperties": false,
+            "description": "Two aggregated values per exposed entity; the per-variant sums are divided.",
+            "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "conversion_delay": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "denominator": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "metric_type": {
+                    "const": "warehouse_native",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
+                },
+                "statistic": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "denominator", "kind", "metric_type", "numerator", "statistic"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeRatioMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "conversion_delay": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."
+                },
+                "denominator": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "ignore_zeros": {
+                    "type": "boolean"
+                },
+                "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "metric_type": {
+                    "const": "warehouse_native",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/WarehouseMetricSource"
+                },
+                "statistic": {
+                    "const": "ratio",
+                    "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                }
+            },
+            "required": ["metric_type", "connection_id", "statistic", "numerator", "denominator"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -57735,6 +58058,30 @@
                 }
             },
             "type": "object"
+        },
+        "WarehouseMetricAggregation": {
+            "enum": ["sum", "count", "count_distinct", "max", "min"],
+            "type": "string"
+        },
+        "WarehouseMetricSource": {
+            "additionalProperties": false,
+            "description": "Outcome rows for a warehouse-native metric. PostHog joins them to the experiment's exposures inside the warehouse, so the SQL never mentions variants or exposures.",
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/WarehouseMetricAggregation",
+                    "description": "How an entity's rows collapse to one value. Not used by proportion metrics."
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for `count` and for proportions.",
+                    "type": "string"
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "WarehouseNativeStatistic": {
+            "enum": ["mean", "proportion", "ratio"],
+            "type": "string"
         },
         "WebAgentAnalyticsQuery": {
             "additionalProperties": false,

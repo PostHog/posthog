@@ -6700,24 +6700,110 @@ export interface ExperimentRetentionMetricApi {
     version?: number | null
 }
 
-export type ExperimentWarehouseNativeMetricApiResponse = { [key: string]: unknown } | null
+export type WarehouseMetricAggregationApi =
+    (typeof WarehouseMetricAggregationApi)[keyof typeof WarehouseMetricAggregationApi]
 
-export interface ExperimentWarehouseNativeMetricApi {
+export const WarehouseMetricAggregationApi = {
+    Sum: 'sum',
+    Count: 'count',
+    CountDistinct: 'count_distinct',
+    Max: 'max',
+    Min: 'min',
+} as const
+
+export interface WarehouseMetricSourceApi {
+    /** How an entity's rows collapse to one value. Not used by proportion metrics. */
+    aggregation?: WarehouseMetricAggregationApi | null
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` is optional for `count` and for proportions. */
+    query: string
+}
+
+export type ExperimentWarehouseNativeProportionMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentWarehouseNativeProportionMetricApi {
     breakdownFilter?: BreakdownFilterApi | null
-    /** The direct-query source (an ExternalDataSource id) the query runs against. */
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
     connection_id: string
+    /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
+    conversion_delay?: number | null
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
     fingerprint?: string | null
     goal?: ExperimentMetricGoalApi | null
+    ignore_zeros?: boolean | null
     isSharedMetric?: boolean | null
     kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
     metric_type?: 'warehouse_native'
     name?: string | null
-    /** Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns. */
-    query: string
-    response?: ExperimentWarehouseNativeMetricApiResponse
+    response?: ExperimentWarehouseNativeProportionMetricApiResponse
     sharedMetricId?: number | null
+    source: WarehouseMetricSourceApi
+    statistic?: 'proportion'
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentWarehouseNativeMeanMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentWarehouseNativeMeanMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
+    conversion_delay?: number | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    ignore_zeros?: boolean | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    metric_type?: 'warehouse_native'
+    name?: string | null
+    response?: ExperimentWarehouseNativeMeanMetricApiResponse
+    sharedMetricId?: number | null
+    source: WarehouseMetricSourceApi
+    statistic?: 'mean'
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+    uuid?: string | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ExperimentWarehouseNativeRatioMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentWarehouseNativeRatioMetricApi {
+    breakdownFilter?: BreakdownFilterApi | null
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
+    conversion_delay?: number | null
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
+    denominator: WarehouseMetricSourceApi
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoalApi | null
+    ignore_zeros?: boolean | null
+    isSharedMetric?: boolean | null
+    kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    metric_type?: 'warehouse_native'
+    name?: string | null
+    numerator: WarehouseMetricSourceApi
+    response?: ExperimentWarehouseNativeRatioMetricApiResponse
+    sharedMetricId?: number | null
+    statistic?: 'ratio'
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
     uuid?: string | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -6833,7 +6919,9 @@ export interface ExperimentQueryResponseApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
-        | ExperimentWarehouseNativeMetricApi
+        | ExperimentWarehouseNativeProportionMetricApi
+        | ExperimentWarehouseNativeMeanMetricApi
+        | ExperimentWarehouseNativeRatioMetricApi
         | null
     p_value?: number | null
     probability?: ExperimentQueryResponseApiProbability
@@ -6854,7 +6942,9 @@ export interface ExperimentQueryApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
-        | ExperimentWarehouseNativeMetricApi
+        | ExperimentWarehouseNativeProportionMetricApi
+        | ExperimentWarehouseNativeMeanMetricApi
+        | ExperimentWarehouseNativeRatioMetricApi
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     name?: string | null

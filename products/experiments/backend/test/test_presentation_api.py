@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, cast, get_args
 from uuid import uuid4
 
 import unittest
@@ -25,7 +25,6 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentWarehouseNativeMetric,
 )
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
@@ -49,7 +48,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import find_metric_dict
+from products.experiments.backend.metric_resolution import ExperimentWarehouseNativeMetric, find_metric_dict
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -8929,7 +8928,8 @@ class TestExperimentApiMetricParity(unittest.TestCase):
         "breakdownAttributionValue",
         # Warehouse-native metrics are behind a flag; they join the write schema when it lifts.
         "connection_id",
-        "query",
+        "statistic",
+        "conversion_delay",
     }
 
     def test_api_schema_exposes_every_runtime_field(self) -> None:
@@ -8939,7 +8939,7 @@ class TestExperimentApiMetricParity(unittest.TestCase):
             ExperimentFunnelMetric,
             ExperimentRatioMetric,
             ExperimentRetentionMetric,
-            ExperimentWarehouseNativeMetric,
+            *get_args(ExperimentWarehouseNativeMetric),
         ):
             runtime_fields |= set(metric_model.model_fields)
 

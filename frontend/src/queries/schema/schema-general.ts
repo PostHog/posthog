@@ -6096,17 +6096,68 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
-/** A metric computed inside the customer's own warehouse through a direct connection. The customer's
- *  SQL returns one row per user as `(variant, entity_id, value)`; PostHog wraps it in aggregation SQL
- *  at analysis time, so only aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`,
- *  which reads tables synced into PostHog. */
-export type ExperimentWarehouseNativeMetric = ExperimentMetricBaseProperties & {
-    metric_type: ExperimentMetricType.WAREHOUSE_NATIVE
-    /** The direct-query source (an ExternalDataSource id) the query runs against. */
-    connection_id: string
-    /** Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns. */
-    query: string
+export const enum WarehouseMetricAggregation {
+    SUM = 'sum',
+    COUNT = 'count',
+    COUNT_DISTINCT = 'count_distinct',
+    MAX = 'max',
+    MIN = 'min',
 }
+
+export const enum WarehouseNativeStatistic {
+    MEAN = 'mean',
+    PROPORTION = 'proportion',
+    RATIO = 'ratio',
+}
+
+/** Outcome rows for a warehouse-native metric. PostHog joins them to the experiment's exposures
+ *  inside the warehouse, so the SQL never mentions variants or exposures. */
+export interface WarehouseMetricSource {
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with
+     *  `entity_id`, `timestamp` and `value` columns. `value` is optional for `count` and for proportions. */
+    query: string
+    /** How an entity's rows collapse to one value. Not used by proportion metrics. */
+    aggregation?: WarehouseMetricAggregation
+}
+
+/** A metric computed inside the customer's own warehouse through a direct connection. PostHog wraps the
+ *  customer's SQL in the exposure join and aggregation at analysis time, so only per-variant aggregates
+ *  leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. */
+type ExperimentWarehouseNativeMetricBase = ExperimentMetricBaseProperties &
+    ExperimentMetricOutlierHandling & {
+        metric_type: ExperimentMetricType.WAREHOUSE_NATIVE
+        /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+        connection_id: string
+        /** Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0. */
+        conversion_delay?: integer
+    }
+
+/** Share of exposed entities with at least one outcome row in the window. */
+export type ExperimentWarehouseNativeProportionMetric = ExperimentWarehouseNativeMetricBase & {
+    statistic: WarehouseNativeStatistic.PROPORTION
+    source: WarehouseMetricSource
+}
+
+/** One aggregated value per exposed entity. */
+export type ExperimentWarehouseNativeMeanMetric = ExperimentWarehouseNativeMetricBase & {
+    statistic: WarehouseNativeStatistic.MEAN
+    source: WarehouseMetricSource
+}
+
+/** Two aggregated values per exposed entity; the per-variant sums are divided. */
+export type ExperimentWarehouseNativeRatioMetric = ExperimentWarehouseNativeMetricBase & {
+    statistic: WarehouseNativeStatistic.RATIO
+    numerator: WarehouseMetricSource
+    denominator: WarehouseMetricSource
+}
+
+/**
+ * @discriminator statistic
+ */
+export type ExperimentWarehouseNativeMetric =
+    | ExperimentWarehouseNativeProportionMetric
+    | ExperimentWarehouseNativeMeanMetric
+    | ExperimentWarehouseNativeRatioMetric
 
 export const isExperimentWarehouseNativeMetric = (
     metric: ExperimentMetric
@@ -6125,10 +6176,23 @@ export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof Exp
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
-export type ExperimentWarehouseNativeMetricTypeProps = Omit<
-    ExperimentWarehouseNativeMetric,
+export type ExperimentWarehouseNativeProportionMetricTypeProps = Omit<
+    ExperimentWarehouseNativeProportionMetric,
     keyof ExperimentMetricBaseProperties
 >
+export type ExperimentWarehouseNativeMeanMetricTypeProps = Omit<
+    ExperimentWarehouseNativeMeanMetric,
+    keyof ExperimentMetricBaseProperties
+>
+export type ExperimentWarehouseNativeRatioMetricTypeProps = Omit<
+    ExperimentWarehouseNativeRatioMetric,
+    keyof ExperimentMetricBaseProperties
+>
+// Omit is not distributive over a union, so each statistic variant is omitted on its own.
+export type ExperimentWarehouseNativeMetricTypeProps =
+    | ExperimentWarehouseNativeProportionMetricTypeProps
+    | ExperimentWarehouseNativeMeanMetricTypeProps
+    | ExperimentWarehouseNativeRatioMetricTypeProps
 
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps

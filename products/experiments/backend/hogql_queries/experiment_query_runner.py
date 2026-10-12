@@ -24,7 +24,6 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
-    ExperimentWarehouseNativeMetric,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -83,7 +82,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
-from products.experiments.backend.metric_resolution import metric_reads_data_warehouse
+from products.experiments.backend.metric_resolution import ExperimentWarehouseNativeMetric, metric_reads_data_warehouse
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -735,9 +734,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _computable_metric(
         self,
     ) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
-        if isinstance(self.metric, ExperimentWarehouseNativeMetric):
+        metric = self.metric
+        if isinstance(metric, ExperimentWarehouseNativeMetric):
             raise ExposedHogQLError("Warehouse-native metrics cannot be calculated yet.")
-        return self.metric
+        return metric
 
     def _calculate(self) -> ExperimentQueryResponse:
         self._computable_metric()

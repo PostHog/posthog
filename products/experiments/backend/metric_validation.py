@@ -19,14 +19,19 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetric as ExperimentMetricUnion,
     ExperimentRetentionMetric,
-    ExperimentWarehouseNativeMetric,
+    ExperimentWarehouseNativeMeanMetric,
+    ExperimentWarehouseNativeProportionMetric,
 )
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
-from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
+    ExperimentMetric,
+    ExperimentWarehouseNativeMetric,
+)
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
 from products.experiments.backend.warehouse_native_metrics import (
     has_direct_connection,
@@ -157,8 +162,17 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str, team: "Team"
 def _warehouse_native_error(metric: ExperimentWarehouseNativeMetric, team: "Team") -> str | None:
     if not warehouse_native_metrics_enabled(team):
         return "warehouse-native metrics are not enabled for this project."
-    if not metric.query.strip():
-        return "warehouse-native metrics require a query."
+    sources = (
+        [metric.source]
+        if isinstance(metric, ExperimentWarehouseNativeProportionMetric | ExperimentWarehouseNativeMeanMetric)
+        else [metric.numerator, metric.denominator]
+    )
+    for source in sources:
+        if not source.query.strip():
+            return "every warehouse-native metric source requires a query."
+        # A proportion is "at least one row", so only the other statistics need to know how rows collapse.
+        if source.aggregation is None and not isinstance(metric, ExperimentWarehouseNativeProportionMetric):
+            return "mean and ratio warehouse-native metrics require an aggregation on each source."
     if not has_direct_connection(team, metric.connection_id):
         return "the selected connection does not exist or cannot be queried directly."
     return None

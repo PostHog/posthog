@@ -323,6 +323,8 @@ from posthog.schema_enums import (
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
     ValueDisplay as ValueDisplay,
+    WarehouseMetricAggregation as WarehouseMetricAggregation,
+    WarehouseNativeStatistic as WarehouseNativeStatistic,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -1678,21 +1680,6 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     count: float
     exposure: float
     key: str
-
-
-class ExperimentWarehouseNativeMetricTypeProps(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    connection_id: str = Field(
-        ...,
-        description=("The direct-query source (an ExternalDataSource id) the query runs against."),
-    )
-    metric_type: Literal["warehouse_native"] = "warehouse_native"
-    query: str = Field(
-        ...,
-        description=("Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns."),
-    )
 
 
 class FailureMessage(BaseModel):
@@ -3505,6 +3492,24 @@ class VizSpecificOptions(BaseModel):
     )
     ActionsPie_1: ActionsPie | None = Field(default=None, alias="ActionsPie")
     RETENTION_1: RETENTION | None = Field(default=None, alias="RETENTION")
+
+
+class WarehouseMetricSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: WarehouseMetricAggregation | None = Field(
+        default=None,
+        description=("How an entity's rows collapse to one value. Not used by proportion metrics."),
+    )
+    query: str = Field(
+        ...,
+        description=(
+            "Read-only SQL in the warehouse's dialect, returning one row per outcome"
+            " with `entity_id`, `timestamp` and `value` columns. `value` is optional"
+            " for `count` and for proportions."
+        ),
+    )
 
 
 class WebAnalyticsExternalSummaryRequest(BaseModel):
@@ -5892,31 +5897,222 @@ class ExperimentVariantResultFrequentist(BaseModel):
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
 
 
-class ExperimentWarehouseNativeMetric(BaseModel):
+class ExperimentWarehouseNativeMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     breakdownFilter: BreakdownFilter | None = None
     connection_id: str = Field(
         ...,
-        description=("The direct-query source (an ExternalDataSource id) the query runs against."),
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    conversion_delay: int | None = Field(
+        default=None,
+        description=("Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."),
     )
     conversion_window: int | None = None
     conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
     fingerprint: str | None = None
     goal: ExperimentMetricGoal | None = None
+    ignore_zeros: bool | None = None
     isSharedMetric: bool | None = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
     metric_type: Literal["warehouse_native"] = "warehouse_native"
     name: str | None = None
-    query: str = Field(
-        ...,
-        description=("Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns."),
-    )
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
+    source: WarehouseMetricSource
+    statistic: Literal["mean"] = "mean"
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentWarehouseNativeMeanMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    conversion_delay: int | None = Field(
+        default=None,
+        description=("Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."),
+    )
+    ignore_zeros: bool | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
+    metric_type: Literal["warehouse_native"] = "warehouse_native"
+    source: WarehouseMetricSource
+    statistic: Literal["mean"] = "mean"
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
+
+
+class ExperimentWarehouseNativeProportionMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownFilter: BreakdownFilter | None = None
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    conversion_delay: int | None = Field(
+        default=None,
+        description=("Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."),
+    )
+    conversion_window: int | None = None
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    fingerprint: str | None = None
+    goal: ExperimentMetricGoal | None = None
+    ignore_zeros: bool | None = None
+    isSharedMetric: bool | None = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
+    metric_type: Literal["warehouse_native"] = "warehouse_native"
+    name: str | None = None
+    response: dict[str, Any] | None = None
+    sharedMetricId: float | None = None
+    source: WarehouseMetricSource
+    statistic: Literal["proportion"] = "proportion"
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
+    uuid: str | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentWarehouseNativeProportionMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    conversion_delay: int | None = Field(
+        default=None,
+        description=("Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."),
+    )
+    ignore_zeros: bool | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
+    metric_type: Literal["warehouse_native"] = "warehouse_native"
+    source: WarehouseMetricSource
+    statistic: Literal["proportion"] = "proportion"
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
+
+
+class ExperimentWarehouseNativeRatioMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownFilter: BreakdownFilter | None = None
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    conversion_delay: int | None = Field(
+        default=None,
+        description=("Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."),
+    )
+    conversion_window: int | None = None
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    denominator: WarehouseMetricSource
+    fingerprint: str | None = None
+    goal: ExperimentMetricGoal | None = None
+    ignore_zeros: bool | None = None
+    isSharedMetric: bool | None = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
+    metric_type: Literal["warehouse_native"] = "warehouse_native"
+    name: str | None = None
+    numerator: WarehouseMetricSource
+    response: dict[str, Any] | None = None
+    sharedMetricId: float | None = None
+    statistic: Literal["ratio"] = "ratio"
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
+    uuid: str | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentWarehouseNativeRatioMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    conversion_delay: int | None = Field(
+        default=None,
+        description=("Delay after first exposure before outcome rows count, in `conversion_window_unit`. Default 0."),
+    )
+    denominator: WarehouseMetricSource
+    ignore_zeros: bool | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
+    metric_type: Literal["warehouse_native"] = "warehouse_native"
+    numerator: WarehouseMetricSource
+    statistic: Literal["ratio"] = "ratio"
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
 
 
 class ExternalQueryError(BaseModel):
@@ -31879,7 +32075,9 @@ class ExperimentMetricTypeProps(
         | ExperimentFunnelMetricTypeProps
         | ExperimentRatioMetricTypeProps
         | ExperimentRetentionMetricTypeProps
-        | ExperimentWarehouseNativeMetricTypeProps
+        | ExperimentWarehouseNativeProportionMetricTypeProps
+        | ExperimentWarehouseNativeMeanMetricTypeProps
+        | ExperimentWarehouseNativeRatioMetricTypeProps
     ]
 ):
     root: (
@@ -31887,7 +32085,9 @@ class ExperimentMetricTypeProps(
         | ExperimentFunnelMetricTypeProps
         | ExperimentRatioMetricTypeProps
         | ExperimentRetentionMetricTypeProps
-        | ExperimentWarehouseNativeMetricTypeProps
+        | ExperimentWarehouseNativeProportionMetricTypeProps
+        | ExperimentWarehouseNativeMeanMetricTypeProps
+        | ExperimentWarehouseNativeRatioMetricTypeProps
     )
 
 
@@ -32093,7 +32293,12 @@ class ExperimentMetric(
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
     ]
 ):
     root: (
@@ -32101,7 +32306,12 @@ class ExperimentMetric(
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
     ) = Field(..., discriminator="metric_type")
 
 
@@ -32130,7 +32340,12 @@ class ExperimentQueryResponse(BaseModel):
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
         | None
     ) = Field(default=None, discriminator="metric_type")
     p_value: float | None = None
@@ -32211,7 +32426,12 @@ class LegacyExperimentQueryResponse(BaseModel):
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
     ) = Field(..., discriminator="metric_type")
     p_value: float
     probability: dict[str, float]
@@ -32291,7 +32511,12 @@ class QueryResponseAlternative20(BaseModel):
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
         | None
     ) = Field(default=None, discriminator="metric_type")
     p_value: float | None = None
@@ -32589,7 +32814,12 @@ class NamedArgs2(BaseModel):
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
     ) = Field(..., discriminator="metric_type")
 
 
@@ -32685,7 +32915,12 @@ class CachedExperimentQueryResponse(BaseModel):
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
         | None
     ) = Field(default=None, discriminator="metric_type")
     next_allowed_client_refresh: AwareDatetime
@@ -32732,7 +32967,12 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
     ) = Field(..., discriminator="metric_type")
     next_allowed_client_refresh: AwareDatetime
     p_value: float
@@ -32824,7 +33064,12 @@ class ExperimentQuery(BaseModel):
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
         | ExperimentRetentionMetric
-        | ExperimentWarehouseNativeMetric
+        | Annotated[
+            ExperimentWarehouseNativeProportionMetric
+            | ExperimentWarehouseNativeMeanMetric
+            | ExperimentWarehouseNativeRatioMetric,
+            Field(discriminator="statistic"),
+        ]
     ) = Field(..., discriminator="metric_type")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None

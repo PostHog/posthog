@@ -3179,6 +3179,20 @@ class UsageMetricFormat(StrEnum):
     CURRENCY = "currency"
 
 
+class WarehouseMetricAggregation(StrEnum):
+    SUM = "sum"
+    COUNT = "count"
+    COUNT_DISTINCT = "count_distinct"
+    MAX = "max"
+    MIN = "min"
+
+
+class WarehouseNativeStatistic(StrEnum):
+    MEAN = "mean"
+    PROPORTION = "proportion"
+    RATIO = "ratio"
+
+
 class WebAgentAnalyticsQueryType(StrEnum):
     OVERVIEW = "overview"
     ISSUES = "issues"

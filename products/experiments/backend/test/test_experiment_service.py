@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any
+from typing import Annotated, Any, get_args, get_origin
 from uuid import UUID, uuid4
 
 import pytest
@@ -49,7 +49,7 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
-from products.experiments.backend.metric_resolution import METRIC_BUILDERS
+from products.experiments.backend.metric_resolution import METRIC_BUILDERS, WAREHOUSE_NATIVE_METRICS_BY_STATISTIC
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
     is_events_node_actions_node_confusion,
@@ -1295,18 +1295,23 @@ class TestExperimentService(APIBaseTest):
         so a new metric_type added to the schema fails here instead of being rejected on write."""
         root_annotation = ExperimentMetric.model_fields["root"].annotation
         assert root_annotation is not None, "ExperimentMetric.root has no annotation — schema is malformed"
-        union_variants = root_annotation.__args__
-        schema_pairs = {}
-        for variant in union_variants:
-            metric_type_annotation = variant.model_fields["metric_type"].annotation
-            assert metric_type_annotation is not None, (
-                f"{variant.__name__}.metric_type has no annotation — schema is malformed"
-            )
-            schema_pairs[metric_type_annotation.__args__[0]] = variant.__name__
-        builders = {metric_type: builder.__name__ for metric_type, builder in METRIC_BUILDERS.items()}
-        assert builders == schema_pairs, (
+        expected: dict[str, set[type]] = {}
+        for variant in get_args(root_annotation):
+            # A nested discriminated union shares one metric_type across its members.
+            members = get_args(get_args(variant)[0]) if get_origin(variant) is Annotated else (variant,)
+            for member in members:
+                metric_type_annotation = member.model_fields["metric_type"].annotation
+                assert metric_type_annotation is not None, (
+                    f"{member.__name__}.metric_type has no annotation — schema is malformed"
+                )
+                expected.setdefault(get_args(metric_type_annotation)[0], set()).add(member)
+        builders = {
+            metric_type: {builder} if isinstance(builder, type) else set(WAREHOUSE_NATIVE_METRICS_BY_STATISTIC.values())
+            for metric_type, builder in METRIC_BUILDERS.items()
+        }
+        assert builders == expected, (
             "ExperimentMetric union changed — update METRIC_BUILDERS in metric_resolution.py. "
-            f"Expected {schema_pairs}, got {builders}"
+            f"Expected {expected}, got {builders}"
         )
 
     @parameterized.expand(
