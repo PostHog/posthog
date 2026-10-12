@@ -5773,10 +5773,10 @@ Today (6): `executions`, `projects`, `tags`, `users`, `variables`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/n8n-io/n8n/master/packages/cli/src/public-api/v1/openapi.yml>
 
-- [ ] `/insights/summary` — n8n's headline metrics (total/failed executions, run time saved) over a date range, filterable by project (high)
-- [ ] `/projects/{projectId}/users` — project membership join table with roles — resolves who owns which project (medium)
-- [ ] `/projects/{projectId}/folders` — folder hierarchy workflows are organized into; lookup for workflow parentFolder ids (medium)
-- [ ] `/workflows/{id}/test-runs (+ /test-runs/{runId}/test-cases)` — evaluation run results per workflow — pass/fail history for AI workflow testing (medium)
+- [x] `/insights/summary` — n8n's headline metrics (total/failed executions, run time saved) over a date range, filterable by project (high)
+- [x] `/projects/{projectId}/users` — project membership join table with roles — resolves who owns which project (medium)
+- [x] `/projects/{projectId}/folders` — folder hierarchy workflows are organized into; lookup for workflow parentFolder ids (medium)
+- [x] `/workflows/{id}/test-runs (+ /test-runs/{runId}/test-cases)` — evaluation run results per workflow — pass/fail history for AI workflow testing (medium)
 - [ ] `/data-tables and /data-tables/{dataTableId}/rows` — user-defined data tables and their rows, queried as ordinary warehouse tables (medium)
 - [ ] `/data-tables/{dataTableId}/columns` — column metadata needed to type the data-table rows (low)
 - [ ] `/community-packages` — installed community node inventory for auditing what workflows depend on (low)
