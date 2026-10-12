@@ -8,6 +8,7 @@ import { LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { pluralize } from 'lib/utils/strings'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -20,7 +21,9 @@ import {
 } from '~/types'
 
 import { AddEventButton } from './AddEventButton'
-import { surveyLogic } from './surveyLogic'
+import { LinkToSurveyFormSection } from './components/LinkToSurveyFormSection'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
+import { doesSurveyShowOnEveryActivation } from './utils'
 
 // Only include operators supported by the SDK's property matching system
 // Exclude is_set and is_not_set as they're not supported
@@ -113,6 +116,15 @@ function SurveyEventSelector({
     const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
     const excludedObjectProperties = useExcludedObjectProperties()
+    // The schedule alone can make the SDK repeat the survey, so the unchecked box does not mean
+    // once per user.
+    const scheduleOverridesOncePerUser =
+        !survey.conditions?.events?.repeatedActivation && doesSurveyShowOnEveryActivation(survey)
+    const waitPeriodInDays = survey.conditions?.seenSurveyWaitPeriodInDays ?? 0
+    const scheduleRepeatCadence =
+        waitPeriodInDays > 0
+            ? `on each of these events, at most once every ${pluralize(waitPeriodInDays, 'day')}`
+            : 'on each of these events'
 
     const events: SurveyEventsWithProperties[] = survey.conditions?.[conditionField]?.values || []
 
@@ -227,19 +239,32 @@ function SurveyEventSelector({
                 )}
 
                 {showRepeatedActivation && surveyRepeatedActivationAvailable && (
-                    <LemonCheckbox
-                        label="Show every time these events fire (otherwise: once per user)"
-                        checked={survey.conditions?.events?.repeatedActivation || false}
-                        onChange={(checked) => {
-                            setSurveyValue('conditions', {
-                                ...survey.conditions,
-                                events: {
-                                    ...survey.conditions?.events,
-                                    repeatedActivation: checked,
-                                },
-                            })
-                        }}
-                    />
+                    <div className="flex flex-col gap-1">
+                        <LemonCheckbox
+                            label={
+                                scheduleOverridesOncePerUser
+                                    ? 'Show every time these events fire'
+                                    : 'Show every time these events fire (otherwise: once per user)'
+                            }
+                            checked={survey.conditions?.events?.repeatedActivation || false}
+                            onChange={(checked) => {
+                                setSurveyValue('conditions', {
+                                    ...survey.conditions,
+                                    events: {
+                                        ...survey.conditions?.events,
+                                        repeatedActivation: checked,
+                                    },
+                                })
+                            }}
+                        />
+                        {scheduleOverridesOncePerUser && (
+                            <p className="text-xs text-muted m-0">
+                                This survey is set to show every time its display conditions are met, so it shows again{' '}
+                                {scheduleRepeatCadence}. To show it once per person, set "Once" in the&nbsp;
+                                <LinkToSurveyFormSection section={SurveyEditSection.CompletionConditions} />.
+                            </p>
+                        )}
+                    </div>
                 )}
 
                 <AddEventButton
