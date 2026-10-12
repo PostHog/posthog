@@ -473,11 +473,13 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
 | `ci-backend-update-test-timing.yml` | 17     |
+| `ci-warehouse-sources.yml`          | 28     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
 
 `ci-backend-update-test-timing.yml` sits in the table too.
 It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
+`ci-warehouse-sources.yml` is one job with no service containers, so it does not need the gap either.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.
