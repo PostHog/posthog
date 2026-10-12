@@ -5,12 +5,6 @@
             "type": "user"
         },
         {
-            "type": "resource",
-            "relations": {
-                "viewer": {
-                    "this": {}
-                }
-            },
             "metadata": {
                 "relations": {
                     "viewer": {
@@ -21,7 +15,13 @@
                         ]
                     }
                 }
-            }
+            },
+            "relations": {
+                "viewer": {
+                    "this": {}
+                }
+            },
+            "type": "resource"
         }
     ]
 }

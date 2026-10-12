@@ -1,0 +1,8 @@
+model
+  schema 1.1
+
+type user
+
+type resource
+  relations
+    define viewer: [user]
