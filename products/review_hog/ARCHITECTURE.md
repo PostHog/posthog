@@ -182,8 +182,7 @@ The full roadmap — every open thread with its reasoning, the loop design, the 
 the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`
 (`RUN_LOG.md`, `POTENTIAL_EXPERIMENTS.md`, `experiments/`).
 
-**Before public release:** settle the "ReviewHog Alpha" published-comment wording (see
-[Known issues](#known-issues--tech-debt)), and land the three BLOCKING resolution-stage hardening TODOs above
+**Before public release:** land the three BLOCKING resolution-stage hardening TODOs above
 (structural comment rendering + author-permission gate + pre-push restricted-paths enforcement). Enabling another
 project for manual review does not clear these requirements for public or untrusted use.
 
@@ -450,7 +449,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    runs go `idle` at finalize; `progress_payload` labels the deferred window "finalizing".
 10. **Publish** — `publish_review` (GitHub REST via the gated egress transport, **DB-driven**) reads the body from
     `ReviewReport.report_markdown` and the inline comments from the valid finding/verdict rows (`load_valid_findings`),
-    posts a standalone "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the
+    posts a PR review (`event="COMMENT"`, **pinned to the
     reviewed `head_sha`** via `commit_id`) with inline comments for `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that
     land on a line present in the current diff (`CONSIDER` dropped). It posts whenever there's ≥1 valid publishable
     finding — if all are off-diff (no inline comments resolve) the body still posts, carrying them in the
@@ -1001,10 +1000,6 @@ The list selects running candidates by their latest report update, so newer stal
     retrigger correctly 409s. Accepted: typical turns run a few minutes, the label self-corrects on the next
     verdict, and the busy-guard still prevents double runs. If turns ever grow, add a periodic DB liveness beat
     inside `resolve_threads_activity` (Temporal's Heartbeater pings Temporal only, never the DB the UI reads).
-- **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
-  "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
-  per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
-  see it.
 - **TODO (BLOCKING public release): resolution-stage injection hardening.** Structural
   (JSON) comment rendering in the resolution prompt, the author-permission gate, and pre-push restricted-paths
   enforcement in the signed-commit tooling are NOT built; only the prompt floors + the post-push delivery
