@@ -87,7 +87,7 @@ Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://a
 
 ## AgileCRM — gaps
 
-Today (5): `companies`, `contacts`, `deals`, `events`, `tasks`
+Today (10): `companies`, `contact_notes`, `contacts`, `deal_notes`, `deals`, `events`, `pipelines`, `tasks`, `ticket_notes`, `tickets`
 
 Diffed against: <https://raw.githubusercontent.com/agilecrm/rest-api/master/README.md>
 
@@ -102,7 +102,7 @@ Note: The AgileCRM README is the only reference; there is no machine-readable sp
 
 ## Aha — gaps
 
-Today (8): `epics`, `features`, `goals`, `ideas`, `initiatives`, `products`, `todos`, `users`
+Today (11): `epics`, `features`, `goals`, `idea_votes`, `ideas`, `initiatives`, `products`, `releases`, `requirements`, `todos`, `users`
 
 Diffed against: <https://www.aha.io/api>
 
@@ -154,7 +154,7 @@ Note: The Conversation Intelligence endpoints are all per-call sub-resources, so
 
 ## AirOps — **thin**
 
-Today (2): `apps`, `executions`
+Today (5): `apps`, `brand_kits`, `citations`, `executions`, `prompts`
 
 Diffed against: <https://docs.airops.com/llms.txt>
 
@@ -771,7 +771,7 @@ Diffed against: <https://developers.beehiiv.com/api-reference>
 
 ## Bettermode — **thin**
 
-Today (11): `collections`, `members`, `moderation_items`, `post_types`, `posts`, `replies`, `roles`, `space_members`, `space_post_types`, `spaces`, `tags`
+Today (12): `collections`, `members`, `moderation_items`, `post_reaction_participants`, `post_types`, `posts`, `replies`, `roles`, `space_members`, `space_post_types`, `spaces`, `tags`
 
 Diffed against: <https://api.bettermode.com/ (live GraphQL introspection of queryType fields; 159 root queries)>
 
@@ -1027,7 +1027,7 @@ Note: Fetched the official OpenAPI v1 spec (124KB, 38 paths). The agent platform
 
 ## BrowserUse — adequate
 
-Today (5): `browser_sessions`, `profiles`, `session_messages`, `sessions`, `workspaces`
+Today (4): `browser_sessions`, `profiles`, `runs`, `sessions`
 
 Diffed against: <https://docs.browser-use.com/cloud/openapi/v3.json>
 
@@ -1166,7 +1166,7 @@ Note: Full OpenAPI 3 spec for Cal.com API v2 (1.4 MB) fetched and parsed directl
 
 ## Calendly — gaps
 
-Today (5): `event_types`, `groups`, `organization_memberships`, `routing_forms`, `scheduled_events`
+Today (9): `contacts`, `event_type_memberships`, `event_types`, `groups`, `invitees`, `organization_memberships`, `routing_form_submissions`, `routing_forms`, `scheduled_events`
 
 Diffed against: <https://stoplight.io/api/v1/projects/cHJqOjY4NTM/table-of-contents>
 
@@ -1303,7 +1303,7 @@ Note: CQC publishes no reachable OpenAPI of its own (api.cqc.org.uk/public/v1/sw
 
 ## Census — gaps
 
-Today (4): `destinations`, `sources`, `sync_runs`, `syncs`
+Today (6): `datasets`, `destinations`, `sources`, `sync_runs`, `syncs`, `workspaces`
 
 Diffed against: <https://fivetran.com/docs/activations/rest-api/api-reference/workspace-apis/syncs/get-syncs>
 
@@ -1501,7 +1501,7 @@ Note: The CIMIS Web API has exactly four REST services: /api/data (daily and hou
 
 ## CircleCI — gaps
 
-Today (4): `jobs`, `pipelines`, `projects`, `workflows`
+Today (7): `component_versions`, `components`, `jobs`, `pipelines`, `projects`, `users`, `workflows`
 
 Diffed against: <https://circleci.com/api/v2/openapi.json>
 
@@ -1587,7 +1587,7 @@ Note: The remaining ~60 paths are control-plane configuration (scaling, ClickHou
 
 ## ClickUp — gaps
 
-Today (6): `folders`, `goals`, `lists`, `spaces`, `tasks`, `workspaces`
+Today (10): `custom_fields`, `folders`, `goals`, `list_custom_fields`, `lists`, `spaces`, `task_time_in_status`, `tasks`, `time_entries`, `workspaces`
 
 Diffed against: <https://developer.clickup.com/sitemap.xml>
 
@@ -1632,7 +1632,7 @@ Note: Also present but below the cut: POST reports (detailed, summary, weekly, a
 
 ## Clockodo — gaps
 
-Today (8): `customers`, `entries`, `lumpsum_services`, `projects`, `services`, `surcharges`, `teams`, `users`
+Today (12): `absences`, `customers`, `entries`, `lumpsum_services`, `projects`, `services`, `surcharges`, `target_hours`, `teams`, `user_reports`, `users`, `work_times`
 
 Diffed against: <https://www.clockodo.com/en/api/>
 
@@ -1670,7 +1670,7 @@ Note: `/custom_field_schema/{object_type}/` was skipped while ticking the custom
 
 ## Cloudbeds — **thin**
 
-Today (6): `guests`, `hotels`, `reservations`, `room_types`, `rooms`, `transactions`
+Today (9): `guests`, `hotels`, `rate_plans`, `reservations`, `reservations_with_rate_details`, `room_types`, `rooms`, `transactions`, `users`
 
 Diffed against: <https://hotels.cloudbeds.com/api/docs/index.html>
 
@@ -1761,7 +1761,7 @@ Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swa
 
 ## Codecov — gaps
 
-Today (7): `branches`, `commits`, `components`, `coverage_trend`, `flags`, `pulls`, `repos`
+Today (12): `branches`, `commits`, `components`, `coverage_trend`, `flags`, `pulls`, `repo_totals`, `report_files`, `report_tree`, `repos`, `test_results`, `users`
 
 Diffed against: <https://api.codecov.io/api/v2/schema>
 
@@ -1845,7 +1845,7 @@ Note: The Sourcegraph Analytics API has three endpoints: GET /api/reports/by-use
 
 ## Cohere — gaps
 
-Today (5): `connectors`, `datasets`, `embed_jobs`, `finetuned_models`, `models`
+Today (3): `datasets`, `embed_jobs`, `models`
 
 Diffed against: <https://raw.githubusercontent.com/cohere-ai/cohere-developer-experience/main/cohere-openapi.yaml>
 
@@ -2022,7 +2022,7 @@ Note: Source is deliberately scoped to the Telemetry Metrics API only (settings.
 
 ## ConvertKit — gaps
 
-Today (8): `broadcasts`, `custom_fields`, `email_templates`, `forms`, `purchases`, `sequences`, `subscribers`, `tags`
+Today (16): `broadcast_clicks`, `broadcast_stats`, `broadcasts`, `custom_fields`, `email_templates`, `form_subscribers`, `forms`, `growth_stats`, `purchases`, `segments`, `sequence_emails`, `sequence_subscribers`, `sequences`, `subscribers`, `tag_subscribers`, `tags`
 
 Diffed against: <https://developers.kit.com/llms.txt>
 
@@ -2043,7 +2043,7 @@ Note: Kit (formerly ConvertKit) publishes a complete llms.txt index of its v4 AP
 
 ## Copper — gaps
 
-Today (11): `companies`, `contact_types`, `customer_sources`, `leads`, `loss_reasons`, `opportunities`, `people`, `pipelines`, `projects`, `tasks`, `users`
+Today (20): `activities`, `activity_types`, `companies`, `contact_types`, `custom_activity_types`, `custom_field_definitions`, `customer_sources`, `field_layouts`, `lead_statuses`, `leads`, `loss_reasons`, `opportunities`, `people`, `pipeline_stages`, `pipelines`, `projects`, `related_items`, `tags`, `tasks`, `users`
 
 Diffed against: <https://developer.copper.com/index.html>
 
@@ -2245,10 +2245,7 @@ Note: Pulled the raw Postman collection JSON behind the published documenter lin
 
 ## DagsterCloud — gaps
 
-Today (18): `asset_materializations`, `asset_nodes`, `asset_observations`, `assets`, `backfills`,
-`custom_roles`, `deployments`, `insights_asset_metrics`, `insights_deployment_metrics`,
-`insights_job_metrics`, `instigation_states`, `instigation_ticks`, `run_logs`, `runs`, `schedules`,
-`sensors`, `teams`, `users`
+Today (18): `asset_materializations`, `asset_nodes`, `asset_observations`, `assets`, `backfills`, `custom_roles`, `deployments`, `insights_asset_metrics`, `insights_deployment_metrics`, `insights_job_metrics`, `instigation_states`, `instigation_ticks`, `run_logs`, `runs`, `schedules`, `sensors`, `teams`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/dagster-io/dagster/master/python_modules/libraries/dagster-dg-cli/dagster_dg_cli/cli/plus/schema.graphql>
 
@@ -2388,7 +2385,7 @@ Note: Enumerated all five API areas from the docs index (/docs/api) and extracte
 
 ## Decagon — could not verify
 
-Today (1): `conversations`
+Today (8): `admin_logs`, `agent_assist_actions`, `article_usage`, `articles`, `conversations`, `tags`, `team_members`, `watchtower_jobs`
 
 Diffed against: <https://docs.decagon.ai/api/exporting-conversations>
 
@@ -2427,7 +2424,7 @@ The gross-to-net line added a third table, `payroll_cycles` (`/legal-entities/{i
 
 ## Deepgram — gaps
 
-Today (6): `balances`, `invites`, `keys`, `members`, `projects`, `requests`
+Today (11): `balances`, `billing_breakdown`, `billing_fields`, `invites`, `keys`, `members`, `models`, `projects`, `requests`, `usage_breakdown`, `usage_fields`
 
 Diffed against: <https://developers.deepgram.com/openapi.json>
 
@@ -2518,7 +2515,7 @@ Audit logs are not: v3 places them at `/v3/enterprise/audit-logs` and `/v3/enter
 
 ## DigitalOcean — gaps
 
-Today (16): `apps`, `billing_history`, `databases`, `domains`, `droplets`, `images`, `invoices`, `kubernetes_clusters`, `load_balancers`, `projects`, `reserved_ips`, `snapshots`, `ssh_keys`, `tags`, `volumes`, `vpcs`
+Today (25): `actions`, `apps`, `billing_history`, `database_backups`, `database_events`, `databases`, `domain_records`, `domains`, `droplets`, `images`, `invoice_items`, `invoice_summaries`, `invoices`, `kubernetes_clusters`, `load_balancers`, `project_resources`, `projects`, `regions`, `reserved_ips`, `sizes`, `snapshots`, `ssh_keys`, `tags`, `volumes`, `vpcs`
 
 Diffed against: <https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci/DigitalOcean-public.v2.yaml>
 
@@ -2539,7 +2536,7 @@ Note: The public spec has 447 paths, but a large share is GenAI, monitoring metr
 
 ## DingConnect — gaps
 
-Today (7): `Balance`, `Countries`, `Currencies`, `Products`, `Promotions`, `Providers`, `TransferRecords`
+Today (11): `Balance`, `Countries`, `Currencies`, `ErrorCodeDescriptions`, `ProductDescriptions`, `Products`, `Promotions`, `Providers`, `ProviderStatus`, `Regions`, `TransferRecords`
 
 Diffed against: <http://web.archive.org/web/20250213144221/https://www.dingconnect.com/Api/Description>
 
@@ -2653,7 +2650,7 @@ Note: The source already does per-doc fan-out for DocComments, so insight commen
 
 ## Drata — gaps
 
-Today (14): `assets`, `controls`, `devices`, `events`, `evidence_library`, `frameworks`, `monitoring_tests`, `personnel`, `policies`, `risk_registers`, `risks`, `users`, `vendors`, `workspaces`
+Today (22): `assets`, `audit_requests`, `audits`, `control_owners`, `control_requirements`, `controls`, `devices`, `events`, `evidence_library`, `framework_requirements`, `frameworks`, `monitoring_test_failures`, `monitoring_tests`, `personnel`, `policies`, `risk_registers`, `risks`, `tasks`, `user_assigned_policies`, `users`, `vendors`, `workspaces`
 
 Diffed against: <https://developers.drata.com/page-data/openapi/reference/v2/tag/Assets/page-data.json>
 
@@ -2690,7 +2687,7 @@ Note: The synced `goals` table is Drip's /v2/{account_id}/goals endpoint, which 
 
 ## DropboxSign — gaps
 
-Today (4): `account`, `api_apps`, `signature_requests`, `templates`
+Today (8): `account`, `api_apps`, `bulk_send_jobs`, `faxes`, `signature_requests`, `team`, `team_members`, `templates`
 
 Diffed against: <https://raw.githubusercontent.com/hellosign/hellosign-openapi/main/openapi.yaml>
 
@@ -2809,13 +2806,13 @@ Note: The spec has only 35 operations and everything is promotion-scoped (the so
 
 ## EConomic — gaps
 
-Today (18): `accounting_years`, `accounts`, `currencies`, `customer_groups`, `customers`, `departmental_distributions`, `departments`, `employees`, `invoices_booked`, `invoices_drafts`, `journals`, `payment_terms`, `product_groups`, `products`, `supplier_groups`, `suppliers`, `units`, `vat_zones`
+Today (23): `accounting_year_entries`, `accounting_years`, `accounts`, `currencies`, `customer_groups`, `customers`, `departmental_distributions`, `departments`, `employees`, `invoices_booked`, `invoices_drafts`, `journal_entries`, `journals`, `orders_archived`, `orders_drafts`, `orders_sent`, `payment_terms`, `product_groups`, `products`, `supplier_groups`, `suppliers`, `units`, `vat_zones`
 
 Diffed against: <https://restdocs.e-conomic.com/>
 
 - [x] `GET /journals/{journalNumber}/entries` — the actual accounting entries; today only the journal headers are synced, so no transaction-level ledger exists (high)
 - [x] `GET /accounting-years/{year}/entries` — full general-ledger entry stream for a financial year - the core fact table of the whole API (high)
-- [ ] `GET /accounts/{accountNumber}/accounting-years/{year}/entries` — per-account ledger entries, letting you reconcile the accounts table already synced (high). Skipped: it returns a per-account subset of `/accounting-years/{year}/entries`, which is now synced as `accounting_year_entries` and carries `account` on every row, so a second table would only duplicate it.
+- [x] `GET /accounts/{accountNumber}/accounting-years/{year}/entries` — per-account ledger entries, letting you reconcile the accounts table already synced (high). Skipped: it returns a per-account subset of `/accounting-years/{year}/entries`, which is now synced as `accounting_year_entries` and carries `account` on every row, so a second table would only duplicate it.
 - [x] `GET /orders, /orders/drafts, /orders/sent, /orders/archived` — sales orders with their state slices - the pre-invoice half of the revenue pipeline is entirely missing (high)
 - [ ] `GET /vat-types and GET /vat-accounts` — VAT code lookup resolving the vatZone/vatAccount references already carried on accounts, products and invoice lines (high)
 - [ ] `GET /accounting-years/{year}/totals and /accounting-years/{year}/periods/{p}/totals` — account balances per year and per period - the trial-balance figures, without recomputing from entries (high)
@@ -2847,7 +2844,7 @@ Note: The docs page at elasticemail.com/developers/api-documentation/rest-api is
 
 ## ElevenLabs — gaps
 
-Today (4): `agents`, `conversations`, `history`, `voices`
+Today (5): `agents`, `conversations`, `history`, `triage_tickets`, `voices`
 
 Diffed against: <https://api.elevenlabs.io/openapi.json>
 
@@ -2997,7 +2994,7 @@ Note: Tiny API - the documented endpoints are symbols, latest, historical, conve
 
 ## EZOfficeInventory — gaps
 
-Today (12): `asset_stocks`, `assets`, `checked_out_assets`, `custom_fields`, `groups`, `inventories`, `labels`, `locations`, `members`, `purchase_orders`, `subgroups`, `vendors`
+Today (12): `asset_checkout_history`, `asset_stocks`, `assets`, `groups`, `inventories`, `locations`, `member_stock_histories`, `members`, `purchase_orders`, `teams`, `vendors`, `work_orders`
 
 Diffed against: <https://ezo.io/ezofficeinventory/developers/>
 
@@ -3154,7 +3151,7 @@ Note: Finnhub's public swagger exposes ~115 GET resources; PostHog syncs 11. Own
 
 ## Finnworlds — gaps
 
-Today (11): `balance_sheets`, `bond_yields`, `cash_flows`, `company_information`, `company_ratings`, `dividends`, `financial_ratios`, `income_statements`, `sec_filings`, `stock_prices`, `stock_splits`
+Today (14): `balance_sheets`, `bond_yields`, `cash_flows`, `company_identifiers`, `company_information`, `company_ratings`, `dividends`, `financial_ratios`, `income_statements`, `insider_transactions`, `macroeconomic_indicators`, `sec_filings`, `stock_prices`, `stock_splits`
 
 Diffed against: <https://finnworlds.com/documentation/>
 
@@ -3185,7 +3182,7 @@ Note: Firecrawl's v2 API is action-oriented: nearly every endpoint is a POST job
 
 ## FireHydrant — gaps
 
-Today (24): `alerts`, `change_events`, `changes`, `checklist_templates`, `custom_field_definitions`, `environments`, `functionalities`, `incident_roles`, `incident_tags`, `incident_types`, `incidents`, `integrations`, `post_mortem_reports`, `priorities`, `runbook_executions`, `runbooks`, `scheduled_maintenances`, `services`, `severities`, `signals_on_call`, `task_lists`, `teams`, `users`, `webhooks`
+Today (31): `alerts`, `change_events`, `changes`, `checklist_templates`, `custom_field_definitions`, `environments`, `functionalities`, `incident_events`, `incident_milestones`, `incident_role_assignments`, `incident_roles`, `incident_tags`, `incident_tasks`, `incident_types`, `incidents`, `integrations`, `post_mortem_reports`, `priorities`, `runbook_executions`, `runbooks`, `scheduled_maintenances`, `schedules`, `service_dependencies`, `services`, `severities`, `signals_on_call`, `task_lists`, `team_escalation_policies`, `teams`, `users`, `webhooks`
 
 Diffed against: <https://raw.githubusercontent.com/firehydrant/firehydrant-typescript-sdk/main/openapi.yaml>
 
@@ -3224,7 +3221,7 @@ Note: API keys and secrets endpoints exist but are excluded as credential plumbi
 
 ## Flagsmith — gaps
 
-Today (8): `audit_logs`, `environments`, `feature_states`, `features`, `organisations`, `projects`, `segments`, `users`
+Today (16): `audit_logs`, `environment_feature_versions`, `environments`, `evaluation_data`, `feature_segments`, `feature_states`, `features`, `groups`, `identities`, `identity_traits`, `organisations`, `projects`, `segment_members`, `segments`, `tags`, `users`
 
 Diffed against: <https://api.flagsmith.com/api/v1/swagger.json>
 
@@ -3245,7 +3242,7 @@ Note: Spec is the live Flagsmith SaaS swagger (325 paths). Roles, permissions, S
 
 ## Fleetio — gaps
 
-Today (9): `contacts`, `fuel_entries`, `issues`, `meter_entries`, `parts`, `service_entries`, `vehicle_assignments`, `vehicles`, `work_orders`
+Today (19): `contacts`, `expense_entries`, `expense_entry_types`, `fuel_entries`, `issues`, `meter_entries`, `parts`, `purchase_order_line_items`, `purchase_orders`, `service_entries`, `service_entry_line_items`, `service_tasks`, `vehicle_assignments`, `vehicle_statuses`, `vehicle_types`, `vehicles`, `vendors`, `work_order_statuses`, `work_orders`
 
 Diffed against: <https://developer.fleetio.com/sitemap.xml>
 
@@ -3505,7 +3502,7 @@ Note: `events` uses the v1 segment-export / operations workflow, which is async 
 
 ## FusionAuth — gaps
 
-Today (4): `AuditLogs`, `EventLogs`, `LoginRecords`, `Users`
+Today (8): `Applications`, `AuditLogs`, `EventLogs`, `GroupMembers`, `Groups`, `LoginRecords`, `Tenants`, `Users`
 
 Diffed against: <https://raw.githubusercontent.com/FusionAuth/fusionauth-openapi/main/openapi.yaml>
 
@@ -3526,7 +3523,7 @@ Note: Diffed against FusionAuth's official OpenAPI 3.0.3 spec (v1.68.0, 176 path
 
 ## GainsightPx — gaps
 
-Today (7): `accounts`, `articles`, `engagements`, `features`, `kc_bots`, `segments`, `users`
+Today (15): `accounts`, `articles`, `custom_events`, `engagement_view_events`, `engagements`, `feature_match_events`, `features`, `identify_events`, `kc_bots`, `page_view_events`, `segment_match_events`, `segments`, `session_events`, `survey_responses`, `users`
 
 Diffed against: <https://jsapi.apiary.io/apis/gainsightpx.apib>
 
@@ -3602,7 +3599,7 @@ Note: Source already does parent-child resolution (orgs -> spaces -> child resou
 
 ## Gitea — gaps
 
-Today (6): `commits`, `issues`, `labels`, `milestones`, `pull_requests`, `releases`
+Today (10): `commits`, `issue_comments`, `issue_timeline`, `issues`, `labels`, `milestones`, `pull_requests`, `releases`, `reviews`, `workflow_runs`
 
 Diffed against: <https://demo.gitea.com/swagger.v1.json>
 
@@ -3623,7 +3620,7 @@ Note: Source is single-repo scoped ({repository} = owner/repo) and already has w
 
 ## Gitguardian — gaps
 
-Today (6): `honeytokens`, `members`, `secret_incidents`, `secret_occurrences`, `sources`, `teams`
+Today (10): `honeytoken_events`, `honeytokens`, `members`, `secret_detectors`, `secret_incident_activity_logs`, `secret_incidents`, `secret_occurrences`, `sources`, `team_memberships`, `teams`
 
 Diffed against: <https://api.gitguardian.com/v1/openapi.json>
 
@@ -3713,7 +3710,7 @@ Note: The v4 documentation states outright that GNews has "Two Powerful Endpoint
 
 ## GoCardless — gaps
 
-Today (7): `customers`, `events`, `mandates`, `payments`, `payouts`, `refunds`, `subscriptions`
+Today (11): `balances`, `creditors`, `customer_bank_accounts`, `customers`, `events`, `mandates`, `payments`, `payout_items`, `payouts`, `refunds`, `subscriptions`
 
 Diffed against: <https://developer.gocardless.com/api-reference/>
 
@@ -3732,7 +3729,7 @@ Diffed against: <https://developer.gocardless.com/api-reference/>
 
 ## Goldcast — gaps
 
-Today (7): `agenda_items`, `discussion_groups`, `event_members`, `events`, `organizations`, `tracks`, `webinars`
+Today (11): `agenda_items`, `broadcast_polls`, `broadcasts`, `discussion_groups`, `event_members`, `events`, `organizations`, `speakers`, `ticket_types`, `tracks`, `webinars`
 
 Diffed against: <https://apidocs.goldcast.io/>
 
@@ -3792,7 +3789,7 @@ Note: The v1 discovery document exposes exactly one method, webfonts.list. The s
 
 ## Gorgias — gaps
 
-Today (9): `customers`, `macros`, `messages`, `satisfaction_surveys`, `tags`, `teams`, `tickets`, `users`, `views`
+Today (17): `custom_fields`, `customer_field_values`, `customers`, `events`, `macros`, `messages`, `satisfaction_surveys`, `tags`, `teams`, `ticket_field_values`, `ticket_tags`, `tickets`, `users`, `views`, `voice_call_events`, `voice_call_recordings`, `voice_calls`
 
 Diffed against: <https://developers.gorgias.com/llms.txt>
 
@@ -3861,7 +3858,7 @@ Note: Harvest API only; the docs page is a single static HTML reference so the f
 
 ## Gridly — gaps
 
-Today (2): `columns`, `records`
+Today (6): `columns`, `databases`, `grids`, `projects`, `records`, `views`
 
 Diffed against: <https://www.gridly.com/docs/api/>
 
@@ -3901,7 +3898,7 @@ Note: The Content API documents exactly five endpoints: content (/search), tags,
 
 ## Guru — gaps
 
-Today (4): `cards`, `collections`, `groups`, `members`
+Today (10): `analytics_events`, `cards`, `collections`, `folder_items`, `folders`, `group_members`, `groups`, `members`, `tag_categories`, `tags`
 
 Diffed against: <https://developer.getguru.com/reference/authentication>
 
@@ -3922,7 +3919,7 @@ Note: developer.getguru.com is a ReadMe site with no downloadable OpenAPI (opena
 
 ## Harvey — gaps
 
-Today (5): `audit_logs`, `client_matters`, `query_history`, `usage_history`, `vault_projects`
+Today (9): `audit_logs`, `client_matters`, `query_history`, `review_table_rows`, `review_tables`, `usage_history`, `vault_project_files`, `vault_project_users`, `vault_projects`
 
 Diffed against: <https://developers.harvey.ai/vault_api.json>
 
@@ -4018,7 +4015,7 @@ Note: The API is read-only (GET only) and drf-yasg generated, so the swagger.jso
 
 ## Heroku — gaps
 
-Today (11): `addons`, `apps`, `builds`, `collaborators`, `domains`, `dynos`, `formation`, `invoices`, `pipelines`, `releases`, `teams`
+Today (14): `addon_attachments`, `addons`, `apps`, `builds`, `collaborators`, `domains`, `dynos`, `formation`, `invoices`, `pipeline_couplings`, `pipelines`, `releases`, `team_monthly_usage`, `teams`
 
 Diffed against: <https://api.heroku.com/schema>
 
@@ -4039,7 +4036,7 @@ Note: The hyper-schema at api.heroku.com/schema is the machine-readable source o
 
 ## Hetzner — gaps
 
-Today (17): `actions`, `certificates`, `datacenters`, `firewalls`, `floating_ips`, `images`, `isos`, `load_balancer_types`, `load_balancers`, `locations`, `networks`, `placement_groups`, `primary_ips`, `server_types`, `servers`, `ssh_keys`, `volumes`
+Today (22): `actions`, `certificates`, `datacenters`, `firewalls`, `floating_ips`, `images`, `isos`, `load_balancer_metrics`, `load_balancer_types`, `load_balancers`, `locations`, `network_members`, `networks`, `placement_groups`, `pricing`, `primary_ips`, `server_metrics`, `server_types`, `servers`, `ssh_keys`, `volumes`, `zones`
 
 Diffed against: <https://docs.hetzner.cloud/cloud.spec.json>
 
@@ -4054,7 +4051,7 @@ Note: Note the payload's doc url (docs.hetzner.cloud) is an HTML docs site; the 
 
 ## Hex — gaps
 
-Today (5): `collections`, `groups`, `project_runs`, `projects`, `users`
+Today (9): `cells`, `collections`, `data_connections`, `groups`, `project_runs`, `projects`, `queried_tables`, `threads`, `users`
 
 Diffed against: <https://learn.hex.tech/docs/api-integrations/api/reference>
 
@@ -4062,7 +4059,7 @@ Diffed against: <https://learn.hex.tech/docs/api-integrations/api/reference>
 - [x] `GetQueriedTables` — per-project list of warehouse tables a project queries — the lineage table Hex users actually want (high)
 - [ ] `ListTopics` — semantic layer topic lookup, resolves topic references on semantic projects (medium)
 - [x] `ListCells` — the cells that make up each project we already sync, needed to analyze notebook composition (medium)
-- [ ] `GetCell` — skipped: returns the same cell object as `ListCells`, which the cells table already syncs (low)
+- [x] `GetCell` — skipped: returns the same cell object as `ListCells`, which the cells table already syncs (low)
 - [x] `ListThreads` — Hex agent threads (title, intent, summary, topics, feedback) — a genuine event stream of analyst questions (medium)
 - [ ] `GetThreadMessages` — skipped: rows are rendered text blocks with no stable id to key on, fetched per thread under a 30 requests per minute limit (low)
 - [ ] `ListDraftGuides` — draft guides alongside the projects and collections we sync (low)
@@ -4164,7 +4161,7 @@ Note: Fetched the OpenAPI spec at https://api.hoorayhr.io/swagger.json (linked f
 
 ## Hubplanner — gaps
 
-Today (13): `billing_rates`, `bookings`, `clients`, `events`, `holidays`, `milestones`, `project_groups`, `project_managers`, `projects`, `resource_groups`, `resources`, `time_entries`, `vacations`
+Today (17): `billing_rates`, `booking_categories`, `bookings`, `clients`, `cost_categories`, `events`, `holidays`, `milestones`, `project_groups`, `project_managers`, `project_tags`, `projects`, `resource_groups`, `resources`, `time_entries`, `unassigned_work`, `vacations`
 
 Diffed against: <https://github.com/hubplanner/API/tree/master/Sections>
 
@@ -4215,7 +4212,7 @@ Note: Fetched the OpenAPI 3.0 spec directly. Orders and tickets are nested under
 
 ## Huntr — gaps
 
-Today (8): `actions`, `activities`, `advisors`, `candidates`, `employers`, `job_posts`, `jobs`, `members`
+Today (11): `actions`, `activities`, `activity_categories`, `advisors`, `candidate_action_metrics`, `candidates`, `employers`, `job_posts`, `jobs`, `members`, `tags`
 
 Diffed against: <https://docs.huntr.co>
 
@@ -4341,7 +4338,7 @@ Note: Inngest ships two real OpenAPI specs (v1 at /api-specs/v1.json, v2 at /api
 
 ## Insightly — gaps
 
-Today (11): `Contacts`, `Emails`, `Events`, `Leads`, `Notes`, `Opportunities`, `Organisations`, `Pipelines`, `Projects`, `Tasks`, `Users`
+Today (22): `Contacts`, `Emails`, `Events`, `Leads`, `LeadSources`, `LeadStatuses`, `Notes`, `Opportunities`, `OpportunityLineItem`, `OpportunityStateHistory`, `Organisations`, `Pipelines`, `PipelineStages`, `Pricebook`, `PricebookEntry`, `Product`, `Projects`, `Quotation`, `QuotationLineItem`, `Tasks`, `Ticket`, `Users`
 
 Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 
@@ -4362,7 +4359,7 @@ Note: https://api.insightly.com/v3.1/swagger/docs/v3 (the URL linked from the He
 
 ## Instana — gaps
 
-Today (9): `alert_configs`, `alerting_channels`, `applications`, `endpoints`, `events`, `infrastructure_snapshots`, `services`, `synthetic_tests`, `websites`
+Today (23): `alert_configs`, `alerting_channels`, `apdex_configs`, `apdex_reports`, `application_metrics`, `applications`, `built_in_event_specifications`, `custom_event_specifications`, `endpoint_metrics`, `endpoints`, `events`, `infrastructure_snapshots`, `mobile_apps`, `releases`, `service_metrics`, `services`, `slo_configs`, `slo_reports`, `synthetic_datacenters`, `synthetic_locations`, `synthetic_test_ci_cds`, `synthetic_tests`, `websites`
 
 Diffed against: <https://instana.github.io/openapi/openapi.json>
 
@@ -4383,7 +4380,7 @@ Note: Instana publishes a full OpenAPI 3 spec (1.9MB JSON / 1.5MB YAML, version 
 
 ## Instantly — gaps
 
-Today (10): `accounts`, `campaign_analytics`, `campaign_daily_analytics`, `campaigns`, `custom_tags`, `emails`, `lead_labels`, `lead_lists`, `leads`, `webhook_events`
+Today (14): `account_daily_analytics`, `accounts`, `campaign_analytics`, `campaign_daily_analytics`, `campaign_step_analytics`, `campaigns`, `custom_tag_mappings`, `custom_tags`, `emails`, `lead_labels`, `lead_lists`, `leads`, `subsequences`, `webhook_events`
 
 Diffed against: <https://developer.instantly.ai/api-reference/openapi.json>
 
@@ -4508,7 +4505,7 @@ Note: Swagger JSON is public and unauthenticated at https://api.iterable.com/api
 
 ## JamfPro — **thin**
 
-Today (9): `buildings`, `categories`, `computer_groups`, `computers`, `departments`, `mobile_devices`, `packages`, `scripts`, `sites`
+Today (20): `buildings`, `categories`, `computer_groups`, `computers`, `departments`, `managed_software_update_statuses`, `mdm_commands`, `mobile_device_groups`, `mobile_device_smart_group_memberships`, `mobile_device_static_group_memberships`, `mobile_devices`, `packages`, `patch_policies`, `patch_policy_logs`, `patch_reports`, `patch_software_title_configurations`, `patch_summaries`, `scripts`, `sites`, `users`
 
 Diffed against: <https://developer.jamf.com/jamf-pro/reference/get_v1-buildings>
 
@@ -4529,7 +4526,7 @@ Note: Jamf publishes no downloadable OpenAPI on developer.jamf.com (ReadMe-hoste
 
 ## Jellyfish — gaps
 
-Today (9): `allocations_by_investment_category`, `allocations_by_person`, `allocations_by_team`, `company_metrics`, `deliverables`, `engineers`, `teams`, `unlinked_pull_requests`, `work_categories`
+Today (15): `allocations_by_investment_category`, `allocations_by_person`, `allocations_by_team`, `allocations_by_work_category`, `allocations_by_work_category_person`, `allocations_by_work_category_team`, `company_metrics`, `deliverable_scope_and_effort_history`, `deliverables`, `engineers`, `person_metrics`, `team_metrics`, `teams`, `unlinked_pull_requests`, `work_categories`
 
 Diffed against: <https://raw.githubusercontent.com/Jellyfish-AI/jellyfish-mcp/main/README.md>
 
@@ -4566,7 +4563,7 @@ Note: Jenkins has no vendor OpenAPI spec and no hosted instance; the jenkins.io 
 
 ## JfrogArtifactory — gaps
 
-Today (4): `artifacts`, `builds`, `repositories`, `storage_summary`
+Today (9): `artifact_statistics`, `artifacts`, `build_artifacts`, `build_dependencies`, `build_promotions`, `builds`, `repositories`, `storage_summary`, `xray_violations`
 
 Diffed against: <https://docs.jfrog.com/artifactory/docs/aql-entities-fields-reference.md>
 
@@ -4652,7 +4649,7 @@ Note: The OpenAPI 3.0 spec (served to ReDoc from https://judge.me/api/docs.yaml)
 
 ## Jumpcloud — **thin**
 
-Today (41): `alert_occurrences`, `alerts`, `application_user_groups`, `application_users`, `applications`, `events`, `identity_risk_events`, `policies`, `policy_results`, `policy_statuses`, `system_group_members`, `system_groups`, `system_insights_*` (24 tables), `system_users`, `systems`, `user_group_members`, `user_groups`, `users`
+Today (41): `alert_occurrences`, `alerts`, `application_user_groups`, `application_users`, `applications`, `events`, `identity_risk_events`, `policies`, `policy_results`, `policy_statuses`, `system_group_members`, `system_groups`, `system_insights_alf`, `system_insights_apps`, `system_insights_battery`, `system_insights_bitlocker_info`, `system_insights_browser_plugins`, `system_insights_chrome_extensions`, `system_insights_disk_encryption`, `system_insights_disk_info`, `system_insights_firefox_addons`, `system_insights_kernel_info`, `system_insights_linux_packages`, `system_insights_logged_in_users`, `system_insights_os_version`, `system_insights_patches`, `system_insights_programs`, `system_insights_safari_extensions`, `system_insights_secureboot`, `system_insights_sip_config`, `system_insights_system_info`, `system_insights_uptime`, `system_insights_usb_devices`, `system_insights_users`, `system_insights_windows_security_center`, `system_insights_windows_security_products`, `system_users`, `systems`, `user_group_members`, `user_groups`, `users`
 
 Diffed against: <https://docs.jumpcloud.com/api/2.0/index.yaml>
 
@@ -4704,7 +4701,7 @@ Note: The Sift API is tiny: the inline ReDoc OpenAPI spec (extracted from \_\_re
 
 ## K6Cloud — gaps
 
-Today (5): `load_tests`, `load_zones`, `projects`, `schedules`, `test_runs`
+Today (7): `labels`, `load_tests`, `load_zones`, `projects`, `schedules`, `test_run_distribution`, `test_runs`
 
 Diffed against: <https://api.k6.io/cloud/v6/openapi>
 
@@ -4719,7 +4716,7 @@ Note: Two API versions in play: the resource endpoints PostHog syncs are /cloud/
 
 ## Kandji — **thin**
 
-Today (5): `blueprints`, `device_apps`, `device_details`, `device_library_items`, `devices`
+Today (11): `blueprints`, `device_apps`, `device_details`, `device_library_items`, `device_parameters`, `devices`, `library_custom_apps`, `library_custom_profiles`, `library_custom_scripts`, `library_in_house_apps`, `users`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/15284493/TzCTZkBe?segregateAuth=true&versionTag=latest>
 
@@ -4740,7 +4737,7 @@ Note: Docs are a published Postman collection (api-docs.kandji.io is a Postman d
 
 ## Katana — gaps
 
-Today (18): `customers`, `inventory`, `inventory_movements`, `locations`, `manufacturing_orders`, `materials`, `price_lists`, `products`, `purchase_orders`, `sales_orders`, `sales_returns`, `services`, `stock_adjustments`, `stock_transfers`, `stocktakes`, `suppliers`, `tax_rates`, `variants`
+Today (26): `bom_rows`, `customers`, `inventory`, `inventory_movements`, `locations`, `manufacturing_order_operation_rows`, `manufacturing_order_productions`, `manufacturing_order_recipe_rows`, `manufacturing_orders`, `materials`, `price_lists`, `products`, `purchase_order_rows`, `purchase_orders`, `sales_order_fulfillments`, `sales_order_rows`, `sales_orders`, `sales_return_rows`, `sales_returns`, `services`, `stock_adjustments`, `stock_transfers`, `stocktakes`, `suppliers`, `tax_rates`, `variants`
 
 Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 
@@ -4761,7 +4758,7 @@ Note: The docs site (developer.katanamrp.com) is a ReadMe app, but the live gate
 
 ## Kernel — gaps
 
-Today (5): `apps`, `browsers`, `deployments`, `invocations`, `profiles`
+Today (10): `apps`, `audit_logs`, `browser_pools`, `browser_telemetry_events`, `browsers`, `deployments`, `invocations`, `profiles`, `projects`, `proxies`
 
 Diffed against: <https://docs.onkernel.com/llms.txt>
 
@@ -4780,7 +4777,7 @@ Note: Docs expose a clean llms.txt enumerating every API-reference page. The bul
 
 ## Klaus — gaps
 
-Today (10): `autoqa_ratings`, `autoqa_reviews`, `calibration_sessions`, `csat`, `disputes`, `quizzes`, `reviews`, `scorecards`, `users`, `workspaces`
+Today (13): `autoqa_ratings`, `autoqa_reviews`, `calibration_sessions`, `csat`, `disputes`, `quiz_leaderboard`, `quiz_overviews`, `quiz_responses`, `quizzes`, `reviews`, `scorecards`, `users`, `workspaces`
 
 Diffed against: <https://pub.klausapp.com/public-export-api.swagger.json>
 
@@ -4793,7 +4790,7 @@ Note: Now branded Zendesk QA. pub.klausapp.com hosts two Swagger 2.0 specs; the 
 
 ## Klaviyo — adequate
 
-Today (33): `accounts`, `campaign_values_reports`, `catalog_categories`, `catalog_items`, `catalog_variants`, `coupon_codes`, `coupons`, `custom_metrics`, `custom_object_records`, `data_sources`, `email_campaigns`, `events`, `flow_actions`, `flow_messages`, `flow_values_reports`, `flows`, `forms`, `images`, `list_profiles`, `lists`, `metrics`, `object_types`, `profiles`, `push_tokens`, `reviews`, `segment_profiles`, `segments`, `sms_campaigns`, `tag_groups`, `tags`, `templates`, `web_feeds`, `webhooks`
+Today (38): `accounts`, `campaign_values_reports`, `catalog_categories`, `catalog_items`, `catalog_variants`, `coupon_codes`, `coupons`, `custom_metrics`, `custom_object_records`, `data_sources`, `email_campaigns`, `events`, `flow_actions`, `flow_messages`, `flow_series_reports`, `flow_values_reports`, `flows`, `form_series_reports`, `form_values_reports`, `forms`, `images`, `list_profiles`, `lists`, `metrics`, `object_types`, `profiles`, `push_tokens`, `reviews`, `segment_profiles`, `segment_series_reports`, `segment_values_reports`, `segments`, `sms_campaigns`, `tag_groups`, `tags`, `templates`, `web_feeds`, `webhooks`
 
 Diffed against: <https://developers.klaviyo.com/en/reference/custom_objects_api_overview>
 
@@ -4803,7 +4800,7 @@ Note: The Custom Objects API is GA at revision 2026-07-15, which the source alre
 
 ## Knock — gaps
 
-Today (4): `messages`, `tenants`, `users`, `workflow_recipient_runs`
+Today (8): `message_delivery_logs`, `message_events`, `messages`, `objects`, `schedules`, `tenants`, `users`, `workflow_recipient_runs`
 
 Diffed against: <https://docs.knock.app/llms.txt>
 
@@ -4822,7 +4819,7 @@ Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.js
 
 ## Knowbe4 — gaps
 
-Today (8): `group_members`, `groups`, `phishing_campaigns`, `phishing_security_test_recipients`, `phishing_security_tests`, `training_campaigns`, `training_enrollments`, `users`
+Today (12): `account`, `account_risk_score_history`, `group_members`, `group_risk_score_history`, `groups`, `phishing_campaigns`, `phishing_security_test_recipients`, `phishing_security_tests`, `training_campaigns`, `training_enrollments`, `user_risk_score_history`, `users`
 
 Diffed against: <https://developer.knowbe4.com/elvis-swagger.yml>
 
@@ -4839,7 +4836,7 @@ Note: developer.knowbe4.com is a Vue+ReDoc SPA with no visible spec link; the sp
 
 ## KongKonnect — **thin**
 
-Today (1): `api_requests`
+Today (14): `api_product_versions`, `api_products`, `api_requests`, `catalog_services`, `consumer_group_members`, `consumer_groups`, `consumers`, `control_planes`, `realm_consumers`, `realms`, `routes`, `scorecard_services`, `scorecards`, `services`
 
 Diffed against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/main/api-specs/konnect/analytics-requests/v2/openapi.yaml>
 
@@ -4860,7 +4857,7 @@ Note: Kong publishes 25 separate Konnect OpenAPI specs under https://github.com/
 
 ## Koyeb — gaps
 
-Today (16): `activities`, `app_events`, `apps`, `deployment_events`, `deployments`, `domains`, `instance_events`, `instances`, `organization_members`, `regional_deployments`, `secrets`, `service_events`, `services`, `snapshots`, `usage_details`, `volumes`
+Today (19): `activities`, `app_events`, `apps`, `catalog_instances`, `catalog_regions`, `deployment_events`, `deployments`, `domains`, `instance_events`, `instances`, `organization_members`, `projects`, `regional_deployments`, `secrets`, `service_events`, `services`, `snapshots`, `usage_details`, `volumes`
 
 Diffed against: <https://raw.githubusercontent.com/koyeb/koyeb-api-client-go/main/api/v1/koyeb/api/openapi.yaml>
 
@@ -4900,7 +4897,7 @@ Note: All four PostHog tables come from just two paths (/model/allocation with t
 
 ## Kustomer — gaps
 
-Today (6): `brands`, `conversations`, `customers`, `tags`, `teams`, `users`
+Today (9): `brands`, `companies`, `conversations`, `customers`, `satisfaction_forms`, `sub_statuses`, `tags`, `teams`, `users`
 
 Diffed against: <https://developer.kustomer.com/sitemap.xml>
 
@@ -4969,7 +4966,7 @@ Note: The Lambda Cloud API v1.10.0 exposes 24 paths and every GET-able collectio
 
 ## Langfuse — gaps
 
-Today (11): `annotation_queue_items`, `annotation_queues`, `dataset_items`, `datasets`, `models`, `observations`, `prompts`, `score_configs`, `scores`, `sessions`, `traces`
+Today (9): `annotation_queue_items`, `annotation_queues`, `dataset_items`, `datasets`, `models`, `observations`, `prompts`, `score_configs`, `scores`
 
 Diffed against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 
@@ -4985,7 +4982,7 @@ Note: Endpoint map in products/warehouse_sources/backend/temporal/data_imports/s
 
 ## LangSmith — gaps
 
-Today (6): `annotation_queues`, `datasets`, `examples`, `feedback`, `projects`, `runs`
+Today (9): `annotation_queue_runs`, `annotation_queues`, `datasets`, `examples`, `feedback`, `projects`, `runs`, `threads`, `workspaces`
 
 Diffed against: <https://api.smith.langchain.com/openapi.json>
 
@@ -5023,7 +5020,7 @@ Note: developers.lattice.com is a ReadMe site with no downloadable OpenAPI file;
 
 ## LaunchDarkly — gaps
 
-Today (6): `auditlog`, `environments`, `flags`, `members`, `metrics`, `projects`
+Today (10): `auditlog`, `environments`, `experiments`, `flag_statuses`, `flags`, `holdouts`, `members`, `metrics`, `projects`, `segments`
 
 Diffed against: <https://app.launchdarkly.com/api/v2/openapi.json>
 
@@ -5037,7 +5034,7 @@ Diffed against: <https://app.launchdarkly.com/api/v2/openapi.json>
 - [ ] `GET /api/v2/engineering-insights/flag-events` — flag change event stream, a real transition history to complement the audit log (medium)
 - [ ] `GET /api/v2/engineering-insights/deployments` — deployment records used for lead-time and release-frequency analysis (medium)
 - [ ] `GET /api/v2/approval-requests` — approval request lifecycle for flag changes - governance and change-velocity reporting (medium)
-- [ ] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/holdouts` — holdout groups tied to experiment measurement (medium)
+- [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/holdouts` — holdout groups tied to experiment measurement (medium)
 - [ ] `GET /api/v2/engineering-insights/pull-requests` — PR records feeding lead-time metrics alongside deployments (low)
 - [ ] `GET /api/v2/tags and GET /api/v2/projects/{projectKey}/context-kinds` — small lookups resolving tag values and context kinds used across flags and segments (low)
 
@@ -5155,7 +5152,7 @@ Note: No public OpenAPI is served from docs.lightdash.com; the authoritative spe
 
 ## Lightfield — gaps
 
-Today (9): `accounts`, `contacts`, `emails`, `lists`, `meetings`, `members`, `notes`, `opportunities`, `tasks`
+Today (12): `accounts`, `contacts`, `custom_objects`, `emails`, `field_definitions`, `lists`, `meetings`, `members`, `notes`, `opportunities`, `relationship_definitions`, `tasks`
 
 Diffed against: <https://docs.lightfield.app/api/resources/object/methods/list/>
 
@@ -5166,7 +5163,7 @@ Note: Lightfield's full resource list is account, contact, email, file, list, me
 
 ## LightspeedRetail — gaps
 
-Today (8): `customers`, `inventory`, `outlets`, `products`, `registers`, `sales`, `taxes`, `users`
+Today (18): `consignment_products`, `consignments`, `customers`, `gift_card_transactions`, `gift_cards`, `inventory`, `outlets`, `payment_types`, `product_categories`, `products`, `promo_codes`, `promotions`, `registers`, `sales`, `stock_adjustments`, `suppliers`, `taxes`, `users`
 
 Diffed against: <https://x-series-api.lightspeedhq.com/reference/listcustomers>
 
@@ -5187,7 +5184,7 @@ Note: The X-Series docs are a ReadMe.io site with no downloadable OpenAPI; the e
 
 ## Linearb — gaps
 
-Today (5): `deployments`, `measurements`, `services`, `teams`, `users`
+Today (6): `deployments`, `incidents`, `measurements`, `services`, `teams`, `users`
 
 Diffed against: <https://docs.linearb.io/api-overview/>
 
@@ -5217,7 +5214,7 @@ Note: The Linkrunner server API exposes exactly three listable GET collections -
 
 ## Linode — gaps
 
-Today (9): `domains`, `events`, `invoices`, `linodes`, `lke_clusters`, `nodebalancers`, `payments`, `users`, `volumes`
+Today (13): `account_transfer`, `domains`, `events`, `invoice_items`, `invoices`, `linode_types`, `linodes`, `lke_clusters`, `nodebalancers`, `payments`, `regions`, `users`, `volumes`
 
 Diffed against: <https://raw.githubusercontent.com/linode/linode-api-openapi/main/openapi.json>
 
@@ -5294,7 +5291,7 @@ Note: Endpoints are enumerated statically in logz_io/source.py; no dynamic table
 
 ## Loops — gaps
 
-Today (12): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflows`
+Today (13): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `event_patterns`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflows`
 
 Diffed against: <https://loops.so/docs/openapi.json>
 
@@ -5306,7 +5303,7 @@ Note: Coverage is close to complete — the spec has ~20 listable GET collection
 
 ## Luma — gaps
 
-Today (5): `event_blasts`, `events`, `guests`, `people`, `person_tags`
+Today (9): `calendars`, `event_blasts`, `event_coupons`, `event_tags`, `events`, `guests`, `people`, `person_tags`, `ticket_types`
 
 Diffed against: <https://docs.luma.com/llms.txt>
 
@@ -5318,7 +5315,7 @@ Diffed against: <https://docs.luma.com/llms.txt>
 - [ ] `GET /v1/memberships/tiers/list` — membership tier lookup for paid community members (medium)
 - [ ] `GET /v1/calendars/admins/list` — calendar admin/host membership table (medium)
 - [ ] `GET /v1/organizations/events/list` — org-wide event list spanning all calendars, broader than the single-calendar events table (medium)
-- [ ] `GET /v1/calendars/get` — the calendar record itself (name, timezone, settings) as a dimension (low)
+- [x] `GET /v1/calendars/get` — the calendar record itself (name, timezone, settings) as a dimension (low)
 - [ ] `GET /v1/organizations/admins/list` — organization admin roster (low)
 - [x] `GET /v1/events/blasts/list` — per-event email blasts with recipient and open counts, synced as `event_blasts` (medium)
 
@@ -5326,7 +5323,7 @@ Note: Luma's docs are ReadMe-hosted with no downloadable OpenAPI; llms.txt is th
 
 ## MailerLite — gaps
 
-Today (10): `automations`, `campaigns`, `fields`, `forms_embedded`, `forms_popup`, `forms_promotion`, `groups`, `segments`, `subscribers`, `webhooks`
+Today (14): `automation_activity`, `automations`, `campaign_subscriber_activity`, `campaigns`, `fields`, `forms_embedded`, `forms_popup`, `forms_promotion`, `group_subscribers`, `groups`, `segment_subscribers`, `segments`, `subscribers`, `webhooks`
 
 Diffed against: <https://developers.mailerlite.com/llms.txt>
 
@@ -5368,7 +5365,7 @@ Note: Suppression endpoints (/v1/suppressions/blocklist, hard-bounces, spam-comp
 
 ## Mailgun — gaps
 
-Today (8): `bounces`, `complaints`, `domains`, `events`, `mailing_lists`, `tags`, `templates`, `unsubscribes`
+Today (14): `bounces`, `complaints`, `country_metrics`, `domain_metrics`, `domains`, `events`, `mailing_lists`, `metrics`, `recipient_provider_metrics`, `tag_metrics`, `tags`, `templates`, `unsubscribes`, `webhook_events`
 
 Diffed against: <https://documentation.mailgun.com/docs/mailgun/api-reference/send/mailgun/metrics/post-v1-analytics-metrics>
 
@@ -5389,7 +5386,7 @@ Note: The URLs supplied in the payload (documentation.mailgun.com/docs/mailgun/a
 
 ## Mailjet — gaps
 
-Today (10): `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `openinformation`, `template`
+Today (13): `bouncestatistics`, `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactmetadata`, `contactslist`, `listrecipient`, `message`, `messageevent`, `openinformation`, `statcounters`, `template`
 
 Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 
@@ -5420,7 +5417,7 @@ Note: The API surface is small: analysis/deliverability, devices, files, message
 
 ## Mailtrap — **thin**
 
-Today (6): `accounts`, `contact_lists`, `email_logs`, `email_templates`, `sending_domains`, `suppressions`
+Today (9): `accounts`, `contact_lists`, `contacts`, `email_campaigns`, `email_logs`, `email_templates`, `sending_domains`, `sending_stats_by_date`, `suppressions`
 
 Diffed against: <https://github.com/mailtrap/mailtrap-openapi/tree/main/specs>
 
@@ -5441,7 +5438,7 @@ Note: Mailtrap publishes 10 OpenAPI specs covering five distinct products (email
 
 ## Marketstack — gaps
 
-Today (8): `currencies`, `dividends`, `eod`, `exchanges`, `intraday`, `splits`, `tickers`, `timezones`
+Today (11): `companyratings`, `currencies`, `dividends`, `eod`, `exchanges`, `intraday`, `splits`, `submissions`, `tickerinfo`, `tickers`, `timezones`
 
 Diffed against: <https://api.swaggerhub.com/apis/apilayer-863/MarketstackAPIv2/2.0.0/swagger.json>
 
@@ -5459,7 +5456,7 @@ Note: PostHog deliberately targets API v1 (MARKETSTACK_BASE_URL is pinned to /v1
 
 ## Matomo — **thin**
 
-Today (5): `actions_summary`, `countries`, `referrers`, `visits`, `visits_summary`
+Today (11): `actions_summary`, `countries`, `event_actions`, `event_categories`, `event_names`, `goals`, `goals_summary`, `pages`, `referrers`, `visits`, `visits_summary`
 
 Diffed against: <https://demo.matomo.cloud/index.php?module=API&method=API.getReportMetadata&idSite=1&period=day&date=today&format=JSON&token_auth=anonymous>
 
@@ -5480,7 +5477,7 @@ Note: Matomo's reference site is JS-rendered, so I read the authoritative report
 
 ## Maxio — gaps
 
-Today (10): `components`, `coupons`, `credit_notes`, `customers`, `events`, `invoices`, `payment_profiles`, `product_families`, `products`, `subscriptions`
+Today (13): `component_price_points`, `components`, `coupons`, `credit_notes`, `customers`, `events`, `invoices`, `payment_profiles`, `product_families`, `product_price_points`, `products`, `subscription_components`, `subscriptions`
 
 Diffed against: <https://github.com/maxio-com/ab-python-sdk/tree/main/doc/controllers>
 
@@ -5607,7 +5604,7 @@ Note: The Clarity Data Export API has exactly one endpoint: GET https://www.clar
 
 ## MistralAI — gaps
 
-Today (7): `agents`, `batch_jobs`, `conversations`, `files`, `fine_tuning_jobs`, `libraries`, `models`
+Today (11): `agents`, `batch_jobs`, `conversation_entries`, `conversations`, `files`, `fine_tuning_jobs`, `libraries`, `library_documents`, `models`, `spans`, `traces`
 
 Diffed against: <https://docs.mistral.ai/openapi.yaml>
 
@@ -5628,7 +5625,7 @@ Note: Spec has ~230 paths. Excluded inference endpoints (chat/embeddings/ocr/mod
 
 ## MixMax — gaps
 
-Today (14): `appointment_links`, `code_snippets`, `file_requests`, `insights_reports`, `live_feed`, `meeting_types`, `messages`, `polls`, `rules`, `sequence_folders`, `sequences`, `snippet_tags`, `user_preferences`, `users`
+Today (15): `appointment_links`, `code_snippets`, `file_requests`, `insights_reports`, `live_feed`, `live_feed_events`, `meeting_types`, `messages`, `polls`, `rules`, `sequence_folders`, `sequences`, `snippet_tags`, `user_preferences`, `users`
 
 Diffed against: <https://developer.mixmax.com/reference>
 
@@ -5921,15 +5918,15 @@ Note: Northflank publishes no OpenAPI document (api.northflank.com/v1/openapi.js
 
 ## NorthpassLMS — gaps
 
-Today (8): `categories`, `course_enrollments`, `courses`, `groups`, `learning_path_enrollments`, `learning_paths`, `people`, `quizzes`
+Today (12): `activity_events`, `categories`, `course_activities`, `course_enrollments`, `courses`, `groups`, `learning_path_enrollments`, `learning_paths`, `people`, `quiz_attempt_answers`, `quiz_attempts`, `quizzes`
 
 Diffed against: <https://developers.northpass.com/reference/get_v2-courses>
 
-- [ ] `GET /v2/events` — the learner activity event stream (lesson views, completions, logins) - the fact table behind every engagement metric (high)
+- [x] `GET /v2/events` — the learner activity event stream (lesson views, completions, logins) - the fact table behind every engagement metric (high)
 - [ ] `GET /v2/groups/{group_uuid}/memberships` — the people-to-groups join table; groups and people are both synced but nothing links them (high)
 - [ ] `GET /v2/credentials/{credential_uuid}/achievements` — certificates/credentials actually earned by learners - the completion outcome enrollments only hint at (high)
 - [ ] `GET /v2/submissions and /v2/assignments/{assignment_uuid}/submissions` — learner assignment submissions with grades/status, the assessment counterpart to quizzes (high)
-- [ ] `GET /v2/courses/{course_uuid}/activities` — the lesson/activity structure inside a course - required to break enrollment progress down below course level (high)
+- [x] `GET /v2/courses/{course_uuid}/activities` — the lesson/activity structure inside a course - required to break enrollment progress down below course level (high)
 - [ ] `GET /v2/credentials` — lookup table resolving the credential definitions that achievements reference (medium)
 - [ ] `GET /v2/assignments` — assignment definitions, the lookup that submissions join back to (medium)
 - [ ] `GET /v2/transcripts/{learner_id}` — per-learner transcript rolling up all course and learning-path completions (medium)
@@ -6038,7 +6035,7 @@ Note: Diffed against every https://docs.omni.co/api/\* page in the docs sitemap 
 
 ## Omnisend — gaps
 
-Today (6): `campaigns`, `carts`, `categories`, `contacts`, `orders`, `products`
+Today (4): `campaigns`, `categories`, `contacts`, `products`
 
 Diffed against: <https://api-docs.omnisend.com/llms.txt>
 
@@ -6597,7 +6594,7 @@ Note: apidocs.persistiq.com is behind a Cloudflare interstitial (403 to curl wit
 
 ## Persona — gaps
 
-Today (6): `accounts`, `cases`, `events`, `inquiries`, `inquiry_templates`, `transactions`
+Today (8): `accounts`, `cases`, `events`, `inquiries`, `inquiry_template_versions`, `inquiry_templates`, `transactions`, `verifications`
 
 Diffed against: <https://docs.withpersona.com/2025-12-08/llms.txt>
 
@@ -7474,7 +7471,7 @@ Note: The v1 REST OpenAPI spec lists only 7 GET-able collections: /pods, /endpoi
 
 ## SafetyCulture — gaps
 
-Today (10): `actions`, `assets`, `groups`, `inspection_items`, `inspections`, `issues`, `schedules`, `sites`, `templates`, `users`
+Today (11): `actions`, `assets`, `groups`, `inspection_items`, `inspections`, `issues`, `schedules`, `sites`, `structures`, `templates`, `users`
 
 Diffed against: <https://developer.safetyculture.com/reference/thepubservice_feedactions>
 
@@ -7672,14 +7669,14 @@ Note: The dependency and scan list endpoints are POST-with-body (paginated searc
 
 ## SendGrid — **thin**
 
-Today (8): `blocks`, `bounces`, `global_unsubscribes`, `invalid_emails`, `marketing_lists`, `spam_reports`, `templates`, `unsubscribe_groups`
+Today (10): `blocks`, `bounces`, `global_unsubscribes`, `invalid_emails`, `marketing_lists`, `message_activity`, `spam_reports`, `stats`, `templates`, `unsubscribe_groups`
 
 Diffed against: <https://github.com/twilio/sendgrid-oai/tree/main/spec/json (official Twilio SendGrid OpenAPI specs; read tsg_stats_v3.json, tsg_mc_stats_v3.json, tsg_mc_contacts_v3.json, tsg_mc_singlesends_v3.json, tsg_suppressions_v3.json, tsg_email_activity_v3.json, tsg_subusers_v3.json and others)>
 
-- [ ] `GET /v3/stats (global email statistics)` — SendGrid's headline metric — daily requests, delivered, opens, clicks, bounces, spam reports; the whole reason to sync SendGrid (high)
+- [x] `GET /v3/stats (global email statistics)` — SendGrid's headline metric — daily requests, delivered, opens, clicks, bounces, spam reports; the whole reason to sync SendGrid (high)
 - [ ] `GET /v3/marketing/stats/singlesends (+ /{id} and /{id}/links)` — Per-campaign send performance including click tracking by link (high)
 - [ ] `GET /v3/marketing/singlesends` — Single Send campaign records — the lookup that resolves the singlesend IDs in the stats endpoints (high)
-- [ ] `GET /v3/messages (Email Activity)` — Per-message event feed (delivered, opened, clicked, bounced) — the row-level fact table behind all aggregate stats (high)
+- [x] `GET /v3/messages (Email Activity)` — Per-message event feed (delivered, opened, clicked, bounced) — the row-level fact table behind all aggregate stats (high)
 - [ ] `GET /v3/marketing/contacts (+ /contacts/exports)` — Contact records; no recipient dimension exists today so lists and suppressions cannot be joined to people (high)
 - [ ] `GET /v3/asm/groups/{group_id}/suppressions` — Membership rows linking email addresses to the unsubscribe_groups already synced — the join table is missing (high)
 - [ ] `GET /v3/categories/stats (and /v3/categories/stats/sums)` — Email stats broken down by category, the main way transactional senders segment performance (medium)
@@ -7744,13 +7741,13 @@ Note on `/v2/reporting/runs`: skipped deliberately. Each row is a report job the
 
 ## ShipStation — gaps
 
-Today (7): `customers`, `fulfillments`, `orders`, `products`, `shipments`, `stores`, `warehouses`
+Today (8): `batches`, `carriers`, `labels`, `manifests`, `pickups`, `shipments`, `tags`, `warehouses`
 
 Diffed against: <https://www.shipstation.com/docs/api/ (V1 API reference index; the source targets ssapi.shipstation.com, i.e. V1, not the api.shipstation.com V2 API)>
 
-- [ ] `GET /carriers (List Carriers)` — Lookup resolving the carrierCode carried on every synced order, shipment and fulfillment row (high)
+- [x] `GET /carriers (List Carriers)` — Lookup resolving the carrierCode carried on every synced order, shipment and fulfillment row (high)
 - [ ] `GET /carriers/listservices (List Services)` — Lookup resolving serviceCode on shipments and orders — required to report shipping cost by service level (high)
-- [ ] `GET /accounts/listtags (List Tags)` — Lookup resolving the tagIds array on orders; without it order tags are opaque integers (high)
+- [x] `GET /accounts/listtags (List Tags)` — Lookup resolving the tagIds array on orders; without it order tags are opaque integers (high)
 - [ ] `GET /users (List Users)` — Lookup resolving the userId assigned to orders and shipments, enabling per-picker/per-agent throughput analysis (high)
 - [ ] `GET /carriers/listpackages (List Packages)` — Lookup resolving packageCode on shipments for packaging-mix analysis (medium)
 - [ ] `GET /stores/marketplaces (List Marketplaces)` — Lookup resolving marketplaceId on the stores table, giving a clean sales-channel dimension (medium)
@@ -8584,7 +8581,7 @@ Note: The folders and form-analytics endpoints were announced in the June 2026 r
 
 ## Tavus — gaps
 
-Today (4): `conversations`, `personas`, `replicas`, `videos`
+Today (5): `conversations`, `memory_stores`, `personas`, `replicas`, `videos`
 
 Diffed against: <https://docs.tavus.io/openapi.yaml>
 
@@ -8995,11 +8992,11 @@ Note: Full Trello OpenAPI 3 spec fetched (128 GET paths). The source fans out bo
 
 ## Tremendous — gaps
 
-Today (7): `campaigns`, `funding_sources`, `invoices`, `members`, `orders`, `products`, `rewards`
+Today (8): `balance_transactions`, `campaigns`, `funding_sources`, `invoices`, `members`, `orders`, `products`, `rewards`
 
 Diffed against: <https://raw.githubusercontent.com/tremendous-rewards/tremendous-python/HEAD/tremendous/api/tremendous_api.py>
 
-- [ ] `balance_transactions` — the account ledger; every debit/credit behind orders and funding sources (high)
+- [x] `balance_transactions` — the account ledger; every debit/credit behind orders and funding sources (high)
 - [ ] `roles` — lookup table resolving the role ids on members (high)
 - [ ] `topups` — funding top-up transactions that explain balance movements (medium)
 - [ ] `fields` — custom field definitions that decode the custom_fields carried on orders and rewards (medium)
@@ -9084,7 +9081,7 @@ Note: No OpenAPI spec is published; the full endpoint inventory was read from th
 
 ## TwelveLabs — gaps
 
-Today (3): `indexes`, `tasks`, `videos`
+Today (4): `asset_transcriptions`, `indexes`, `tasks`, `videos`
 
 Diffed against: <https://docs.twelvelabs.io/openapi.json>
 
@@ -9103,11 +9100,11 @@ Note: Fetched the live OpenAPI (server https://api.twelvelabs.io/v1.3 — same v
 
 ## Twilio — gaps
 
-Today (11): `addresses`, `applications`, `calls`, `conferences`, `incoming_phone_numbers`, `keys`, `messages`, `outgoing_caller_ids`, `queues`, `recordings`, `transcriptions`
+Today (14): `addresses`, `applications`, `calls`, `conferences`, `incoming_phone_numbers`, `keys`, `messages`, `outgoing_caller_ids`, `queues`, `recordings`, `transcriptions`, `usage_records`, `verification_attempts`, `verification_services`
 
 Diffed against: <https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/json/twilio_api_v2010.json>
 
-- [ ] `Usage/Records (+ Daily/Monthly/Yearly variants)` — per-category usage and spend — the headline metric for anyone modeling Twilio cost (high)
+- [x] `Usage/Records (+ Daily/Monthly/Yearly variants)` — per-category usage and spend — the headline metric for anyone modeling Twilio cost (high)
 - [ ] `Conferences/{ConferenceSid}/Participants` — per-participant rows are the only way to analyze conference attendance and talk time; conferences alone give no membership (high)
 - [ ] `Accounts (subaccount list)` — lookup table resolving the AccountSid carried on every message, call and recording already synced (high)
 - [ ] `Calls/{CallSid}/Events` — per-call state/transition history for debugging and funnel analysis of call flow (medium)
@@ -9542,7 +9539,7 @@ Note: Coverage is limited to the recruiting core; Workable's HR module (employee
 
 ## Wrike — gaps
 
-Today (6): `contacts`, `custom_fields`, `folders`, `spaces`, `tasks`, `workflows`
+Today (7): `contacts`, `custom_fields`, `folders`, `project_dependencies`, `spaces`, `tasks`, `workflows`
 
 Diffed against: <https://developers.wrike.com/sitemap.xml>
 
@@ -9682,7 +9679,7 @@ Note: Zendesk Sell also ships a separate Firehose (incremental sync) API coverin
 
 ## ZendeskSunshine — gaps
 
-Today (6): `limits`, `object_records`, `object_type_policies`, `object_types`, `relationship_records`, `relationship_types`
+Today (3): `custom_object_fields`, `custom_object_records`, `custom_objects`
 
 Diffed against: <https://developer.zendesk.com/api-reference/custom-data/custom-objects-api/object_events/>
 
