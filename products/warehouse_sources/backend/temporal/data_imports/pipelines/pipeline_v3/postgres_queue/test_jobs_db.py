@@ -160,6 +160,33 @@ class TestQueueGaugesSlot:
         assert acquired is expected
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "releaser,released,next_pod_acquires",
+        [
+            # The holder frees the slot, so the next pod samples at once, not after the TTL.
+            ("pod-a", True, True),
+            # A pod that lost the slot must not delete the new holder's row.
+            ("pod-b", False, False),
+        ],
+    )
+    async def test_release_only_frees_the_holders_slot(self, conn, conn_b, releaser, released, next_pod_acquires):
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a")
+
+        assert await BatchQueue.release_queue_gauges_slot(conn, owner_token=releaser) is released
+
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn_b, owner_token="pod-c") is next_pod_acquires
+
+    @pytest.mark.asyncio
+    async def test_release_leaves_other_fleets_slots(self, conn, conn_b):
+        other_key = "__queue-gauges__:only:cdc"
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a")
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a", slot_key=other_key)
+
+        await BatchQueue.release_queue_gauges_slot(conn, owner_token="pod-a")
+
+        assert await BatchQueue.try_acquire_queue_gauges_slot(conn_b, owner_token="pod-b", slot_key=other_key) is False
+
+    @pytest.mark.asyncio
     async def test_gauge_slot_does_not_take_the_sweep_slot(self, conn, conn_b):
         assert await BatchQueue.try_acquire_queue_gauges_slot(conn, owner_token="pod-a")
         assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is True
@@ -668,7 +695,13 @@ class TestVerifyGroupLeaseSync:
                 )
 
         connect.assert_called_once()
-        assert _sync_connection_pool(_db_url, 5).idle_count == 1
+        pool = _sync_connection_pool(_db_url, 5)
+        assert pool.idle_count == 1
+        # The queue DB sits behind a transaction pooler: psycopg's default prepare_threshold
+        # would server-prepare a statement after 5 identical executions on this long-lived
+        # pooled connection, and a later Bind can land on a backend that never parsed it
+        # ("unable to bind ... cannot get parse message").
+        assert pool._idle[0].prepare_threshold is None
 
     @pytest.mark.asyncio
     async def test_a_dropped_pooled_connection_is_replaced_not_reported_as_a_lost_lease(self, conn, _db_url):

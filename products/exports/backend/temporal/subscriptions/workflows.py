@@ -375,6 +375,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         "target_type": prepare_result.target_type,
                         "selected_insight_count": prepare_result.selected_insight_count,
                         "available_insight_count": prepare_result.available_insight_count,
+                        "total_insight_count": prepare_result.total_insight_count,
+                        "exported_insight_count": len(prepare_result.exported_asset_ids),
+                        "insight_limit": prepare_result.insight_limit,
                     }
                 )
 

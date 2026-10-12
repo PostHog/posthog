@@ -58,6 +58,7 @@ export function Navigation({
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
+    const todayFramed = todayRail && !todayPhone
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -196,13 +197,20 @@ export function Navigation({
             >
                 <ProjectDragAndDropProvider>
                     {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
+                    {todayFramed && (
+                        // The chrome token exists only inside a quill scope, so the backdrop that fills the gap above the frame carries data-quill.
+                        <div data-quill aria-hidden className="TodayAppLayout__backdrop bg-[var(--chrome)]" />
+                    )}
 
                     <div
                         className={cn(
                             '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
-                            // Under the Today layout the shell draws the seam against the content in quill's border.
                             todayRail
-                                ? null
+                                ? todayFramed && [
+                                      'TodayAppLayout__content',
+                                      // A docked sidebar owns the corner and the seam, so the content draws them only without one.
+                                      (mobileLayout || !todaySidebarVisible) && 'TodayAppLayout__content--corner',
+                                  ]
                                 : [
                                       'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
                                       sidePanelOpen && 'rounded-r-none',
@@ -210,6 +218,10 @@ export function Navigation({
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
+                        {todayFramed && (
+                            // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
+                            <div data-quill aria-hidden className="TodayAppLayout__frame" />
+                        )}
                         <main
                             ref={mainRef}
                             role="main"

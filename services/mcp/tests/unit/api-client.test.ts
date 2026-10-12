@@ -592,6 +592,20 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
 
+        it('retries a token introspection that fails to connect', async () => {
+            const mockFetch = stubFetch(
+                networkError(),
+                new Response(JSON.stringify({ active: true, scope: 'query:read' }), { status: 200 })
+            )
+            const client = new ApiClient({ apiToken: 'pha_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(client.oauth().introspect({ token: 'pha_test' }))
+
+            expect(result).toEqual({ success: true, data: { active: true, scope: 'query:read' } })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(mockFetch.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
+        })
+
         it('does not repeat a write whose outcome is unknown', async () => {
             const mockFetch = stubFetch()
             const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })

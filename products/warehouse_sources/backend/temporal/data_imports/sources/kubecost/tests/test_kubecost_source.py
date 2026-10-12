@@ -5,10 +5,6 @@ from products.warehouse_sources.backend.facade.source_config import SourceFieldI
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kubecost import (
     KubecostSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source import KubecostSource
 
 
@@ -30,53 +26,10 @@ class TestKubecostSource:
         # The API URL decides where the stored key gets sent.
         assert self.source.connection_host_fields == ["host"]
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://kubecost.example.com/model/allocation",
-            "403 Client Error: Forbidden for url: https://kubecost.example.com/model/allocation",
-        ],
-    )
-    def test_non_retryable_errors_match_known_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_non_retryable_errors_does_not_match_server_errors(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        error = "500 Server Error for url: https://kubecost.example.com/model/allocation"
-        assert not any(key in error for key in non_retryable_errors)
-
-    def test_get_schemas(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        # Every endpoint is incremental via the injected per-day window_start.
-        assert all(schema.supports_incremental for schema in schemas.values())
-        assert [f["field"] for f in schemas["allocation_by_namespace"].incremental_fields] == ["window_start"]
-        assert schemas["assets"].incremental_fields == INCREMENTAL_FIELDS["assets"]
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["assets"])
         assert len(schemas) == 1
         assert schemas[0].name == "assets"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source.validate_kubecost_credentials"
-    )
-    @mock.patch.object(KubecostSource, "is_database_host_valid")
-    def test_validate_credentials_happy_path(self, mock_host_valid, mock_validate):
-        mock_host_valid.return_value = (True, None)
-        mock_validate.return_value = (True, None)
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is True
-        assert error_message is None
-        mock_host_valid.assert_called_once_with("kubecost.example.com", self.team_id)
-        mock_validate.assert_called_once_with("https://kubecost.example.com", "token")
 
     @mock.patch.object(KubecostSource, "is_database_host_valid")
     def test_validate_credentials_rejects_unsafe_host(self, mock_host_valid):

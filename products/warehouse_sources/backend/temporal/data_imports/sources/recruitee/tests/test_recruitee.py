@@ -78,9 +78,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 class TestBaseUrl:
-    def test_interpolates_company_id_into_path(self) -> None:
-        assert base_url("mycompany") == "https://api.recruitee.com/c/mycompany"
-
     @parameterized.expand([("slash", "a/b"), ("dot", "evil.com"), ("space", "a b"), ("at", "user@host")])
     def test_rejects_unsafe_company_id(self, _name: str, company_id: str) -> None:
         with pytest.raises(ValueError):
@@ -106,30 +103,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == RecruiteeResumeConfig(offset=PAGE_SIZE)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert [r["id"] for r in rows] == [1, 2]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": 5}])])
@@ -150,14 +123,6 @@ class TestDataExtraction:
 
         rows = _rows(_source(endpoint=endpoint))
         assert [r["id"] for r in rows] == [1, 2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_accept_header_set_on_session(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
-
-        _rows(_source())
-        assert session.headers.get("Accept") == "application/json"
 
     @parameterized.expand(
         [

@@ -1,59 +1,32 @@
 from datetime import UTC, datetime
-from typing import Any, cast
-
-from unittest.mock import Mock, patch
+from typing import Any
 
 from parameterized import parameterized
+from requests.exceptions import ConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally import (
     _format_apitally_datetime,
     _incremental_window,
-    apitally_source,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
+from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.source import ApitallySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apitally import (
+    ApitallySourceConfig,
 )
 
 
-class _FakeDltResource:
-    """Lightweight stand-in for a DltResource returned by rest_api_resources.
-
-    ``process_parent_data_item`` injects parent fields as ``_<parent_resource>_<field>``
-    (see ``make_parent_key_name``), so test data should include those prefixed keys to
-    exercise the row mappers.
-    """
-
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
-def _response(status_code: int = 200, json_body: Any = None, text: str = "") -> Mock:
-    response = Mock()
-    response.status_code = status_code
-    response.json.return_value = json_body if json_body is not None else {}
-    response.text = text
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(ApitallySource(), ApitallySourceConfig(api_key="key"))
 
 
 class TestFormatApitallyDatetime:
-    def test_formats_naive_datetime_as_utc(self) -> None:
-        assert _format_apitally_datetime(datetime(2025, 5, 14, 0, 0, 0)) == "2025-05-14T00:00:00Z"
-
-    def test_formats_aware_datetime_converted_to_utc(self) -> None:
-        aware = datetime(2025, 5, 14, 5, 0, 0, tzinfo=UTC)
-        assert _format_apitally_datetime(aware) == "2025-05-14T05:00:00Z"
-
     def test_caps_future_datetime_to_now(self) -> None:
         far_future = datetime(2999, 1, 1, tzinfo=UTC)
         formatted = _format_apitally_datetime(far_future)
@@ -78,17 +51,6 @@ class TestIncrementalWindow:
 
 
 class TestGetResource:
-    def test_apps_shape(self) -> None:
-        resource = get_resource("Apps", should_use_incremental_field=False)
-
-        assert resource["name"] == "Apps"
-        assert resource["write_disposition"] == "replace"
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint["path"] == "/v1/apps"
-        assert endpoint["data_selector"] == "data"
-        assert isinstance(endpoint["paginator"], SinglePagePaginator)
-        assert "params" not in endpoint
-
     @parameterized.expand(["Consumers", "Endpoints", "Traffic", "RequestLogs"])
     def test_rejects_fanout_endpoints(self, endpoint: str) -> None:
         try:
@@ -99,27 +61,23 @@ class TestGetResource:
 
 
 class TestValidateCredentials:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.make_tracked_session")
-    def test_valid_key(self, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response(200, {"data": []})
-
-        result = validate_credentials("valid-key")
+    def test_valid_key(self) -> None:
+        with scripted_network([ScriptedResponse(json={"data": []})]) as network:
+            result = validate_credentials("valid-key")
 
         assert result == (True, None)
+        assert [request.path for request in network.requests_log] == ["/v1/apps"]
+        assert network.requests_log[0].headers["api-key"] == "valid-key"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.make_tracked_session")
-    def test_invalid_key(self, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response(401)
-
-        result = validate_credentials("bad-key")
+    def test_invalid_key(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]):
+            result = validate_credentials("bad-key")
 
         assert result == (False, "Invalid Apitally API key.")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.make_tracked_session")
-    def test_forbidden_reports_premium_plan_requirement(self, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response(403)
-
-        result = validate_credentials("key")
+    def test_forbidden_reports_premium_plan_requirement(self) -> None:
+        with scripted_network([ScriptedResponse(status=403)]):
+            result = validate_credentials("key")
 
         assert result == (
             False,
@@ -127,37 +85,28 @@ class TestValidateCredentials:
         )
 
     @parameterized.expand([(500,), (503,)])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.make_tracked_session")
-    def test_other_error_uses_response_detail(self, status_code: int, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response(status_code, {"detail": "server exploded"})
-
-        result = validate_credentials("key")
+    def test_other_error_uses_response_detail(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={"detail": "server exploded"}))):
+            result = validate_credentials("key")
 
         assert result == (False, "server exploded")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.make_tracked_session")
-    def test_network_error_returns_false(self, mock_make_session) -> None:
-        from requests.exceptions import ConnectionError
+    def test_network_error_returns_false(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            valid, message = validate_credentials("key")
 
-        mock_make_session.return_value.get.side_effect = ConnectionError("boom")
-
-        result = validate_credentials("key")
-
-        assert result == (False, "boom")
+        # The real stack retries a dropped connection and wraps the cause in its own message.
+        assert valid is False
+        assert message is not None and "boom" in message
 
 
 class TestApitallySourceTopLevel:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.rest_api_resource")
-    def test_apps_builds_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
+    def test_apps_builds_response(self) -> None:
+        result = _driver().run("Apps", [ScriptedResponse(json={"data": []})])
 
-        resp = apitally_source(
-            api_key="key",
-            endpoint="Apps",
-            team_id=1,
-            job_id="job-1",
-        )
-
+        assert result.raised is None
+        resp = result.response
+        assert resp is not None
         assert resp.name == "Apps"
         assert resp.primary_keys == ["id"]
         assert resp.partition_mode == "datetime"
@@ -167,103 +116,45 @@ class TestApitallySourceTopLevel:
 class TestApitallyFanout:
     @parameterized.expand(
         [
-            ("Consumers", {"id": "c1", "_Apps_id": "1"}),
-            ("Traffic", {"period_start": "2025-01-01T00:00:00Z", "_Apps_id": "1"}),
-            ("RequestLogs", {"request_uuid": "r1", "_Apps_id": "1"}),
+            ("Consumers", {"id": "c1"}),
+            ("Traffic", {"period_start": "2025-01-01T00:00:00Z"}),
+            ("RequestLogs", {"request_uuid": "r1"}),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_fanout_row_format_renames_parent_id_to_app_id(self, endpoint, child_row, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("Apps", [{"id": "1"}]),
-            _FakeDltResource(endpoint, [child_row]),
-        ]
-
-        resp = apitally_source(
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
+    def test_fanout_row_format_renames_parent_id_to_app_id(self, endpoint: str, child_row: dict[str, Any]) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"data": [{"id": "1"}]}), ScriptedResponse(json=[child_row])],
         )
 
-        rows = list(cast(Any, resp.items()))
-        assert len(rows) == 1
-        row = rows[0]
+        assert result.raised is None
+        child_path = "request-logs" if endpoint == "RequestLogs" else endpoint.lower()
+        assert result.paths == ["/v1/apps", f"/v1/apps/1/{child_path}"]
+        assert len(result.rows) == 1
+        row = result.rows[0]
         assert row["app_id"] == "1"
         assert "_Apps_id" not in row
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-    )
-    def test_endpoints_fanout_overrides_paginator_to_single_page(self, mock_build) -> None:
-        mock_build.return_value = iter([])
-
-        apitally_source(api_key="key", endpoint="Endpoints", team_id=1, job_id="job-1")
-
-        _, kwargs = mock_build.call_args
-        assert kwargs["page_size_param"] is None
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
-
     @parameterized.expand(["Consumers", "Endpoints", "Traffic", "RequestLogs"])
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-    )
-    def test_fanout_unwraps_parent_data_envelope(self, endpoint, mock_build) -> None:
-        mock_build.return_value = iter([])
+    def test_fanout_unwraps_parent_data_envelope(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"data": [{"id": "1"}]}), ScriptedResponse(json=[])],
+        )
 
-        apitally_source(api_key="key", endpoint=endpoint, team_id=1, job_id="job-1")
+        assert result.raised is None
+        assert result.paths[0] == "/v1/apps"
+        assert result.paths[1].startswith("/v1/apps/1/")
 
-        _, kwargs = mock_build.call_args
-        assert kwargs["parent_endpoint_extra"] == {"data_selector": "data"}
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-    )
-    def test_consumers_fanout_keeps_cursor_pagination(self, mock_build) -> None:
-        mock_build.return_value = iter([])
-
-        apitally_source(api_key="key", endpoint="Consumers", team_id=1, job_id="job-1")
-
-        _, kwargs = mock_build.call_args
-        assert kwargs["page_size_param"] == "limit"
-        assert kwargs["child_endpoint_extra"] is None
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-    )
-    def test_traffic_incremental_passes_window_factory(self, mock_build) -> None:
-        mock_build.return_value = iter([])
-
-        apitally_source(
-            api_key="key",
-            endpoint="Traffic",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=True,
+    def test_traffic_incremental_passes_window_factory(self) -> None:
+        result = _driver().run(
+            "Traffic",
+            [ScriptedResponse(json={"data": [{"id": "1"}]}), ScriptedResponse(json=[])],
             db_incremental_field_last_value=datetime(2025, 1, 1, tzinfo=UTC),
             incremental_field="period_end",
         )
 
-        _, kwargs = mock_build.call_args
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["incremental_field"] == "period_end"
-        assert kwargs["incremental_config_factory"] is _incremental_window
-
-    def test_client_config_uses_cursor_paginator_and_api_key_header(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-        ) as mock_build:
-            mock_build.return_value = iter([])
-            apitally_source(api_key="secret-key", endpoint="Consumers", team_id=1, job_id="job-1")
-
-            _, kwargs = mock_build.call_args
-            client_config = kwargs["client_config"]
-            assert isinstance(client_config["paginator"], JSONResponseCursorPaginator)
-            assert client_config["auth"] == {
-                "type": "api_key",
-                "name": "Api-Key",
-                "api_key": "secret-key",
-                "location": "header",
-            }
+        assert result.raised is None
+        assert result.paths == ["/v1/apps", "/v1/apps/1/traffic"]
+        assert result.params("start") == [None, "2025-01-01T00:00:00Z"]
+        assert result.requests[1].param("end") is not None

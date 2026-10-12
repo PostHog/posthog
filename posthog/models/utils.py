@@ -568,11 +568,6 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "name": obj.name,
             }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "OAuthApplication":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-            }
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "LLMModelConfiguration":
             return {
                 "id": str(obj.id),

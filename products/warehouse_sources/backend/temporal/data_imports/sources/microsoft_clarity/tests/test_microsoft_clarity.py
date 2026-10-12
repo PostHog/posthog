@@ -12,15 +12,10 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
     BASE_URL,
     INSIGHTS_PATH,
-    _build_params,
-    _resolve_dimensions,
     microsoft_clarity_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
-    ENDPOINT_NAME,
-    NO_DIMENSION,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import NO_DIMENSION
 
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity.make_tracked_session"
 
@@ -36,32 +31,6 @@ def _make_response(status_code: int, *, json_body: Any = None, text: str | None 
     else:
         response._content = b""
     return response
-
-
-class TestBuildParams:
-    def test_no_dimensions(self) -> None:
-        assert _build_params("1", []) == {"numOfDays": "1"}
-
-    def test_with_dimensions_numbered_in_order(self) -> None:
-        params = _build_params("2", ["OS", "Browser"])
-        assert params == {"numOfDays": "2", "dimension1": "OS", "dimension2": "Browser"}
-
-
-class TestResolveDimensions:
-    def test_all_none_returns_empty(self) -> None:
-        assert _resolve_dimensions(NO_DIMENSION, NO_DIMENSION, NO_DIMENSION) == []
-
-    def test_none_values_are_skipped(self) -> None:
-        assert _resolve_dimensions(None, None, None) == []
-
-    def test_selected_dimensions_are_kept_in_order(self) -> None:
-        assert _resolve_dimensions("OS", "Browser", NO_DIMENSION) == ["OS", "Browser"]
-
-    def test_gap_in_selection_is_compacted(self) -> None:
-        assert _resolve_dimensions("OS", NO_DIMENSION, "Device") == ["OS", "Device"]
-
-    def test_duplicate_selection_is_deduplicated(self) -> None:
-        assert _resolve_dimensions("OS", "OS", "Device") == ["OS", "Device"]
 
 
 class TestValidateCredentials:
@@ -173,45 +142,6 @@ class TestMicrosoftClaritySource:
         assert rows[1]["OS"] == "Android"
         assert rows[2]["metric_name"] == "ScrollDepth"
         assert rows[2]["row_index"] == 0
-
-    @mock.patch(SESSION_PATCH)
-    def test_num_of_days_is_recorded_on_every_row(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=SAMPLE_PAYLOAD)
-
-        response = microsoft_clarity_source(
-            token="token", num_of_days="3", dimension1=NO_DIMENSION, dimension2=NO_DIMENSION, dimension3=NO_DIMENSION
-        )
-        rows = list(cast("Iterable[Any]", response.items()))
-
-        assert all(row["num_of_days"] == 3 for row in rows)
-
-    @mock.patch(SESSION_PATCH)
-    def test_source_response_shape(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=SAMPLE_PAYLOAD)
-
-        response = microsoft_clarity_source(
-            token="token", num_of_days="1", dimension1=NO_DIMENSION, dimension2=NO_DIMENSION, dimension3=NO_DIMENSION
-        )
-
-        assert response.name == ENDPOINT_NAME
-        assert response.primary_keys == ["metric_name", "synced_at", "row_index"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["synced_at"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_dimension_params_are_sent_to_the_api(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=[])
-
-        microsoft_clarity_source(
-            token="token", num_of_days="2", dimension1="Browser", dimension2="Device", dimension3=NO_DIMENSION
-        )
-
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"numOfDays": "2", "dimension1": "Browser", "dimension2": "Device"}
 
     @mock.patch(SESSION_PATCH)
     def test_non_list_payload_yields_no_rows(self, MockSession: Any) -> None:

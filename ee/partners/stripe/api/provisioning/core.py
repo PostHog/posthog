@@ -24,7 +24,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.models.organization import Organization
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -258,14 +258,14 @@ def handle_new_user(
     # (500) where the spec calls for a 400 invalid_request.
     org_name = configuration.get("organization_name") or f"{PARTNER_LABEL} ({email})"
 
-    # The signup access rules do not apply here. Stripe's provisioning spec defines no refusal for a new
-    # account, and Stripe keeps a valid card on file for every account it provisions.
     try:
         stripe_app = get_stripe_oauth_app()
     except StripeOAuthAppMissingError:
         capture_provisioning_event("account_request", "error", error_code="oauth_app_missing")
         raise SpecError("server_error", "OAuth application is not configured", request_id=request_id, status=500)
 
+    # The signup access rules do not apply here. Stripe's provisioning spec defines no refusal for a new
+    # account, and Stripe keeps a valid card on file for every account it provisions.
     try:
         with transaction.atomic():
             organization, team, user = User.objects.bootstrap(
@@ -274,10 +274,11 @@ def handle_new_user(
                 password=None,
                 first_name=first_name,
                 is_email_verified=False,
-                organization_fields={
-                    "provisioning_source": Organization.ProvisioningSource.STRIPE_PROJECTS,
-                    "provisioning_application": stripe_app,
-                },
+            )
+            OrganizationProvisioning.objects.create(
+                organization=organization,
+                partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+                application=stripe_app,
             )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)

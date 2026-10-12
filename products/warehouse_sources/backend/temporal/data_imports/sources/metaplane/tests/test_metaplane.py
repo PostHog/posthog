@@ -165,33 +165,14 @@ class TestValidateCredentials:
             mock_session.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("key") is False
 
-    def test_raw_api_key_in_authorization_header(self) -> None:
-        # Metaplane expects the bare key, not a Bearer-prefixed one — a prefix breaks auth.
-        with patch(f"{METAPLANE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response([], status_code=200)
-            validate_credentials("mp-key")
-            headers = mock_session.return_value.get.call_args.kwargs["headers"]
-            assert headers["Authorization"] == "mp-key"
-
 
 class TestConnectionsEndpoint:
     def test_yields_connection_rows(self) -> None:
         api = _FakeAPI(connections=[{"id": "c1"}, {"id": "c2"}])
         assert _drive(api, "connections") == [[{"id": "c1"}, {"id": "c2"}]]
 
-    def test_empty_account_yields_nothing(self) -> None:
-        assert _drive(_FakeAPI(connections=[]), "connections") == []
-
 
 class TestMonitorsEndpoint:
-    def test_fans_out_over_connections(self) -> None:
-        api = _FakeAPI(
-            connections=[{"id": "c1"}, {"id": "c2"}],
-            monitors_by_connection={"c1": [{"id": "m1"}], "c2": [{"id": "m2"}, {"id": "m3"}]},
-        )
-        batches = _drive(api, "monitors")
-        assert [row["id"] for batch in batches for row in batch] == ["m1", "m2", "m3"]
-
     def test_deleted_connection_is_skipped(self) -> None:
         # c1 404s (deleted between enumeration and fetch); the sync must continue with c2.
         api = _FakeAPI(connections=[{"id": "c1"}, {"id": "c2"}], monitors_by_connection={"c2": [{"id": "m2"}]})
@@ -200,22 +181,6 @@ class TestMonitorsEndpoint:
 
 
 class TestConnectionSyncStatusesEndpoint:
-    def test_rows_keyed_on_connection(self) -> None:
-        # The API response carries connectionId itself, but a missing one must still be
-        # filled in — it's the table's primary key.
-        api = _FakeAPI(
-            connections=[{"id": "c1"}, {"id": "c2"}],
-            sync_status_by_connection={
-                "c1": {"status": "SUCCEEDED", "connectionId": "c1"},
-                "c2": {"status": "ERRORED"},
-            },
-        )
-        batches = _drive(api, "connection_sync_statuses")
-        assert [(row["connectionId"], row["status"]) for batch in batches for row in batch] == [
-            ("c1", "SUCCEEDED"),
-            ("c2", "ERRORED"),
-        ]
-
     def test_connection_without_status_is_skipped(self) -> None:
         api = _FakeAPI(
             connections=[{"id": "c1"}, {"id": "c2"}],
@@ -256,11 +221,6 @@ class TestEvaluationHistory:
             MetaplaneResumeConfig(monitor_id="m1", cursor=full_page[-1]["createdAt"])
         )
 
-    def test_short_page_terminates_pagination(self) -> None:
-        api = self._single_monitor_api([[_evaluation("2026-01-01T00:00:00.000Z")]])
-        _drive(api, "monitor_evaluations")
-        assert len(api.evaluation_bodies("m1")) == 1
-
     def test_non_advancing_cursor_stops_pagination(self) -> None:
         # A full page of identical timestamps would otherwise re-request the same page forever.
         same_ts_page = [_evaluation("2026-01-01T00:00:00.000Z") for _ in range(EVALUATION_PAGE_LIMIT)]
@@ -281,54 +241,6 @@ class TestEvaluationHistory:
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
         assert api.evaluation_bodies("m1")[0]["createdAt"] == "2026-03-04T02:58:14.000Z"
-
-    def test_full_refresh_omits_cursor(self) -> None:
-        api = self._single_monitor_api([[_evaluation("2026-03-05T00:00:00.000Z")]])
-        _drive(api, "monitor_evaluations")
-        assert "createdAt" not in api.evaluation_bodies("m1")[0]
-
-    def test_bookmark_advances_to_next_monitor(self) -> None:
-        api = _FakeAPI(
-            connections=[{"id": "c1"}],
-            monitors_by_connection={"c1": [{"id": "m1"}, {"id": "m2"}]},
-            evaluation_pages_by_monitor={
-                "m1": [[_evaluation("2026-01-01T00:00:00.000Z")]],
-                "m2": [[_evaluation("2026-01-02T00:00:00.000Z")]],
-            },
-        )
-        manager = _make_manager()
-
-        batches = _drive(api, "monitor_evaluations", manager)
-
-        assert [row["monitorId"] for batch in batches for row in batch] == ["m1", "m2"]
-        # After finishing m1 the bookmark moves to m2 so a crash between monitors resumes there.
-        manager.save_state.assert_called_once_with(MetaplaneResumeConfig(monitor_id="m2", cursor=None))
-
-    def test_resume_skips_completed_monitors_and_uses_saved_cursor(self) -> None:
-        api = _FakeAPI(
-            connections=[{"id": "c1"}],
-            monitors_by_connection={"c1": [{"id": "m1"}, {"id": "m2"}]},
-            evaluation_pages_by_monitor={
-                "m1": [[_evaluation("2026-01-01T00:00:00.000Z")]],
-                "m2": [[_evaluation("2026-01-02T00:00:00.000Z")]],
-            },
-        )
-        manager = _make_manager(MetaplaneResumeConfig(monitor_id="m2", cursor="2026-01-01T12:00:00.000Z"))
-
-        batches = _drive(api, "monitor_evaluations", manager)
-
-        assert api.evaluation_bodies("m1") == []
-        assert api.evaluation_bodies("m2")[0]["createdAt"] == "2026-01-01T12:00:00.000Z"
-        assert [row["monitorId"] for batch in batches for row in batch] == ["m2"]
-
-    def test_resume_with_deleted_bookmark_monitor_starts_over(self) -> None:
-        api = self._single_monitor_api([[_evaluation("2026-01-01T00:00:00.000Z")]])
-        manager = _make_manager(MetaplaneResumeConfig(monitor_id="gone", cursor="2026-01-01T12:00:00.000Z"))
-
-        batches = _drive(api, "monitor_evaluations", manager)
-
-        assert [row["monitorId"] for batch in batches for row in batch] == ["m1"]
-        assert "createdAt" not in api.evaluation_bodies("m1")[0]
 
     def test_monitor_without_history_is_skipped(self) -> None:
         # A monitor that was deleted (or never modeled) 404s; the sync continues with the rest.

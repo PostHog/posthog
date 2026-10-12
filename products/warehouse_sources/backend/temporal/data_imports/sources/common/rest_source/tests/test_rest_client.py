@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from requests import Response
 from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout, TooManyRedirects
@@ -20,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    MAX_RETRY_AFTER_SECONDS,
     RESTClient,
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -817,13 +818,16 @@ class TestRESTClient:
         [
             ("rfc3339_utc", "2026-03-06T12:00:45Z", 45.0),
             ("rfc3339_offset", "2026-03-06T12:01:00+00:00", 60.0),
-            ("capped", "2027-03-06T12:00:00Z", MAX_RETRY_AFTER_SECONDS),
+            # The header says when the bucket is full again, which can be an hour away while the
+            # next request is already allowed, so a far reset waits the longest honored delay.
+            ("far_future", "2026-03-06T13:00:00Z", 300.0),
             # A window that has already cleared, or a value we can't read, tells us nothing — the
             # caller falls back to exponential backoff rather than retrying with no delay at all.
             ("already_elapsed", "2026-03-06T11:59:55Z", None),
             ("unparseable", "in a bit", None),
         ]
     )
+    @override_settings(DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS=300.0)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_honors_anthropic_rate_limit_reset(
         self, _name: str, header_value: str, expected: float | None, mock_datetime
@@ -850,17 +854,6 @@ class TestRESTClient:
         response.headers["x-rate-limit-reset"] = str(int(now.timestamp()) + 120)
 
         assert _parse_retry_after(response) == 120
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
-    def test_parse_retry_after_caps_sentry_reset_header(self, mock_datetime) -> None:
-        # A reset far in the future must be clamped to MAX_RETRY_AFTER_SECONDS.
-        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
-        mock_datetime.now.return_value = now
-
-        response = _make_response({"error": "rate limited"}, status_code=429)
-        response.headers["X-Sentry-Rate-Limit-Reset"] = str(int(now.timestamp()) + 10_000)
-
-        assert _parse_retry_after(response) == MAX_RETRY_AFTER_SECONDS
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_ignores_already_elapsed_sentry_reset(self, mock_datetime) -> None:

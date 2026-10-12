@@ -11,10 +11,9 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
-from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import Organization
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -89,13 +88,10 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
 
         assert self._attribution(self.team) == NO_ROW
         assert self._attribution(null_team) is None
-        assert self._recorded_creator() is None
+        assert not OrganizationProvisioning.objects.exists()
         assert output["would create"] == "1"
         assert output["would fill"] == "1"
         assert output["provisioning_api organizations, would create"] == "1"
-        assert not ActivityLog.objects.filter(
-            organization_id=self.organization.id, scope="Organization", activity="updated"
-        ).exists()
 
     def test_live_run_skips_unresolvable_rows_and_attributes_the_rest(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -123,13 +119,11 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
         assert output["skipped_conflicting_partners"] == "1"
 
     def _recorded_creator(self) -> tuple[str, str | None] | None:
-        self.organization.refresh_from_db()
-        if self.organization.provisioning_source is None:
+        record = OrganizationProvisioning.objects.filter(organization=self.organization).first()
+        if record is None:
             return None
-        application = next(
-            (name for name, app in self.apps.items() if app.id == self.organization.provisioning_application_id), None
-        )
-        return self.organization.provisioning_source, application
+        application = next((name for name, app in self.apps.items() if app.id == record.application_id), None)
+        return record.partner, application
 
     def _add_vercel_installation(self, config: dict[str, object]) -> None:
         OrganizationIntegration.objects.create(
@@ -175,33 +169,15 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
         self._run_command(rows, "--live-run")
 
         assert self._recorded_creator() == expected
-        logs = ActivityLog.objects.filter(
-            organization_id=self.organization.id, scope="Organization", activity="updated"
-        )
-        assert logs.count() == int(expected is not None)
-        if expected is not None:
-            detail = logs.get().detail
-            assert detail is not None
-            assert detail["trigger"]["job_id"] == "backfill_agentic_provisioning_attribution"
-            assert all(change["action"] == "created" for change in detail["changes"])
-            assert {change["field"]: change["after"] for change in detail["changes"]} == {
-                "provisioning_source": expected[0],
-                "provisioning_application": {
-                    "id": str(self.apps["partner"].id),
-                    "name": self.apps["partner"].name,
-                },
-            }
 
     def test_live_run_never_replaces_recorded_organization_creator(self):
-        Organization.objects.filter(id=self.organization.id).update(
-            provisioning_source=Organization.ProvisioningSource.PROVISIONING_API,
-            provisioning_application=self.apps["other_partner"],
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=self.apps["other_partner"],
         )
 
         output = self._run_command([(self.team.id, self.apps["partner"].id)], "--live-run")
 
         assert self._recorded_creator() == ("provisioning_api", "other_partner")
         assert output["provisioning_api organizations, skipped_other_partner"] == "1"
-        assert not ActivityLog.objects.filter(
-            organization_id=self.organization.id, scope="Organization", activity="updated"
-        ).exists()

@@ -5,7 +5,7 @@ from posthog.models.utils import UUIDModel
 
 
 class PlaygroundChat(TeamScopedRootMixin, UUIDModel):
-    """A playground thread owned by one person. Each question is its own sandbox run."""
+    """A playground thread owned by one person. The chat is one sandbox task. Each question is a run on that task."""
 
     team = models.ForeignKey(
         "posthog.Team",
@@ -23,6 +23,8 @@ class PlaygroundChat(TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     title = models.CharField(max_length=255, blank=True, default="")
+    # Null until the first question. Later questions resume this task.
+    task_id = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

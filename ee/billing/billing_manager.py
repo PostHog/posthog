@@ -27,6 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -105,14 +106,6 @@ class BillingManagedByPartnerError(PermissionDenied):
             f"Billing for this organization is managed by {partner_name}. "
             f"Contact {partner_name} to change your plan or payment details."
         )
-
-
-def get_billing_lock_partner(organization: Organization) -> OAuthApplication | None:
-    if organization.customer_id or organization.provisioning_application_id is None:
-        return None
-    return OAuthApplication.objects.filter(
-        pk=organization.provisioning_application_id, _provisioning_config__pays_for_customers=True
-    ).first()
 
 
 def raise_if_billing_managed_by_partner(organization: Organization) -> None:
@@ -226,6 +219,10 @@ def build_billing_token(
 
     if service_action:
         payload["service_action"] = service_action
+
+    paying_partner = get_billing_lock_partner(organization)
+    if paying_partner:
+        payload["payer_partner_id"] = str(paying_partner.id)
 
     encoded_jwt = jwt.encode(
         payload,

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 import time_machine
@@ -37,6 +38,68 @@ from products.cohorts.backend.models.cohort import Cohort
 
 class TestFilters(BaseTest):
     maxDiff = None
+
+    @parameterized.expand([("gap", False), ("zero", True)])
+    def test_fill_date_bounds_before_window_calculations(self, _name: str, zero: bool) -> None:
+        query = parse_select(
+            """
+            WITH observed AS (
+                SELECT toDateTime('2026-01-01') AS day, 'a' AS series, 10 AS amount
+                UNION ALL SELECT toDateTime('2026-01-03'), 'a', 30
+                UNION ALL SELECT toDateTime('2026-01-02'), 'b', 8
+            ), filled AS (
+                SELECT day, series, toNullable(toFloat(amount)) AS amount FROM observed
+                ORDER BY series, day WITH FILL
+                    FROM toStartOfDay({filters.dateRange.from})
+                    TO toStartOfDay({filters.dateRange.to}) + INTERVAL 1 DAY
+                    STEP INTERVAL 1 DAY
+            )
+            SELECT series, toString(toDate(day)), amount,
+                avg(amount) OVER (PARTITION BY series ORDER BY day ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
+                if(count(amount) OVER (PARTITION BY series ORDER BY day ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) = 3,
+                    avg(amount) OVER (PARTITION BY series ORDER BY day ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), NULL)
+            FROM filled ORDER BY series, day
+            """
+        )
+        if zero:
+            assert isinstance(query, ast.SelectQuery)
+            assert query.ctes is not None
+            filled = query.ctes["filled"].expr
+            assert isinstance(filled, ast.SelectQuery)
+            filled.interpolate = [ast.InterpolateExpr(expr=ast.Field(chain=["amount"]), value=ast.Constant(value=0))]
+        query = replace_filters(
+            query,
+            HogQLFilters(dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-03")),
+            self.team,
+        )
+        result = execute_hogql_query(query, team=self.team)
+        assert len(result.results) == 6
+        assert result.results[1][:3] == ("a", "2026-01-02", 0 if zero else None)
+        assert result.results[2][3] == (40 / 3 if zero else 20)
+        assert result.results[2][4] == (40 / 3 if zero else None)
+        assert result.results[4][3] == (4 if zero else 8)
+
+    @parameterized.expand(["from", "to"])
+    def test_date_bound_value_requires_filters(self, bound: str) -> None:
+        query = parse_select(
+            "SELECT {bound}",
+            placeholders={"bound": ast.Placeholder(expr=ast.Field(chain=["filters", "dateRange", bound]))},
+        )
+        with self.assertRaisesMessage(QueryError, "Select a"):
+            replace_filters(query, None, self.team)
+
+    def test_comparison_window_bounds_use_the_same_range_as_previous_rows(self) -> None:
+        filters = HogQLFilters(dateRange=DateRange(date_from="2026-01-08", date_to="2026-01-14"))
+        query = replace_filters(
+            parse_select("SELECT {filters.previous.dateRange.from}, {filters.previous.dateRange.to}"),
+            filters,
+            self.team,
+        )
+        assert isinstance(query, ast.SelectQuery)
+        for expression, expected in zip(query.select, ["2026-01-01", "2026-01-08"], strict=True):
+            assert isinstance(expression, ast.Constant)
+            assert isinstance(expression.value, datetime)
+            assert expression.value.strftime("%Y-%m-%d") == expected
 
     def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))

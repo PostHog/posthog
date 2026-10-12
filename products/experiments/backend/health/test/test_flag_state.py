@@ -1,3 +1,5 @@
+from typing import Any
+
 from unittest import TestCase
 
 from parameterized import parameterized
@@ -37,18 +39,24 @@ SHIPPED_TO_SOME = {
     "multivariate": SHIPPED_VARIANT["multivariate"],
 }
 
-RUNNING = {"is_launched": True, "has_ended": False}
-ENDED = {"is_launched": True, "has_ended": True}
-DRAFT = {"is_launched": False, "has_ended": False}
+RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
+ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
+DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
 
 
 def _context(
-    status: dict[str, bool], *, active: bool, filters: object, deleted: bool = False, archived: bool = False
+    status: dict[str, bool], *, active: bool, filters: dict[str, Any], deleted: bool = False, archived: bool = False
 ) -> HealthContext:
     return HealthContext(
         **status,
+        is_paused=status["is_running"] and not active,
         archived=archived,
-        flag=parse_flag_state(active=active, deleted=deleted, filters=filters),
+        flag=parse_flag_state(
+            active=active,
+            deleted=deleted,
+            groups=filters.get("groups"),
+            variants=(filters.get("multivariate") or {}).get("variants"),
+        ),
         primary_metric_count=1,
         secondary_metric_count=0,
         exposures=None,
@@ -115,7 +123,6 @@ class TestFlagState(TestCase):
             ("draft_flag_disabled", _context(DRAFT, active=False, filters=MULTIVARIANT), None),
             ("ended_deleted_flag", _context(ENDED, active=True, filters=MULTIVARIANT, deleted=True), None),
             ("draft_deleted_flag", _context(DRAFT, active=True, filters=MULTIVARIANT, deleted=True), None),
-            ("running_document_is_null", _context(RUNNING, active=True, filters=None), None),
             ("running_groups_are_null", _context(RUNNING, active=True, filters={**ZERO_ROLLOUT, "groups": None}), None),
             (
                 "running_variants_are_null",

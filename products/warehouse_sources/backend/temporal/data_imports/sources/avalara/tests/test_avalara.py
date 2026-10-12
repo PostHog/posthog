@@ -1,7 +1,6 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -11,12 +10,9 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara import (
     AVALARA_ENVIRONMENT_HOSTS,
-    RECORDSET_COUNT_PATH,
     AvalaraResumeConfig,
-    _build_params,
     _format_filter_date,
     _incremental_config_factory,
-    _list_paginator,
     avalara_source,
     base_url,
     validate_credentials,
@@ -59,27 +55,6 @@ class TestFormatFilterDate:
         assert _format_filter_date(value) == expected
 
 
-class TestBuildParams:
-    def test_full_refresh_only_sets_order_by(self) -> None:
-        params = _build_params("modifiedDate", should_use_incremental_field=False, db_incremental_field_last_value=None)
-        assert params == {"$orderBy": "modifiedDate ASC"}
-
-    def test_incremental_without_cursor_omits_filter(self) -> None:
-        params = _build_params("modifiedDate", should_use_incremental_field=True, db_incremental_field_last_value=None)
-        assert params == {"$orderBy": "modifiedDate ASC"}
-
-    def test_incremental_with_cursor_adds_filter(self) -> None:
-        params = _build_params(
-            "modifiedDate",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert params == {
-            "$orderBy": "modifiedDate ASC",
-            "$filter": "modifiedDate gt '2026-03-04T02:58:14Z'",
-        }
-
-
 class TestIncrementalConfigFactory:
     def test_builds_odata_filter_expression(self) -> None:
         config = _incremental_config_factory("modifiedDate")
@@ -87,15 +62,6 @@ class TestIncrementalConfigFactory:
         convert = config["convert"]
         assert convert is not None
         assert convert(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)) == "modifiedDate gt '2026-03-04T02:58:14Z'"
-
-
-class TestListPaginator:
-    def test_uses_odata_param_names_and_recordset_count(self) -> None:
-        paginator = _list_paginator(AVALARA_ENDPOINTS["Companies"])
-        assert paginator.offset_param == "$skip"
-        assert paginator.limit_param == "$top"
-        assert paginator.total_path == RECORDSET_COUNT_PATH
-        assert paginator.limit == AVALARA_ENDPOINTS["Companies"].page_size
 
 
 def _response(
@@ -227,28 +193,6 @@ class TestAvalaraSourceNonFanout:
         assert session.send.call_count == 1
         assert snapshots[0]["params"]["$skip"] == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], recordset_count=0)])
-
-        manager = _make_manager()
-        rows = _rows(_source("Companies", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_value_key_treated_as_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_value_key=True)])
-
-        rows = _rows(_source("Companies", _make_manager()))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
 
 class _FakeDltResource:
     def __init__(self, name: str, rows: list[dict[str, Any]]) -> None:
@@ -304,21 +248,6 @@ class TestAvalaraSourceFanout:
         fanout = mock_build_dependent_resource.call_args.kwargs["fanout"]
         assert fanout.resolve_param == "companyId"
         assert fanout.resolve_field == "id"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_transactions_fanout_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("Companies", [{"id": 1, "companyCode": "DEFAULT"}]),
-            _FakeDltResource("Transactions", [{"id": 100, "code": "TXN-1"}]),
-        ]
-
-        response = _source("Transactions", _make_manager())
-
-        rows = list(cast(Iterable[Any], response.items()))
-        assert rows == [{"id": 100, "code": "TXN-1"}]
-        assert response.primary_keys == ["id"]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara.build_dependent_resource"

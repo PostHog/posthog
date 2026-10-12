@@ -54,7 +54,11 @@ def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
     # Alertmanager has only these two statuses. A failed or a turned-off check goes out as
     # firing, and `posthog_event_kind` is what tells it apart from a breach.
     status = "resolved" if transition.kind == AlertEventKind.RESOLVED else "firing"
-    group_labels = {"alertname": message.alert_name, "posthog_configuration_id": configuration_id}
+    group_labels = {
+        "alertname": message.alert_name,
+        "posthog_configuration_id": configuration_id,
+        "posthog_source_kind": message.source.value,
+    }
     # The platform's own labels come last, so a source label with the same name cannot replace them.
     labels = {**transition.labels, **group_labels, "posthog_event_kind": transition.kind.value}
     annotations = _annotations(message)
@@ -75,7 +79,7 @@ def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
                 "annotations": annotations,
                 "startsAt": rfc3339(transition.episode_started_at or transition.occurred_at),
                 "endsAt": rfc3339(transition.occurred_at) if status == "resolved" else _NOT_ENDED,
-                "generatorURL": "",
+                "generatorURL": message.alert_url,
                 "fingerprint": _fingerprint(configuration_id, transition),
             }
         ],

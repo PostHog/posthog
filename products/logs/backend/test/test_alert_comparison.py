@@ -9,6 +9,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     PlatformAlertCheckInput,
     PlatformCheck,
     SourceCoverage,
@@ -17,7 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.testing import undeclared_policy_divergences
 from products.logs.backend.alert_comparison import LOGS_INTENTIONAL_DIVERGENCES, LogsCorrespondence
-from products.logs.backend.alert_source_cycle import _evaluation_key, window_end_of
+from products.logs.backend.alert_source_cycle import LogsAlertCondition, _evaluation_key, window_end_of
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 CHECKED_AT = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
@@ -29,10 +30,11 @@ def _check_input(alert_id, *, next_check_at) -> PlatformAlertCheckInput:
         id=alert_id,
         team_id=1,
         name="API errors",
-        source_config={},
-        threshold_count=10,
-        threshold_operator="above",
-        window_minutes=5,
+        source_config={
+            SOURCE_CONDITION_KEY: LogsAlertCondition(
+                threshold_count=10, threshold_operator="above", window_minutes=5
+            ).as_source_config()
+        },
         check_interval_minutes=5,
         evaluation_periods=1,
         datapoints_to_alarm=1,

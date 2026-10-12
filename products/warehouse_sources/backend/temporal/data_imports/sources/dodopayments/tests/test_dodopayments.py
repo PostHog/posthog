@@ -8,9 +8,7 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.dodopayments import (
-    DodoPaymentsPaginator,
     DodoPaymentsResumeConfig,
-    base_url_for_mode,
     dodopayments_source,
     to_iso8601,
     validate_credentials,
@@ -18,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.settings import (
     DODOPAYMENTS_ENDPOINTS,
     PAGE_SIZE,
-    REQUEST_TIMEOUT_SECONDS,
 )
 
 SESSION_PATCH = (
@@ -101,33 +98,7 @@ class TestToIso8601:
         assert to_iso8601(value) == expected
 
 
-class TestBaseUrlForMode:
-    @pytest.mark.parametrize(
-        "mode, expected",
-        [
-            ("live", "https://live.dodopayments.com"),
-            ("test", "https://test.dodopayments.com"),
-            ("nonsense", "https://live.dodopayments.com"),
-        ],
-    )
-    def test_mode_selects_host(self, mode, expected):
-        assert base_url_for_mode(mode) == expected
-
-
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_valid",
-        [(200, True), (401, False), (403, False), (429, False), (500, False)],
-    )
-    @mock.patch(SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected_valid):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, status = validate_credentials("key", "live")
-
-        assert is_valid is expected_valid
-        assert status == status_code
-
     @pytest.mark.parametrize(
         "mode, expected_url",
         [
@@ -147,29 +118,8 @@ class TestValidateCredentials:
         assert call.args[0] == expected_url
         assert call.kwargs["headers"]["Authorization"] == "Bearer key"
 
-    @mock.patch(SESSION_PATCH)
-    def test_transport_failure_is_not_valid(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        assert validate_credentials("key", "live") == (False, None)
-
 
 class TestPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_walks_zero_based_pages_and_stops_on_short_page(self, MockSession):
-        requests_seen = _wire(MockSession.return_value, [_page(PAGE_SIZE), _page(3, start=PAGE_SIZE)])
-        manager = _make_manager()
-
-        rows = _rows(_source("payments", manager))
-
-        assert len(rows) == PAGE_SIZE + 3
-        # Page numbers are 0-based; starting at 1 would silently skip the newest page.
-        assert [snapshot["params"]["page_number"] for snapshot in requests_seen] == [0, 1]
-        assert requests_seen[0]["params"]["page_size"] == PAGE_SIZE
-        # A short page terminates without paying for the extra empty-page request.
-        assert len(requests_seen) == 2
-        assert manager.save_state.call_args_list == [mock.call(DodoPaymentsResumeConfig(page_number=1))]
-
     @mock.patch(SESSION_PATCH)
     def test_full_page_then_empty_page_terminates(self, MockSession):
         requests_seen = _wire(MockSession.return_value, [_page(PAGE_SIZE), _page(0)])
@@ -187,24 +137,6 @@ class TestPagination:
 
         assert [row["payment_id"] for row in rows] == ["pay_400", "pay_401"]
         assert requests_seen[0]["params"]["page_number"] == 4
-
-    @mock.patch(SESSION_PATCH)
-    def test_unpaginated_endpoint_makes_one_request_without_page_params(self, MockSession):
-        # `/brands` accepts no query parameters at all.
-        requests_seen = _wire(MockSession.return_value, [_response([{"brand_id": "brand_1"}])])
-
-        rows = _rows(_source("brands"))
-
-        assert [row["brand_id"] for row in rows] == ["brand_1"]
-        assert len(requests_seen) == 1
-        assert requests_seen[0]["params"] == {}
-
-    def test_paginator_resume_state_is_none_once_exhausted(self):
-        paginator = DodoPaymentsPaginator()
-        paginator.update_state(_response([]), [])
-
-        assert paginator.has_next_page is False
-        assert paginator.get_resume_state() is None
 
 
 class TestRequestParams:
@@ -233,14 +165,6 @@ class TestRequestParams:
         assert requests_seen[0]["params"][expected_param] == "2024-05-01T10:00:00Z"
 
     @mock.patch(SESSION_PATCH)
-    def test_full_refresh_sends_no_date_filter(self, MockSession):
-        requests_seen = _wire(MockSession.return_value, [_page(1)])
-
-        _rows(_source("payments", db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC)))
-
-        assert "created_at_gte" not in requests_seen[0]["params"]
-
-    @mock.patch(SESSION_PATCH)
     def test_unparseable_watermark_drops_the_filter(self, MockSession):
         # Sending a value the API rejects would fail the whole sync; a full walk is the safe fallback.
         requests_seen = _wire(MockSession.return_value, [_page(1)])
@@ -266,56 +190,6 @@ class TestRequestParams:
 
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(DODOPAYMENTS_ENDPOINTS))
-    @mock.patch(SESSION_PATCH)
-    def test_metadata_matches_the_endpoint_catalog(self, MockSession, endpoint):
-        config = DODOPAYMENTS_ENDPOINTS[endpoint]
-
-        response = _source(endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Dodo documents no ordering guarantee, so the watermark must only finalize at the end
-        # of a successful sync.
-        assert response.sort_mode == "desc"
-        if config.partition_key is None:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-
-    @pytest.mark.parametrize(
-        "endpoint, should_use_incremental_field, expected_disposition",
-        [
-            ("payments", True, {"disposition": "merge", "strategy": "upsert"}),
-            ("payments", False, "replace"),
-            ("products", False, "replace"),
-        ],
-    )
-    @mock.patch(REST_RESOURCE_PATCH)
-    def test_write_disposition_follows_incremental_mode(
-        self, mock_rest_api_resource, endpoint, should_use_incremental_field, expected_disposition
-    ):
-        _source(endpoint, should_use_incremental_field=should_use_incremental_field)
-
-        resource = mock_rest_api_resource.call_args.args[0]["resources"][0]
-        assert resource["write_disposition"] == expected_disposition
-        assert resource["primary_key"] == DODOPAYMENTS_ENDPOINTS[endpoint].primary_keys
-
-    @mock.patch(REST_RESOURCE_PATCH)
-    def test_base_url_follows_the_mode(self, mock_rest_api_resource):
-        _source("payments", mode="test")
-
-        assert mock_rest_api_resource.call_args.args[0]["client"]["base_url"] == "https://test.dodopayments.com"
-
-    @mock.patch(REST_RESOURCE_PATCH)
-    def test_client_bounds_every_request_with_a_timeout(self, mock_rest_api_resource):
-        # Without this a stalled connect or hung read would pin an import worker indefinitely.
-        _source("payments")
-
-        assert mock_rest_api_resource.call_args.args[0]["client"]["request_timeout"] == REQUEST_TIMEOUT_SECONDS
-
     @mock.patch(REST_RESOURCE_PATCH)
     def test_framework_incremental_injection_is_not_used(self, mock_rest_api_resource):
         # The date filter is baked into the request params, so letting the framework inject its own

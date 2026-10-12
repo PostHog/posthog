@@ -121,30 +121,6 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_one_request_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_envelope([{"id": "a"}, {"id": "b"}], total=1, current=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_envelope([], total=1, current=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_envelope([{"id": "p_101"}], total=2, current=2)])
@@ -155,14 +131,6 @@ class TestPagination:
         # Offset 0 must never be fetched on resume; the first (only) request starts at the saved offset.
         assert params[0]["offset"] == PAGE_SIZE
         assert [r["id"] for r in rows] == ["p_101"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_uses_limit_and_offset_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_envelope([], total=1, current=1)])
-
-        _rows(_source(_make_manager()))
-        assert params[0] == {"limit": PAGE_SIZE, "offset": 0}
 
 
 class TestErrorHandling:

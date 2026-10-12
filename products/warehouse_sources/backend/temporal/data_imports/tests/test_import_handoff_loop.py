@@ -25,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     UpdateExternalDataJobStatusInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    FAILING_SCHEMA_MAX_IMPORT_ATTEMPTS,
+    GIVE_UP_AFTER_FAILED_RUNS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     AcquireV3LockActivityOutputs,
@@ -73,9 +77,13 @@ def _activities(
     import_attempts: list[int],
     updates: list[UpdateExternalDataJobStatusInputs],
     buffer_one: list[str],
+    failed_runs_in_a_row: int = 0,
+    deferred: bool = False,
 ) -> list:
     @activity.defn(name="acquire_v3_pipeline_lock_activity")
     async def acquire_lock(inputs: AcquireV3LockActivityInputs) -> AcquireV3LockActivityOutputs:
+        if deferred:
+            return AcquireV3LockActivityOutputs(acquired=False, token="token", deferred=True)
         return AcquireV3LockActivityOutputs(acquired=True, token="token")
 
     @activity.defn(name="create_external_data_job_model_activity")
@@ -89,6 +97,7 @@ def _activities(
             billing_limit_checked=True,
             source_templates_needed=False,
             import_handoffs_are_free=handoffs_are_free,
+            failed_runs_in_a_row=failed_runs_in_a_row,
         )
 
     @activity.defn(name="import_data_activity_sync")
@@ -126,7 +135,13 @@ def _patch_ids(history: WorkflowHistory) -> set[str]:
     return patch_ids
 
 
-async def _run_workflow(script: list[str], *, handoffs_are_free: bool = True) -> _WorkflowRun:
+async def _run_workflow(
+    script: list[str],
+    *,
+    handoffs_are_free: bool = True,
+    failed_runs_in_a_row: int = 0,
+    deferred: bool = False,
+) -> _WorkflowRun:
     import_inputs: list[ImportDataActivityInputs] = []
     import_attempts: list[int] = []
     updates: list[UpdateExternalDataJobStatusInputs] = []
@@ -137,6 +152,8 @@ async def _run_workflow(script: list[str], *, handoffs_are_free: bool = True) ->
         mock.patch.object(workflow_module.workflow, "start_child_workflow", new_callable=mock.AsyncMock),
         mock.patch.object(workflow_module, "get_data_import_finished_metric"),
         mock.patch.object(workflow_module, "get_import_handoffs_per_run_metric") as handoffs_metric,
+        mock.patch.object(workflow_module, "get_retry_budget_reduced_metric"),
+        mock.patch.object(workflow_module, "get_run_deferred_metric"),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
@@ -150,6 +167,8 @@ async def _run_workflow(script: list[str], *, handoffs_are_free: bool = True) ->
                     import_attempts=import_attempts,
                     updates=updates,
                     buffer_one=buffer_one,
+                    failed_runs_in_a_row=failed_runs_in_a_row,
+                    deferred=deferred,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -281,3 +300,35 @@ async def test_histories_replay_on_the_branch_they_recorded(handoffs_are_free: b
                 workflows=[ExternalDataJobWorkflow],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ).replay_workflow(run.history)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_schema_gets_fewer_attempts_than_a_healthy_one():
+    # The streak travels on the create-job activity's result and has to reach the import's retry
+    # policy. Nothing else fails if that line is dropped, so the throttle would never fire.
+    healthy = await _run_workflow([FAIL], failed_runs_in_a_row=0)
+    failing = await _run_workflow([FAIL], failed_runs_in_a_row=GIVE_UP_AFTER_FAILED_RUNS)
+
+    assert healthy.failed and failing.failed
+    assert len(failing.import_attempts) == FAILING_SCHEMA_MAX_IMPORT_ATTEMPTS
+    assert len(failing.import_attempts) < len(healthy.import_attempts)
+    assert [update.status for update in failing.updates] == [ExternalDataJob.Status.FAILED]
+
+
+@pytest.mark.asyncio
+async def test_a_deferred_run_imports_nothing_and_writes_no_status():
+    # A terminal status here would repaint the schema and overwrite the error the customer reads.
+    run = await _run_workflow([SUCCEED], deferred=True)
+
+    assert not run.failed
+    assert run.import_inputs == []
+    assert run.updates == []
+    assert run.buffer_one_triggers == 0
+
+
+@pytest.mark.asyncio
+async def test_the_import_learns_which_retry_cap_it_is_on():
+    # The activity's own stand-down depends on knowing which cap the workflow gave it.
+    run = await _run_workflow([SUCCEED])
+
+    assert [inputs.on_resumable_retry_budget for inputs in run.import_inputs] == [True]

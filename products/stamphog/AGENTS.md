@@ -114,6 +114,7 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 - Everything posted to GitHub goes through `scrub_credentials` AND `neutralize_active_markdown` (`logic/scrubbing.py`)
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
 - The sandbox checkout is the PR head, so the engine's Agent SDK session runs with `setting_sources=[]` + `strict_mcp_config` (reviewer.py): a PR-shipped `.claude/settings.json` hook, `CLAUDE.md`, or `.mcp.json` is readable as untrusted content, never loaded as configuration.
+  The default OpenAI reviewer (openai_reviewer.py) discovers no SDK settings, hooks or MCP servers from the tree; only the trusted `.stamphog/` guidance files shape its prompt. Its read_file/grep/glob tools refuse any path that resolves outside the checkout.
   Don't reintroduce filesystem settings discovery there.
 
 ## The self-driving inbox carve-out (the one exception to the bot-author refusal)
@@ -170,7 +171,7 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
-- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `reviewhog`
+- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `posthog-review`
   label) **only** for these runs. A human author reads their own refusal and decides what comes next.
   A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
   In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.

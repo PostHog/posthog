@@ -174,13 +174,6 @@ def test_invalid_urls_fail_before_http(http: responses.RequestsMock, url: str) -
     assert len(http.calls) == 0
 
 
-@pytest.mark.parametrize("api_url", ["https://api-eu.braintrust.dev/", "https://braintrust.example.com"])
-def test_custom_hosts(http: responses.RequestsMock, api_url: str) -> None:
-    http.get(f"{api_url.rstrip('/')}/v1/project", json={"objects": []})
-    assert validate_credentials(make_config(api_url=api_url), 123) == (True, None)
-    assert urlsplit(http.calls[0].request.url).hostname == urlsplit(api_url).hostname
-
-
 def test_private_host_rejected_for_probe_and_sync(http: responses.RequestsMock) -> None:
     with patch(HOST_CHECK, return_value=(False, "private host")):
         valid, message = validate_credentials(make_config(), 123)

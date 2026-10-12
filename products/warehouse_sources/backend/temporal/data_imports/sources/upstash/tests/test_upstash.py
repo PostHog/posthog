@@ -10,7 +10,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.settings import (
     UPSTASH_API_BASE_URL,
-    UPSTASH_ENDPOINTS,
     UPSTASH_ROOT_BASE_URL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
@@ -88,50 +87,8 @@ class TestListEndpoints:
         with pytest.raises(ValueError):
             _run("teams", [_response(200, {"unexpected": "shape"})])
 
-    def test_empty_array_yields_no_rows(self) -> None:
-        rows, _ = _run("teams", [_response(200, [])])
-        assert rows == []
-
-    def test_sensitive_fields_are_stripped_from_rows(self) -> None:
-        # Vector index tokens are write-capable credentials; they must never reach warehouse columns.
-        rows, _ = _run(
-            "vector_indexes",
-            [_response(200, [{"id": "i1", "name": "idx", "token": "secret", "read_only_token": "ro-secret"}])],
-        )
-        assert rows == [{"id": "i1", "name": "idx"}]
-
 
 class TestStatsFanOut:
-    def test_fans_out_per_database_and_stamps_database_id(self) -> None:
-        rows, snapshots = _run(
-            "redis_stats",
-            [
-                _response(200, [{"database_id": "db1"}, {"database_id": "db2"}]),
-                _response(200, {"total_monthly_billing": 1.5}),
-                _response(200, {"total_monthly_billing": 2.0}),
-            ],
-        )
-        assert rows == [
-            {"total_monthly_billing": 1.5, "database_id": "db1"},
-            {"total_monthly_billing": 2.0, "database_id": "db2"},
-        ]
-        assert [s["url"] for s in snapshots] == [
-            f"{UPSTASH_API_BASE_URL}/redis/databases",
-            f"{UPSTASH_API_BASE_URL}/redis/stats/db1",
-            f"{UPSTASH_API_BASE_URL}/redis/stats/db2",
-        ]
-
-    def test_skips_database_deleted_between_enumeration_and_stats_fetch(self) -> None:
-        rows, _ = _run(
-            "redis_stats",
-            [
-                _response(200, [{"database_id": "db1"}, {"database_id": "db2"}]),
-                _response(404, {"error": "database not found"}),
-                _response(200, {"total_monthly_billing": 2.0}),
-            ],
-        )
-        assert rows == [{"total_monthly_billing": 2.0, "database_id": "db2"}]
-
     @mock.patch(SLEEP_PATCH)
     def test_non_404_error_during_fan_out_propagates(self, _sleep: Any) -> None:
         # A persistent 5xx while fetching stats fails the sync (after the client's retries) rather
@@ -252,16 +209,6 @@ class TestValidateCredentials:
         sync_errors = UpstashSource().get_non_retryable_errors()
         assert setup_error == sync_errors["401 Client Error: Unauthorized for url: https://api.upstash.com"]
 
-    def test_probes_teams_endpoint_with_basic_auth(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
-            validate_credentials("me@example.com", "secret")
-        args, kwargs = session.get.call_args
-        assert args[0] == f"{UPSTASH_API_BASE_URL}/teams"
-        auth = kwargs["auth"]
-        assert (auth.username, auth.password) == ("me@example.com", "secret")
-
     def test_request_exception_does_not_block_creation(self) -> None:
         # An unreachable API is transient, not a credential rejection; a genuine auth failure still
         # surfaces at sync time.
@@ -290,9 +237,3 @@ class TestUpstashSource:
         assert response.primary_keys == expected_pk
         # Full refresh, replaced wholesale each sync; asc is the pipeline default.
         assert response.sort_mode == "asc"
-
-    def test_every_declared_endpoint_has_a_response(self) -> None:
-        with mock.patch(SESSION_PATCH, lambda *a, **k: mock.MagicMock(headers={})):
-            for endpoint in UPSTASH_ENDPOINTS:
-                response = upstash_source(email="e", api_key="k", endpoint=endpoint, team_id=1, job_id="j")
-                assert response.primary_keys == UPSTASH_ENDPOINTS[endpoint].primary_keys

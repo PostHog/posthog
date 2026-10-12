@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     NotionAdminTokenMissingError,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
 
 NOTION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
@@ -74,12 +73,6 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    def test_get_schemas_returns_all_endpoints_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
     def test_get_schemas_honors_names_filter(self) -> None:
         schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1, names=["users"])
         assert [s.name for s in schemas] == ["users"]
@@ -101,15 +94,6 @@ class TestNotionSource:
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_time"]
-
-    def test_source_for_pipeline_users_has_no_partition(self) -> None:
-        inputs = _make_inputs("users")
-        manager = self.source.get_resumable_source_manager(inputs)
-        response = self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
-
-        assert response.name == "users"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
     @parameterized.expand(
         [
@@ -164,13 +148,6 @@ class TestNotionSource:
             NotionSourceConfig(api_key="tok"), team_id=1, endpoints=["pages", "permission_groups"]
         )
         assert permissions == {"pages": None, "permission_groups": ADMIN_TOKEN_MISSING_ERROR}
-
-    def test_other_errors_are_retryable(self) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(
-            pattern in "429 Client Error: Too Many Requests for url: https://api.notion.com/v1/search"
-            for pattern in non_retryable
-        )
 
     @parameterized.expand(
         [

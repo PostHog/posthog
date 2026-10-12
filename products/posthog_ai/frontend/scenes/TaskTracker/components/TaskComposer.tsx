@@ -27,8 +27,8 @@ import {
     resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
-import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
+import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
@@ -256,14 +256,16 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                                 />
                             ) : (
                                 <Composer.Frame ref={frameRef}>
-                                    <Composer.Header className="flex flex-wrap items-center gap-1">
-                                        <AttachedContextBar />
-                                        <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
+                                    <Composer.Header className="flex flex-wrap items-center gap-2 empty:hidden">
+                                        <AttachedContextChips />
+                                        <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                                     </Composer.Header>
                                     {field}
                                     <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                                        {modePicker}
+                                        <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
+                                        <AttachedContextPicker />
                                         {modelPicker}
+                                        {modePicker}
                                     </Composer.Footer>
                                 </Composer.Frame>
                             )}
