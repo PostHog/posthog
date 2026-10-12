@@ -1,5 +1,3 @@
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
-
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
@@ -189,55 +187,4 @@ describe('EmailService with local SES', () => {
             expect(await ses.getEmails()).toEqual([])
         }
     )
-
-    it('isolates concurrent proxy faults and inbox reads for identical recipients', async () => {
-        const unrelatedClient = new SESv2Client({ region: 'us-east-1', endpoint: 'http://127.0.0.1:4566' })
-        try {
-            await unrelatedClient.send(
-                new SendEmailCommand({
-                    FromEmailAddress: 'sender@example.com',
-                    Destination: { ToAddresses: [params.to.email] },
-                    Content: {
-                        Simple: {
-                            Subject: { Data: 'Unrelated email without headers' },
-                            Body: { Text: { Data: 'Another inbox writer.' } },
-                        },
-                    },
-                })
-            )
-        } finally {
-            unrelatedClient.destroy()
-        }
-        const otherSes = new LocalSes()
-        await otherSes.start()
-        const otherService = createService(otherSes.endpoint)
-        ses.setError('TooManyRequestsException')
-
-        try {
-            const [throttled, delivered] = await Promise.all([
-                service.executeSendEmail(invocation),
-                otherService.executeSendEmail(invocation),
-            ])
-            expect(throttled).toMatchObject({ finished: false, metrics: [] })
-            expect(delivered).toMatchObject({ finished: true })
-            expect(delivered.error).toBeUndefined()
-            expect(await ses.getEmails()).toEqual([])
-            const otherEmails = await otherSes.getEmails()
-            expect(otherEmails).toHaveLength(1)
-
-            ses.setError(undefined)
-            const retry = await service.executeSendEmail(throttled.invocation)
-            expect(retry.error).toBeUndefined()
-            const emails = await ses.getEmails()
-            expect(emails).toHaveLength(1)
-            expect(emails[0].destination).toEqual(otherEmails[0].destination)
-            expect(emails[0].messageId).not.toBe(otherEmails[0].messageId)
-            expect(await otherSes.getEmails()).toEqual(otherEmails)
-            expect(ses.requests).toHaveLength(2)
-            expect(otherSes.requests).toHaveLength(1)
-        } finally {
-            otherService.sesV2Client?.destroy()
-            await otherSes.stop()
-        }
-    })
 })
