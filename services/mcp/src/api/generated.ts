@@ -50947,6 +50947,69 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    export interface ExternalTableSyncError {
+      /** Safe explanation of why the sync settings could not be applied. */
+      detail: string;
+    }
+
+    export interface ExternalTableSyncRequest {
+      /** Opt in to scheduled snapshots into the managed warehouse. */
+      enabled: boolean;
+      /**
+         * Minutes between refreshes, from five minutes to seven days.
+         * @minimum 5
+         * @maximum 10080
+         */
+      interval_minutes: number;
+    }
+
+    /**
+     * * `disabled` - Disabled
+     * * `preparing` - Preparing
+     * * `ready` - Ready
+     * * `error` - Refresh failed
+     */
+    export type ExternalTableSyncStatusEnum = typeof ExternalTableSyncStatusEnum[keyof typeof ExternalTableSyncStatusEnum];
+
+
+    export const ExternalTableSyncStatusEnum = {
+      Disabled: 'disabled',
+      Preparing: 'preparing',
+      Ready: 'ready',
+      Error: 'error',
+    } as const;
+
+    export interface ExternalTableSyncSettings {
+      /** Whether this table and project support warehouse sync. */
+      available: boolean;
+      /**
+         * Reason warehouse sync cannot be enabled.
+         * @nullable
+         */
+      unavailable_reason: string | null;
+      /** Whether the project opted in to refreshing this table. */
+      enabled: boolean;
+      /** Minutes between scheduled refreshes. */
+      interval_minutes: number;
+      /** Latest publication status.
+       *
+       * * `disabled` - Disabled
+       * * `preparing` - Preparing
+       * * `ready` - Ready
+       * * `error` - Refresh failed */
+      status: ExternalTableSyncStatusEnum;
+      /**
+         * Time of the last successful refresh.
+         * @nullable
+         */
+      last_synced_at: string | null;
+      /**
+         * Safe guidance for retrying a failed refresh.
+         * @nullable
+         */
+      error: string | null;
+    }
+
     /**
      * * `severity_text` - severity_text
      * * `service_name` - service_name

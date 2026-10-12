@@ -1194,6 +1194,21 @@ export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
+export const warehouseTablesConfigureWarehouseSyncCreateBodyIntervalMinutesMin = 5
+export const warehouseTablesConfigureWarehouseSyncCreateBodyIntervalMinutesMax = 10080
+
+export const WarehouseTablesConfigureWarehouseSyncCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Opt in to scheduled snapshots into the managed warehouse.'),
+    interval_minutes: zod
+        .number()
+        .min(warehouseTablesConfigureWarehouseSyncCreateBodyIntervalMinutesMin)
+        .max(warehouseTablesConfigureWarehouseSyncCreateBodyIntervalMinutesMax)
+        .describe('Minutes between refreshes, from five minutes to seven days.'),
+})
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
 export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')

@@ -19,6 +19,7 @@ import { IconArrowUpRight } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -47,6 +48,7 @@ import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/fr
 
 import { ConfigurationTab } from './tabs/ConfigurationTab'
 import { DestinationsTab } from './tabs/DestinationsTab'
+import { ExternalTableSync } from './tabs/ExternalTableSync'
 import { MetricsTab } from './tabs/MetricsTab'
 import { SchemasTab } from './tabs/SchemasTab'
 import { sourceSettingsLogic } from './tabs/sourceSettingsLogic'
@@ -261,7 +263,16 @@ export function SourceScene({ id }: SourceSceneProps): JSX.Element {
                         {
                             label: 'Configuration',
                             key: 'configuration',
-                            content: <DataPipelinesSelfManagedSource id={sourceId} />,
+                            content: (
+                                <div className="flex flex-col gap-4">
+                                    <DataPipelinesSelfManagedSource id={sourceId} />
+                                    {isSelfManagedSource && (
+                                        <FlaggedFeature flag={FEATURE_FLAGS.MANAGED_WAREHOUSE_EXTERNAL_TABLE_SYNC}>
+                                            <ExternalTableSync tableId={sourceId} />
+                                        </FlaggedFeature>
+                                    )}
+                                </div>
+                            ),
                         },
                     ]}
                     onChange={setCurrentTab}

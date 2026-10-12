@@ -19,6 +19,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 __all__ = [
     "CPUnavailableError",
@@ -50,6 +51,28 @@ __all__ = [
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
 ]
+
+
+class ExternalTableSyncStatus(LabeledStrEnum):
+    DISABLED = "disabled", "Disabled"
+    PREPARING = "preparing", "Preparing"
+    READY = "ready", "Ready"
+    ERROR = "error", "Refresh failed"
+
+
+@frozen
+class ExternalTableSyncSettings:
+    available: bool
+    unavailable_reason: str | None
+    enabled: bool
+    interval_minutes: int
+    status: ExternalTableSyncStatus
+    last_synced_at: datetime | None
+    error: str | None
+
+
+class ExternalTableSyncScheduleError(RuntimeError):
+    pass
 
 
 class CPUnavailableError(RuntimeError):

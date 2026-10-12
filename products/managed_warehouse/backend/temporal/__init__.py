@@ -28,6 +28,7 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
 from products.managed_warehouse.backend.temporal.external_table_registration_workflow import (
     RegisterExternalTableWorkflow,
     external_table_cleanup_inputs_activity,
+    external_table_sync_gate_activity,
     register_external_table_activity,
 )
 from products.managed_warehouse.backend.temporal.model_alias_workflow import (
@@ -54,6 +55,7 @@ WORKFLOWS = [
 ]
 ACTIVITIES = [
     external_table_cleanup_inputs_activity,
+    external_table_sync_gate_activity,
     register_external_table_activity,
     reconcile_trino_model_aliases_activity,
     cleanup_data_imports_staging_activity,

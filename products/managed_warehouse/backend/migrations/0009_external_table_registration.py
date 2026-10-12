@@ -30,6 +30,8 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("table_id", models.UUIDField()),
+                ("enabled", models.BooleanField(default=True)),
+                ("interval_minutes", models.PositiveIntegerField(default=60)),
                 ("source_fingerprint", models.CharField(max_length=64)),
                 ("warehouse_schema", models.CharField(max_length=255)),
                 ("warehouse_table", models.CharField(max_length=255)),

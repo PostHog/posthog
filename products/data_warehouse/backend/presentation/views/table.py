@@ -7,7 +7,7 @@ from django.conf import settings
 import boto3
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
-from rest_framework import filters, parsers, request, response, serializers, status, viewsets
+from rest_framework import exceptions, filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
 
@@ -34,6 +34,18 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.data_warehouse.backend.facade.api import get_s3_client
+from products.data_warehouse.backend.presentation.external_table_sync import (
+    ExternalTableSyncErrorSerializer,
+    ExternalTableSyncRequestSerializer,
+    ExternalTableSyncSettingsSerializer,
+)
+from products.managed_warehouse.backend.facade.contracts import ExternalTableSyncScheduleError
+from products.managed_warehouse.backend.facade.external_tables import (
+    configure_external_table_sync,
+    disable_external_table_sync,
+    external_table_sync_feature_enabled,
+    get_external_table_sync_settings,
+)
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -536,10 +548,39 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "Can't delete a sourced table"}
             )
 
+        disable_external_table_sync(self.team_id, instance.id)
         instance.soft_delete()
         _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: ExternalTableSyncSettingsSerializer})
+    @action(methods=["GET"], detail=True, required_scopes=["warehouse_table:read"])
+    def warehouse_sync(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        if not external_table_sync_feature_enabled(self.team_id):
+            raise exceptions.NotFound()
+        settings = get_external_table_sync_settings(self.team_id, table.id)
+        return response.Response(ExternalTableSyncSettingsSerializer(settings).data)
+
+    @extend_schema(
+        request=ExternalTableSyncRequestSerializer,
+        responses={200: ExternalTableSyncSettingsSerializer, 503: ExternalTableSyncErrorSerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
+    def configure_warehouse_sync(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        if not external_table_sync_feature_enabled(self.team_id):
+            raise exceptions.NotFound()
+        serializer = ExternalTableSyncRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            settings = configure_external_table_sync(self.team_id, table.id, **serializer.validated_data)
+        except ValueError as error:
+            raise exceptions.ValidationError(str(error)) from error
+        except ExternalTableSyncScheduleError as error:
+            return response.Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return response.Response(ExternalTableSyncSettingsSerializer(settings).data)
 
     def perform_update(self, serializer):
         instance = serializer.instance

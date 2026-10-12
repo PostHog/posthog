@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 async def configure_external_table_schedule(
-    client: Client, team_id: int, table_id: UUID, interval: dt.timedelta
+    client: Client, team_id: int, table_id: UUID, interval: dt.timedelta, *, trigger_immediately: bool = False
 ) -> str:
     if interval < dt.timedelta(minutes=5):
         raise ValueError("The refresh interval must be at least five minutes")
@@ -55,7 +55,9 @@ async def configure_external_table_schedule(
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, schedule_id):
-        await a_update_schedule(client, schedule_id, schedule, keep_paused=True)
+        await a_update_schedule(client, schedule_id, schedule)
+        if trigger_immediately:
+            await client.get_schedule_handle(schedule_id).trigger(overlap=ScheduleOverlapPolicy.SKIP)
     else:
         await a_create_schedule(client, schedule_id, schedule, trigger_immediately=True)
     return schedule_id

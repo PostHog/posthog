@@ -202,19 +202,15 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 ## Registering external Delta tables in the managed warehouse
 
 A manually linked Delta table can be copied into the project's managed warehouse without creating another database import source.
-Enrollment is explicit. Refreshes require a provisioned warehouse with the `data-warehouse-scene` flag enabled.
+Enrollment is an explicit opt-in in **Sources → Self-managed data warehouse sources → Configuration → Warehouse sync**.
+The control and its API are gated by `managed-warehouse-external-table-sync`.
+Refreshes also require a provisioned warehouse with the `data-warehouse-scene` flag enabled.
 
-```sh
-python manage.py register_external_warehouse_tables \
-    --team-id PROJECT_ID \
-    --table-id WAREHOUSE_TABLE_UUID \
-    --interval-minutes 60
-```
-
-Repeat `--table-id` to enroll several tables.
-The command creates a Temporal schedule per table and triggers its first refresh immediately.
-Running it again updates the interval while preserving any pause set in Temporal.
-The minimum interval is five minutes.
+Turn on **Sync to warehouse**, select a refresh interval, and click **Save sync settings**.
+Saving creates a Temporal schedule for that table and triggers its first refresh immediately.
+The UI offers intervals from five minutes to one week.
+The Configuration page shows first-copy preparation, readiness, refresh failures, and the last successful refresh time.
+Use **Refresh status** to reload that status or save the settings again to retry a failed refresh.
 
 Supported sources are manually linked `Delta` and `DeltaS3Wrapper` tables in S3, including AWS S3 HTTPS locations.
 Synced-source tables, materialized-view backing tables, and plain Parquet file sources use their own workflows.
@@ -233,7 +229,9 @@ After the first successful publication, the warehouse compiler maps the existing
 Enrollment, the last published version, refresh time, and sanitized failure category are recorded in `ManagedWarehouseExternalTable`.
 Deleting the source table or changing its location removes its compiler binding.
 A changed location or replaced Delta identity requires enrollment through a new warehouse table ID.
-Pause the table's Temporal schedule to stop further refreshes while retaining the last published copy.
+Turn off **Sync to warehouse** and save to stop further refreshes while retaining the last published copy.
+The worker checks the opt-in before reading the source and again before publication, so an in-flight refresh cannot publish after opt-out completes.
+Deleting the linked table also disables its refreshes.
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 

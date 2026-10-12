@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -7,6 +8,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.managed_warehouse.backend.facade.contracts import ExternalTableSyncSettings, ExternalTableSyncStatus
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
@@ -64,6 +66,54 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
             raise AssertionError(f"Unsupported method {method}")
 
         self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("viewer", "warehouse_sync", "get", 200),
+            ("viewer", "configure_warehouse_sync", "post", 403),
+            ("editor", "configure_warehouse_sync", "post", 200),
+            ("none", "warehouse_sync", "get", 403),
+        ]
+    )
+    def test_warehouse_sync_respects_table_permissions(
+        self, access_level: str, action: str, method: str, expected: int
+    ) -> None:
+        user = (
+            self.viewer_user
+            if access_level == "viewer"
+            else self.editor_user
+            if access_level == "editor"
+            else self.no_access_user
+        )
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+        settings = ExternalTableSyncSettings(
+            available=True,
+            unavailable_reason=None,
+            enabled=False,
+            interval_minutes=60,
+            status=ExternalTableSyncStatus.DISABLED,
+            last_synced_at=None,
+            error=None,
+        )
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.table.external_table_sync_feature_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.table.get_external_table_sync_settings",
+                return_value=settings,
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.table.configure_external_table_sync",
+                return_value=settings,
+            ),
+        ):
+            response = getattr(self.client, method)(
+                f"{self._detail_url()}{action}/", data={"enabled": True, "interval_minutes": 60}
+            )
+        assert response.status_code == expected
 
     def test_viewer_can_list(self):
         self._create_access_control(self.viewer_user, access_level="viewer")

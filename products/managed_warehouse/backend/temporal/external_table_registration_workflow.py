@@ -9,7 +9,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -25,6 +25,7 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.managed_warehouse.backend.common import get_config, get_duckgres_server_by_team_org, is_dev_mode
+from products.managed_warehouse.backend.external_tables import external_table_sync_feature_enabled
 from products.managed_warehouse.backend.models import ManagedWarehouseExternalTable
 from products.managed_warehouse.backend.storage import setup_duckgres_session
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
@@ -160,7 +161,13 @@ def _register_external_table(inputs: ExternalTableRegistrationAttempt) -> bool:
     started = time.monotonic()
     import deltalake  # noqa: PLC0415 -- keeps the optional Delta reader off the worker import path
 
-    enrolled = ManagedWarehouseExternalTable.objects.for_team(inputs.team_id).get(table_id=inputs.table_id)
+    enrolled = (
+        ManagedWarehouseExternalTable.objects.for_team(inputs.team_id)
+        .filter(table_id=inputs.table_id, enabled=True)
+        .first()
+    )
+    if enrolled is None or not external_table_sync_feature_enabled(inputs.team_id):
+        return False
     source = get_external_delta_table(inputs.team_id, inputs.table_id, with_credentials=True)
     if source.fingerprint != enrolled.source_fingerprint:
         raise ApplicationError("The enrolled external table configuration changed", non_retryable=True)
@@ -218,7 +225,16 @@ def _register_external_table(inputs: ExternalTableRegistrationAttempt) -> bool:
                     "The external table configuration changed during registration", non_retryable=True
                 )
             registration.check_cancellation(cancel_requested)
-            published = publish_external_snapshot(conn, registration, candidate, cancel_requested)
+            # Serialize opt-out with publication so a refresh already in flight cannot publish after it completes.
+            with transaction.atomic():
+                current_enrollment = (
+                    ManagedWarehouseExternalTable.objects.for_team(inputs.team_id)
+                    .select_for_update()
+                    .get(id=enrolled.id)
+                )
+                if not current_enrollment.enabled:
+                    return False
+                published = publish_external_snapshot(conn, registration, candidate, cancel_requested)
     _record_published_snapshot(inputs.team_id, inputs.table_id, published)
     return published.version == candidate.version
 
@@ -244,6 +260,15 @@ def register_external_table_activity(inputs: ExternalTableRegistrationAttempt) -
             f"External Delta registration failed ({type(error).__name__})",
             non_retryable=isinstance(error, (ApplicationError, ValueError)),
         ) from None
+
+
+@activity.defn
+def external_table_sync_gate_activity(inputs: ExternalTableRegistrationInputs) -> bool:
+    if not settings.TEST:
+        close_old_connections()
+    return ManagedWarehouseExternalTable.objects.for_team(inputs.team_id).filter(
+        table_id=inputs.table_id, enabled=True
+    ).exists() and external_table_sync_feature_enabled(inputs.team_id)
 
 
 @activity.defn
@@ -273,6 +298,13 @@ class RegisterExternalTableWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         if not should_register:
+            return False
+        if not await workflow.execute_activity(
+            external_table_sync_gate_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        ):
             return False
         attempt = ExternalTableRegistrationAttempt(
             team_id=inputs.team_id, table_id=inputs.table_id, attempt_token=workflow.uuid4().hex

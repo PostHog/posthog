@@ -34,6 +34,8 @@ import type {
     DataWarehouseSavedQueryFolderApi,
     DeleteWarehouseOrgResponseApi,
     DeprovisionWarehouseResponseApi,
+    ExternalTableSyncRequestApi,
+    ExternalTableSyncSettingsApi,
     FileUploadResponseApi,
     FixHogqlListParams,
     IncrementalEligibilityApi,
@@ -2247,6 +2249,27 @@ export const warehouseTablesDestroy = async (projectId: string, id: string, opti
     })
 }
 
+export const getWarehouseTablesConfigureWarehouseSyncCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/configure_warehouse_sync/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesConfigureWarehouseSyncCreate = async (
+    projectId: string,
+    id: string,
+    externalTableSyncRequestApi: ExternalTableSyncRequestApi,
+    options?: RequestInit
+): Promise<ExternalTableSyncSettingsApi> => {
+    return apiMutator<ExternalTableSyncSettingsApi>(getWarehouseTablesConfigureWarehouseSyncCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalTableSyncRequestApi),
+    })
+}
+
 export const getWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_tables/${id}/refresh_schema/`
 }
@@ -2284,6 +2307,24 @@ export const warehouseTablesUpdateSchemaCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tableApi),
+    })
+}
+
+export const getWarehouseTablesWarehouseSyncRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/warehouse_sync/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesWarehouseSyncRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalTableSyncSettingsApi> => {
+    return apiMutator<ExternalTableSyncSettingsApi>(getWarehouseTablesWarehouseSyncRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

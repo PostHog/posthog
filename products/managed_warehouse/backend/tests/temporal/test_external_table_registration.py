@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import datetime as dt
+import threading
 import contextlib
 from collections.abc import Iterator
 from dataclasses import replace
@@ -23,7 +24,10 @@ from temporalio.testing import ActivityEnvironment
 from products.managed_warehouse.backend.external_tables import enroll_external_table
 from products.managed_warehouse.backend.models import ManagedWarehouseExternalTable
 from products.managed_warehouse.backend.temporal import external_table_registration_workflow as registration_module
-from products.managed_warehouse.backend.temporal.external_delta_snapshot import prepare_delta_snapshot
+from products.managed_warehouse.backend.temporal.external_delta_snapshot import (
+    PreparedDeltaSnapshot,
+    prepare_delta_snapshot,
+)
 from products.managed_warehouse.backend.temporal.external_table_registration_workflow import (
     ExternalTableRegistrationAttempt,
     PublishedDeltaSnapshot,
@@ -191,6 +195,7 @@ def test_activity_recovers_the_published_version_after_a_lost_commit_response(
     ):
         enrolled = enroll_external_table(team.id, table.id)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: True)
+    monkeypatch.setattr(registration_module, "external_table_sync_feature_enabled", lambda _team_id: True)
     monkeypatch.setattr(registration_module, "get_config", lambda: {"DUCKLAKE_BUCKET": str(tmp_path)})
     monkeypatch.setattr(registration_module, "setup_duckgres_session", lambda *args, **kwargs: None)
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: fsspec.filesystem("file", auto_mkdir=True))
@@ -220,3 +225,25 @@ def test_activity_recovers_the_published_version_after_a_lost_commit_response(
         .as_string()
     ).fetchall() == [(2,)]
     assert ManagedWarehouseExternalTable.objects.for_team(team.id).count() == 1
+    deltalake.write_deltalake(source, pa.table({"id": [3]}), mode="append")
+    prepare = registration_module.prepare_delta_snapshot
+
+    def disable_during_copy(
+        table: deltalake.DeltaTable,
+        destination: s3fs.S3FileSystem,
+        landing_uri: str,
+        cancel_requested: threading.Event | None = None,
+    ) -> PreparedDeltaSnapshot:
+        snapshot = prepare(table, destination, landing_uri, cancel_requested)
+        ManagedWarehouseExternalTable.objects.for_team(team.id).filter(id=enrolled.id).update(enabled=False)
+        return snapshot
+
+    monkeypatch.setattr(registration_module, "prepare_delta_snapshot", disable_during_copy)
+    assert not environment.run(register_external_table_activity, replace(attempt, attempt_token=uuid.uuid4().hex))
+    enrolled.refresh_from_db()
+    assert enrolled.published_version == 1
+    assert connection.connection.execute(
+        sql.SQL("SELECT id FROM {}.{}")
+        .format(sql.Identifier(enrolled.warehouse_schema), sql.Identifier(enrolled.warehouse_table))
+        .as_string()
+    ).fetchall() == [(2,)]
