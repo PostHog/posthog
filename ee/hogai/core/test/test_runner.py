@@ -14,7 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from parameterized import parameterized
 
-from posthog.schema import AssistantEventType, FailureMessage
+from posthog.schema import AssistantEventType, AssistantMessage, FailureMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -877,9 +877,46 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
             self.conversation.approval_decisions[approvals["second"].proposal_id]["decision_status"],
             "approved" if action == "approve" else "rejected",
         )
-        with self.assertRaisesMessage(ValueError, "Approval does not match a pending operation"):
-            await runner._init_or_update_state()
+        runner._resume_payload = {"action": action, "proposal_id": approvals["second"].proposal_id}
+        self.assertIsNone(await runner._init_or_update_state())
+        self.assertTrue(runner._skip_graph_run)
+        self.assertIsNone(runner._skip_graph_reply)
+        await self.conversation.arefresh_from_db()
+        self.assertEqual(
+            self.conversation.approval_decisions[approvals["first"].proposal_id]["decision_status"], "pending"
+        )
+        runner._skip_graph_run = False
         runner._resume_payload = {"action": "reject", "proposal_id": approvals["first"].proposal_id}
         await graph.ainvoke(await runner._init_or_update_state(), config)
         self.assertFalse((await graph.aget_state(config)).next)
         self.assertEqual(executed, ["second"] if action == "approve" else [])
+
+    @parameterized.expand([("approve_without_message", False), ("approve_with_message", True)])
+    async def test_stale_pending_approval_does_not_fail_the_run(self, _name: str, with_message: bool) -> None:
+        builder = StateGraph(AssistantState)
+        builder.add_node("done", lambda state: {})
+        builder.add_edge(START, "done")
+        builder.add_edge("done", END)
+        graph = builder.compile(checkpointer=MemorySaver())
+        runner, _ = self._create_runner_with_interrupt(None)
+        runner._graph = graph
+        config = runner._get_config()
+        config["callbacks"] = []
+        await graph.ainvoke(AssistantState(messages=[]), config)
+        self.conversation.approval_decisions["stale"] = {"decision_status": "pending"}
+        await self.conversation.asave(update_fields=["approval_decisions"])
+        runner._resume_payload = {"action": "approve", "proposal_id": "stale"}
+        runner._latest_message = HumanMessage(content="Try something else", id=str(uuid4())) if with_message else None
+
+        state = await runner._init_or_update_state()
+
+        await self.conversation.arefresh_from_db()
+        self.assertEqual(self.conversation.approval_decisions["stale"]["decision_status"], "auto_rejected")
+        self.assertIsNone(runner._resume_payload)
+        if with_message:
+            self.assertFalse(runner._skip_graph_run)
+            self.assertIsInstance(state, AssistantState)
+        else:
+            self.assertIsNone(state)
+            self.assertTrue(runner._skip_graph_run)
+            self.assertIsInstance(runner._skip_graph_reply, AssistantMessage)

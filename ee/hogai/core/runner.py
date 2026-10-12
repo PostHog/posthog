@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
@@ -16,7 +16,7 @@ from langchain_core.outputs import LLMResult
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Command, StreamMode
+from langgraph.types import Command, Interrupt, PregelTask, StreamMode
 from opentelemetry import trace
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler, GenerationMetadata
 
@@ -144,6 +144,8 @@ class BaseAgentRunner(ABC):
     _is_agent_billable: bool
     _is_impersonated: bool
     _resume_payload: Optional[dict[str, Any]]
+    _skip_graph_run: bool
+    _skip_graph_reply: Optional[AssistantMessage]
     _event_source: EventSource
     _ai_product: Optional[str]
     _privacy_mode: Optional[bool]
@@ -263,6 +265,8 @@ class BaseAgentRunner(ABC):
         self._stream_processor = stream_processor
         self._slack_thread_context = slack_thread_context
         self._resume_payload = resume_payload
+        self._skip_graph_run = False
+        self._skip_graph_reply = None
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -299,6 +303,10 @@ class BaseAgentRunner(ABC):
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput]:
         state = await self._init_or_update_state()
+        if self._skip_graph_run:
+            if self._skip_graph_reply is not None:
+                yield AssistantEventType.MESSAGE, self._skip_graph_reply
+            return
         config = self._get_config()
 
         stream_mode: list[StreamMode] = ["values", "custom"]
@@ -483,6 +491,8 @@ class BaseAgentRunner(ABC):
 
             # If graph completed successfully (no pending nodes) and we were previously interrupted,
             # reset graph_status so the next message can start fresh instead of trying to resume.
+            await self._expire_pending_approvals(set(self._pending_approval_interrupts(state.tasks)))
+
             if not state.next:
                 current_state = validate_state_update(state.values, self._state_type)
                 if current_state.graph_status == "interrupted":
@@ -592,20 +602,16 @@ class BaseAgentRunner(ABC):
             resume_value = self._resume_payload
             if self._resume_payload and self._resume_payload.get("action") in ("approve", "reject"):
                 proposal_id = self._resume_payload.get("proposal_id")
-                approval_interrupt = next(
-                    (
-                        pending
-                        for task in snapshot.tasks
-                        if task.result is None
-                        for pending in task.interrupts
-                        if isinstance(pending.value, ApprovalRequest) and pending.value.proposal_id == proposal_id
-                    ),
-                    None,
-                )
+                pending_approvals = self._pending_approval_interrupts(snapshot.tasks)
+                approval_interrupt = pending_approvals.get(proposal_id) if proposal_id else None
                 if approval_interrupt is None:
-                    raise ValueError("Approval does not match a pending operation")
-                # A scalar resume targets the next interrupt, which may belong to a different approval card.
-                resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
+                    # The card outlived its interrupt: a retried or repeated resume, or a turn that moved on.
+                    await self._handle_unmatched_approval(proposal_id, set(pending_approvals))
+                    if self._skip_graph_run:
+                        return None
+                else:
+                    # A scalar resume targets the next interrupt, which may belong to a different approval card.
+                    resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
 
             # If there are pending nodes (snapshot.next is non-empty), we need to resume.
             # This happens when:
@@ -797,3 +803,53 @@ class BaseAgentRunner(ABC):
 
         self._conversation.approval_decisions[proposal_id]["decision_status"] = status
         await self._conversation.asave(update_fields=["approval_decisions"])
+
+    @staticmethod
+    def _pending_approval_interrupts(tasks: Sequence[PregelTask]) -> dict[str, Interrupt]:
+        return {
+            pending.value.proposal_id: pending
+            for task in tasks
+            if task.result is None
+            for pending in task.interrupts
+            if isinstance(pending.value, ApprovalRequest)
+        }
+
+    async def _handle_unmatched_approval(self, proposal_id: str | None, pending_proposal_ids: set[str]) -> None:
+        """Drop an approval response that has no pending interrupt, instead of failing the run.
+
+        A new message sent with the response still runs. Without one, the graph does not run.
+        """
+        decision = self._conversation.approval_decisions.get(proposal_id) if proposal_id else None
+        decision_status = decision.get("decision_status") if isinstance(decision, dict) else None
+        logger.warning(
+            "approval_resume_without_pending_interrupt",
+            conversation_id=str(self._conversation.id),
+            proposal_id=proposal_id,
+            decision_status=decision_status,
+            has_message=self._latest_message is not None,
+        )
+        self._resume_payload = None
+        await self._expire_pending_approvals(pending_proposal_ids)
+        if self._latest_message is not None:
+            return
+        self._skip_graph_run = True
+        # An already resolved approval means an earlier request handled it, so there is nothing to report.
+        if decision_status in (None, "pending"):
+            self._skip_graph_reply = AssistantMessage(
+                content="This request is no longer waiting for approval, so I didn't run it. Ask me again if you still want it.",
+                id=str(uuid4()),
+            )
+
+    async def _expire_pending_approvals(self, pending_proposal_ids: set[str]) -> None:
+        """Resolve approval cards whose interrupt is gone, so the user cannot approve an operation that can't run."""
+        expired = False
+        for proposal_id, decision in self._conversation.approval_decisions.items():
+            if (
+                isinstance(decision, dict)
+                and decision.get("decision_status") == "pending"
+                and proposal_id not in pending_proposal_ids
+            ):
+                decision["decision_status"] = "auto_rejected"
+                expired = True
+        if expired:
+            await self._conversation.asave(update_fields=["approval_decisions"])
