@@ -1570,18 +1570,18 @@ async def coordinator_review_activity(input: CoordinatorReviewInput) -> Coordina
         except AgentTurnFailed as exc:
             _raise_if_non_retryable_unit_failure(exc)
             raise
-    findings = review.findings_by_task()
+    reviews = review.reviews_by_task()
     results = {
         (unit.pass_number, unit.chunk_id): IssuesReview(
             issues=issues_from_review(
-                SingleAgentReview(findings=findings[unit.task_name]),
+                reviews[unit.task_name],
                 pass_number=unit.pass_number,
                 chunk_id=unit.chunk_id,
                 source=unit.source,
             )
         )
         for unit in units
-        if unit.task_name in findings
+        if unit.task_name in reviews
     }
     logger.info("The coordinator returned %s of %s sub-agent result(s)", len(results), len(units))
     if results:
@@ -1593,7 +1593,7 @@ async def coordinator_review_activity(input: CoordinatorReviewInput) -> Coordina
             review_arm=arm,
         )
         await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
-    failed = [unit for unit in units if unit.task_name not in findings]
+    failed = [unit for unit in units if unit.task_name not in reviews]
     if any(unit.pass_number == SINGLE_AGENT_PASS_NUMBER for unit in failed):
         raise ApplicationError("The main review sub-agent failed")
     return CoordinatorReviewResult(lens_failures=len(failed))

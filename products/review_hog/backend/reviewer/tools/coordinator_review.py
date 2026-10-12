@@ -5,14 +5,17 @@ reach the sandbox as session files, because the coordinator cannot copy that muc
 sub-agent messages in reasonable time.
 """
 
+import logging
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, JsonValue, ValidationError
 
 from posthog.dataclasses import frozen
 
-from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding
+from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH, load_prompt_file
+
+logger = logging.getLogger(__name__)
 
 COORDINATOR_PROMPT_FILE = SINGLE_AGENT_PROMPT_PATH / "coordinator.md"
 TASK_MESSAGE = (
@@ -46,7 +49,9 @@ class CoordinatorUnit:
 class CoordinatorResult(BaseModel):
     task: str
     status: Literal["ok", "failed"]
-    findings: list[SingleAgentFinding] = Field(default_factory=list)
+    # Required, so a result without the list fails validation instead of reading as a clean review. Raw, so
+    # one sub-agent's malformed finding fails only that sub-agent.
+    findings: list[JsonValue]
 
 
 class CoordinatorReview(BaseModel):
@@ -54,9 +59,17 @@ class CoordinatorReview(BaseModel):
 
     results: list[CoordinatorResult]
 
-    def findings_by_task(self) -> dict[str, list[SingleAgentFinding]]:
-        """The findings of every sub-agent that finished, by task name."""
-        return {result.task: result.findings for result in self.results if result.status == "ok"}
+    def reviews_by_task(self) -> dict[str, SingleAgentReview]:
+        """The review of every sub-agent that finished with valid findings, by task name."""
+        reviews: dict[str, SingleAgentReview] = {}
+        for result in self.results:
+            if result.status != "ok":
+                continue
+            try:
+                reviews[result.task] = SingleAgentReview.model_validate({"findings": result.findings})
+            except ValidationError:
+                logger.warning("Sub-agent %s returned malformed findings; counting it as failed", result.task)
+        return reviews
 
 
 def coordinator_prompt(units: list[CoordinatorUnit], *, model: str, reasoning_effort: str) -> str:

@@ -10,7 +10,7 @@ The task of each sub-agent is in one attached file. The attached files are liste
 1. Start these sub-agents now. Call `spawn_agent` once per line below, all of them right away, so that they run in parallel. In each call set `task_name` to the name given, `model` to "<<MODEL>>" and `reasoning_effort` to "<<EFFORT>>", do not fork your conversation into them, and send exactly the message given, with `<path of NAME>` replaced by the full path of the attached file NAME. Send nothing else.
    <<TASKS>>
 2. Wait for every sub-agent to finish (`wait_agent`). Do not do their work and do not change their findings.
-3. A sub-agent fails when it stops with an error, or when its reply has no JSON object with a "findings" list. Start a failed sub-agent once more, with `_retry` added to its task name and the same model, reasoning effort and message. Report its result under the original task name. If it fails again, report it as failed. A sub-agent that is still running 10 minutes after you started it also counts as failed. Stop waiting for it and do not start it again.
+3. A sub-agent fails when it stops with an error, or when its reply has no JSON object with a "findings" list. Start a failed sub-agent once more, with `_retry` added to its task name and the same model, reasoning effort and message. Report its result under the original task name. If it fails again, report it as failed. A sub-agent other than `main_1` that is still running 10 minutes after you started it also counts as failed. Stop waiting for it and do not start it again. Wait for `main_1` until it finishes.
 4. Reply with only this JSON object:
 
 {
