@@ -5154,6 +5154,15 @@ class BIFilter(BaseModel):
     values: list[str] | None = None
 
 
+class BIHierarchy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    levels: list[BIField] = Field(..., description="Ordered from the broadest dimension to the most detailed.")
+    name: str
+
+
 class BIResultFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11370,6 +11379,10 @@ class BIConfig(BaseModel):
     )
     dateRange: DateRange | None = None
     filters: list[BIFilter]
+    hierarchies: list[BIHierarchy] | None = Field(
+        default=None,
+        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
+    )
     limit: BIQueryLimit
     localFields: list[BIField] | None = Field(
         default=None, description="Reusable expressions owned by this worksheet only."

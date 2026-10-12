@@ -20,6 +20,7 @@ import {
     BISort,
     BIConditionGroup,
     BIResultFilter,
+    BIHierarchy,
 } from '~/queries/schema/schema-business-intelligence'
 import { CompareFilter, DatabaseSchemaTable, DateRange } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -93,6 +94,7 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         ...config,
         source,
         localFields: undefined,
+        hierarchies: undefined,
         colorBy: undefined,
         comparisonPeriod: undefined,
         rows: [],
@@ -472,6 +474,9 @@ export interface biEditorLogicActions {
         index: number
         shelf: BIShelf
     }
+    removeHierarchy: (id: string) => {
+        id: string
+    }
     removeLocalField: (fieldId: string) => {
         fieldId: string
     }
@@ -668,6 +673,9 @@ export interface biEditorLogicActions {
         draft: BICalculatedMeasureDraft
         fieldId: string
     }
+    upsertHierarchy: (hierarchy: BIHierarchy) => {
+        hierarchy: BIHierarchy
+    }
     upsertLocalField: (field: BIField) => {
         field: BIField
     }
@@ -740,6 +748,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setLocalFieldDraft: (field: BIField | null) => ({ field }),
         saveLocalField: true,
         upsertLocalField: (field: BIField) => ({ field }),
+        upsertHierarchy: (hierarchy: BIHierarchy) => ({ hierarchy }),
+        removeHierarchy: (id: string) => ({ id }),
         setFilterGroup: (scope: 'row' | 'result', group: BIConditionGroup) => ({ scope, group }),
         addResultFilter: () => ({ id: uuid() }),
         updateResultFilter: (id: string, update: Partial<BIResultFilter>) => ({ id, update }),
@@ -902,6 +912,14 @@ export const biEditorLogic = kea<biEditorLogicType>([
             freshBIConfig(),
             {
                 upsertLocalField: (config, { field }) => upsertBILocalField(config, field),
+                upsertHierarchy: (config, { hierarchy }) => ({
+                    ...config,
+                    hierarchies: [...(config.hierarchies ?? []).filter((item) => item.id !== hierarchy.id), hierarchy],
+                }),
+                removeHierarchy: (config, { id }) => ({
+                    ...config,
+                    hierarchies: config.hierarchies?.filter((item) => item.id !== id),
+                }),
                 upsertCalculatedMeasure: (config, { draft, fieldId }) => {
                     if (!config.source) {
                         return config
@@ -961,6 +979,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         ...next,
                         rows: next.rows.filter((field) => !matches(field)),
                         columns: next.columns.filter((field) => !matches(field)),
+                        hierarchies: next.hierarchies
+                            ?.map((hierarchy) => ({
+                                ...hierarchy,
+                                levels: hierarchy.levels.filter((field) => !matches(field)),
+                            }))
+                            .filter((hierarchy) => hierarchy.levels.length >= 2),
                         filters: next.filters.filter((filter) => !matches(filter.field)),
                         dateField: next.dateField && matches(next.dateField) ? undefined : next.dateField,
                     })
@@ -1183,6 +1207,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     ...freshBIConfig(),
                     source: config.source,
                     localFields: getBILocalFields(config),
+                    hierarchies: config.hierarchies,
                     dateField: config.dateField,
                     dateRange: config.dateRange,
                 }),
@@ -1431,6 +1456,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setCompareFilter: () => actions.runAfterChange(),
         setMissingDates: () => actions.runAfterChange(),
         setDateField: () => actions.runAfterChange(),
+        upsertHierarchy: () => actions.runAfterChange(),
+        removeHierarchy: () => actions.runAfterChange(),
         setDataSource: () => {
             captureBIWorksheetAction('source_selected', values.config)
             actions.runAfterChange()
