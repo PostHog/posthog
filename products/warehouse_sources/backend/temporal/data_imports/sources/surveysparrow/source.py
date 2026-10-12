@@ -46,7 +46,12 @@ def _base_url_for(config: SurveySparrowSourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveySparrowSource(ResumableSource[SurveySparrowSourceConfig, SurveySparrowResumeConfig]):
-    codebase_detection = detect(env=("^(SURVEY_SPARROW|SURVEYSPARROW)_",))
+    codebase_detection = detect(
+        npm=("surveysparrow-react-native-sdk", "surveysparrow-ionic-plugin"),
+        swiftpm=("github.com/surveysparrow/surveysparrow-ios-sdk",),
+        pub=("surveysparrow_flutter_sdk",),
+        env=("^(SURVEY_SPARROW|SURVEYSPARROW)_",),
+    )
 
     supported_versions = ("v3",)
     default_version = "v3"

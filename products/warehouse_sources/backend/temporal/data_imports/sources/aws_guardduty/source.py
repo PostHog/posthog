@@ -42,7 +42,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyResumeConfig]):
-    codebase_detection = detect(env=("^(AWS_GUARDDUTY|AWSGUARDDUTY)_",))
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-guardduty",),
+        rubygems=("aws-sdk-guardduty",),
+        go=("github.com/aws/aws-sdk-go-v2/service/guardduty",),
+        cargo=("aws-sdk-guardduty",),
+        maven=("software.amazon.awssdk:guardduty", "com.amazonaws:aws-java-sdk-guardduty"),
+        env=("^(AWS_GUARDDUTY|AWSGUARDDUTY)_",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (GUARDDUTY_API_VERSION,)

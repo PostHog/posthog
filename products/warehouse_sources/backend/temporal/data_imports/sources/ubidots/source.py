@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
-    codebase_detection = detect(env=("^UBIDOTS_",))
+    codebase_detection = detect(pypi=("ubidots",), env=("^UBIDOTS_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.ubidots.com/reference/welcome"

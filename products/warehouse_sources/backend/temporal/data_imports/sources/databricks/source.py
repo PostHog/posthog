@@ -59,7 +59,11 @@ DatabricksErrors = {
 @SourceRegistry.register
 class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        env=("^DATABRICKS_",), npm=("@databricks/sql",), pypi=("databricks-sql-connector", "databricks-sdk")
+        env=("^DATABRICKS_",),
+        npm=("@databricks/sql",),
+        pypi=("databricks-sql-connector", "databricks-sdk", "databricks-connect", "databricks-cli"),
+        go=("github.com/databricks/databricks-sdk-go", "github.com/databricks/databricks-sql-go"),
+        maven=("com.databricks:databricks-sdk-java", "com.databricks:databricks-jdbc"),
     )
 
     api_docs_url = "https://docs.databricks.com/aws/en/dev-tools/python-sql-connector"

@@ -48,7 +48,13 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class AdobeAnalyticsSource(ResumableSource[AdobeAnalyticsSourceConfig, AdobeAnalyticsResumeConfig]):
-    codebase_detection = detect(env=("^(ADOBE_ANALYTICS|ADOBEANALYTICS)_",))
+    codebase_detection = detect(
+        maven=("com.adobe.marketing.mobile:analytics",),
+        swiftpm=("github.com/adobe/aepsdk-analytics-ios",),
+        cocoapods=("AEPAnalytics",),
+        env=("^(ADOBE_ANALYTICS|ADOBEANALYTICS)_",),
+        script_hosts=("assets.adobedtm.com",),
+    )
 
     api_docs_url = "https://developer.adobe.com/analytics-apis/docs/2.0/"
 

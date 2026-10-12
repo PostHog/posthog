@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
-    codebase_detection = detect(env=("^NORTHFLANK_",))
+    codebase_detection = detect(npm=("@northflank/js-client", "@northflank/cli"), env=("^NORTHFLANK_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)

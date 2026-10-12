@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UsersnapSource(ResumableSource[UsersnapSourceConfig, UsersnapResumeConfig]):
-    codebase_detection = detect(env=("^USERSNAP_",))
+    codebase_detection = detect(npm=("@usersnap/browser",), env=("^USERSNAP_",), script_hosts=("widget.usersnap.com",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

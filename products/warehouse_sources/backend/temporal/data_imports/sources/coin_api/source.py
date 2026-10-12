@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
-    codebase_detection = detect(env=("^(COIN_API|COINAPI)_",))
+    codebase_detection = detect(pypi=("coinapi-rest-v1",), env=("^(COIN_API|COINAPI)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.coinapi.io/market-data/rest-api"

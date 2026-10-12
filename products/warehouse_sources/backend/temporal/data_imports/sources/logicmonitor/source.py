@@ -43,7 +43,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LogicmonitorSource(ResumableSource[LogicmonitorSourceConfig, LogicMonitorResumeConfig]):
-    codebase_detection = detect(env=("^LOGICMONITOR_",))
+    codebase_detection = detect(
+        pypi=("logicmonitor-sdk",),
+        go=("github.com/logicmonitor/lm-sdk-go",),
+        env=("^LOGICMONITOR_", "^LM_API_ID$", "^LM_COMPANY$"),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

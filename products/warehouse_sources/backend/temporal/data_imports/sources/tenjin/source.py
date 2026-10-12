@@ -39,7 +39,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TenjinSource(ResumableSource[TenjinSourceConfig, TenjinResumeConfig]):
-    codebase_detection = detect(env=("^TENJIN_",))
+    codebase_detection = detect(
+        npm=("react-native-tenjin",),
+        maven=("com.tenjin:android-sdk",),
+        swiftpm=("github.com/tenjin/tenjin-ios-sdk",),
+        cocoapods=("TenjinSDK",),
+        pub=("tenjin_plugin",),
+        env=("^TENJIN_",),
+    )
 
     lists_tables_without_credentials = True  # static report catalog — safe for public docs
     supported_versions = ("v2",)

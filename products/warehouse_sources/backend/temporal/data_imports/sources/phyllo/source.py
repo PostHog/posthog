@@ -37,7 +37,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PhylloSource(ResumableSource[PhylloSourceConfig, PhylloResumeConfig]):
-    codebase_detection = detect(env=("^PHYLLO_",))
+    codebase_detection = detect(
+        npm=("react-native-phyllo-connect", "phyllo-connect"),
+        cocoapods=("PhylloConnect",),
+        pub=("phyllo_connect",),
+        env=("^PHYLLO_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)

@@ -31,7 +31,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ExpoSource(ResumableSource[ExpoSourceConfig, ExpoResumeConfig]):
-    codebase_detection = detect(env=("^EXPO_",))
+    codebase_detection = detect(
+        npm=("expo", "eas-cli", "expo-server-sdk"),
+        pypi=("exponent-server-sdk",),
+        rubygems=("exponent-server-sdk",),
+        env=("^EXPO_",),
+    )
 
     api_docs_url = "https://docs.expo.dev/accounts/programmatic-access/"
 

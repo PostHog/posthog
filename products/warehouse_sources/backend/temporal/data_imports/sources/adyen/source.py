@@ -48,7 +48,28 @@ Pick the environment that matches where you created the API key — a test key w
 
 @SourceRegistry.register
 class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
-    codebase_detection = detect(env=("^ADYEN_",), npm=("@adyen/api-library",), pypi=("adyen",))
+    codebase_detection = detect(
+        env=("^ADYEN_",),
+        script_hosts=(
+            "checkoutshopper-live.cdn.adyen.com",
+            "checkoutshopper-test.cdn.adyen.com",
+            "checkoutshopper-live-us.cdn.adyen.com",
+            "checkoutshopper-live-au.cdn.adyen.com",
+            "checkoutshopper-live-nea.cdn.adyen.com",
+            "checkoutshopper-live-in.cdn.adyen.com",
+            "checkoutshopper-live.adyen.com",
+            "checkoutshopper-test.adyen.com",
+        ),
+        npm=("@adyen/api-library", "@adyen/adyen-web", "@adyen/react-native"),
+        pypi=("adyen",),
+        cocoapods=("Adyen",),
+        composer=("adyen/php-api-library",),
+        go=("github.com/adyen/adyen-go-api-library",),
+        maven=("com.adyen:adyen-java-api-library", "com.adyen.checkout:drop-in"),
+        pub=("adyen_checkout",),
+        rubygems=("adyen-ruby-api-library",),
+        swiftpm=("github.com/adyen/adyen-ios",),
+    )
 
     # Adyen versions each of its APIs separately (Transfers v4, Configuration v2, Management v3),
     # so there is no single version token to pin for the source as a whole.

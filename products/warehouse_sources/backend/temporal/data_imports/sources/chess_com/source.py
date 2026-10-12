@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChessComSource(SimpleSource[ChessComSourceConfig]):
-    codebase_detection = detect(env=("^(CHESS_COM|CHESSCOM)_",))
+    codebase_detection = detect(npm=("chess-web-api",), pypi=("chess-com",), env=("^(CHESS_COM|CHESSCOM)_",))
 
     api_docs_url = "https://www.chess.com/news/view/published-data-api"
 

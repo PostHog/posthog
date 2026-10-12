@@ -39,14 +39,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ConfigCatSource(SimpleSource[ConfigCatSourceConfig]):
     codebase_detection = detect(
         env=("^CONFIGCAT_",),
-        npm=("configcat-node", "configcat-js"),
+        npm=("configcat-node", "configcat-js", "configcat-react", "configcat-js-ssr", "@configcat/sdk"),
         pypi=("configcat-client",),
         cargo=("configcat",),
+        cocoapods=("ConfigCat",),
         composer=("configcat/configcat-client",),
         go=("github.com/configcat/go-sdk",),
         hex=("configcat",),
         maven=("com.configcat:configcat-java-client", "com.configcat:configcat-android-client"),
         pub=("configcat_client",),
+        rubygems=("configcat",),
         swiftpm=("github.com/configcat/swift-sdk",),
         competes_with=(ProductKey.FEATURE_FLAGS,),
     )

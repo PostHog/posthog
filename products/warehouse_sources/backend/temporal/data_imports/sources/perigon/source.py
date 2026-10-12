@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,7 +37,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PerigonSource(ResumableSource[PerigonSourceConfig, PerigonResumeConfig]):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = detect(
+        npm=("@goperigon/perigon-ts",),
+        pypi=("perigon",),
+        go=("github.com/goperigon/perigon-go-sdk",),
+        env=("^PERIGON_API_KEY$",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.perigon.io/docs/overview"

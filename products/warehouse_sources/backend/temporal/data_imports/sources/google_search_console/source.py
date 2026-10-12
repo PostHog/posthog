@@ -96,7 +96,12 @@ def _property_list_http_error(error: requests.HTTPError) -> str:
 class GoogleSearchConsoleSource(
     ResumableSource[GoogleSearchConsoleSourceConfig, GoogleSearchConsoleResumeConfig], OAuthMixin
 ):
-    codebase_detection = detect(env=("^SEARCH_CONSOLE_", "^GSC_"))
+    codebase_detection = detect(
+        npm=("@googleapis/searchconsole", "@googleapis/webmasters"),
+        rubygems=("google-apis-searchconsole_v1",),
+        maven=("com.google.apis:google-api-services-searchconsole",),
+        env=("^SEARCH_CONSOLE_", "^GSC_"),
+    )
 
     supported_versions = ("v3",)
     default_version = "v3"

@@ -38,7 +38,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
-    codebase_detection = detect(env=("^KNOCK_",), npm=("@knocklabs/node", "@knocklabs/client"), pypi=("knockapi",))
+    codebase_detection = detect(
+        env=("^KNOCK_", "^NEXT_PUBLIC_KNOCK_"),
+        npm=("@knocklabs/node", "@knocklabs/client", "@knocklabs/react", "@knocklabs/react-native"),
+        pypi=("knockapi",),
+        cocoapods=("Knock",),
+        composer=("knocklabs/knock-php",),
+        go=("github.com/knocklabs/knock-go",),
+        hex=("knock",),
+        maven=("app.knock.api:knock-java",),
+        pub=("knock_flutter",),
+        rubygems=("knockapi",),
+        swiftpm=("github.com/knocklabs/knock-swift",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.knock.app/api-reference/overview"

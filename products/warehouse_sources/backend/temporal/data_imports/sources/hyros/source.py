@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HyrosSource(ResumableSource[HyrosSourceConfig, HyrosResumeConfig]):
-    codebase_detection = detect(env=("^HYROS_",))
+    codebase_detection = detect(env=("^HYROS_",), script_hosts=("t.hyros.com",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1.0",)

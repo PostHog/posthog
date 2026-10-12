@@ -35,7 +35,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
-    codebase_detection = detect(env=("^(LOGZ_IO|LOGZIO)_",))
+    codebase_detection = detect(
+        npm=("logzio-nodejs", "winston-logzio", "@logzio/browser"),
+        pypi=("logzio-python-handler",),
+        go=("github.com/logzio/logzio-go",),
+        maven=(
+            "io.logz.logback:logzio-logback-appender",
+            "io.logz.log4j2:logzio-log4j2-appender",
+            "io.logz.sender:logzio-java-sender",
+        ),
+        env=("^(LOGZ_IO|LOGZIO)_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

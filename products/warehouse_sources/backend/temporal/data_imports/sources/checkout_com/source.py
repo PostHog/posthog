@@ -90,7 +90,16 @@ _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 @SourceRegistry.register
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
     # Checkout.com's own convention is the CKO_ prefix.
-    codebase_detection = detect(env=("^CKO_", "^CHECKOUT_COM_"), npm=("checkout-sdk-node",), pypi=("checkout-sdk",))
+    codebase_detection = detect(
+        env=("^CKO_", "^CHECKOUT_COM_"),
+        script_hosts=("cdn.checkout.com", "checkout-web-components.checkout.com"),
+        npm=("checkout-sdk-node", "@checkout.com/checkout-web-components", "frames-react"),
+        pypi=("checkout-sdk",),
+        composer=("checkout/checkout-sdk-php",),
+        go=("github.com/checkout/checkout-sdk-go",),
+        maven=("com.checkout:checkout-sdk-java",),
+        rubygems=("checkout_sdk",),
+    )
 
     # The catalog listed without credentials is the static part (disputes + reports);
     # the per-report-type tables need credentials to discover, so `get_schemas` only

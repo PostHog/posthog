@@ -39,7 +39,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
-    codebase_detection = detect(env=("^APPSFLYER_",), npm=("react-native-appsflyer",))
+    codebase_detection = detect(
+        env=("^APPSFLYER_",),
+        script_hosts=("websdk.appsflyersdk.com",),
+        npm=("react-native-appsflyer", "cordova-plugin-appsflyer-sdk"),
+        cocoapods=("AppsFlyerFramework",),
+        maven=("com.appsflyer:af-android-sdk",),
+        pub=("appsflyer_sdk",),
+        swiftpm=("github.com/appsflyersdk/appsflyerframework",),
+    )
 
     api_docs_url = "https://support.appsflyer.com/hc/en-us/articles/207034366-Pull-APIs-aggregate-and-raw-data"
 

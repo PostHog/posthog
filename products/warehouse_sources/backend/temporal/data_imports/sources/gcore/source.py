@@ -39,7 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GcoreSource(ResumableSource[GcoreSourceConfig, GcoreCheckpoint]):
-    codebase_detection = detect(env=("^GCORE_",))
+    codebase_detection = detect(
+        pypi=("gcore",), go=("github.com/G-Core/gcore-go", "github.com/G-Core/gcorelabscloud-go"), env=("^GCORE_",)
+    )
 
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.gcore.com/api-reference/overview"

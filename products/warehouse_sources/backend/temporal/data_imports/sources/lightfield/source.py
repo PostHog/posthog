@@ -35,7 +35,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
-    codebase_detection = detect(env=("^LIGHTFIELD_",))
+    codebase_detection = detect(
+        npm=("lightfield",), pypi=("lightfield",), go=("github.com/Lightfld/lightfield-go",), env=("^LIGHTFIELD_",)
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2026-03-01",)

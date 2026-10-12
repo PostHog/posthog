@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, OpenExchangeRatesResumeConfig]):
-    codebase_detection = detect(env=("^(OPEN_EXCHANGE_RATES|OPENEXCHANGERATES)_",))
+    codebase_detection = detect(npm=("open-exchange-rates",), env=("^(OPEN_EXCHANGE_RATES|OPENEXCHANGERATES)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.openexchangerates.org/reference/api-introduction"

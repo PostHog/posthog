@@ -42,7 +42,13 @@ def _base_url_for(config: SurveyMonkeySourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyResumeConfig]):
-    codebase_detection = detect(env=("^(SURVEY_MONKEY|SURVEYMONKEY)_",))
+    codebase_detection = detect(
+        npm=("surveymonkey-react-native",),
+        maven=("com.surveymonkey:surveymonkey-android-sdk",),
+        swiftpm=("github.com/surveymonkey/surveymonkey-ios-sdk",),
+        cocoapods=("surveymonkey-ios-sdk",),
+        env=("^(SURVEY_MONKEY|SURVEYMONKEY)_",),
+    )
 
     supported_versions = ("v3",)
     default_version = "v3"

@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DonorboxSource(ResumableSource[DonorboxSourceConfig, DonorboxResumeConfig]):
-    codebase_detection = detect(env=("^DONORBOX_",))
+    codebase_detection = detect(env=("^DONORBOX_",), script_hosts=("donorbox.org",))
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

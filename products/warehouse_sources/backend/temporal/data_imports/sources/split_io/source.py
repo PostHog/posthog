@@ -40,12 +40,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
     codebase_detection = detect(
         env=("^SPLITIO_", "^SPLIT_IO_"),
-        npm=("@splitsoftware/splitio",),
+        npm=("@splitsoftware/splitio", "@splitsoftware/splitio-react", "@splitsoftware/splitio-browserjs"),
         pypi=("splitio-client",),
+        cocoapods=("Split",),
         composer=("splitsoftware/split-sdk-php",),
         go=("github.com/splitio/go-client",),
         maven=("io.split.client:java-client", "io.split.client:android-client"),
         pub=("splitio",),
+        rubygems=("splitclient-rb",),
         swiftpm=("github.com/splitio/ios-client",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )

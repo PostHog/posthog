@@ -42,7 +42,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpCloudBillingResumeConfig]):
-    codebase_detection = detect(env=("^(GCP_CLOUD_BILLING|GCPCLOUDBILLING)_",))
+    codebase_detection = detect(
+        npm=("@google-cloud/billing", "@google-cloud/billing-budgets"),
+        pypi=("google-cloud-billing", "google-cloud-billing-budgets"),
+        rubygems=("google-cloud-billing",),
+        composer=("google/cloud-billing",),
+        go=("cloud.google.com/go/billing",),
+        maven=("com.google.cloud:google-cloud-billing", "com.google.cloud:google-cloud-billingbudgets"),
+        env=("^(GCP_CLOUD_BILLING|GCPCLOUDBILLING)_",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v1",)

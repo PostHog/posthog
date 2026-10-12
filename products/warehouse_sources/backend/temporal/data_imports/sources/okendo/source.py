@@ -35,7 +35,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OkendoSource(ResumableSource[OkendoSourceConfig, OkendoResumeConfig]):
-    codebase_detection = detect(env=("^OKENDO_",))
+    codebase_detection = detect(
+        npm=("@okendo/shopify-hydrogen",), env=("^OKENDO_",), script_hosts=("cdn-static.okendo.io",)
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2025-02-01",)

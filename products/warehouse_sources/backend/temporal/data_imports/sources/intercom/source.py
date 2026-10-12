@@ -38,12 +38,15 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
     codebase_detection = detect(
         env=("^INTERCOM_",),
         script_hosts=("widget.intercom.io", "js.intercomcdn.com"),
-        npm=("intercom-client", "@intercom/messenger-js-sdk"),
+        npm=("intercom-client", "@intercom/messenger-js-sdk", "@intercom/intercom-react-native", "react-use-intercom"),
         pypi=("python-intercom",),
         cocoapods=("Intercom",),
         composer=("intercom/intercom-php",),
-        maven=("io.intercom.android:intercom-sdk",),
+        go=("github.com/intercom/intercom-go",),
+        hex=("intercom",),
+        maven=("io.intercom.android:intercom-sdk", "io.intercom:intercom-java"),
         pub=("intercom_flutter",),
+        rubygems=("intercom",),
         swiftpm=("github.com/intercom/intercom-ios-sp",),
         competes_with=(ProductKey.CONVERSATIONS,),
     )

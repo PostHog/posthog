@@ -136,7 +136,16 @@ class RevenueCatSource(
 ):
     codebase_detection = detect(
         env=("^REVENUE_?CAT_",),
-        npm=("@revenuecat/purchases-js", "react-native-purchases", "@revenuecat/purchases-capacitor"),
+        npm=(
+            "@revenuecat/purchases-js",
+            "react-native-purchases",
+            "@revenuecat/purchases-capacitor",
+            "react-native-purchases-ui",
+        ),
+        cocoapods=("RevenueCat", "Purchases"),
+        maven=("com.revenuecat.purchases:purchases",),
+        pub=("purchases_flutter",),
+        swiftpm=("github.com/revenuecat/purchases-ios", "github.com/revenuecat/purchases-ios-spm"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

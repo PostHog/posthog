@@ -32,7 +32,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
-    codebase_detection = detect(env=("^FINNHUB_",))
+    codebase_detection = detect(
+        npm=("finnhub",),
+        pypi=("finnhub-python",),
+        rubygems=("finnhub_ruby",),
+        composer=("finnhub/client",),
+        go=("github.com/Finnhub-Stock-API/finnhub-go",),
+        maven=("io.finnhub:kotlin-client",),
+        env=("^FINNHUB_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)

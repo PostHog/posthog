@@ -42,7 +42,7 @@ class TypeformSource(SimpleSource[TypeformSourceConfig]):
     codebase_detection = detect(
         env=("^TYPEFORM_",),
         script_hosts=("embed.typeform.com",),
-        npm=("@typeform/api-client",),
+        npm=("@typeform/api-client", "@typeform/embed", "@typeform/embed-react"),
         competes_with=(ProductKey.SURVEYS,),
     )
 

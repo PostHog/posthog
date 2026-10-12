@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
-    codebase_detection = detect(env=("^(OPEN_WEATHER|OPENWEATHER)_",))
+    codebase_detection = detect(pypi=("pyowm",), env=("^(OPEN_WEATHER|OPENWEATHER)_",))
 
     supported_versions = (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
     default_version = API_VERSION_4_0

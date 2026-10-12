@@ -28,7 +28,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GiphySource(ResumableSource[GiphySourceConfig, GiphyResumeConfig]):
-    codebase_detection = detect(env=("^GIPHY_",))
+    codebase_detection = detect(
+        npm=("@giphy/js-fetch-api", "@giphy/react-components", "@giphy/js-components", "@giphy/react-native-sdk"),
+        pypi=("giphy-client",),
+        composer=("giphy/giphy-php-client",),
+        maven=("com.giphy.sdk:ui",),
+        swiftpm=("github.com/giphy/giphy-ios-sdk",),
+        cocoapods=("Giphy",),
+        env=("^GIPHY_",),
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

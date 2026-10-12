@@ -37,7 +37,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartwaiverSource(ResumableSource[SmartwaiverSourceConfig, SmartwaiverResumeConfig]):
-    codebase_detection = detect(env=("^SMARTWAIVER_",))
+    codebase_detection = detect(
+        pypi=("smartwaiver-sdk",),
+        rubygems=("smartwaiver-sdk",),
+        composer=("smartwaiver/smartwaiver-sdk",),
+        env=("^SMARTWAIVER_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v4",)

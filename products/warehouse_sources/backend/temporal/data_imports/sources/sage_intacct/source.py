@@ -43,7 +43,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SageIntacctSource(ResumableSource[SageIntacctSourceConfig, SageIntacctResumeConfig]):
-    codebase_detection = detect(env=("^(SAGE_INTACCT|SAGEINTACCT)_",))
+    codebase_detection = detect(
+        pypi=("sageintacctsdk",),
+        composer=("intacct/intacct-sdk-php",),
+        env=("^(SAGE_INTACCT|SAGEINTACCT)_", "^INTACCT_"),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v1",)

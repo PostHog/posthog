@@ -43,7 +43,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TestDinoSource(ResumableSource[TestDinoSourceConfig, TestDinoResumeConfig]):
-    codebase_detection = detect(env=("^(TEST_DINO|TESTDINO)_",))
+    codebase_detection = detect(
+        npm=("tdpw", "@testdino/playwright"), pypi=("testdino",), env=("^(TEST_DINO|TESTDINO)_",)
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

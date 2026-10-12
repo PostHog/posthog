@@ -37,7 +37,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoralogixSource(ResumableSource[CoralogixSourceConfig, CoralogixResumeConfig]):
-    codebase_detection = detect(env=("^CORALOGIX_",))
+    codebase_detection = detect(
+        npm=("coralogix-logger", "@coralogix/browser", "@coralogix/react-native-plugin"),
+        pypi=("coralogix-logger",),
+        rubygems=("coralogix_logger",),
+        maven=("com.coralogix.sdk:coralogix-sdk", "com.coralogix:android-sdk"),
+        swiftpm=("github.com/coralogix/cx-ios-sdk",),
+        cocoapods=("Coralogix",),
+        pub=("cx_flutter_plugin",),
+        env=("^CORALOGIX_",),
+        script_hosts=("cdn.rum-ingress-coralogix.com",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

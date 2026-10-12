@@ -159,11 +159,11 @@ ClickHouseErrors: dict[str, str] = {
 class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     codebase_detection = detect(
         env=("^CLICKHOUSE_",),
-        npm=("@clickhouse/client",),
+        npm=("@clickhouse/client", "@clickhouse/client-web"),
         pypi=("clickhouse-connect", "clickhouse-driver"),
         cargo=("clickhouse",),
         go=("github.com/ClickHouse/clickhouse-go",),
-        maven=("com.clickhouse:clickhouse-jdbc",),
+        maven=("com.clickhouse:clickhouse-jdbc", "com.clickhouse:client-v2"),
     )
 
     # Lets users pick which columns to sync (and, in the wizard, surfaces the

@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SpotIoSource(ResumableSource[SpotIoSourceConfig, SpotIoResumeConfig]):
-    codebase_detection = detect(env=("^(SPOT_IO|SPOTIO)_",))
+    codebase_detection = detect(
+        pypi=("spotinst-sdk2",), go=("github.com/spotinst/spotinst-sdk-go",), env=("^SPOTINST_",)
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.flexera.com/spot/"

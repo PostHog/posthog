@@ -99,11 +99,12 @@ _VAULT_SCHEMA = "vault"
 @SourceRegistry.register
 class SupabaseSource(PostgresSource):
     codebase_detection = detect(
-        env=("^SUPABASE_",),
-        npm=("@supabase/supabase-js",),
+        env=("^SUPABASE_", "^NEXT_PUBLIC_SUPABASE_"),
+        npm=("@supabase/supabase-js", "@supabase/ssr", "@supabase/auth-helpers-nextjs"),
         pypi=("supabase",),
         go=("github.com/supabase-community/supabase-go",),
-        pub=("supabase_flutter",),
+        maven=("io.github.jan-tennert.supabase:supabase-kt",),
+        pub=("supabase_flutter", "supabase"),
         swiftpm=("github.com/supabase/supabase-swift",),
     )
 

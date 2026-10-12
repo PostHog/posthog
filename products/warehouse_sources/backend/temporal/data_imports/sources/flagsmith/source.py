@@ -55,12 +55,16 @@ _PARENT_PROBE_PATHS = {
 class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
         env=("^FLAGSMITH_",),
-        npm=("flagsmith-nodejs", "flagsmith"),
+        npm=("flagsmith-nodejs", "flagsmith", "@flagsmith/flagsmith", "react-native-flagsmith", "flagsmith-es"),
         pypi=("flagsmith",),
         cargo=("flagsmith",),
+        cocoapods=("FlagsmithClient",),
         composer=("flagsmith/flagsmith-php-client",),
+        go=("github.com/Flagsmith/flagsmith-go-client",),
+        hex=("flagsmith_engine",),
         maven=("com.flagsmith:flagsmith-java-client",),
         pub=("flagsmith",),
+        rubygems=("flagsmith",),
         swiftpm=("github.com/flagsmith/flagsmith-ios-client",),
         competes_with=(ProductKey.FEATURE_FLAGS,),
     )

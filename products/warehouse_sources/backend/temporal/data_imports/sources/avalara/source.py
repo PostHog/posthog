@@ -38,7 +38,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
-    codebase_detection = detect(env=("^AVALARA_",))
+    codebase_detection = detect(
+        npm=("avatax",),
+        pypi=("avalara",),
+        rubygems=("avatax",),
+        composer=("avalara/avataxclient",),
+        maven=("net.avalara.avatax:avatax-rest-v2-api-java_2.11",),
+        env=("^AVALARA_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

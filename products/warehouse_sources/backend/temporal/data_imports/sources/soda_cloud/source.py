@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SodaCloudSource(ResumableSource[SodaCloudSourceConfig, SodaCloudResumeConfig]):
-    codebase_detection = detect(env=("^(SODA_CLOUD|SODACLOUD)_",))
+    codebase_detection = detect(pypi=("soda-core",), env=("^(SODA_CLOUD|SODACLOUD)_",))
 
     lists_tables_without_credentials = True
     supported_versions = ("v1",)

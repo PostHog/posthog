@@ -109,12 +109,12 @@ class StripeSource(
     OAuthMixin,
 ):
     codebase_detection = detect(
-        env=("^STRIPE_(SECRET|API)_KEY$",),
+        env=("^STRIPE_(SECRET|API)_KEY$", "^STRIPE_PUBLISHABLE_KEY$", "^STRIPE_WEBHOOK_SECRET$"),
         script_hosts=("js.stripe.com",),
-        npm=("stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"),
+        npm=("stripe", "@stripe/stripe-js", "@stripe/react-stripe-js", "@stripe/stripe-react-native"),
         pypi=("stripe",),
         cargo=("async-stripe",),
-        cocoapods=("Stripe", "StripePaymentSheet"),
+        cocoapods=("Stripe", "StripePaymentSheet", "StripePayments"),
         composer=("stripe/stripe-php",),
         go=("github.com/stripe/stripe-go",),
         hex=("stripity_stripe",),

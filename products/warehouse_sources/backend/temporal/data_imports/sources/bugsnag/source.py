@@ -38,12 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
     codebase_detection = detect(
         env=("^BUGSNAG_",),
-        npm=("@bugsnag/js",),
+        script_hosts=("d2wy8f7a9ursnm.cloudfront.net",),
+        npm=("@bugsnag/js", "@bugsnag/browser", "@bugsnag/node", "@bugsnag/react-native", "@bugsnag/expo"),
         pypi=("bugsnag",),
         cocoapods=("Bugsnag",),
-        composer=("bugsnag/bugsnag", "bugsnag/bugsnag-laravel"),
+        composer=("bugsnag/bugsnag", "bugsnag/bugsnag-laravel", "bugsnag/bugsnag-symfony"),
         go=("github.com/bugsnag/bugsnag-go",),
-        maven=("com.bugsnag:bugsnag-android",),
+        maven=("com.bugsnag:bugsnag-android", "com.bugsnag:bugsnag"),
         pub=("bugsnag_flutter",),
         rubygems=("bugsnag",),
         swiftpm=("github.com/bugsnag/bugsnag-cocoa",),

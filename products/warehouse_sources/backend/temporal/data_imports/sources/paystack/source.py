@@ -33,7 +33,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]):
-    codebase_detection = detect(env=("^PAYSTACK_",), pypi=("paystackapi",))
+    codebase_detection = detect(
+        env=("^PAYSTACK_",),
+        script_hosts=("js.paystack.co",),
+        npm=("@paystack/inline-js", "@paystack/paystack-sdk"),
+        pypi=("paystackapi", "paystack-sdk"),
+        cocoapods=("Paystack",),
+        composer=("yabacon/paystack-php",),
+        maven=("co.paystack.android:paystack",),
+        rubygems=("paystack-ruby",),
+    )
 
     api_docs_url = "https://paystack.com/docs/api/"
 

@@ -35,7 +35,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
-    codebase_detection = detect(env=("^FRONTAPP_", "^FRONT_API_"))
+    codebase_detection = detect(
+        npm=("front-chat-sdk", "@frontapp/plugin-sdk"),
+        env=("^FRONTAPP_", "^FRONT_API_"),
+        script_hosts=("chat-assets.frontapp.com",),
+    )
 
     api_docs_url = "https://dev.frontapp.com"
 

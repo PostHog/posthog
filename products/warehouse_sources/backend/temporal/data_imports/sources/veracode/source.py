@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VeracodeSource(ResumableSource[VeracodeSourceConfig, VeracodeResumeConfig]):
-    codebase_detection = detect(env=("^VERACODE_",))
+    codebase_detection = detect(pypi=("veracode-api-signing",), env=("^VERACODE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

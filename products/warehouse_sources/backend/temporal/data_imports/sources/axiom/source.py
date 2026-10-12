@@ -38,7 +38,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AxiomSource(ResumableSource[AxiomSourceConfig, AxiomResumeConfig]):
-    codebase_detection = detect(env=("^AXIOM_",))
+    codebase_detection = detect(
+        npm=(
+            "@axiomhq/js",
+            "@axiomhq/winston",
+            "@axiomhq/pino",
+            "next-axiom",
+            "@axiomhq/nextjs",
+            "@axiomhq/logging",
+            "@axiomhq/react",
+            "@axiomhq/ai",
+        ),
+        pypi=("axiom-py",),
+        go=("github.com/axiomhq/axiom-go",),
+        cargo=("axiom-rs",),
+        env=("^AXIOM_", "^NEXT_PUBLIC_AXIOM_"),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

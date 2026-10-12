@@ -54,7 +54,12 @@ def _credentials_from_config(config: QualtricsSourceConfig) -> QualtricsCredenti
 
 @SourceRegistry.register
 class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConfig]):
-    codebase_detection = detect(env=("^QUALTRICS_",))
+    codebase_detection = detect(
+        npm=("react-native-qualtrics",),
+        cocoapods=("Qualtrics",),
+        env=("^QUALTRICS_",),
+        script_hosts=("siteintercept.qualtrics.com",),
+    )
 
     supported_versions = (QUALTRICS_API_VERSION,)
     default_version = QUALTRICS_API_VERSION

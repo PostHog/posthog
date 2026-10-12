@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigeyeSource(ResumableSource[BigeyeSourceConfig, BigeyeResumeConfig]):
-    codebase_detection = detect(env=("^BIGEYE_",))
+    codebase_detection = detect(pypi=("bigeye-sdk", "bigeye-cli"), env=("^BIGEYE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -38,7 +38,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
     # A bare /^AWS_/ would fire on every AWS project, so we match only
     # the SES-specific prefix.
-    codebase_detection = detect(env=("^AWS_SES_",), npm=("@aws-sdk/client-ses", "@aws-sdk/client-sesv2"))
+    codebase_detection = detect(
+        env=("^AWS_SES_",),
+        npm=("@aws-sdk/client-ses", "@aws-sdk/client-sesv2"),
+        cargo=("aws-sdk-ses", "aws-sdk-sesv2"),
+        go=("github.com/aws/aws-sdk-go-v2/service/ses", "github.com/aws/aws-sdk-go-v2/service/sesv2"),
+        maven=(
+            "software.amazon.awssdk:ses",
+            "software.amazon.awssdk:sesv2",
+            "com.amazonaws:aws-java-sdk-ses",
+            "com.amazonaws:aws-java-sdk-sesv2",
+        ),
+        rubygems=("aws-sdk-ses", "aws-sdk-sesv2"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("v2",)

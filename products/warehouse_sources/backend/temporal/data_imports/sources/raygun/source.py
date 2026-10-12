@@ -49,10 +49,15 @@ Grant the token these read scopes for the tables you want to sync:
 class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
     codebase_detection = detect(
         env=("^RAYGUN_",),
-        npm=("raygun",),
+        script_hosts=("cdn.raygun.io",),
+        npm=("raygun", "raygun4js", "raygun4reactnative"),
         pypi=("raygun4py",),
+        cocoapods=("raygun4apple",),
         composer=("mindscape/raygun4php",),
-        rubygems=("raygun4ruby",),
+        go=("github.com/MindscapeHQ/raygun4go",),
+        maven=("com.raygun:raygun4android", "com.mindscapehq:core"),
+        pub=("raygun4flutter",),
+        rubygems=("raygun4ruby", "raygun-apm"),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

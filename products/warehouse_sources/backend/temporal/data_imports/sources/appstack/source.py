@@ -39,7 +39,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppstackSource(ResumableSource[AppstackSourceConfig, AppstackResumeConfig]):
-    codebase_detection = detect(env=("^APPSTACK_",))
+    codebase_detection = detect(
+        npm=("react-native-appstack-sdk",),
+        maven=("tech.appstack.android-sdk:appstack-android-sdk",),
+        swiftpm=("github.com/appstack-tech/ios-appstack-sdk",),
+        pub=("appstack_plugin",),
+        env=("^APPSTACK_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.appstack.tech/api/export"

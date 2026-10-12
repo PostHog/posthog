@@ -44,7 +44,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OneHundredMsSource(ResumableSource[OneHundredMsSourceConfig, OneHundredMsResumeConfig]):
-    codebase_detection = detect(env=("^(ONE_HUNDRED_MS|ONEHUNDREDMS)_",))
+    codebase_detection = detect(
+        npm=(
+            "@100mslive/react-sdk",
+            "@100mslive/hms-video-store",
+            "@100mslive/server-sdk",
+            "@100mslive/react-native-hms",
+            "@100mslive/roomkit-react",
+        ),
+        maven=("live.100ms:android-sdk",),
+        swiftpm=("github.com/100mslive/100ms-ios-sdk",),
+        cocoapods=("HMSSDK",),
+        pub=("hmssdk_flutter",),
+        env=("^(ONE_HUNDRED_MS|ONEHUNDREDMS)_", "^HMS_ACCESS_KEY$", "^HMS_SECRET$"),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

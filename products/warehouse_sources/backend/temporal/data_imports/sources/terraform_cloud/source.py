@@ -37,7 +37,11 @@ _ORGANIZATION_NAME_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-_]*$")
 
 @SourceRegistry.register
 class TerraformCloudSource(ResumableSource[TerraformCloudSourceConfig, TerraformCloudResumeConfig]):
-    codebase_detection = detect(env=("^(TERRAFORM_CLOUD|TERRAFORMCLOUD)_",))
+    codebase_detection = detect(
+        pypi=("pytfe",),
+        go=("github.com/hashicorp/go-tfe",),
+        env=("^(TERRAFORM_CLOUD|TERRAFORMCLOUD)_", "^TFE_TOKEN$", "^TFE_ADDRESS$", "^TF_TOKEN_app_terraform_io$"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

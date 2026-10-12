@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
-    codebase_detection = detect(env=("^ASAAS_",))
+    codebase_detection = detect(maven=("com.asaas:api-sdk",), env=("^ASAAS_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

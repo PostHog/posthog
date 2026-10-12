@@ -37,7 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RetellAISource(ResumableSource[RetellAISourceConfig, RetellAIResumeConfig]):
-    codebase_detection = detect(env=("^(RETELL_AI|RETELLAI)_",))
+    codebase_detection = detect(
+        npm=("retell-sdk", "retell-client-js-sdk"), pypi=("retell-sdk",), env=("^RETELL_API_KEY$",)
+    )
 
     lists_tables_without_credentials = True
     # Retell versions individual endpoints: calls/chats use v3, agents/phone numbers use v2.

@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
-    codebase_detection = detect(env=("^WUFOO_",))
+    codebase_detection = detect(rubygems=("wuparty",), env=("^WUFOO_",), script_hosts=("secure.wufoo.com",))
 
     supported_versions = ("v3",)
     default_version = "v3"

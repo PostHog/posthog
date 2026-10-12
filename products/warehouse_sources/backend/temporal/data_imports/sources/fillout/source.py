@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FilloutSource(SimpleSource[FilloutSourceConfig]):
-    codebase_detection = detect(env=("^FILLOUT_",))
+    codebase_detection = detect(npm=("@fillout/react",), env=("^FILLOUT_",), script_hosts=("server.fillout.com",))
 
     api_docs_url = "https://www.fillout.com/help/api-reference"
 

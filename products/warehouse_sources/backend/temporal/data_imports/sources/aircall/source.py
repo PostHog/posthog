@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
-    codebase_detection = detect(env=("^AIRCALL_",))
+    codebase_detection = detect(npm=("aircall-everywhere",), env=("^AIRCALL_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

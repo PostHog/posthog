@@ -44,9 +44,10 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
     codebase_detection = detect(
         env=("^BRAZE_",),
         script_hosts=("js.appboycdn.com",),
-        npm=("@braze/web-sdk", "@braze/react-native-sdk"),
+        npm=("@braze/web-sdk", "@braze/react-native-sdk", "@braze/web-sdk-core", "appboy-web-sdk"),
         pypi=("braze-client",),
-        maven=("com.braze:android-sdk-ui",),
+        cocoapods=("BrazeKit", "Appboy-iOS-SDK"),
+        maven=("com.braze:android-sdk-ui", "com.braze:android-sdk-base"),
         pub=("braze_plugin",),
         swiftpm=("github.com/braze-inc/braze-swift-sdk",),
         competes_with=(ProductKey.WORKFLOWS,),

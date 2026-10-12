@@ -32,7 +32,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TawkToSource(ResumableSource[TawkToSourceConfig, TawkToResumeConfig]):
-    codebase_detection = detect(env=("^(TAWK_TO|TAWKTO)_",))
+    codebase_detection = detect(
+        npm=("@tawk.to/tawk-messenger-react", "@tawk.to/tawk-messenger-vue"),
+        env=("^(TAWK_TO|TAWKTO)_",),
+        script_hosts=("embed.tawk.to",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

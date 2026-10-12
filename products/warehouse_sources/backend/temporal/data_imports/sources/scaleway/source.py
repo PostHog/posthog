@@ -35,7 +35,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]):
-    codebase_detection = detect(env=("^SCALEWAY_",))
+    codebase_detection = detect(
+        npm=("@scaleway/sdk",),
+        pypi=("scaleway",),
+        go=("github.com/scaleway/scaleway-sdk-go",),
+        env=(
+            "^SCALEWAY_",
+            "^SCW_ACCESS_KEY$",
+            "^SCW_SECRET_KEY$",
+            "^SCW_PROJECT_ID$",
+            "^SCW_DEFAULT_PROJECT_ID$",
+            "^SCW_DEFAULT_ORGANIZATION_ID$",
+        ),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.scaleway.com/en/developers/api"

@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
-    codebase_detection = detect(env=("^PICQER_",))
+    codebase_detection = detect(composer=("picqer/api-client",), env=("^PICQER_",))
 
     supported_versions = ("v1",)
     default_version = "v1"

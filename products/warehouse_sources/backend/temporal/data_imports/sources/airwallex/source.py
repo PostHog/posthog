@@ -38,7 +38,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirwallexSource(ResumableSource[AirwallexSourceConfig, AirwallexResumeConfig]):
-    codebase_detection = detect(env=("^AIRWALLEX_",), npm=("airwallex-payment-elements",))
+    codebase_detection = detect(
+        env=("^AIRWALLEX_",),
+        script_hosts=("static.airwallex.com", "checkout.airwallex.com"),
+        npm=("airwallex-payment-elements", "@airwallex/components-sdk", "@airwallex/node-sdk"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Airwallex pins behaviour to a dated version sent as the `x-api-version` header. This is the

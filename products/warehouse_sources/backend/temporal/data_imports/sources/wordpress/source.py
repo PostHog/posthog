@@ -38,7 +38,9 @@ class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConf
     # NOTE: recall is low here. Most WordPress sites are not Composer projects,
     # so these signals only catch the installs that are.
     codebase_detection = detect(
-        env=("^WORDPRESS_",), npm=("wpapi",), composer=("johnpbloch/wordpress", "roots/wordpress")
+        env=("^WORDPRESS_",),
+        npm=("wpapi", "@wordpress/api-fetch", "@wordpress/scripts"),
+        composer=("johnpbloch/wordpress", "roots/wordpress"),
     )
 
     supported_versions = ("v2",)

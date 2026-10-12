@@ -34,7 +34,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolymarketSource(ResumableSource[PolymarketSourceConfig, PolymarketResumeConfig]):
-    codebase_detection = detect(env=("^POLYMARKET_",))
+    codebase_detection = detect(
+        npm=("@polymarket/clob-client",),
+        pypi=("py-clob-client",),
+        cargo=("polymarket-client-sdk",),
+        env=("^POLYMARKET_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Gamma exposes no version token: no path segment, header, or version param. The framework

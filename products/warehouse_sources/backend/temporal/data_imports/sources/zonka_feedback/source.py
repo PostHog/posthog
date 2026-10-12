@@ -47,7 +47,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedbackResumeConfig]):
-    codebase_detection = detect(env=("^(ZONKA_FEEDBACK|ZONKAFEEDBACK)_",))
+    codebase_detection = detect(env=("^(ZONKA_FEEDBACK|ZONKAFEEDBACK)_",), script_hosts=("us1.zonkasurvey.com",))
 
     api_docs_url = "https://apidocs.zonkafeedback.com/"
 

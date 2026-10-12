@@ -38,7 +38,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeConfig]):
-    codebase_detection = detect(env=("^CLOUDINARY_",))
+    codebase_detection = detect(
+        npm=(
+            "cloudinary",
+            "@cloudinary/url-gen",
+            "@cloudinary/react",
+            "@cloudinary/vue",
+            "@cloudinary/angular",
+            "@cloudinary/html",
+            "cloudinary-core",
+            "next-cloudinary",
+        ),
+        pypi=("cloudinary",),
+        rubygems=("cloudinary",),
+        composer=("cloudinary/cloudinary_php",),
+        go=("github.com/cloudinary/cloudinary-go",),
+        maven=(
+            "com.cloudinary:cloudinary-http5",
+            "com.cloudinary:cloudinary-http44",
+            "com.cloudinary:cloudinary-core",
+            "com.cloudinary:cloudinary-android",
+            "com.cloudinary:kotlin-url-gen",
+        ),
+        swiftpm=("github.com/cloudinary/cloudinary_ios",),
+        cocoapods=("Cloudinary",),
+        pub=("cloudinary_url_gen", "cloudinary_flutter"),
+        env=("^CLOUDINARY_", "^NEXT_PUBLIC_CLOUDINARY_"),
+        script_hosts=("upload-widget.cloudinary.com", "widget.cloudinary.com", "media-library.cloudinary.com"),
+    )
 
     supported_versions = ("v1_1",)
     default_version = "v1_1"

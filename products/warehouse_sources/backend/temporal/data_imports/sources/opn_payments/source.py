@@ -36,7 +36,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpnPaymentsSource(ResumableSource[OpnPaymentsSourceConfig, OpnPaymentsResumeConfig]):
-    codebase_detection = detect(env=("^(OPN_PAYMENTS|OPNPAYMENTS)_",))
+    codebase_detection = detect(
+        npm=("omise",),
+        pypi=("omise",),
+        rubygems=("omise",),
+        composer=("omise/omise-php",),
+        go=("github.com/omise/omise-go",),
+        maven=("co.omise:omise-java", "co.omise:omise-android"),
+        swiftpm=("github.com/omise/omise-ios",),
+        cocoapods=("OmiseSDK",),
+        pub=("omise_flutter",),
+        env=("^OMISE_PUBLIC_KEY$", "^OMISE_SECRET_KEY$"),
+        script_hosts=("cdn.omise.co",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2019-05-29",)

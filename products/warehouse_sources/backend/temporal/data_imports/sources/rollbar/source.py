@@ -41,14 +41,15 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
     codebase_detection = detect(
         env=("^ROLLBAR_",),
         script_hosts=("cdn.rollbar.com",),
-        npm=("rollbar",),
-        pypi=("rollbar", "pyrollbar"),
+        npm=("rollbar", "@rollbar/react", "rollbar-react-native"),
+        pypi=("rollbar",),
         cocoapods=("RollbarNotifier",),
         composer=("rollbar/rollbar", "rollbar/rollbar-laravel"),
         go=("github.com/rollbar/rollbar-go",),
         maven=("com.rollbar:rollbar-java", "com.rollbar:rollbar-android"),
         pub=("rollbar_flutter",),
         rubygems=("rollbar",),
+        swiftpm=("github.com/rollbar/rollbar-apple",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

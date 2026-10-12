@@ -41,7 +41,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConfig]):
-    codebase_detection = detect(env=("^(AWS_CONFIG|AWSCONFIG)_",))
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-config-service",),
+        rubygems=("aws-sdk-configservice",),
+        go=("github.com/aws/aws-sdk-go-v2/service/configservice",),
+        cargo=("aws-sdk-config",),
+        maven=("software.amazon.awssdk:config", "com.amazonaws:aws-java-sdk-config"),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (CONFIG_API_VERSION,)

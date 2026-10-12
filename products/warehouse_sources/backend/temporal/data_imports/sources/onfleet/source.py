@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OnfleetSource(ResumableSource[OnfleetSourceConfig, OnfleetResumeConfig]):
-    codebase_detection = detect(env=("^ONFLEET_",))
+    codebase_detection = detect(npm=("@onfleet/node-onfleet",), pypi=("pyonfleet",), env=("^ONFLEET_",))
 
     supported_versions = ("v2",)
     default_version = "v2"

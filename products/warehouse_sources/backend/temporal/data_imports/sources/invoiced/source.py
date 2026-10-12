@@ -37,7 +37,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InvoicedSource(ResumableSource[InvoicedSourceConfig, InvoicedResumeConfig]):
-    codebase_detection = detect(env=("^INVOICED_",), npm=("invoiced",), pypi=("invoiced",))
+    codebase_detection = detect(
+        env=("^INVOICED_",),
+        pypi=("invoiced",),
+        composer=("invoiced/invoiced",),
+        go=("github.com/Invoiced/invoiced-go",),
+        maven=("com.invoiced:invoiced",),
+        rubygems=("invoiced",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -31,7 +31,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
-    codebase_detection = detect(env=("^MOLLIE_",), npm=("@mollie/api-client",), pypi=("mollie-api-python",))
+    codebase_detection = detect(
+        env=("^MOLLIE_",),
+        script_hosts=("js.mollie.com",),
+        npm=("@mollie/api-client",),
+        pypi=("mollie-api-python",),
+        composer=("mollie/mollie-api-php", "mollie/laravel-mollie"),
+        rubygems=("mollie-api-ruby",),
+    )
 
     supported_versions = ("v2",)
     default_version = "v2"

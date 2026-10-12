@@ -35,7 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpsgenieSource(ResumableSource[OpsgenieSourceConfig, OpsgenieResumeConfig]):
-    codebase_detection = detect(env=("^OPSGENIE_",))
+    codebase_detection = detect(
+        npm=("opsgenie-sdk",),
+        pypi=("opsgenie-sdk",),
+        go=("github.com/opsgenie/opsgenie-go-sdk-v2",),
+        maven=("com.opsgenie.integration:sdk",),
+        env=("^OPSGENIE_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

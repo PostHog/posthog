@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]):
-    codebase_detection = detect(env=("^CIRCLECI_", "^CIRCLE_TOKEN$"))
+    codebase_detection = detect(npm=("@circleci/circleci-config-sdk",), env=("^CIRCLECI_", "^CIRCLE_TOKEN$"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

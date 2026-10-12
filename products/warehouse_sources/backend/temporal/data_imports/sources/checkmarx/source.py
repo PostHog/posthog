@@ -36,7 +36,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CheckmarxSource(ResumableSource[CheckmarxSourceConfig, CheckmarxResumeConfig]):
-    codebase_detection = detect(env=("^CHECKMARX_",))
+    codebase_detection = detect(
+        maven=("com.checkmarx.ast:ast-cli-java-wrapper",),
+        env=(
+            "^CHECKMARX_",
+            "^CX_APIKEY$",
+            "^CX_BASE_URI$",
+            "^CX_BASE_AUTH_URI$",
+            "^CX_TENANT$",
+            "^CX_CLIENT_ID$",
+            "^CX_CLIENT_SECRET$",
+        ),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

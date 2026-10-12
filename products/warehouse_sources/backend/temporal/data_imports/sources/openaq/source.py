@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAQSource(ResumableSource[OpenAQSourceConfig, OpenAQResumeConfig]):
-    codebase_detection = detect(env=("^(OPEN_AQ|OPENAQ)_",))
+    codebase_detection = detect(pypi=("openaq",), env=("^(OPEN_AQ|OPENAQ)_", "^OPENAQ_API_KEY$"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

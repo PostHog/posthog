@@ -34,7 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EasypostSource(ResumableSource[EasypostSourceConfig, EasypostResumeConfig]):
-    codebase_detection = detect(env=("^EASYPOST_",), npm=("@easypost/api",), pypi=("easypost",))
+    codebase_detection = detect(
+        env=("^EASYPOST_",),
+        npm=("@easypost/api",),
+        pypi=("easypost",),
+        composer=("easypost/easypost-php",),
+        go=("github.com/EasyPost/easypost-go",),
+        maven=("com.easypost:easypost-api-client",),
+        rubygems=("easypost",),
+    )
 
     supported_versions = ("v2",)
     default_version = "v2"

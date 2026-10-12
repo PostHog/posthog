@@ -54,7 +54,12 @@ def _service_account_key(config: GooglePlayConsoleSourceConfig) -> ServiceAccoun
 
 @SourceRegistry.register
 class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, GooglePlayConsoleResumeConfig]):
-    codebase_detection = detect(env=("^(GOOGLE_PLAY_CONSOLE|GOOGLEPLAYCONSOLE)_",))
+    codebase_detection = detect(
+        npm=("@googleapis/androidpublisher",),
+        rubygems=("google-apis-androidpublisher_v3",),
+        maven=("com.google.apis:google-api-services-androidpublisher",),
+        env=("^(GOOGLE_PLAY_CONSOLE|GOOGLEPLAYCONSOLE)_",),
+    )
 
     supported_versions = ("v1beta1",)
     default_version = "v1beta1"

@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
-    codebase_detection = detect(env=("^LOVABLE_",))
+    codebase_detection = detect(npm=("lovable-tagger",), env=("^LOVABLE_",), script_hosts=("cdn.gpteng.co",))
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = (LOVABLE_API_VERSION_V1, LOVABLE_API_VERSION_2026_09_11)

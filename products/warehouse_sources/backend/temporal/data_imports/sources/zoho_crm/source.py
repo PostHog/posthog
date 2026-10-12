@@ -40,7 +40,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
-    codebase_detection = detect(env=("^(ZOHO_CRM|ZOHOCRM)_",))
+    codebase_detection = detect(
+        npm=("@zohocrm/nodejs-sdk-8.0", "@zohocrm/typescript-sdk-8.0", "@zohocrm/nodejs-sdk-2.0"),
+        pypi=("zohocrmsdk8-0", "zohocrmsdk2-1"),
+        rubygems=("ZOHOCRMSDK8_0",),
+        composer=("zohocrm/php-sdk-8.0", "zohocrm/php-sdk"),
+        maven=("com.zoho.crm:zohocrmsdk-8-0",),
+        env=("^(ZOHO_CRM|ZOHOCRM)_",),
+    )
 
     lists_tables_without_credentials = True  # static module catalog — safe for public docs
     supported_versions = ("v8",)

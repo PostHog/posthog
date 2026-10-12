@@ -41,7 +41,7 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
     codebase_detection = detect(
         env=("^PLAUSIBLE_",),
         script_hosts=("plausible.io",),
-        npm=("plausible-tracker",),
+        npm=("plausible-tracker", "@plausible-analytics/tracker"),
         competes_with=(ProductKey.WEB_ANALYTICS,),
     )
 

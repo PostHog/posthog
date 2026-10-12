@@ -45,7 +45,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeConfig], OAuthMixin):
-    codebase_detection = detect(env=("^(SNAPCHAT_ADS|SNAPCHATADS)_",))
+    codebase_detection = detect(
+        pypi=("snap-business-sdk",),
+        rubygems=("snap_business",),
+        go=("github.com/Snapchat/business-sdk-go",),
+        maven=("com.snap.business.sdk:capi-java",),
+        env=("^(SNAPCHAT_ADS|SNAPCHATADS)_",),
+        script_hosts=("sc-static.net",),
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

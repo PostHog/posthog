@@ -46,7 +46,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
-    codebase_detection = detect(env=("^CRITEO_",))
+    codebase_detection = detect(
+        pypi=("criteo-api-marketingsolutions-sdk", "criteo-api-retailmedia-sdk"),
+        composer=("criteo/criteo-api-marketingsolutions-sdk", "criteo/criteo-api-retailmedia-sdk"),
+        maven=("com.criteo:criteo-api-marketingsolutions-sdk", "com.criteo:criteo-api-retailmedia-sdk"),
+        env=("^CRITEO_",),
+        script_hosts=("dynamic.criteo.com", "static.criteo.net"),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

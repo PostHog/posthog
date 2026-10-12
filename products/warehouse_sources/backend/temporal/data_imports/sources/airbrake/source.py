@@ -34,7 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirbrakeSource(ResumableSource[AirbrakeSourceConfig, AirbrakeResumeConfig]):
-    codebase_detection = detect(env=("^AIRBRAKE_",))
+    codebase_detection = detect(
+        npm=("@airbrake/browser", "@airbrake/node"),
+        pypi=("pybrake",),
+        rubygems=("airbrake", "airbrake-ruby"),
+        composer=("airbrake/phpbrake",),
+        go=("github.com/airbrake/gobrake",),
+        maven=("io.airbrake:javabrake",),
+        env=("^AIRBRAKE_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

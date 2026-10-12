@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = detect(npm=("@profoundai/client", "next-aeo"), pypi=("profound",), env=("^PROFOUND_API_KEY$",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Profound versions purely by URL path segment (`/v1/...`, `/v2/...`) — no version header or

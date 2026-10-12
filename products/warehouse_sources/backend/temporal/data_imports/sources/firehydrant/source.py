@@ -37,7 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FireHydrantSource(ResumableSource[FireHydrantSourceConfig, FireHydrantResumeConfig]):
-    codebase_detection = detect(env=("^(FIRE_HYDRANT|FIREHYDRANT)_",))
+    codebase_detection = detect(
+        go=("github.com/firehydrant/firehydrant-go-sdk",), env=("^(FIRE_HYDRANT|FIREHYDRANT)_",)
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

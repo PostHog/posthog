@@ -39,7 +39,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
-    codebase_detection = detect(env=("^ZUORA_",))
+    codebase_detection = detect(
+        pypi=("zuora-sdk",),
+        maven=("com.zuora.sdk:zuora-sdk-java",),
+        env=("^ZUORA_",),
+        script_hosts=("static.zuora.com",),
+    )
 
     api_docs_url = "https://developer.zuora.com"
 

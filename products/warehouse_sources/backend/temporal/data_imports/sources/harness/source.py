@@ -39,7 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HarnessSource(ResumableSource[HarnessSourceConfig, HarnessResumeConfig]):
-    codebase_detection = detect(env=("^HARNESS_",))
+    codebase_detection = detect(
+        go=("github.com/harness/harness-go-sdk",),
+        env=("^HARNESS_PLATFORM_API_KEY$", "^HARNESS_API_KEY$", "^HARNESS_ACCOUNT_ID$", "^HARNESS_ENDPOINT$"),
+    )
 
     lists_tables_without_credentials = True
     api_docs_url = "https://apidocs.harness.io/"

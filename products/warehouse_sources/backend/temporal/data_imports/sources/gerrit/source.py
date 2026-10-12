@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GerritSource(ResumableSource[GerritSourceConfig, GerritResumeConfig]):
-    codebase_detection = detect(env=("^GERRIT_",))
+    codebase_detection = detect(pypi=("pygerrit2",), go=("github.com/andygrunwald/go-gerrit",), env=("^GERRIT_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

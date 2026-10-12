@@ -77,8 +77,12 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
     codebase_detection = detect(
         env=("^GOOGLE_ANALYTICS_", "^GA4_"),
         script_hosts=("google-analytics.com", "googletagmanager.com"),
-        npm=("react-ga4",),
-        pypi=("google-analytics-data",),
+        npm=("react-ga4", "@google-analytics/data", "@google-analytics/admin"),
+        pypi=("google-analytics-data", "google-analytics-admin"),
+        composer=("google/analytics-data", "google/analytics-admin"),
+        go=("cloud.google.com/go/analytics",),
+        maven=("com.google.analytics:google-analytics-data",),
+        rubygems=("google-analytics-data", "google-analytics-admin"),
         competes_with=(ProductKey.WEB_ANALYTICS,),
     )
 

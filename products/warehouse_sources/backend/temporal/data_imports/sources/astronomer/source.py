@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AstronomerSource(ResumableSource[AstronomerSourceConfig, AstronomerResumeConfig]):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = detect(env=("^ASTRO_API_TOKEN$", "^ASTRONOMER_KEY_ID$", "^ASTRONOMER_KEY_SECRET$"))
 
     lists_tables_without_credentials = True
     supported_versions = ("v1",)

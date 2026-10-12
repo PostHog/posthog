@@ -47,16 +47,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     codebase_detection = detect(
-        env=("^DATADOG_", "^DD_API_KEY$", "^DD_APP_KEY$"),
+        env=("^DATADOG_", "^DD_API_KEY$", "^DD_APP_KEY$", "^DD_SITE$"),
         script_hosts=("datadoghq-browser-agent.com",),
-        npm=("@datadog/datadog-api-client", "dd-trace"),
-        pypi=("datadog", "datadog-api-client"),
-        cocoapods=("DatadogCore", "DatadogRUM"),
+        npm=(
+            "@datadog/datadog-api-client",
+            "dd-trace",
+            "@datadog/browser-rum",
+            "@datadog/browser-logs",
+            "@datadog/mobile-react-native",
+        ),
+        pypi=("datadog", "datadog-api-client", "ddtrace"),
+        cargo=("datadog-api-client",),
+        cocoapods=("DatadogCore", "DatadogRUM", "DatadogLogs"),
         composer=("datadog/dd-trace",),
-        go=("gopkg.in/DataDog/dd-trace-go.v1", "github.com/DataDog/dd-trace-go"),
-        maven=("com.datadoghq:dd-sdk-android-rum", "com.datadoghq:dd-sdk-android-logs"),
+        go=(
+            "gopkg.in/DataDog/dd-trace-go.v1",
+            "github.com/DataDog/dd-trace-go",
+            "github.com/DataDog/datadog-go",
+            "github.com/DataDog/datadog-api-client-go",
+        ),
+        maven=(
+            "com.datadoghq:dd-sdk-android-rum",
+            "com.datadoghq:dd-sdk-android-logs",
+            "com.datadoghq:dd-trace-api",
+            "com.datadoghq:java-dogstatsd-client",
+            "com.datadoghq:datadog-api-client",
+        ),
         pub=("datadog_flutter_plugin",),
-        rubygems=("dogapi",),
+        rubygems=("dogapi", "datadog", "ddtrace", "datadog_api_client", "dogstatsd-ruby"),
         swiftpm=("github.com/datadog/dd-sdk-ios",),
         competes_with=(ProductKey.LOGS, ProductKey.TRACING, ProductKey.ERROR_TRACKING),
     )

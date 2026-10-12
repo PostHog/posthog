@@ -28,7 +28,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
-    codebase_detection = detect(env=("^ZOOM_",))
+    codebase_detection = detect(
+        npm=("@zoom/rivet", "@zoom/meetingsdk", "@zoom/appssdk"),
+        env=(
+            "^ZOOM_ACCOUNT_ID$",
+            "^ZOOM_CLIENT_ID$",
+            "^ZOOM_CLIENT_SECRET$",
+            "^ZOOM_MEETING_SDK_KEY$",
+            "^ZOOM_MEETING_SDK_SECRET$",
+        ),
+    )
 
     supported_versions = ("v2",)
     default_version = "v2"

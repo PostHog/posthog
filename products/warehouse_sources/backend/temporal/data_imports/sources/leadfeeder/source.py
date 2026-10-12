@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeConfig]):
-    codebase_detection = detect(env=("^LEADFEEDER_",))
+    codebase_detection = detect(env=("^LEADFEEDER_",), script_hosts=("sc.lfeeder.com", "lftracker.leadfeeder.com"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -40,7 +40,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InstanaSource(ResumableSource[InstanaSourceConfig, InstanaResumeConfig]):
-    codebase_detection = detect(env=("^INSTANA_",))
+    codebase_detection = detect(
+        npm=("@instana/collector", "@instana/aws-lambda", "@instana/react-native-agent"),
+        pypi=("instana",),
+        rubygems=("instana",),
+        go=("github.com/instana/go-sensor",),
+        maven=("com.instana:instana-java-sdk", "com.instana:android-agent-runtime"),
+        cocoapods=("InstanaAgent",),
+        pub=("instana_agent",),
+        env=("^INSTANA_",),
+        script_hosts=("eum.instana.io",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

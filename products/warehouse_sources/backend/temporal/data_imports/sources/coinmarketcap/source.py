@@ -33,7 +33,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketCapResumeConfig]):
-    codebase_detection = detect(env=("^(COIN_MARKET_CAP|COINMARKETCAP)_",))
+    codebase_detection = detect(
+        npm=("@coinmarketcap/sdk",),
+        pypi=("coinmarketcap-sdk",),
+        env=("^(COIN_MARKET_CAP|COINMARKETCAP)_", "^CMC_PRO_API_KEY$"),
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

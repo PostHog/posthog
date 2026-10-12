@@ -45,6 +45,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "@amplitude/analytics-node",
             "@amplitude/analytics-react-native",
             "amplitude-js",
+            "@amplitude/unified",
         ),
         pypi=("amplitude-analytics",),
         cocoapods=("AmplitudeSwift", "Amplitude"),

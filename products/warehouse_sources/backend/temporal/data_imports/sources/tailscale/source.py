@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConfig]):
-    codebase_detection = detect(env=("^TAILSCALE_",))
+    codebase_detection = detect(npm=("@tailscale/connect",), go=("tailscale.com",), env=("^TAILSCALE_", "^TS_AUTHKEY$"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

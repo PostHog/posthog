@@ -39,11 +39,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
     codebase_detection = detect(
         env=("^STATSIG_",),
-        npm=("statsig-js", "statsig-node", "@statsig/js-client", "@statsig/react-bindings"),
-        pypi=("statsig",),
+        npm=(
+            "statsig-js",
+            "statsig-node",
+            "@statsig/js-client",
+            "@statsig/react-bindings",
+            "@statsig/statsig-node-core",
+        ),
+        pypi=("statsig", "statsig-python-core"),
+        cargo=("statsig-rust",),
+        cocoapods=("Statsig",),
+        composer=("statsig/statsigsdk",),
         go=("github.com/statsig-io/go-sdk",),
+        maven=("com.statsig:serversdk", "com.statsig:android-sdk"),
         pub=("statsig",),
         rubygems=("statsig",),
+        swiftpm=("github.com/statsig-io/statsig-kit",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

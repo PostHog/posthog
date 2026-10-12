@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WorldBankSource(ResumableSource[WorldBankSourceConfig, WorldBankResumeConfig]):
-    codebase_detection = detect(env=("^(WORLD_BANK|WORLDBANK)_",))
+    codebase_detection = detect(pypi=("wbgapi", "wbdata"), env=("^(WORLD_BANK|WORLDBANK)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # v2 is the only live version; v1 was shut down in June 2020. The version is a path segment

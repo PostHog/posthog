@@ -56,7 +56,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeConfig]):
-    codebase_detection = detect(env=("^(SHARE_POINT|SHAREPOINT)_",))
+    codebase_detection = detect(
+        npm=("@pnp/sp", "@microsoft/sp-core-library"),
+        pypi=("office365-rest-python-client",),
+        env=("^(SHARE_POINT|SHAREPOINT)_",),
+    )
 
     lists_tables_without_credentials = True  # Placeholder configs leave file import off and need no network access.
     # A renamed or moved file keeps its drive item id.

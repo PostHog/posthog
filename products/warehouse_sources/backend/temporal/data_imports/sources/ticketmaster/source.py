@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TicketmasterSource(ResumableSource[TicketmasterSourceConfig, TicketmasterResumeConfig]):
-    codebase_detection = detect(env=("^TICKETMASTER_",))
+    codebase_detection = detect(npm=("ticketmaster",), env=("^TICKETMASTER_",))
 
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

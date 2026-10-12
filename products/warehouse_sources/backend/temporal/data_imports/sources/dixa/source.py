@@ -31,7 +31,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DixaSource(ResumableSource[DixaSourceConfig, DixaResumeConfig]):
-    codebase_detection = detect(env=("^DIXA_",))
+    codebase_detection = detect(
+        swiftpm=("github.com/dixahq/ios-messenger",),
+        cocoapods=("DixaMessengerKit",),
+        env=("^DIXA_",),
+        script_hosts=("messenger.dixa.io",),
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

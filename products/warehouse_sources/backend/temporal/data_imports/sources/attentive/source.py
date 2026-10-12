@@ -6,7 +6,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -71,7 +71,13 @@ class AttentiveSource(
     SimpleSource[AttentiveSourceConfig],
     WebhookSource[AttentiveSourceConfig],
 ):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = detect(
+        npm=("@attentive-mobile/attentive-react-native-sdk",),
+        maven=("com.attentive:attentive-android-sdk",),
+        swiftpm=("github.com/attentive-mobile/attentive-ios-sdk",),
+        cocoapods=("ATTNSDKFramework",),
+        script_hosts=("cdn.attn.tv",),
+    )
 
     api_docs_url = "https://docs.attentive.com"
 

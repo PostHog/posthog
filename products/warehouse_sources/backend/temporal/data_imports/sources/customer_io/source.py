@@ -86,11 +86,24 @@ class CustomerIOSource(
 ):
     codebase_detection = detect(
         env=("^CUSTOMER_?IO_",),
-        script_hosts=("assets.customer.io",),
-        npm=("customerio-node",),
-        pypi=("customerio",),
+        script_hosts=("assets.customer.io", "cdp.customer.io", "cdp-eu.customer.io"),
+        npm=(
+            "customerio-node",
+            "@customerio/cdp-analytics-node",
+            "@customerio/cdp-analytics-browser",
+            "customerio-reactnative",
+            "customerio-expo-plugin",
+        ),
+        pypi=("customerio", "customerio-cdp-analytics"),
+        cocoapods=("CustomerIO", "CustomerIODataPipelines", "CustomerIOMessagingPushAPN"),
         go=("github.com/customerio/go-customerio",),
+        maven=(
+            "io.customer.android:datapipelines",
+            "io.customer.android:tracking",
+            "io.customer.android:messaging-push-fcm",
+        ),
         pub=("customer_io",),
+        rubygems=("customerio",),
         swiftpm=("github.com/customerio/customerio-ios",),
         competes_with=(ProductKey.WORKFLOWS,),
     )

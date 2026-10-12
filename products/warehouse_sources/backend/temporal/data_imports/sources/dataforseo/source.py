@@ -37,7 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DataForSEOSource(ResumableSource[DataForSEOSourceConfig, DataForSEOResumeConfig]):
-    codebase_detection = detect(env=("^(DATA_FOR_SEO|DATAFORSEO)_",))
+    codebase_detection = detect(
+        npm=("dataforseo-client",), pypi=("dataforseo-client",), env=("^(DATA_FOR_SEO|DATAFORSEO)_",)
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

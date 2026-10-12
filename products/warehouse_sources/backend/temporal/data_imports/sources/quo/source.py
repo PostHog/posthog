@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import SHORT_NAME, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import NO_CODE_SIGNAL, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QuoSource(ResumableSource[QuoSourceConfig, QuoResumeConfig]):
-    codebase_detection = not_detectable(SHORT_NAME)
+    codebase_detection = not_detectable(NO_CODE_SIGNAL)
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 

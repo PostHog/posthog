@@ -49,7 +49,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]):
-    codebase_detection = detect(env=("^FRONTEGG_",))
+    codebase_detection = detect(
+        npm=(
+            "@frontegg/react",
+            "@frontegg/nextjs",
+            "@frontegg/js",
+            "@frontegg/client",
+            "@frontegg/angular",
+            "@frontegg/vue",
+            "@frontegg/react-native",
+        ),
+        pypi=("frontegg",),
+        maven=("com.frontegg.sdk:android",),
+        swiftpm=("github.com/frontegg/frontegg-ios-swift",),
+        cocoapods=("FronteggSwift",),
+        pub=("frontegg_flutter",),
+        env=("^FRONTEGG_",),
+    )
 
     lists_tables_without_credentials = True
     # The pin selects the users API; roles and permissions have independent endpoint versions.

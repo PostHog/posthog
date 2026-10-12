@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SemgrepSource(ResumableSource[SemgrepSourceConfig, SemgrepResumeConfig]):
-    codebase_detection = detect(env=("^SEMGREP_",))
+    codebase_detection = detect(pypi=("semgrep",), env=("^SEMGREP_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

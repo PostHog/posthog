@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResumeConfig]):
-    codebase_detection = detect(env=("^(KONG_KONNECT|KONGKONNECT)_",))
+    codebase_detection = detect(go=("github.com/Kong/sdk-konnect-go",), env=("^KONNECT_", "^DECK_KONNECT_"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

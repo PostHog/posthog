@@ -163,7 +163,11 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         composer=("mongodb/mongodb",),
         go=("go.mongodb.org/mongo-driver",),
         hex=("mongodb_driver",),
-        maven=("org.mongodb:mongodb-driver-sync",),
+        maven=(
+            "org.mongodb:mongodb-driver-sync",
+            "org.mongodb:mongodb-driver-reactivestreams",
+            "org.mongodb:mongodb-driver-kotlin-coroutine",
+        ),
         pub=("mongo_dart",),
         rubygems=("mongo", "mongoid"),
     )

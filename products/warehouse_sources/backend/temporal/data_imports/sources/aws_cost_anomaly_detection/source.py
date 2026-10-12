@@ -40,7 +40,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AwsCostAnomalyDetectionSource(
     ResumableSource[AwsCostAnomalyDetectionSourceConfig, AwsCostAnomalyDetectionResumeConfig]
 ):
-    codebase_detection = detect(env=("^(AWS_COST_ANOMALY_DETECTION|AWSCOSTANOMALYDETECTION)_",))
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-cost-explorer",),
+        rubygems=("aws-sdk-costexplorer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/costexplorer",),
+        cargo=("aws-sdk-costexplorer",),
+        maven=("software.amazon.awssdk:costexplorer", "com.amazonaws:aws-java-sdk-costexplorer"),
+        env=("^(AWS_COST_ANOMALY_DETECTION|AWSCOSTANOMALYDETECTION)_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"

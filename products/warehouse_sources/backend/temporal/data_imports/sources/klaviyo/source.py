@@ -48,9 +48,12 @@ class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     codebase_detection = detect(
         env=("^KLAVIYO_",),
         script_hosts=("static.klaviyo.com",),
-        npm=("klaviyo-api",),
+        npm=("klaviyo-api", "klaviyo-react-native-sdk"),
         pypi=("klaviyo-api",),
+        cocoapods=("KlaviyoSwift",),
         composer=("klaviyo/api",),
+        pub=("klaviyo_flutter_sdk",),
+        rubygems=("klaviyo-api-sdk",),
         swiftpm=("github.com/klaviyo/klaviyo-swift-sdk",),
         competes_with=(ProductKey.WORKFLOWS,),
     )

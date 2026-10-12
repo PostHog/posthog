@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MintlifySource(ResumableSource[MintlifySourceConfig, MintlifyResumeConfig]):
-    codebase_detection = detect(env=("^MINTLIFY_",))
+    codebase_detection = detect(npm=("mintlify", "mint", "@mintlify/cli"), env=("^MINTLIFY_",))
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

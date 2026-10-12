@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, SemanticScholarResumeConfig]):
-    codebase_detection = detect(env=("^(SEMANTIC_SCHOLAR|SEMANTICSCHOLAR)_",))
+    codebase_detection = detect(pypi=("semanticscholar",), env=("^(SEMANTIC_SCHOLAR|SEMANTICSCHOLAR)_", "^S2_API_KEY$"))
 
     lists_tables_without_credentials = True
     supported_versions = ("v1",)

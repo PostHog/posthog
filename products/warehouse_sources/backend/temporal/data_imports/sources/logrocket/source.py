@@ -34,10 +34,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConfig]):
     codebase_detection = detect(
         env=("^LOGROCKET_",),
-        script_hosts=("cdn.logrocket.io", "cdn.lr-ingest.io"),
+        script_hosts=("cdn.logrocket.io", "cdn.lr-ingest.io", "cdn.logr-in.com"),
         npm=("logrocket", "logrocket-react", "@logrocket/react-native"),
         cocoapods=("LogRocket",),
         maven=("com.logrocket:logrocket",),
+        pub=("logrocket_flutter",),
         competes_with=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
     )
 

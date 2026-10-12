@@ -77,9 +77,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     codebase_detection = detect(
         env=("^BIGQUERY_",),
         npm=("@google-cloud/bigquery",),
-        pypi=("google-cloud-bigquery",),
+        pypi=("google-cloud-bigquery", "sqlalchemy-bigquery", "pandas-gbq"),
+        rubygems=("google-cloud-bigquery",),
         composer=("google/cloud-bigquery",),
+        hex=("google_api_big_query",),
         go=("cloud.google.com/go/bigquery",),
+        cargo=("gcp-bigquery-client",),
         maven=("com.google.cloud:google-cloud-bigquery",),
     )
 

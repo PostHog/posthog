@@ -38,7 +38,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartlookSource(ResumableSource[SmartlookSourceConfig, SmartlookResumeConfig]):
-    codebase_detection = detect(env=("^SMARTLOOK_",))
+    codebase_detection = detect(
+        npm=("smartlook-client",),
+        swiftpm=("github.com/smartlook/analytics-swift-package",),
+        cocoapods=("Smartlook", "SmartlookAnalytics"),
+        pub=("smartlook",),
+        env=("^SMARTLOOK_",),
+        script_hosts=("web-sdk.smartlook.com",),
+    )
 
     lists_tables_without_credentials = True
     # Smartlook versions each endpoint separately. Visitor search uses v2; other resources use v1.

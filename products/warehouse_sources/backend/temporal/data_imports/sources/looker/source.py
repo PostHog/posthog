@@ -43,7 +43,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LookerSource(ResumableSource[LookerSourceConfig, LookerResumeConfig]):
-    codebase_detection = detect(env=("^LOOKER_",))
+    codebase_detection = detect(
+        npm=("@looker/sdk", "@looker/sdk-node", "@looker/embed-sdk"),
+        pypi=("looker-sdk",),
+        rubygems=("looker-sdk",),
+        go=("github.com/looker-open-source/sdk-codegen/go",),
+        env=("^LOOKER_", "^LOOKERSDK_"),
+    )
 
     supported_versions = ("4.0",)
     default_version = "4.0"

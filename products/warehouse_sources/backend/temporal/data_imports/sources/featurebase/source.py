@@ -55,7 +55,7 @@ class FeaturebaseSource(
     ResumableSource[FeaturebaseSourceConfig, FeaturebaseResumeConfig],
     WebhookSource[FeaturebaseSourceConfig],
 ):
-    codebase_detection = detect(env=("^FEATUREBASE_",))
+    codebase_detection = detect(npm=("featurebase-js",), env=("^FEATUREBASE_",), script_hosts=("do.featurebase.app",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -51,7 +51,37 @@ APP_ERROR = "Application Insights could not find the resource. Check the applica
 class AzureApplicationInsightsSource(
     ResumableSource[AzureApplicationInsightsSourceConfig, AzureApplicationInsightsResumeConfig]
 ):
-    codebase_detection = detect(env=("^(AZURE_APPLICATION_INSIGHTS|AZUREAPPLICATIONINSIGHTS)_",))
+    codebase_detection = detect(
+        npm=(
+            "applicationinsights",
+            "@microsoft/applicationinsights-web",
+            "@microsoft/applicationinsights-react-js",
+            "@azure/monitor-opentelemetry",
+            "@azure/monitor-opentelemetry-exporter",
+        ),
+        pypi=(
+            "azure-monitor-opentelemetry",
+            "azure-monitor-opentelemetry-exporter",
+            "opencensus-ext-azure",
+            "applicationinsights",
+        ),
+        rubygems=("application_insights",),
+        go=("github.com/microsoft/ApplicationInsights-Go",),
+        maven=(
+            "com.microsoft.azure:applicationinsights-core",
+            "com.microsoft.azure:applicationinsights-runtime-attach",
+            "com.microsoft.azure:applicationinsights-agent",
+            "com.microsoft.azure:applicationinsights-spring-boot-starter",
+            "com.azure:azure-monitor-opentelemetry-exporter",
+            "com.azure:azure-monitor-opentelemetry-autoconfigure",
+        ),
+        env=(
+            "^(AZURE_APPLICATION_INSIGHTS|AZUREAPPLICATIONINSIGHTS)_",
+            "^APPLICATIONINSIGHTS_",
+            "^APPINSIGHTS_INSTRUMENTATIONKEY$",
+        ),
+        script_hosts=("js.monitor.azure.com", "az416426.vo.msecnd.net"),
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

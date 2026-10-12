@@ -41,7 +41,22 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class PlatformShSource(ResumableSource[PlatformShSourceConfig, PlatformShResumeConfig]):
-    codebase_detection = detect(env=("^(PLATFORM_SH|PLATFORMSH)_",))
+    codebase_detection = detect(
+        npm=("platformsh-config",),
+        pypi=("platformshconfig",),
+        composer=("platformsh/config-reader",),
+        hex=("platformshconfig",),
+        go=("github.com/platformsh/config-reader-go",),
+        maven=("sh.platform:config",),
+        env=(
+            "^(PLATFORM_SH|PLATFORMSH)_",
+            "^PLATFORM_RELATIONSHIPS$",
+            "^PLATFORM_APPLICATION_NAME$",
+            "^PLATFORM_PROJECT_ENTROPY$",
+            "^PLATFORM_ENVIRONMENT_TYPE$",
+            "^UPSUN_CLI_TOKEN$",
+        ),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.platform.sh/docs"

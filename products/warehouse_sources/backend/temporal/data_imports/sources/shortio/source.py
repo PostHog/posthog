@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShortioSource(SimpleSource[ShortioSourceConfig]):
-    codebase_detection = detect(env=("^SHORTIO_",))
+    codebase_detection = detect(npm=("@short.io/client-node",), env=("^SHORTIO_", "^SHORT_IO_API_KEY$"))
 
     api_docs_url = "https://developers.short.io"
 

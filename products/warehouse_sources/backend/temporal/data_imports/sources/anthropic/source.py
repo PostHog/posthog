@@ -47,6 +47,8 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
         env=("^ANTHROPIC_",),
         npm=("@anthropic-ai/sdk",),
         pypi=("anthropic",),
+        rubygems=("anthropic",),
+        composer=("anthropic-ai/sdk",),
         go=("github.com/anthropics/anthropic-sdk-go",),
         maven=("com.anthropic:anthropic-java",),
     )

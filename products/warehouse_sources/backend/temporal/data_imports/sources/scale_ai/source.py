@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScaleAISource(ResumableSource[ScaleAISourceConfig, ScaleAIResumeConfig]):
-    codebase_detection = detect(env=("^(SCALE_AI|SCALEAI)_",))
+    codebase_detection = detect(npm=("scaleapi",), pypi=("scaleapi",), env=("^(SCALE_AI|SCALEAI)_", "^SCALE_API_KEY$"))
 
     api_docs_url = "https://scale.com/docs/api-reference/introduction-to-scale-api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

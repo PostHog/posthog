@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SequenzySource(ResumableSource[SequenzySourceConfig, SequenzyResumeConfig]):
-    codebase_detection = detect(env=("^SEQUENZY_",))
+    codebase_detection = detect(npm=("sequenzy",), env=("^SEQUENZY_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://docs.sequenzy.com/api-reference"

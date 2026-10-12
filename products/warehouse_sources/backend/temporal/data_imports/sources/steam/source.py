@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SteamSource(SimpleSource[SteamSourceConfig]):
-    codebase_detection = detect(env=("^STEAM_",))
+    codebase_detection = detect(npm=("steamworks.js",), cargo=("steamworks",), env=("^STEAM_",))
 
     api_docs_url = "https://partner.steamgames.com/doc/webapi"
 

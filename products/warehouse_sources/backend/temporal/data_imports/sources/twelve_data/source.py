@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeConfig]):
-    codebase_detection = detect(env=("^(TWELVE_DATA|TWELVEDATA)_",))
+    codebase_detection = detect(pypi=("twelvedata",), env=("^(TWELVE_DATA|TWELVEDATA)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://twelvedata.com/docs"

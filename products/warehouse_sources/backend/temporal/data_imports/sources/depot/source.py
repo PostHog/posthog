@@ -53,7 +53,9 @@ class DepotReconciliationCursor:
 
 @SourceRegistry.register
 class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliationCursor]):
-    codebase_detection = detect(env=("^DEPOT_",))
+    codebase_detection = detect(
+        npm=("@depot/cli", "@depot/sdk-node"), go=("github.com/depot/depot-go",), env=("^DEPOT_",)
+    )
 
     api_docs_url = "https://depot.dev/docs/api/ci/reference"
     lists_tables_without_credentials = True

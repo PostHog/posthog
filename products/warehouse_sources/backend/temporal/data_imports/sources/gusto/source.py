@@ -44,7 +44,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GustoSource(ResumableSource[GustoSourceConfig, GustoResumeConfig]):
-    codebase_detection = detect(env=("^GUSTO_",))
+    codebase_detection = detect(
+        npm=("@gusto/embedded-api", "@gusto/embedded-react-sdk"),
+        pypi=("gusto-embedded",),
+        rubygems=("gusto_embedded_client",),
+        env=("^GUSTO_", "^GUSTOEMBEDDED_"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

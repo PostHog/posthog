@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]):
     codebase_detection = detect(
         env=("^SENDGRID_",),
-        npm=("@sendgrid/mail", "@sendgrid/client"),
+        npm=("@sendgrid/mail", "@sendgrid/client", "sendgrid", "@sendgrid/eventwebhook"),
         pypi=("sendgrid",),
         composer=("sendgrid/sendgrid",),
         go=("github.com/sendgrid/sendgrid-go",),

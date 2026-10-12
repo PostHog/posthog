@@ -42,7 +42,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]):
-    codebase_detection = detect(env=("^(AWS_BATCH|AWSBATCH)_",))
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-batch",),
+        rubygems=("aws-sdk-batch",),
+        go=("github.com/aws/aws-sdk-go-v2/service/batch",),
+        cargo=("aws-sdk-batch",),
+        maven=("software.amazon.awssdk:batch", "com.amazonaws:aws-java-sdk-batch"),
+        env=("^(AWS_BATCH|AWSBATCH)_",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (BATCH_API_VERSION,)

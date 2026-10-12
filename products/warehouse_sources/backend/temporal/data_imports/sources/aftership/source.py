@@ -39,7 +39,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AftershipSource(ResumableSource[AftershipSourceConfig, AftershipResumeConfig]):
-    codebase_detection = detect(env=("^AFTERSHIP_",))
+    codebase_detection = detect(
+        npm=("@aftership/tracking-sdk", "aftership"),
+        pypi=("aftership",),
+        rubygems=("aftership",),
+        composer=("aftership/tracking-sdk", "aftership/aftership-php-sdk"),
+        go=("github.com/aftership/tracking-sdk-go", "github.com/aftership/aftership-sdk-go"),
+        maven=("com.aftership:tracking-sdk",),
+        env=("^AFTERSHIP_",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.aftership.com/docs/tracking/quickstart/versioning"

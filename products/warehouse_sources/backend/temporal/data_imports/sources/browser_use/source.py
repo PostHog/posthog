@@ -37,7 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeConfig]):
-    codebase_detection = detect(env=("^(BROWSER_USE|BROWSERUSE)_",))
+    codebase_detection = detect(
+        npm=("browser-use-sdk",), pypi=("browser-use", "browser-use-sdk"), env=("^(BROWSER_USE|BROWSERUSE)_",)
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # v3 was the experimental agent API; v4 is the current default. The two serve different table

@@ -48,7 +48,7 @@ def _has_custom_query(config: USCensusSourceConfig) -> bool:
 
 @SourceRegistry.register
 class USCensusSource(SimpleSource[USCensusSourceConfig]):
-    codebase_detection = detect(env=("^(US_CENSUS|USCENSUS)_",))
+    codebase_detection = detect(pypi=("census",), env=("^(US_CENSUS|USCENSUS)_",))
 
     # Static endpoint catalog with no I/O in get_schemas — safe for public docs.
     lists_tables_without_credentials = True

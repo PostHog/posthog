@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaResumeConfig]):
-    codebase_detection = detect(env=("^INVOICENINJA_",))
+    codebase_detection = detect(composer=("invoiceninja/sdk-php",), env=("^INVOICENINJA_",))
 
     supported_versions = ("v1",)
     default_version = "v1"

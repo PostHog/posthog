@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StatuscakeSource(ResumableSource[StatuscakeSourceConfig, StatusCakeResumeConfig]):
-    codebase_detection = detect(env=("^STATUSCAKE_",))
+    codebase_detection = detect(go=("github.com/StatusCakeDev/statuscake-go",), env=("^STATUSCAKE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

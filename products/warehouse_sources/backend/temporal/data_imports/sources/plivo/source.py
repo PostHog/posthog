@@ -36,7 +36,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
-    codebase_detection = detect(env=("^PLIVO_",), npm=("plivo",), pypi=("plivo",))
+    codebase_detection = detect(
+        env=("^PLIVO_",),
+        npm=("plivo",),
+        pypi=("plivo",),
+        composer=("plivo/plivo-php",),
+        go=("github.com/plivo/plivo-go",),
+        maven=("com.plivo:plivo-java",),
+        rubygems=("plivo",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.plivo.com/docs/"

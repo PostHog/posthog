@@ -43,14 +43,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
     codebase_detection = detect(
-        env=("^SEGMENT_",),
+        env=("^SEGMENT_WRITE_KEY$", "^(NEXT_PUBLIC|VITE|REACT_APP)_SEGMENT_WRITE_KEY$"),
         script_hosts=("cdn.segment.com",),
-        npm=("@segment/analytics-node", "analytics-node"),
+        npm=("@segment/analytics-node", "analytics-node", "@segment/analytics-next", "@segment/analytics-react-native"),
         pypi=("segment-analytics-python", "analytics-python"),
+        cocoapods=("Analytics",),
         composer=("segmentio/analytics-php",),
         go=("github.com/segmentio/analytics-go",),
-        maven=("com.segment.analytics.kotlin:android", "com.segment.analytics.android:analytics"),
-        swiftpm=("github.com/segmentio/analytics-swift",),
+        maven=(
+            "com.segment.analytics.kotlin:android",
+            "com.segment.analytics.android:analytics",
+            "com.segment.analytics.java:analytics",
+        ),
+        pub=("segment_analytics",),
+        rubygems=("analytics-ruby",),
+        swiftpm=("github.com/segmentio/analytics-swift", "github.com/segmentio/analytics-ios"),
         competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 

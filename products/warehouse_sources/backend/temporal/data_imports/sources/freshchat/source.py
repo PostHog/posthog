@@ -62,7 +62,14 @@ _ERR_NON_JSON = (
 
 @SourceRegistry.register
 class FreshchatSource(ResumableSource[FreshchatSourceConfig, FreshchatResumeConfig]):
-    codebase_detection = detect(env=("^FRESHCHAT_",))
+    codebase_detection = detect(
+        npm=("react-native-freshchat-sdk",),
+        swiftpm=("github.com/freshworks-oss/freshchat-ios",),
+        cocoapods=("FreshchatSDK",),
+        pub=("freshchat_sdk",),
+        env=("^FRESHCHAT_",),
+        script_hosts=("wchat.freshchat.com", "fw-cdn.com"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
