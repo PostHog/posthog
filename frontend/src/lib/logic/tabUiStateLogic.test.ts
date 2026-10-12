@@ -66,6 +66,18 @@ describe('tabUiStateLogic', () => {
         expect(tabUiStateLogic.values.expandedRowsFor(undefined, 'unknown-viz')).toEqual([])
     })
 
+    it('stores event uuid keys without mixing them with index keys or other tabs', () => {
+        tabUiStateLogic.actions.toggleExpandedRow(TAB_A, VIZ_KEY, '1')
+        tabUiStateLogic.actions.toggleExpandedRow(TAB_A, VIZ_KEY, 1)
+        tabUiStateLogic.actions.toggleExpandedRow(TAB_B, VIZ_KEY, 'event-b')
+        expect(tabUiStateLogic.values.expandedRowsFor(TAB_A, VIZ_KEY)).toEqual(['1', 1])
+        expect(tabUiStateLogic.values.expandedRowsFor(TAB_B, VIZ_KEY)).toEqual(['event-b'])
+
+        tabUiStateLogic.actions.toggleExpandedRow(TAB_A, VIZ_KEY, '1')
+        expect(tabUiStateLogic.values.expandedRowsFor(TAB_A, VIZ_KEY)).toEqual([1])
+        expect(tabUiStateLogic.values.expandedRowsFor(TAB_B, VIZ_KEY)).toEqual(['event-b'])
+    })
+
     it('survives dataTableLogic unmount and remount with the same tabId/vizKey', () => {
         // Mount, toggle a row, then unmount — simulating React tab switch.
         let logic = dataTableLogic({
