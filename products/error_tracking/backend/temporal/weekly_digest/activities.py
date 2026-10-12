@@ -12,7 +12,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.messaging import MessagingRecord
 from posthog.storage import object_storage
 from posthog.tasks.email import NotificationSetting, should_send_notification
@@ -126,24 +126,23 @@ def _rank_teams_for_autoselect(
     counts: unfiltered counts can permanently enroll a user onto a project whose digest builds empty
     (auto-select is a one-shot decision). Only computed when the org actually has a first-time user.
     """
-    ranking = _AutoselectRanking(counts_by_team={}, daily_rows_by_team={})
+    counts_by_team: dict[int, ExceptionSummary] = {}
+    daily_rows_by_team: dict[int, list] = {}
     setting_key = weekly_digest.DIGEST_PROJECT_SETTING_KEY
-    if all(setting_key in (m.user.partial_notification_settings or {}) for m in memberships):
-        return ranking
-
-    for tid in team_ids_with_exceptions:
-        try:
-            ranking.daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
-        except Exception:
-            # A team whose filtered query is permanently broken (bad regex, deleted cohort) must
-            # not sink the whole org here, before the build phase can defer or fall back.
-            # It just goes unranked, so auto-select can't enroll anyone onto it.
-            logger.exception("et_weekly_digest.autoselect_rank_failed", team_id=tid, org_id=org_id)
-            continue
-        summary = weekly_digest.get_exception_summary_for_team(all_org_teams[tid], ranking.daily_rows_by_team[tid])
-        if summary and summary.exception_count > 0:
-            ranking.counts_by_team[tid] = summary
-    return ranking
+    if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
+        for tid in team_ids_with_exceptions:
+            try:
+                daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
+            except Exception:
+                # A team whose filtered query is permanently broken (bad regex, deleted cohort) must
+                # not sink the whole org here, before the build phase can defer or fall back.
+                # It just goes unranked, so auto-select can't enroll anyone onto it.
+                logger.exception("et_weekly_digest.autoselect_rank_failed", team_id=tid, org_id=org_id)
+                continue
+            summary = weekly_digest.get_exception_summary_for_team(all_org_teams[tid], daily_rows_by_team[tid])
+            if summary and summary.exception_count > 0:
+                counts_by_team[tid] = summary
+    return _AutoselectRanking(counts_by_team=counts_by_team, daily_rows_by_team=daily_rows_by_team)
 
 
 def _plan_recipient(
@@ -196,26 +195,19 @@ def _plan_recipient(
     return _Recipient(membership=membership, enabled_team_ids=enabled_team_ids, disabled_team_names=disabled_team_names)
 
 
-def _build_team_digest(
-    team: Team, daily_rows: list | None, unfiltered_fallback: bool, org_id: str
-) -> tuple[dict | None, bool]:
-    """Build one team's digest data. Returns the data (None when empty) and whether the build failed."""
+def _build_team_digest(team: Team, daily_rows: list | None, unfiltered_fallback: bool, org_id: str) -> dict | None:
+    """Build one team's digest data, or None when it has none. Raises when the build fails."""
     try:
-        return weekly_digest.build_team_digest_data(team, daily_rows), False
+        return weekly_digest.build_team_digest_data(team, daily_rows)
     except Exception:
         if not unfiltered_fallback:
-            logger.exception("et_weekly_digest.team_build_failed", team_id=team.id, org_id=org_id)
-            return None, True
+            raise
         logger.exception("et_weekly_digest.team_build_filtered_failed", team_id=team.id, org_id=org_id)
-    try:
-        # No cached daily_rows: those were queried with the filters applied, and the
-        # rebuilt sections must be consistently unfiltered.
-        data = weekly_digest.build_team_digest_data(team, filter_test_accounts=False)
-    except Exception:
-        logger.exception("et_weekly_digest.team_build_failed", team_id=team.id, org_id=org_id)
-        return None, True
+    # No cached daily_rows: those were queried with the filters applied, and the
+    # rebuilt sections must be consistently unfiltered.
+    data = weekly_digest.build_team_digest_data(team, filter_test_accounts=False)
     logger.warning("et_weekly_digest.team_built_without_test_account_filters", team_id=team.id, org_id=org_id)
-    return data, False
+    return data
 
 
 def _build_team_digests(
@@ -230,16 +222,42 @@ def _build_team_digests(
     A team whose build fails is recorded in failed_team_ids; recipients not subscribed to it are
     unaffected, while those who are get held back for the retry.
     """
-    build = _TeamDigestBuild(data_by_team={}, failed_team_ids=[])
+    data_by_team: dict[int, dict] = {}
+    failed_team_ids: list[int] = []
     for team_id in needed_team_ids:
-        data, failed = _build_team_digest(
-            all_org_teams[team_id], daily_rows_by_team.get(team_id), unfiltered_fallback, org_id
-        )
-        if failed:
-            build.failed_team_ids.append(team_id)
-        elif data:
-            build.data_by_team[team_id] = data
-    return build
+        try:
+            data = _build_team_digest(
+                all_org_teams[team_id], daily_rows_by_team.get(team_id), unfiltered_fallback, org_id
+            )
+        except Exception:
+            logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
+            failed_team_ids.append(team_id)
+            continue
+        if data:
+            data_by_team[team_id] = data
+    return _TeamDigestBuild(data_by_team=data_by_team, failed_team_ids=failed_team_ids)
+
+
+def _claim_and_send(
+    digest: dict, user: User, distinct_id: str, campaign_key: str, org_id: str
+) -> Literal["sent", "already_sent", "failed"]:
+    # Claim the recipient before handing the digest to the workflow, not after. The send is an
+    # irreversible external call, so writing sent_at afterwards leaves a window where a failed
+    # commit rolls the marker back and the retry sends the same digest twice. Claiming first
+    # inverts that: releasing the claim on a failed send keeps the retry working, and a crash
+    # between the two costs one missed digest rather than a duplicate.
+    record, _ = MessagingRecord.objects.get_or_create(raw_email=user.email, campaign_key=campaign_key)
+    claimed = MessagingRecord.objects.filter(pk=record.pk, sent_at__isnull=True).update(sent_at=timezone.now())
+    if not claimed:
+        return "already_sent"
+
+    try:
+        weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
+    except Exception:
+        logger.exception("et_weekly_digest.send_failed", user_id=str(user.uuid), org_id=org_id)
+        MessagingRecord.objects.filter(pk=record.pk).update(sent_at=None)
+        return "failed"
+    return "sent"
 
 
 def _deliver_to_recipient(
@@ -262,9 +280,11 @@ def _deliver_to_recipient(
         return "skipped"
 
     # Teams the recipient subscribes to that failed to build this run: a non-empty list means their
-    # digest is "lacking" those sections. Defer them off the final attempt; on it, send the partial.
-    failed_team_id_set = set(build.failed_team_ids)
-    missing_failed_team_ids = [team_id for team_id in recipient.enabled_team_ids if team_id in failed_team_id_set]
+    # digest is "lacking" those sections. On non-final attempts, hold the recipient back: the retry
+    # re-runs the build, so a transient failure still delivers their full digest. Only once retries
+    # are exhausted do we send the partial, so a permanently-broken team can't starve a recipient of
+    # their healthy teams. Recipients not subscribed to a failed team send immediately.
+    missing_failed_team_ids = [team_id for team_id in recipient.enabled_team_ids if team_id in build.failed_team_ids]
     if not is_final_attempt and missing_failed_team_ids:
         return "deferred"
 
@@ -291,25 +311,9 @@ def _deliver_to_recipient(
         return "sent"
 
     campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
-    # Claim the recipient before handing the digest to the workflow, not after. The send is an
-    # irreversible external call, so writing sent_at afterwards leaves a window where a failed
-    # commit rolls the marker back and the retry sends the same digest twice. Claiming first
-    # inverts that: releasing the claim on a failed send keeps the retry working, and a crash
-    # between the two costs one missed digest rather than a duplicate.
-    record, _ = MessagingRecord.objects.get_or_create(raw_email=user.email, campaign_key=campaign_key)
-    claimed = MessagingRecord.objects.filter(pk=record.pk, sent_at__isnull=True).update(sent_at=timezone.now())
-    if not claimed:
-        return "already_sent"
-
-    try:
-        weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
-    except Exception:
-        logger.exception("et_weekly_digest.send_failed", user_id=str(user.uuid), org_id=org_id)
-        MessagingRecord.objects.filter(pk=record.pk).update(sent_at=None)
-        return "failed"
-
-    if not missing_failed_team_ids:
-        return "sent"
+    outcome = _claim_and_send(digest, user, distinct_id, campaign_key, org_id)
+    if outcome != "sent" or not missing_failed_team_ids:
+        return outcome
     # A lacking digest actually went out (final-attempt fallback): the recipient is missing
     # these teams because their builds kept failing. Grep this event to audit lacking sends.
     logger.warning(
@@ -387,11 +391,6 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
         len(all_org_teams) - len(team_ids_with_exceptions) + (len(needed_team_ids) - len(build.data_by_team))
     )
 
-    # On non-final attempts, hold back a recipient whose digest is missing a team that failed to build
-    # this run. The retry re-runs the build, so a transient failure still delivers their full digest.
-    # Only once retries are exhausted do we fall back to sending the partial, so a permanently-broken
-    # team can't starve a recipient of their healthy teams. Recipients not subscribed to a failed team
-    # are unaffected and send immediately.
     is_final_attempt = attempt >= inputs.max_attempts
 
     outcomes = Counter(
