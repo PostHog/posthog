@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -58,7 +59,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.serializers import EXPERIMENT_HEALTH_FINDINGS_FLAG, ExperimentSerializer
+from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -709,19 +710,19 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, {}, None, None),
-            ("no_metric", True, {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
-            ("inline_primary_metric_counts", True, {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("inline_secondary_metric_counts", True, {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("shared_primary_metric_counts", True, {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
-            ("shared_secondary_metric_counts", True, {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
-            ("shared_metric_without_type_counts", True, {}, {}, [_HEALTH_PAUSED]),
+            ("load_fails", True, {}, None, None),
+            ("no_metric", False, {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
+            ("inline_primary_metric_counts", False, {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("inline_secondary_metric_counts", False, {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("shared_primary_metric_counts", False, {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
+            ("shared_secondary_metric_counts", False, {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
+            ("shared_metric_without_type_counts", False, {}, {}, [_HEALTH_PAUSED]),
         ]
     )
     def test_detail_reports_health_findings(
         self,
         _name: str,
-        flag_enabled: bool,
+        load_fails: bool,
         inline_metrics: dict[str, list[dict[str, Any]]],
         shared_metric_link: dict[str, Any] | None,
         expected: list[tuple[str, str | None]] | None,
@@ -766,10 +767,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled and flag_key == EXPERIMENT_HEALTH_FINDINGS_FLAG
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        load_failure = (
+            patch(
+                "products.experiments.backend.presentation.serializers.load_health_context",
+                side_effect=RuntimeError("health context failed"),
+            )
+            if load_fails
+            else nullcontext()
+        )
+        with load_failure:
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

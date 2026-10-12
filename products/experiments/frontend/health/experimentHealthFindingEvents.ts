@@ -57,11 +57,10 @@ export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> 
 // pinned: `health_ui` property values. Insights compare the health panel with the separate warnings on them.
 export type ExperimentHealthUi = 'panel' | 'warnings'
 
-export function experimentHealthUi(experiment: Experiment): ExperimentHealthUi {
-    // The page shows the health panel only when the server sent health findings, which it does for readers
-    // with the experiment-health-findings flag. A legacy experiment opens the legacy view, which shows the
-    // separate warnings even then.
-    return experiment.health && !isLegacyExperiment(experiment) ? 'panel' : 'warnings'
+export function experimentHealthUi(experiment: Experiment, showsServerHealth: boolean): ExperimentHealthUi {
+    // A legacy experiment opens the legacy view, which shows the separate warnings also when the page shows
+    // the server's findings.
+    return showsServerHealth && !isLegacyExperiment(experiment) ? 'panel' : 'warnings'
 }
 
 export function healthFindingForExperimentWarning(warningKey: ExperimentWarningKey): ExperimentHealthFinding {
@@ -92,7 +91,8 @@ export function experimentWarningFromHealth(health: ExperimentHealthApi): Experi
 // `getEventPropertiesForExperiment` in.
 function healthFindingEventProperties(
     experiment: Experiment,
-    finding: ExperimentHealthFinding
+    finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi
 ): Record<string, string | number | null> {
     return {
         experiment_id: experiment.id,
@@ -100,26 +100,31 @@ function healthFindingEventProperties(
         experiment_days_since_start: experiment.start_date ? dayjs().diff(experiment.start_date, 'day') : null,
         finding_code: finding.code,
         finding_variant: finding.variant ?? null,
-        health_ui: experimentHealthUi(experiment),
+        health_ui: healthUi,
         surface: 'experiment_page',
         // The value the backend reports for a request from the web app, so one breakdown covers both.
         source: 'web',
     }
 }
 
-export function captureExperimentHealthFindingShown(experiment: Experiment, finding: ExperimentHealthFinding): void {
+export function captureExperimentHealthFindingShown(
+    experiment: Experiment,
+    finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi
+): void {
     // pinned: analytics event name, so renaming it breaks insights
-    posthog.capture('experiment health finding shown', healthFindingEventProperties(experiment, finding))
+    posthog.capture('experiment health finding shown', healthFindingEventProperties(experiment, finding, healthUi))
 }
 
 export function captureExperimentHealthFindingOpened(
     experiment: Experiment,
     finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi,
     openKind: ExperimentHealthFindingOpenKind
 ): void {
     // pinned: analytics event name, so renaming it breaks insights
     posthog.capture('experiment health finding opened', {
-        ...healthFindingEventProperties(experiment, finding),
+        ...healthFindingEventProperties(experiment, finding, healthUi),
         open_kind: openKind,
     })
 }
@@ -127,11 +132,12 @@ export function captureExperimentHealthFindingOpened(
 export function captureExperimentHealthFindingActedOn(
     experiment: Experiment,
     finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi,
     actionKind: ExperimentHealthFindingActionKind
 ): void {
     // pinned: analytics event name, so renaming it breaks insights
     posthog.capture('experiment health finding acted on', {
-        ...healthFindingEventProperties(experiment, finding),
+        ...healthFindingEventProperties(experiment, finding, healthUi),
         action_kind: actionKind,
         // A click starts the action. The save that completes it happens in a modal or on another page.
         action_step: 'started',
@@ -156,13 +162,14 @@ export interface ExperimentViewedHealthProperties {
  */
 export function experimentHealthStateEventProperties(
     experiment: Experiment,
+    healthUi: ExperimentHealthUi,
     browserWarning: ExperimentWarning | null,
     browserNoMetricsWarning: boolean
 ): ExperimentViewedHealthProperties {
     const { health } = experiment
     const flagStateFinding = health?.findings.find((finding) => FLAG_STATE_FINDING_CODES.has(finding.code))
     return {
-        health_ui: experimentHealthUi(experiment),
+        health_ui: healthUi,
         health_finding_codes: health ? health.findings.map((finding) => finding.code) : null,
         // pinned: `code:subcode`, as on the server's `experiment launched`. The code prefix keeps a subcode
         // unambiguous when two codes use the same subcode.

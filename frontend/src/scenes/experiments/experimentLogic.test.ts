@@ -2847,7 +2847,19 @@ describe('experimentLogic', () => {
         // The fixture holds legacy metrics, and a legacy experiment never shows the health panel.
         const newEngineMetrics = { metrics: [], metrics_secondary: [], saved_metrics: [] }
 
-        it.each<{ desc: string; overrides: Partial<Experiment>; expected: ExperimentWarning | null }>([
+        const setHealthFindingsFlag = (enabled: boolean): void => {
+            featureFlagLogic.actions.setFeatureFlags(
+                enabled ? [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] : [],
+                enabled ? { [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS]: true } : {}
+            )
+        }
+
+        it.each<{
+            desc: string
+            overrides: Partial<Experiment>
+            expected: ExperimentWarning | null
+            healthFindingsFlag?: boolean
+        }>([
             {
                 desc: 'running experiment with active flag and normal rollout',
                 overrides: {
@@ -3027,12 +3039,28 @@ describe('experimentLogic', () => {
                 },
                 expected: null,
             },
-        ])('$desc → $expected', ({ overrides, expected }) => {
+            {
+                desc: 'server findings for a reader without the health findings flag leave the local rules',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [] },
+                },
+                healthFindingsFlag: false,
+                expected: { key: 'running_but_flag_disabled' },
+            },
+        ])('$desc → $expected', ({ overrides, expected, healthFindingsFlag = true }) => {
+            setHealthFindingsFlag(healthFindingsFlag)
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
         })
 
-        it.each<{ desc: string; overrides: Partial<Experiment>; expected: Record<string, unknown> }>([
+        it.each<{
+            desc: string
+            overrides: Partial<Experiment>
+            expected: Record<string, unknown>
+            healthFindingsFlag?: boolean
+        }>([
             {
                 desc: 'a server finding the local rules miss',
                 overrides: {
@@ -3066,6 +3094,22 @@ describe('experimentLogic', () => {
                 expected: { health_ui: 'warnings', health_finding_count: 0 },
             },
             {
+                desc: 'a reader without the health findings flag, who sees the separate warnings',
+                overrides: {
+                    ...running,
+                    ...newEngineMetrics,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                },
+                healthFindingsFlag: false,
+                expected: {
+                    health_ui: 'warnings',
+                    health_finding_count: 1,
+                    flag_state_browser: 'running_but_flag_disabled',
+                    flag_state_server: 'running_but_flag_disabled',
+                },
+            },
+            {
                 desc: 'a reader without health findings',
                 overrides: { ...running, feature_flag: flag(false, multivariantFilters), health: null },
                 expected: {
@@ -3080,7 +3124,8 @@ describe('experimentLogic', () => {
             },
         ])(
             'reports the local rules and the server checks with the experiment view: $desc',
-            ({ overrides, expected }) => {
+            ({ overrides, expected, healthFindingsFlag = true }) => {
+                setHealthFindingsFlag(healthFindingsFlag)
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
 
                 logic.actions.loadExperimentSuccess(createExperiment(overrides))
@@ -3092,6 +3137,7 @@ describe('experimentLogic', () => {
         )
 
         it('applies the local rules after a local flag write makes the server findings stale', () => {
+            setHealthFindingsFlag(true)
             logic.actions.setExperiment(
                 createExperiment({
                     ...running,
@@ -3106,7 +3152,7 @@ describe('experimentLogic', () => {
             expect(logic.values.experimentWarning).toEqual({ key: 'running_but_flag_disabled' })
         })
 
-        it('keeps null health after a local flag write, so a reader without the flag still has no findings', () => {
+        it('keeps null health after a local flag write, so the page keeps applying its own rules', () => {
             logic.actions.setExperiment(
                 createExperiment({ ...running, feature_flag: flag(true, multivariantFilters), health: null })
             )
@@ -3158,6 +3204,9 @@ describe('experimentLogic', () => {
         })
 
         it('reports every use of a finding action', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS], {
+                [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS]: true,
+            })
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             logic.actions.setExperiment({
                 ...experiment,

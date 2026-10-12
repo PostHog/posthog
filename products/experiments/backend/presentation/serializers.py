@@ -6,9 +6,8 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
-import logging
 from copy import deepcopy
-from typing import Annotated, Any, Final, TypeGuard
+from typing import Annotated, Any, TypeGuard
 
 from django.utils import timezone
 
@@ -39,13 +38,12 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
-from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade.api import get_experiment_health_findings
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     ExperimentHealthFindingActionKind,
@@ -53,6 +51,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
+from products.experiments.backend.health.context import load_health_context
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -94,9 +97,6 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
-logger = logging.getLogger(__name__)
-
-EXPERIMENT_HEALTH_FINDINGS_FLAG: Final = "experiment-health-findings"
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -578,7 +578,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         help_text=(
             "Health check diagnostics for this experiment: problems in its configuration and its feature "
             "flag that keep it from producing trustworthy results, each with a fix. Read `findings` first "
-            "when you diagnose an experiment. Null where health checks are not enabled yet."
+            "when you diagnose an experiment. Null when the health checks could not run."
         ),
     )
     version = serializers.IntegerField(
@@ -718,31 +718,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
     def get_health(self, obj: Experiment) -> dict[str, Any] | None:
-        if not self._health_findings_enabled(obj.team):
-            return None
-        return ExperimentHealthSerializer(
-            {"findings": get_experiment_health_findings(team_id=obj.team_id, experiment_id=obj.id)}
-        ).data
-
-    def _health_findings_enabled(self, team: Team) -> bool:
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        distinct_id = getattr(user, "distinct_id", None)
-        email = getattr(user, "email", None)
         try:
-            # Local evaluation keeps a network call off every experiment read. A flag that targets
-            # by email still matches, because the email goes in as a person property.
-            return posthog_feature_flag_enabled(
-                EXPERIMENT_HEALTH_FINDINGS_FLAG,
-                str(distinct_id or team.uuid),
-                organization_id=team.organization_id,
-                team_id=team.id,
-                person_properties={"email": email} if email else None,
-                only_evaluate_locally=True,
-            )
-        except Exception:
-            logger.warning("Failed to evaluate the experiment health findings flag", exc_info=True)
-            return False
+            findings = evaluate_health(load_health_context(obj), EXPERIMENT_HEALTH_CHECKS)
+        except Exception as error:
+            # Every experiment read carries the findings, so a failed load must not fail the read.
+            # The page then applies its own rules, as it does for a null value.
+            capture_exception(error)
+            return None
+        return ExperimentHealthSerializer({"findings": findings}).data
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):

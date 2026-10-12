@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -66,6 +67,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id),
+        featureFlags: [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS],
     },
     decorators: [
         mswDecorator({

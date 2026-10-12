@@ -5,7 +5,9 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -135,6 +137,10 @@ describe('health finding reporting', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS], {
+            [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS]: true,
+        })
         logic = experimentLogic({ experimentId: EXPERIMENT_ID })
         logic.mount()
         captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)

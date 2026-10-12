@@ -86,10 +86,12 @@ import {
     MetricInsightId,
 } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import type { ExperimentHealthApi } from 'products/experiments/frontend/generated/api.schemas'
 import {
     type ExperimentHealthFinding,
     type ExperimentHealthFindingActionKind,
     type ExperimentHealthFindingOpenKind,
+    type ExperimentHealthUi,
     type ExperimentViewedHealthProperties,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
@@ -591,6 +593,7 @@ export interface experimentLogicValues {
     }[]
     hasMinimumExposureForResults: boolean
     healthFindings: HealthPanelFinding[] | null
+    healthUi: ExperimentHealthUi
     hogfettiTrigger: (() => void) | null
     isCreatingExperimentDashboard: boolean
     isExperimentDraft: boolean
@@ -631,6 +634,7 @@ export interface experimentLogicValues {
     shippedVariantKey: string | null
     showDebugPanel: boolean
     showNotificationOffer: boolean
+    shownHealth: ExperimentHealthApi | null
     statsMethod: ExperimentStatsMethod
     unfreezeExposureLoading: boolean
     unmodifiedExperiment: Experiment | null
@@ -1356,12 +1360,14 @@ export interface experimentLogicMeta {
             isSingleVariantShipped: boolean,
             shippedVariantKey: string | null
         ) => ExperimentWarning | null
+        shownHealth: (experiment: Experiment, featureFlags: FeatureFlagsSet) => ExperimentHealthApi | null
+        healthUi: (experiment: Experiment, shownHealth: ExperimentHealthApi | null) => ExperimentHealthUi
         experimentWarning: (
-            experiment: Experiment,
+            shownHealth: ExperimentHealthApi | null,
             browserExperimentWarning: ExperimentWarning | null
         ) => ExperimentWarning | null
         healthFindings: (
-            experiment: Experiment,
+            shownHealth: ExperimentHealthApi | null,
             exposures: any,
             isExperimentDraft: boolean
         ) => HealthPanelFinding[] | null
@@ -1818,7 +1824,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setExperiment: (state, { experiment }) => {
                     const updated = { ...state, ...experiment }
                     // Findings about the previous flag would show a stale banner until the next load. A null
-                    // `health` stays null, because null means the reader does not have the health findings flag.
+                    // `health` stays null, because null means the server could not run the health checks.
                     return replacesFlagWithoutHealth(experiment) && updated.health
                         ? { ...updated, health: undefined }
                         : updated
@@ -2298,16 +2304,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 return
             }
             cache.shownHealthFindingKeys.add(key)
-            captureExperimentHealthFindingShown(values.experiment, finding)
+            captureExperimentHealthFindingShown(values.experiment, finding, values.healthUi)
         },
         reportHealthFindingOpened: ({ finding, openKind }) => {
             // Zero exposures has no sign in the collapsed panel, so the reader opens it before the
             // page reports it. Report "shown" first to keep the order of the two events.
             actions.reportHealthFindingShown(finding)
-            captureExperimentHealthFindingOpened(values.experiment, finding, openKind)
+            captureExperimentHealthFindingOpened(values.experiment, finding, values.healthUi, openKind)
         },
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
-            captureExperimentHealthFindingActedOn(values.experiment, finding, actionKind)
+            captureExperimentHealthFindingActedOn(values.experiment, finding, values.healthUi, actionKind)
         },
         beforeUnmount: () => {
             clearTimeout(cache.notificationOfferTimer)
@@ -2340,6 +2346,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     duration,
                     experimentHealthStateEventProperties(
                         experiment,
+                        values.healthUi,
                         values.browserExperimentWarning,
                         values.browserNoMetricsWarning
                     )
@@ -2650,7 +2657,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
-                        health_ui: experimentHealthUi(values.experiment),
+                        health_ui: values.healthUi,
                         ...exposureHealthEventProperties(
                             values.exposures,
                             values.exposureCriteria?.multiple_variant_handling
@@ -3957,17 +3964,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 return null
             },
         ],
+        shownHealth: [
+            (s) => [s.experiment, s.featureFlags],
+            (experiment: Experiment, featureFlags: FeatureFlagsSet): ExperimentHealthApi | null =>
+                // The server sends health findings to every reader, so every load can compare them with the
+                // browser's rules. The page shows them only to readers with the experiment-health-findings
+                // flag, and the browser's rules cover everyone else.
+                featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] ? (experiment.health ?? null) : null,
+        ],
+        healthUi: [
+            (s) => [s.experiment, s.shownHealth],
+            (experiment: Experiment, shownHealth: ExperimentHealthApi | null): ExperimentHealthUi =>
+                experimentHealthUi(experiment, shownHealth !== null),
+        ],
         experimentWarning: [
-            (s) => [s.experiment, s.browserExperimentWarning],
-            (experiment: Experiment, browserExperimentWarning: ExperimentWarning | null): ExperimentWarning | null =>
-                // The server sends health findings to people with the experiment-health-findings flag. The
-                // browser's rules cover everyone else.
-                experiment.health ? experimentWarningFromHealth(experiment.health) : browserExperimentWarning,
+            (s) => [s.shownHealth, s.browserExperimentWarning],
+            (
+                shownHealth: ExperimentHealthApi | null,
+                browserExperimentWarning: ExperimentWarning | null
+            ): ExperimentWarning | null =>
+                shownHealth ? experimentWarningFromHealth(shownHealth) : browserExperimentWarning,
         ],
         healthFindings: [
-            (s) => [s.experiment, s.exposures, s.isExperimentDraft],
-            (experiment: Experiment, exposures: any, isExperimentDraft: boolean): HealthPanelFinding[] | null =>
-                healthPanelFindings(experiment.health, exposures, isExperimentDraft),
+            (s) => [s.shownHealth, s.exposures, s.isExperimentDraft],
+            (
+                shownHealth: ExperimentHealthApi | null,
+                exposures: any,
+                isExperimentDraft: boolean
+            ): HealthPanelFinding[] | null => healthPanelFindings(shownHealth, exposures, isExperimentDraft),
         ],
         firstPrimaryMetric: [
             (s) => [s.experiment],

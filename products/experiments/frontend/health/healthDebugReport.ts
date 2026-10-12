@@ -40,7 +40,7 @@ const NOT_SENT = 'not sent'
 
 export function describeServerHealth(health: ExperimentHealthApi | null | undefined): string {
     if (health === null) {
-        return 'null: the experiment-health-findings flag is off for this user'
+        return 'null: the server could not run the health checks'
     }
     if (health === undefined) {
         return 'missing: a flag save outside the experiment API dropped the findings, so reload the page'
