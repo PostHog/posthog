@@ -18,6 +18,7 @@ const (
 	installSuccess
 	installFailed
 	installSkipped
+	installWarning
 )
 
 type installItem struct {
@@ -33,6 +34,7 @@ type InstallModel struct {
 	currentStep int
 	spinner     spinner.Model
 	config      core.InstallConfig
+	warnings    []string
 	err         error
 	width       int
 	height      int
@@ -42,6 +44,7 @@ type stepResultMsg struct {
 	stepIdx int
 	err     error
 	detail  string
+	warning string
 	skipped bool
 }
 
@@ -94,7 +97,7 @@ func (m InstallModel) runStep(index int) tea.Cmd {
 		}
 
 		result := step.Run(m.config)
-		return stepResultMsg{stepIdx: index, err: result.Err, detail: result.Detail}
+		return stepResultMsg{stepIdx: index, err: result.Err, detail: result.Detail, warning: result.Warning}
 	}
 }
 
@@ -121,6 +124,10 @@ func (m InstallModel) Update(msg tea.Msg) (InstallModel, tea.Cmd) {
 			return m, func() tea.Msg {
 				return ErrorMsg{Err: msg.err}
 			}
+		} else if msg.warning != "" {
+			m.steps[msg.stepIdx].status = installWarning
+			m.steps[msg.stepIdx].detail = msg.detail
+			m.warnings = append(m.warnings, msg.warning)
 		} else {
 			m.steps[msg.stepIdx].status = installSuccess
 			m.steps[msg.stepIdx].detail = msg.detail
@@ -130,7 +137,7 @@ func (m InstallModel) Update(msg tea.Msg) (InstallModel, tea.Cmd) {
 		if nextStep >= len(m.coreSteps) {
 			m.currentStep = len(m.coreSteps)
 			return m, func() tea.Msg {
-				return StepCompleteMsg{Data: nil}
+				return StepCompleteMsg{Data: m.warnings}
 			}
 		}
 
@@ -169,6 +176,9 @@ func (m InstallModel) View() string {
 		case installSkipped:
 			icon = "◌"
 			style = ui.MutedStyle
+		case installWarning:
+			icon = "⚠"
+			style = ui.WarningStyle
 		}
 
 		line := fmt.Sprintf("  %s %s", icon, style.Render(step.name))

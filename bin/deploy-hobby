@@ -134,7 +134,7 @@ fi
 # ENCRYPTION_SALT_KEYS are not regenerated, as it would invalidate active
 # sessions and corrupt encrypted data on a live instance.
 # Mirrors the FileExists(".env") guard in bin/hobby-installer.
-# Tag changes on an existing instance are handled by bin/upgrade-hobby.
+# The image tags are written below on every run, once the Node tag is resolved.
 if [ -f .env ]; then
     echo "Existing .env found, preserving configuration"
 else
@@ -198,6 +198,35 @@ if [ ! -f ./share/GeoLite2-City.mmdb ]; then
     sudo chmod 644 ./share/GeoLite2-City.mmdb &&
     sudo chmod 644 ./share/GeoLite2-City.json
 fi
+
+# Pick the posthog-node image built from the same source as the app image, so both expect the
+# same database schema. The helper lives in the checkout, so a checkout that predates it keeps
+# the old behaviour: POSTHOG_NODE_TAG from the shell, or latest.
+NODE_TAG_WARNING=""
+if [ -f posthog/bin/helpers/resolve-hobby-node-tag.sh ]; then
+    echo "Matching the Node image to the app image..."
+    NODE_TAG_LOG=$(mktemp)
+    if ! NODE_TAG=$(bash posthog/bin/helpers/resolve-hobby-node-tag.sh 2> "$NODE_TAG_LOG"); then
+        NODE_TAG_WARNING=$(cat "$NODE_TAG_LOG")
+    fi
+    cat "$NODE_TAG_LOG"
+    rm -f "$NODE_TAG_LOG"
+    export POSTHOG_NODE_TAG="${NODE_TAG:-latest}"
+else
+    export POSTHOG_NODE_TAG="${POSTHOG_NODE_TAG:-latest}"
+fi
+
+# Persist the image pair, so a later 'docker-compose up' without these variables exported
+# starts the same images this run does.
+set_env_value() {
+    if grep -q "^$1=" .env; then
+        sed -i "s|^$1=.*|$1=$2|" .env
+    else
+        echo "$1=$2" >> .env
+    fi
+}
+set_env_value POSTHOG_APP_TAG "$POSTHOG_APP_TAG"
+set_env_value POSTHOG_NODE_TAG "$POSTHOG_NODE_TAG"
 
 # write entrypoint
 # NOTE: this is duplicated in bin/upgrade-hobby, so if you change it here,
@@ -269,6 +298,11 @@ rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml
 cp posthog/.env.services .env.services
+if [ -n "$NODE_TAG_WARNING" ]; then
+    echo ""
+    echo "⚠️  $NODE_TAG_WARNING"
+    echo ""
+fi
 echo "Starting the stack!"
 # Retry docker-compose up with --pull always up to 3 times
 for attempt in 1 2 3; do

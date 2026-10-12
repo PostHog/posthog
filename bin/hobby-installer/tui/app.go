@@ -82,7 +82,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.advanceStep(msg)
 	case steps.ErrorMsg:
 		m.err = msg.Err
-		m.complete = steps.NewCompleteModel(false, msg.Err.Error(), m.posthogDomain)
+		m.complete = steps.NewCompleteModel(false, msg.Err.Error(), m.posthogDomain, nil)
 		m.step = stepComplete
 		return m, m.complete.Init()
 	}
@@ -162,7 +162,8 @@ func (m model) advanceStep(msg steps.StepCompleteMsg) (tea.Model, tea.Cmd) {
 
 	case stepInstall:
 		m.step = stepComplete
-		m.complete = steps.NewCompleteModel(true, "", m.posthogDomain)
+		warnings, _ := msg.Data.([]string)
+		m.complete = steps.NewCompleteModel(true, "", m.posthogDomain, warnings)
 		return m, m.complete.Init()
 	}
 	return m, nil

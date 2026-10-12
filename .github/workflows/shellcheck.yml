@@ -25,8 +25,14 @@ jobs:
                   fi
                   sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
                   sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y shellcheck
-            - name: Check secrets scripts
-              run: cd bin && shellcheck deploy-hobby
+            - name: Check hobby scripts
+              # Branches opened before the Node tag helper landed do not have it yet.
+              run: |
+                  cd bin
+                  shellcheck deploy-hobby
+                  if [ -f helpers/resolve-hobby-node-tag.sh ]; then
+                      shellcheck helpers/resolve-hobby-node-tag.sh
+                  fi
 
             - name: Check Windows-compatible repository paths
               run: |
