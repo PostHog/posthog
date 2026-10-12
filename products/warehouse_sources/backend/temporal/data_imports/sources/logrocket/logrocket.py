@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -119,18 +120,19 @@ def _request_params(schema_name: str, page_size: int) -> dict[str, str | int]:
 
 def _resource_config(config: LogrocketSourceConfig, schema_name: str) -> EndpointResource:
     endpoint = schema_for_resource(ENDPOINTS, schema_name)
+    endpoint_def: Endpoint = {
+        "path": _request_path(config, endpoint),
+        "params": _request_params(schema_name, endpoint.page_size),
+        "data_selector": endpoint.data_selector,
+        "data_selector_required": True,
+        "paginator": LogrocketPaginator(schema_name),
+    }
     return {
         "name": schema_name,
         "table_name": schema_name,
         "write_disposition": "replace",
         "table_format": "delta",
-        "endpoint": {
-            "path": _request_path(config, endpoint),
-            "params": _request_params(schema_name, endpoint.page_size),
-            "data_selector": endpoint.data_selector,
-            "data_selector_required": True,
-            "paginator": LogrocketPaginator(schema_name),
-        },
+        "endpoint": endpoint_def,
     }
 
 
