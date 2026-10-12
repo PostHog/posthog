@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BillingActivationRequestApi,
+    BillingActivationResponseApi,
     BillingAlertCheckNowResponseApi,
     BillingAlertConfigurationApi,
     BillingAlertDeleteDestinationApi,
@@ -17,12 +19,17 @@ import type {
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
     BillingApi,
+    BillingAuthorizationResponseApi,
+    BillingAuthorizationStatusRequestApi,
+    BillingAuthorizationStatusResponseApi,
     BillingFeaturesApi,
     BillingForecastApi,
     BillingInvoicesApi,
     BillingInvoicesListParams,
     BillingLimitsApi,
+    BillingListParams,
     BillingOverviewResponseApi,
+    BillingPaymentOrganizationApi,
     BillingPeriodResponseApi,
     BillingProductApi,
     BillingProductsApi,
@@ -68,12 +75,25 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getBillingListUrl = () => {
-    return `/api/billing/`
+export const getBillingListUrl = (params?: BillingListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0 ? `/api/billing/?${stringifiedParams}` : `/api/billing/`
 }
 
-export const billingList = async (options?: RequestInit): Promise<BillingOverviewResponseApi> => {
-    return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(), {
+export const billingList = async (
+    params?: BillingListParams,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(params), {
         ...options,
         method: 'GET',
     })
@@ -83,12 +103,15 @@ export const getBillingActivateCreateUrl = () => {
     return `/api/billing/activate/`
 }
 
-export const billingActivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingActivateCreateUrl(), {
+export const billingActivateCreate = async (
+    billingActivationRequestApi: BillingActivationRequestApi,
+    options?: RequestInit
+): Promise<BillingActivationResponseApi> => {
+    return apiMutator<BillingActivationResponseApi>(getBillingActivateCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingActivationRequestApi),
     })
 }
 
@@ -96,12 +119,15 @@ export const getBillingActivateAuthorizeCreateUrl = () => {
     return `/api/billing/activate/authorize/`
 }
 
-export const billingActivateAuthorizeCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingActivateAuthorizeCreateUrl(), {
+export const billingActivateAuthorizeCreate = async (
+    billingPaymentOrganizationApi: BillingPaymentOrganizationApi,
+    options?: RequestInit
+): Promise<BillingAuthorizationResponseApi> => {
+    return apiMutator<BillingAuthorizationResponseApi>(getBillingActivateAuthorizeCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingPaymentOrganizationApi),
     })
 }
 
@@ -110,14 +136,14 @@ export const getBillingActivateAuthorizeStatusCreateUrl = () => {
 }
 
 export const billingActivateAuthorizeStatusCreate = async (
-    billingApi: BillingApi,
+    billingAuthorizationStatusRequestApi: BillingAuthorizationStatusRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingActivateAuthorizeStatusCreateUrl(), {
+): Promise<BillingAuthorizationStatusResponseApi> => {
+    return apiMutator<BillingAuthorizationStatusResponseApi>(getBillingActivateAuthorizeStatusCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingAuthorizationStatusRequestApi),
     })
 }
 

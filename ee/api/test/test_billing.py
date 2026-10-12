@@ -896,9 +896,20 @@ class TestBillingAPI(APILicensedTest):
             "surveys": 0,
         }
 
+    @parameterized.expand(
+        [
+            (None, {}),
+            ("true", {"include_forecasting": "true"}),
+            ("false", {"include_forecasting": "false"}),
+            ("1", {"include_forecasting": "true"}),
+            ("0", {"include_forecasting": "false"}),
+        ]
+    )
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_billing_with_supported_params(self, mock_get):
-        """Test that the include_forecasting param is passed through to the billing service."""
+    def test_billing_with_supported_params(
+        self, include_forecasting: str | None, expected_params: dict[str, str], mock_get: MagicMock
+    ) -> None:
+        """Normalize explicit forecasting values and preserve the downstream default when omitted."""
 
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -915,7 +926,8 @@ class TestBillingAPI(APILicensedTest):
 
         mock_get.side_effect = mock_implementation
 
-        response = self.client.get("/api/billing/?include_forecasting=true")
+        params = {} if include_forecasting is None else {"include_forecasting": include_forecasting}
+        response = self.client.get("/api/billing/", params)
         assert response.status_code == 200
 
         # Verify the billing service was called with the correct query param
@@ -925,7 +937,14 @@ class TestBillingAPI(APILicensedTest):
             if "api/billing" in call[0][0] and "api/billing/portal" not in call[0][0]
         ]
         assert len(billing_calls) == 1
-        assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
+        assert billing_calls[0].kwargs["params"] == expected_params
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_billing_rejects_malformed_forecasting_param(self, mock_get_billing: MagicMock) -> None:
+        response = self.client.get("/api/billing/", {"include_forecasting": "invalid"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_get_billing.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
@@ -1013,7 +1032,7 @@ class TestActivateBillingAPI(APILicensedTest):
         mock_activate_subscription.return_value = {"success": True, "products": ["product_analytics"]}
 
         url = "/api/billing/activate"
-        data = {"products": "all_products:"}
+        data = {"organization_id": str(self.organization.id), "products": "all_products:"}
 
         response = self.client.post(url, data, content_type="application/json")
 
@@ -1025,6 +1044,212 @@ class TestActivateBillingAPI(APILicensedTest):
         url = "/api/billing/activate"
         response = self.client.get(url, {"products": "product_1:plan_1"})
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    @parameterized.expand(
+        [
+            ("activate", "activate_subscription"),
+            ("activate/authorize", "authorize"),
+            ("activate/authorize/status", "authorize_status"),
+        ]
+    )
+    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    def test_payment_targets_explicit_organization_after_current_team_changes(
+        self, action: str, manager_method: str, _flag: MagicMock
+    ) -> None:
+        other_org = Organization.objects.create(name="Another organization")
+        other_team = Team.objects.create(organization=other_org, name="Another project")
+        OrganizationMembership.objects.create(
+            organization=other_org, user=self.user, level=OrganizationMembership.Level.ADMIN
+        )
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save()
+        with patch.object(BillingManager, manager_method, return_value={"success": True}) as manager:
+            response = self.client.post(
+                f"/api/billing/{action}",
+                {
+                    "organization_id": str(self.organization.id),
+                    "products": "all_products:",
+                    "payment_intent_id": "pi_test",
+                },
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert manager.call_args.args[0] == self.organization
+
+    @parameterized.expand(
+        [
+            ("activate", "activate_subscription"),
+            ("activate/authorize", "authorize"),
+            ("activate/authorize/status", "authorize_status"),
+        ]
+    )
+    def test_payment_denies_member_before_calling_billing(self, action: str, manager_method: str) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        with patch.object(BillingManager, manager_method) as manager:
+            response = self.client.post(
+                f"/api/billing/{action}",
+                {"organization_id": str(self.organization.id)},
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        manager.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (action, manager_method, level, owner_only, expected)
+            for action, manager_method in [
+                ("activate", "activate_subscription"),
+                ("activate/authorize", "authorize"),
+                ("activate/authorize/status", "authorize_status"),
+            ]
+            for level, owner_only, expected in [
+                (OrganizationMembership.Level.ADMIN, False, 200),
+                (OrganizationMembership.Level.ADMIN, True, 403),
+                (OrganizationMembership.Level.ADMIN, None, 403),
+                (OrganizationMembership.Level.OWNER, True, 200),
+            ]
+        ]
+    )
+    def test_payment_respects_requested_organization_billing_access(
+        self, action: str, manager_method: str, level: int, owner_only: bool | None, expected: int
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        with (
+            patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=owner_only),
+            patch.object(BillingManager, manager_method, return_value={"success": True}) as manager,
+        ):
+            response = self.client.post(
+                f"/api/billing/{action}",
+                {"organization_id": str(self.organization.id)},
+                content_type="application/json",
+            )
+        assert response.status_code == expected
+        assert manager.call_count == (1 if expected == 200 else 0)
+
+    @parameterized.expand(
+        [
+            (action, value)
+            for action in ["activate", "activate/authorize", "activate/authorize/status"]
+            for value in [None, "", "@current", "invalid", 123]
+        ]
+    )
+    def test_payment_requires_concrete_organization_id(self, action: str, value: Any) -> None:
+        with patch("ee.api.billing.BillingManager") as manager:
+            data = {} if value is None else {"organization_id": value}
+            response = self.client.post(f"/api/billing/{action}", data, content_type="application/json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        manager.assert_not_called()
+
+    @parameterized.expand(["activate", "activate/authorize", "activate/authorize/status"])
+    def test_payment_denies_foreign_organization(self, action: str) -> None:
+        organization = Organization.objects.create(name="Foreign organization")
+        with patch("ee.api.billing.BillingManager") as manager:
+            response = self.client.post(
+                f"/api/billing/{action}", {"organization_id": str(organization.id)}, content_type="application/json"
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        manager.assert_not_called()
+
+    @parameterized.expand(["activate", "activate/authorize", "activate/authorize/status"])
+    def test_payment_denies_member_of_target_when_admin_of_current_organization(self, action: str) -> None:
+        organization = Organization.objects.create(name="Member organization")
+        OrganizationMembership.objects.create(
+            organization=organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        with patch("ee.api.billing.BillingManager") as manager:
+            response = self.client.post(
+                f"/api/billing/{action}", {"organization_id": str(organization.id)}, content_type="application/json"
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        manager.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (action, manager_method, allowed)
+            for action, manager_method in [
+                ("activate", "activate_subscription"),
+                ("activate/authorize", "authorize"),
+                ("activate/authorize/status", "authorize_status"),
+            ]
+            for allowed in [True, False]
+        ]
+    )
+    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    def test_payment_preserves_token_access_restrictions(
+        self, action: str, manager_method: str, allowed: bool, _flag: MagicMock
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Payment test",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["*"],
+            scoped_organizations=[str(self.organization.id) if allowed else str(uuid4())],
+        )
+        self.client.logout()
+        with patch.object(BillingManager, manager_method, return_value={"success": True}) as manager:
+            response = self.client.post(
+                f"/api/billing/{action}",
+                {"organization_id": str(self.organization.id)},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This action does not support personal API key access"
+        manager.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_payment_refresh_reads_original_organization_after_current_team_changes(self, manager: MagicMock) -> None:
+        organization = Organization.objects.create(name="Another organization")
+        team = Team.objects.create(organization=organization, name="Another project")
+        OrganizationMembership.objects.create(
+            organization=organization, user=self.user, level=OrganizationMembership.Level.ADMIN
+        )
+        self.user.current_team = team
+        self.user.current_organization = organization
+        self.user.save()
+        manager.return_value = {"products": [], "available_product_features": []}
+        response = self.client.get("/api/billing", {"organization_id": str(self.organization.id)})
+        assert response.status_code == status.HTTP_200_OK
+        manager.assert_called_once_with(self.organization, {})
+
+    @parameterized.expand(["", "@current", "invalid"])
+    def test_explicit_billing_refresh_rejects_invalid_organization(self, organization_id: str) -> None:
+        with patch("ee.api.billing.BillingManager") as manager:
+            response = self.client.get("/api/billing", {"organization_id": organization_id})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        manager.assert_not_called()
+
+    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    def test_explicit_billing_refresh_enforces_token_organization_scope(self, _flag: MagicMock) -> None:
+        organization = Organization.objects.create(name="Other permitted organization")
+        OrganizationMembership.objects.create(
+            organization=organization, user=self.user, level=OrganizationMembership.Level.ADMIN
+        )
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped billing",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["billing:read"],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        self.client.logout()
+        with patch.object(
+            BillingManager, "get_billing", return_value={"products": [], "available_product_features": []}
+        ) as manager:
+            allowed = self.client.get(
+                "/api/billing", {"organization_id": str(self.organization.id)}, HTTP_AUTHORIZATION=f"Bearer {token}"
+            )
+            refused = self.client.get(
+                "/api/billing", {"organization_id": str(organization.id)}, HTTP_AUTHORIZATION=f"Bearer {token}"
+            )
+        assert allowed.status_code == status.HTTP_200_OK
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        manager.assert_called_once_with(self.organization, {})
 
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -1265,12 +1490,17 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         manager_result = "https://billing.stripe.com/p/session/test_1234" if method == "get" else {"success": True}
 
         with patch.object(BillingManager, manager_method, return_value=manager_result) as mock_manager_method:
-            allowed = getattr(self.client, method)(url)
+            data = (
+                {"organization_id": str(self.organization.id)}
+                if _name.startswith("activate") or _name == "authorize"
+                else {}
+            )
+            allowed = getattr(self.client, method)(url, data)
             application.update_provisioning(pays_for_customers=True)
-            refused = getattr(self.client, method)(url)
+            refused = getattr(self.client, method)(url, data)
             self.organization.customer_id = "cus_example"
             self.organization.save(update_fields=["customer_id"])
-            self_billed = getattr(self.client, method)(url)
+            self_billed = getattr(self.client, method)(url, data)
 
         assert (allowed.status_code, refused.status_code, self_billed.status_code) == (
             allowed_status,
@@ -2653,6 +2883,8 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
     def test_permission_denied(self, _name, method, url, data, expected_detail):
         if data == "USE_ORG_ID":
             data = {"organization_id": str(self.organization.id)}
+        if _name == "activate":
+            data = {**data, "organization_id": str(self.organization.id)}
         client_method = getattr(self.client, method)
         if data is not None:
             kwargs = {"data": data}

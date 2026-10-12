@@ -11,6 +11,7 @@ import { BillingAPIErrorCodes, billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -108,6 +109,103 @@ describe('billingLogic', () => {
             .toFinishAllListeners()
 
         expect(billingLogic.values.billing).toEqual(loaded)
+    })
+
+    it.each([
+        ['/organization/billing', 'success'],
+        ['/organization/billing', 'upgraded'],
+        ['/onboarding/product_analytics', 'success'],
+        ['/onboarding/product_analytics', 'upgraded'],
+    ])('keeps scoped billing refreshes on the displayed organization at %s?%s', async (pathname, queryParam) => {
+        billingState = { ...billingState, has_active_subscription: true }
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        const displayedOrganization = organizationLogic.values.currentOrganization!
+        const displayedUser = userLogic.values.user!
+        const displayedCredits = billingLogic.values.creditOverview
+        // Settle the lazy loader's initial read before simulating another tab's selection.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        await expectLogic(billingLogic).toFinishAllListeners()
+        const serverOrganization = { ...displayedOrganization, id: '00000000-0000-4000-8000-000000000002' }
+        const ambientCredits = jest.fn(() => [200, { ...creditOverviewResponse, eligible: true }])
+        const ambientUser = jest.fn(() => [
+            200,
+            { ...displayedUser, first_name: 'Server B', organization: serverOrganization },
+        ])
+        const ambientOrganization = jest.fn(() => [200, serverOrganization])
+        const billingOrganizations: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/billing': ({ request }) => {
+                    billingOrganizations.push(new URL(request.url).searchParams.get('organization_id'))
+                    return [200, billingState]
+                },
+                '/api/billing/credits/overview': ambientCredits,
+                '/api/users/@me': ambientUser,
+                '/api/organizations/@current': ambientOrganization,
+            },
+        })
+        router.actions.push(pathname, { [queryParam]: 'true' })
+
+        jest.useFakeTimers()
+        try {
+            const expectation = expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling(displayedOrganization.id)
+            }).toFinishAllListeners()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectation
+            await expectLogic(userLogic).toFinishAllListeners()
+            await expectLogic(organizationLogic).toFinishAllListeners()
+
+            expect(billingOrganizations).toEqual([displayedOrganization.id])
+            expect(ambientCredits).not.toHaveBeenCalled()
+            expect(ambientUser).not.toHaveBeenCalled()
+            expect(ambientOrganization).not.toHaveBeenCalled()
+            expect(billingLogic.values.creditOverview).toEqual(displayedCredits)
+            expect(userLogic.values.user).toEqual(displayedUser)
+            expect(organizationLogic.values.currentOrganization).toEqual(displayedOrganization)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('keeps ambient credit and profile refreshes for an unscoped successful billing load', async () => {
+        billingState = { ...billingState, has_active_subscription: true }
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        const organization = organizationLogic.values.currentOrganization!
+        const user = userLogic.values.user!
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        await expectLogic(billingLogic).toFinishAllListeners()
+        const ambientCredits = jest.fn(() => [200, creditOverviewResponse])
+        const ambientUser = jest.fn(() => [200, user])
+        const ambientOrganization = jest.fn(() => [200, organization])
+        useMocks({
+            get: {
+                '/api/billing/credits/overview': ambientCredits,
+                '/api/users/@me': ambientUser,
+                '/api/organizations/@current': ambientOrganization,
+            },
+        })
+        router.actions.push('/organization/billing', { success: 'true' })
+
+        jest.useFakeTimers()
+        try {
+            const expectation = expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling()
+            }).toFinishAllListeners()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectation
+            await expectLogic(userLogic).toFinishAllListeners()
+            await expectLogic(organizationLogic).toFinishAllListeners()
+
+            expect(ambientCredits).toHaveBeenCalled()
+            expect(ambientUser).toHaveBeenCalled()
+            expect(ambientOrganization).toHaveBeenCalled()
+            expect(router.values.searchParams).toEqual({})
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('reports a failed limit update as a failure, so the limit editor keeps the value', async () => {

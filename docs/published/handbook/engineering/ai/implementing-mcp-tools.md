@@ -165,6 +165,13 @@ This also applies to the organization usage/spend time-series endpoints and CSV 
 The billing overview, usage, and spend tools do not need a rollout flag.
 API scopes and billing access checks still apply.
 
+The underlying root billing API also supports an optional `organization_id` UUID on overview reads.
+Use it when refreshing billing after a payment so another tab changing the user's current project cannot change the target.
+Subscription activation, payment authorization, and authorization status requests require an explicit `organization_id` in the body.
+They reject missing or invalid IDs rather than falling back to the current project, and require billing access in the requested organization.
+These payment actions remain unavailable to personal API keys and OAuth tokens.
+The browser keeps the organization through Stripe redirects; payment links from older clients must be restarted from billing.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 

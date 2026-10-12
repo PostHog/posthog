@@ -57,7 +57,10 @@ const billingLimitsGet = (): ToolBase<ReturnType<typeof BillingLimitsGetSchema>,
     },
 })
 
-const BillingOverviewGetSchema = () => z.object({})
+const BillingOverviewGetSchema = () => {
+    const BillingListQueryParams = orvalSchemas.BillingListQueryParams()
+    return BillingListQueryParams
+}
 
 const billingOverviewGet = (): ToolBase<
     ReturnType<typeof BillingOverviewGetSchema>,
@@ -65,10 +68,14 @@ const billingOverviewGet = (): ToolBase<
 > => ({
     name: 'billing-overview-get',
     schema: BillingOverviewGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingOverviewGetSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingOverviewGetSchema>>) => {
         const result = await context.api.request<Schemas.BillingOverviewResponse>({
             method: 'GET',
             path: `/api/billing/`,
+            query: {
+                include_forecasting: params.include_forecasting,
+                organization_id: params.organization_id,
+            },
         })
         const filtered = omitResponseFields(result, [
             'license',
