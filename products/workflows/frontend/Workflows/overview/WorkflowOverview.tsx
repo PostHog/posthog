@@ -62,9 +62,14 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
             forceParams: { appSource: 'hog_flow', appSourceId: id, breakdownBy: 'metric_name' },
         })
     )
-    const { messagingChannels, sentSummaryLabel, hasConversionGoal, convertedUsersUrl, conversionStats } = useValues(
-        workflowMetricsSummaryLogic({ logicKey, id })
-    )
+    const {
+        messagingChannels,
+        sentSummaryLabel,
+        hasConversionGoal,
+        convertedUsersUrl,
+        conversionStats,
+        conversionRate,
+    } = useValues(workflowMetricsSummaryLogic({ logicKey, id }))
     const { hasEmail, hasPush } = messagingChannels
     const { featureFlags } = useValues(featureFlagLogic)
     const selfDrivingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
@@ -172,11 +177,16 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                         color={METRIC_COLORS['Workflows converted']}
                         colorIfZero={getColorVar('muted')}
                         footer={
-                            conversionStats.conversions > 0 ? (
-                                <Link to={convertedUsersUrl}>View converted people</Link>
-                            ) : (
-                                shareOf(total(converted), total(started), 'started')
-                            )
+                            conversionStats.started > 0 ? (
+                                <span className="flex flex-wrap items-center justify-center gap-x-2">
+                                    <span className="text-muted" data-attr="workflow-overview-conversion-rate">
+                                        {`${percentage(Math.min(conversionRate, 1), 1)} conversion rate`}
+                                    </span>
+                                    {conversionStats.conversions > 0 ? (
+                                        <Link to={convertedUsersUrl}>View converted people</Link>
+                                    ) : null}
+                                </span>
+                            ) : null
                         }
                         compact
                         className="min-w-0"
