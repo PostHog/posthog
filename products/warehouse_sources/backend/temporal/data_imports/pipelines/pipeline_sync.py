@@ -188,7 +188,7 @@ dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[inv
 dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
 
 
-@dataclass
+@dataclass(frozen=False)
 class PipelineInputs:
     source_id: uuid.UUID
     run_id: str

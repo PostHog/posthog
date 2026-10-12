@@ -663,7 +663,7 @@ export interface sourceWizardLogicActions {
         searchParams?: any
     ) => {
         searchParams: any
-        source: ExternalDataSourceType
+        source: string
     }
     onBack: () => {
         value: true

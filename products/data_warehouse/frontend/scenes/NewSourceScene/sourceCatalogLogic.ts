@@ -211,7 +211,7 @@ export interface sourceCatalogLogicMeta {
             }[],
             featureFlags: FeatureFlagsSet,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-            arg: ExternalDataSourceType[] | undefined
+            arg: string[] | undefined
         ) => CatalogItem[]
         categoriesWithCounts: (catalogItems: CatalogItem[]) => CatalogCategory[]
         selectedCategoryLabel: (
