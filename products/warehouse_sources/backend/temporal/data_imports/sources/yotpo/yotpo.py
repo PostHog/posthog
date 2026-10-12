@@ -1,5 +1,6 @@
+from collections.abc import Generator
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 from requests import HTTPError
@@ -55,12 +56,15 @@ def get_access_token(app_key: str, api_secret: str) -> str:
             retry_budget_seconds=120,
             retry_after_max_seconds=60,
         )
-        pages = client.paginate(
-            path="oauth/token",
-            method="POST",
-            json={"client_id": app_key, "client_secret": api_secret, "grant_type": "client_credentials"},
-            paginator=SinglePagePaginator(),
-            data_selector="$",
+        pages = cast(
+            "Generator[list[Any]]",
+            client.paginate(
+                path="oauth/token",
+                method="POST",
+                json={"client_id": app_key, "client_secret": api_secret, "grant_type": "client_credentials"},
+                paginator=SinglePagePaginator(),
+                data_selector="$",
+            ),
         )
         try:
             rows = next(pages, [])
