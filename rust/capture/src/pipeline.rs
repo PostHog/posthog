@@ -7,17 +7,13 @@
 //! the customer-facing [`OrderingGuarantee`] the sink realizes as a partition
 //! key. The decision is pure — no counters, no headers, no I/O; side effects
 //! are implied by the address and applied by the layer that realizes it.
-//!
-//! The sink still invokes `resolve` from its prep path and bridges the
-//! decision to its configured topics; the invocation site moves up when the
-//! outputs layer exists to own it (see the plan doc).
 
 use crate::api::CaptureError;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v0_request::{DataType, OverflowReason, ProcessedEventMetadata};
 
-/// A lane of one pipeline, taken from the event's [`DataType`]. Each pipeline
-/// names only the lanes it has, so an address no output backs cannot be built.
+/// Pipeline from [`DataType`], lane from [`resolve`]. Each pipeline names only
+/// the lanes it has, so an address no output backs cannot be built.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PipelineLane {
     Analytics(AnalyticsLane),
@@ -48,16 +44,14 @@ pub enum SessionReplayLane {
     Overflow,
 }
 
-/// The one lane of a pipeline with no overflow or historical topic.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BasicLane {
     Main,
 }
 
 /// Where an event publishes: a lane of its pipeline, or an admin redirect
-/// that sits outside the pipeline-lane model. The redirects carry no
-/// pipeline because nothing consumes one — every pipeline shares a single
-/// dlq output today, and a custom redirect carries its own topic.
+/// outside the pipeline-lane model. A redirect carries no pipeline: every
+/// pipeline shares one dlq output, and a custom redirect names its own topic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Address {
     Lane(PipelineLane),
@@ -107,7 +101,6 @@ pub fn resolve(
     metadata: &ProcessedEventMetadata,
     ai_events_overflow_armed: bool,
 ) -> Result<AddressDecision, CaptureError> {
-    // redirect_to_dlq takes priority over all other routing.
     if metadata.redirect_to_dlq {
         return Ok(AddressDecision::redirect(Address::Dlq));
     }
@@ -124,8 +117,6 @@ pub fn resolve(
             OrderingGuarantee::PerDistinctId,
         ),
         DataType::AnalyticsMain => {
-            // Precedence: force_overflow (restrictions) -> overflow_reason
-            // (pipeline-stamped) -> default main-lane routing.
             if metadata.force_overflow {
                 AddressDecision::lane(
                     PipelineLane::Analytics(AnalyticsLane::Overflow),
@@ -171,9 +162,7 @@ pub fn resolve(
             // force_overflow and stamped reasons are deliberately ignored
             // (the pipeline never stamps a reason on this lane anyway). The
             // default route keeps the event key regardless of
-            // skip_person_processing (v1 only nulls keys for
-            // Main/Overflow-shaped destinations). AI events never reroute
-            // historical.
+            // skip_person_processing.
             if ai_events_overflow_armed && metadata.force_overflow {
                 AddressDecision::lane(
                     PipelineLane::Ai(AiLane::Overflow),
@@ -212,11 +201,9 @@ pub fn resolve(
                 )
             }
         }
-        // Single-lane pipelines: capture has no overflow topic for warnings,
-        // heatmaps, or error tracking, so their lane type has no overflow. A
-        // ForceOverflow restriction scoped to one of these pipelines stamps
-        // `force_overflow` on the event, and the stamp is deliberately ignored
-        // here; the event publishes to main.
+        // A ForceOverflow restriction can stamp `force_overflow` on these
+        // events. Their lane type has no overflow, so the stamp is ignored and
+        // the event publishes to main.
         DataType::ClientIngestionWarning => AddressDecision::lane(
             PipelineLane::Warnings(BasicLane::Main),
             OrderingGuarantee::PerDistinctId,
@@ -230,8 +217,6 @@ pub fn resolve(
             OrderingGuarantee::PerDistinctId,
         ),
         DataType::SnapshotMain => {
-            // Precedence: force_overflow (restrictions) -> overflow_reason
-            // (pipeline-stamped ReplayLimited) -> default main-lane routing.
             // Partition key is always session_id for replay to keep per-session
             // ordering on the overflow lane; a missing id makes the decision
             // unrealizable, so it is rejected as part of the decision.
@@ -336,9 +321,6 @@ mod tests {
         );
     }
 
-    /// The single-lane pipelines have no overflow lane to give: stamped
-    /// overflow intent (an error-tracking-scoped ForceOverflow restriction is
-    /// the reachable case) must resolve to main.
     #[rstest]
     #[case(
         DataType::ClientIngestionWarning,
@@ -446,7 +428,7 @@ mod tests {
     /// overflow limiter runs, and the overflow limiter overwrites the reason it
     /// stamped. Without this precedence a key the rate limiter declared too hot
     /// would go back to hashing onto a single overflow partition whenever the
-    /// limiter preserves locality, which is how prod-US is configured.
+    /// limiter preserves locality.
     #[rstest]
     #[case::analytics(
         DataType::AnalyticsMain,

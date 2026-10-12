@@ -1,9 +1,5 @@
 //! Binds every fixed routing [`Destination`] to its output: a Kafka topic and
-//! the named producer that carries it. Adding an output is a one-place change:
-//! the `target_for` and `is_required` matches are compiler-forced exhaustive,
-//! a test pins `REGISTERED` to the required set, and
-//! [`OutputTable::check_complete`] catches an unwired output at boot instead
-//! of at first produce.
+//! the named producer that carries it.
 
 use std::sync::Arc;
 
@@ -368,11 +364,7 @@ mod tests {
         assert!(test_outputs().check_complete().is_ok());
     }
 
-    /// `REGISTERED` is a hand-maintained array while `is_required` is
-    /// compiler-exhaustive; this pins them together. A new variant cannot
-    /// compile without an `is_required` arm, and putting it on the wrong
-    /// side of `REGISTERED` fails here. The all-variants list below is the
-    /// one hand-maintained enumeration left — grow it with the enum.
+    /// The all-variants list below is hand-maintained: grow it with the enum.
     #[test]
     fn registered_is_exactly_the_required_outputs() {
         let all = [

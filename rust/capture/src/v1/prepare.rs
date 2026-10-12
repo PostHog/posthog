@@ -91,7 +91,6 @@ where
     let start = Instant::now();
     let n = events.len();
 
-    // 0 disables fanout entirely (e.g. replay's single large consolidated event).
     let (events, slots): (Vec<E>, Vec<Slot>) = if scatter_gather_threshold == 0
         || n < scatter_gather_threshold
     {

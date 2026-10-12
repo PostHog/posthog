@@ -1,19 +1,12 @@
 //! Kafka sink (mechanism layer).
 //!
-//! This sink is pure mechanism: it serializes `ProcessedEvent`s and produces them
-//! to Kafka using `rdkafka`. All routing *policy* (overflow rerouting, DLQ
-//! redirects, custom-topic redirects, force-disable-person-processing headers) is
-//! decided *upstream* in the pipeline and stamped onto
-//! `ProcessedEventMetadata`. `KafkaSinkBase::prepare_record` reads that metadata
-//! and maps it to a [`Destination`] and partition key; enqueue resolves the
-//! destination to a topic and producer.
-//!
-//! The `overflow_reason` stamping specifically runs at four call sites, all via
-//! the shared `events::overflow_stamping::stamp_overflow_reason` helper:
-//! * `events::analytics::process_events` (analytics batch path: `/e/`, `/batch/`, `/capture`, etc.)
-//! * `events::recordings::process_replay_events` (replay-specific `RedisLimiter`, stamps `OverflowReason::ReplayLimited`)
-//! * `ai_endpoint::ai_handler` (`/i/v0/ai`, single-event)
-//! * `otel::otel_handler` (`/i/v0/ai/otel`, multi-span batch)
+//! This sink is pure mechanism: it produces to Kafka with `rdkafka`.
+//! `KafkaSinkBase::prepare_record` serializes a `ProcessedEvent` and maps the
+//! metadata the pipeline stamped to a [`Destination`] and partition key; v1's
+//! prepared events arrive serialized and carry their own address. All routing
+//! *policy* (overflow, DLQ and custom-topic redirects, person-processing
+//! headers) is decided *upstream*. Enqueue resolves the destination to a topic
+//! and producer.
 //!
 //! Keeping routing policy out of the sink keeps the clone-per-spawned-task
 //! cost in the scatter-gather batch path at one `Arc::clone` call (the output
@@ -85,7 +78,6 @@ fn emit_window_stats(
 
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
-        // Signal liveness when brokers are up
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
             if let Some(liveness) = &self.liveness {
@@ -102,7 +94,6 @@ impl rdkafka::ClientContext for KafkaContext {
         let down_brokers = total_brokers.saturating_sub(up_brokers);
         gauge!("capture_kafka_any_brokers_down").set(if down_brokers > 0 { 1.0 } else { 0.0 });
 
-        // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
         gauge!("capture_kafka_producer_queue_depth_limit",).set(stats.msg_max as f64);
@@ -223,9 +214,7 @@ impl KafkaSink {
 }
 
 impl<P: KafkaProducer> KafkaSinkBase<P> {
-    /// Create a new KafkaSinkBase with a custom producer (useful for testing).
-    /// No limiters — the sink is a mechanism layer; overflow stamping happens
-    /// upstream in the pipeline. See the module header for details.
+    /// Create a KafkaSinkBase over a custom producer, for tests.
     pub fn with_producer(producer: P, outputs: OutputTable) -> Self {
         Self::with_producer_and_compression(producer, outputs, EnvelopeCompression::None)
     }
@@ -281,7 +270,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
         let event_key = event.key();
 
-        // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
@@ -415,8 +403,8 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
     /// CPU-bound batch prep: run `prepare_record` over the batch and return
     /// the payloads in the original event order, fail-fast on the first prep
     /// error so no partially-prepped batch reaches the producer. Inherent
-    /// rather than on the `PublishPayloads` trait: payload assembly is not backend
-    /// mechanism, and the outputs layer becomes its caller.
+    /// rather than on the `PublishPayloads` trait: payload assembly is not
+    /// backend mechanism.
     pub(crate) async fn prepare_batch(
         &self,
         events: Vec<ProcessedEvent>,
@@ -515,8 +503,7 @@ impl<P: KafkaProducer + 'static> PublishPayloads for KafkaSinkBase<P> {
     /// before subsequent events.
     ///
     /// Results are batch-uniform: the whole batch reports the first failure,
-    /// acked-before-failure events included. The per-event surface refines
-    /// only with the per-event response model.
+    /// acked-before-failure events included. `publish_prepared` reports per event.
     async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult> {
         // Results are built in payload order as the loop enqueues, so the one
         // Vec the return type requires is the only allocation on the happy
@@ -536,9 +523,7 @@ impl<P: KafkaProducer + 'static> PublishPayloads for KafkaSinkBase<P> {
                 Err(err) => {
                     // Record enqueue duration on the error path too so slow-fail
                     // cases (e.g. QueueFull after a long stall) stay observable.
-                    // Dropping `ack_set` aborts any already spawned ack futures
-                    // for this batch; DeliveryAckFuture::drop then records the
-                    // "dropped" outcome on capture_kafka_produce_ack_duration_ms.
+                    // Dropping `ack_set` aborts any already spawned ack futures.
                     histogram!("capture_kafka_batch_enqueue_duration_seconds")
                         .record(enqueue_start.elapsed().as_secs_f64());
                     for result in &mut results {
@@ -621,9 +606,6 @@ impl<P: KafkaProducer + 'static> PublishPrepared for KafkaSinkBase<P> {
 }
 
 /// Concurrent ack drain for `PublishPayloads::publish`, fail-fast on first ack error.
-/// Dropping the JoinSet on error aborts remaining spawned ack futures;
-/// DeliveryAckFuture Drop then records the "dropped" outcome on
-/// capture_kafka_produce_ack_duration_ms.
 async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<(), CaptureError> {
     async move {
         while let Some(res) = ack_set.join_next().await {
@@ -755,7 +737,6 @@ mod tests {
             }
         }
 
-        // Send events to confirm happy path
         sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one initial event");
@@ -936,7 +917,6 @@ mod tests {
         use common_types::CapturedEventHeaders;
         use rdkafka::message::OwnedHeaders;
 
-        // Test that the 'now' header is correctly set and parsed
         let test_now = "2024-01-15T10:30:45Z".to_string();
         let headers = CapturedEventHeaders {
             token: Some("test_token".to_string()),
@@ -955,11 +935,9 @@ mod tests {
             content_encoding: None,
         };
 
-        // Convert to owned headers and back
         let owned_headers: OwnedHeaders = headers.into();
         let parsed_headers = CapturedEventHeaders::from(owned_headers);
 
-        // Verify the 'now' field is preserved
         assert_eq!(parsed_headers.now, Some(test_now));
         assert_eq!(parsed_headers.token, Some("test_token".to_string()));
         assert_eq!(parsed_headers.distinct_id, Some("test_id".to_string()));
@@ -970,7 +948,6 @@ mod tests {
         use common_types::CapturedEventHeaders;
         use rdkafka::message::OwnedHeaders;
 
-        // Test that the 'now' header is correctly set and parsed
         let test_now = "2024-01-15T10:30:45Z".to_string();
         let dlq_timestamp = "2025-01-15T10:30:45Z".to_string();
         let headers = CapturedEventHeaders {
@@ -990,11 +967,9 @@ mod tests {
             content_encoding: None,
         };
 
-        // Convert to owned headers and back
         let owned_headers: OwnedHeaders = headers.into();
         let parsed_headers = CapturedEventHeaders::from(owned_headers);
 
-        // Verify the 'now' field is preserved
         assert_eq!(parsed_headers.dlq_reason, Some("test reason".to_string()));
         assert_eq!(parsed_headers.dlq_step, Some("test step".to_string()));
         assert_eq!(parsed_headers.dlq_timestamp, Some(dlq_timestamp));
@@ -1121,7 +1096,7 @@ mod tests {
 
         async fn assert_routing(input: EventInput, expected: ExpectedRouting<'_>) {
             // Capture reroute counters on a thread-local recorder. `assert_routing`
-            // runs on the default current-thread test runtime and `send` prepares
+            // runs on the current-thread test runtime and `kafka_send` prepares
             // the record inline before the first await, so the guard stays visible
             // when `prepare_record` increments the counter.
             let recorder = metrics_util::debugging::DebuggingRecorder::new();
@@ -2234,7 +2209,7 @@ mod tests {
         #[tokio::test]
         async fn ai_events_skip_person_keeps_key() {
             // skip_person_processing sets the header but must not null the
-            // key: v1's sink only nulls keys for Main/Overflow destinations.
+            // key: the AI main lane keeps per-distinct-id ordering.
             assert_routing(
                 EventInput {
                     data_type: DataType::AiEvents,
@@ -2590,10 +2565,8 @@ mod tests {
 
         #[tokio::test]
         async fn overflow_reason_force_overflow_short_circuits_overflow_reason() {
-            // Precedence check: force_overflow set by event restrictions wins
-            // over any overflow_reason stamped by the governor. This ensures
-            // the event_restriction counter label stays distinct from
-            // force_limited / rate_limited labels.
+            // force_overflow from an event restriction wins over a stamped
+            // overflow_reason.
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
@@ -2912,9 +2885,7 @@ mod tests {
         #[test]
         fn publish_events_one_event_feeds_the_phase_histograms() {
             // The one-event path skips prepare_batch and PublishPayloads::publish, which
-            // own these two histograms, so it has to record them itself.
-            // Otherwise every single-event endpoint drops out of the
-            // distribution and the in-process quantiles step up unprompted.
+            // own these two histograms.
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -3004,8 +2975,7 @@ mod tests {
         // ==================== Sink mechanism seam ====================
         // The per-event result surface `PublishPayloads::publish` reports: uuid-aligned
         // with the input payloads, batch-uniform on failure. `fold_results`
-        // discards this shape, so the publish_events tests above cannot see it —
-        // and the outputs layer builds on it.
+        // discards this shape, so the publish_events tests above cannot see it.
 
         #[tokio::test]
         async fn publish_reports_uuid_aligned_results() {

@@ -1,7 +1,7 @@
 //! The outputs layer: the produce surface above the sinks.
 //!
 //! An [`Output`] is a published-to destination: either a single backend
-//! sink, or a policy composing two child outputs. Today the one policy is
+//! sink, or a policy composing two child outputs. The one policy is
 //! failover (health-gated Kafka primary with an S3 secondary).
 //!
 //! Outputs take two routes. The v0 event route ([`PublishEvents`]) hands over
@@ -198,9 +198,8 @@ impl Failover {
     }
 }
 
-/// The (pipeline, lane) → output map the deployment state holds. One
-/// deployment-wide output serves every address; the Kafka sink resolves
-/// per-lane topics through its [`OutputTable`] at enqueue.
+/// The deployment's output. One output serves every address; the Kafka sink
+/// resolves per-lane topics through its [`OutputTable`] at enqueue.
 ///
 /// [`OutputTable`]: crate::sinks::registry::OutputTable
 pub struct OutputRegistry {
