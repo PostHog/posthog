@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -6,6 +7,29 @@ from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models import User
+
+
+def user_uses_new_events_schema(team_id: int, user: "User | None") -> bool:
+    # Team imports this module while Django populates its model registry.
+    from posthog.models import User  # noqa: PLC0415
+
+    if not isinstance(user, User) or not user.is_staff:
+        return False
+    try:
+        enrollment = json.loads(str(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_USERS") or "{}"))
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(enrollment, dict):
+        return False
+    user_ids = enrollment.get(str(team_id), [])
+    return (
+        isinstance(user_ids, list)
+        and all(type(user_id) is int for user_id in user_ids)
+        and user.pk in user_ids
+        and user.is_active
+    )
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:

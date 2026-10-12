@@ -38,12 +38,22 @@ def create_default_modifiers_for_user(
 ) -> "HogQLQueryModifiers":
     from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
+    from posthog.models.event.new_events_schema import (
+        use_new_events_schema,
+        user_uses_new_events_schema,  # noqa: PLC0415 - Team imports this module before its model registry is ready
+    )
+
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
     else:
         modifiers = modifiers.model_copy()
 
-    return create_default_modifiers_for_team(team, modifiers)
+    modifiers = create_default_modifiers_for_team(team, modifiers)
+    if modifiers.useNewEventsSchema is None:
+        modifiers.useNewEventsSchema = user_uses_new_events_schema(team.pk, user) or use_new_events_schema(
+            team.pk, modifiers
+        )
+    return modifiers
 
 
 def create_default_modifiers_for_team(

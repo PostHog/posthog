@@ -72,6 +72,11 @@ CONSTANCE_CONFIG = {
         "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
         str,
     ),
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_USERS": (
+        "{}",
+        "JSON mapping of team IDs to staff user ID lists whose queries default to native-JSON events. Explicit query and team modifiers take precedence.",
+        str,
+    ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         # Person-on-events v2 reads are the production default for every project created
         # since 2024-06-14, and both CI lanes set this variable so their runs match it. A
@@ -446,6 +451,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "PERSON_ON_EVENTS_V2_ENABLED",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_USERS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",

@@ -693,7 +693,11 @@ class TestQueryRunner(BaseTest):
         self.assertEqual(first.query, HogQLQuery(query="SELECT 1"))
         self.assertEqual(first.get_cache_key(), second.get_cache_key())
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -822,7 +826,11 @@ class TestQueryRunner(BaseTest):
         cache_payload = runner.get_cache_payload()
         assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call

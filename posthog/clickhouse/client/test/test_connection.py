@@ -89,6 +89,38 @@ def test_connection_pool_creation_with_team_id(settings):
     assert team_pool.connection_args["host"] == "clicky"
 
 
+def test_native_events_pool_is_separate_from_legacy_pool(settings):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
+    settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY = True
+    settings.CLICKHOUSE_PER_TEAM_SETTINGS = {}
+    legacy = get_pool(Workload.ONLINE, team_id=44)
+    native = get_pool(Workload.NATIVE_EVENTS, team_id=44)
+    assert native is not legacy
+    assert native.connection_args["host"] == "native.example.com"
+    assert get_pool(Workload.NATIVE_EVENTS, team_id=44) is native
+
+
+@pytest.mark.parametrize("readonly", [False, True])
+@pytest.mark.parametrize("team_override", [False, True])
+def test_native_events_route_preserves_resolved_credentials(settings, readonly, team_override):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
+    settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY = True
+    settings.CLICKHOUSE_PER_TEAM_SETTINGS = (
+        {"44": {"host": "legacy.example.com", "user": "team-user", "password": "example"}} if team_override else {}
+    )
+    settings.READONLY_CLICKHOUSE_USER = "reader"
+    settings.READONLY_CLICKHOUSE_PASSWORD = "example-readonly"
+    baseline = connection.get_kwargs_for_client(Workload.DEFAULT, team_id=44, readonly=readonly)
+    native = connection.get_kwargs_for_client(Workload.NATIVE_EVENTS, team_id=44, readonly=readonly)
+    assert native == {**baseline, "host": "native.example.com", "verify": True}
+
+
+def test_native_events_workload_without_host_fails_closed(settings):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = None
+    with pytest.raises(ValueError, match="Native events ClickHouse host is not configured"):
+        get_pool(Workload.NATIVE_EVENTS)
+
+
 def test_read_password_reads_file_fresh_and_stripped(tmp_path):
     token = tmp_path / "token"
     token.write_text("tok-0\n")
@@ -178,29 +210,33 @@ def test_deletion_executor_credentials_do_not_fall_back_to_default(monkeypatch):
         get_clickhouse_creds(ClickHouseUser.DELETION_EXECUTOR)
 
 
-def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeypatch, tmp_path):
+@pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.NATIVE_EVENTS])
+def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeypatch, tmp_path, workload):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
     token = tmp_path / "token"
     token.write_text("tok-0")
     _file_backed_default(monkeypatch, token)
 
-    pool = get_pool(Workload.ONLINE)
+    pool = get_pool(workload)
     assert isinstance(pool, RefreshingChPool)
 
     token.write_text("tok-1")  # rotate the projected token in place
-    assert get_pool(Workload.ONLINE) is pool
+    assert get_pool(workload) is pool
     assert make_ch_pool.cache_info().currsize == 1
 
 
-def test_get_http_kwargs_reads_file_backed_credential_fresh(monkeypatch, tmp_path):
+@pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.NATIVE_EVENTS])
+def test_get_http_kwargs_reads_file_backed_credential_fresh(settings, monkeypatch, tmp_path, workload):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
     token = tmp_path / "token"
     token.write_text("tok-0")
     _file_backed_default(monkeypatch, token)
 
-    assert get_http_kwargs(Workload.ONLINE)["password"] == "tok-0"
+    assert get_http_kwargs(workload)["password"] == "tok-0"
 
     token.write_text("tok-1")  # a rotation must reach the short-lived HTTP client, not a value cached at build
-    assert get_http_kwargs(Workload.ONLINE)["password"] == "tok-1"
+    assert get_http_kwargs(workload)["password"] == "tok-1"
 
 
 def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatch, tmp_path):

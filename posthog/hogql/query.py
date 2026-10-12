@@ -2,6 +2,8 @@ import dataclasses
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
+from django.conf import settings as django_settings
+
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -54,7 +56,7 @@ from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.modifiers import create_default_modifiers_for_team, create_default_modifiers_for_user
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -158,7 +160,11 @@ class HogQLQueryExecutor:
         elif self.context.user_access_control is None:
             self.context.user_access_control = self.user_access_control
 
-        self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
+        self.query_modifiers = (
+            create_default_modifiers_for_user(self.user, self.team, self.modifiers)
+            if self.user is not None
+            else create_default_modifiers_for_team(self.team, self.modifiers)
+        )
         self.debug = self.modifiers is not None and self.modifiers.debug
         self.error: Optional[str] = None
         self.explain: Optional[list[str]] = None
@@ -928,6 +934,12 @@ class HogQLQueryExecutor:
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
+            if (
+                workload != Workload.LOGS
+                and django_settings.CLICKHOUSE_NATIVE_EVENTS_HOST
+                and clickhouse_context.uses_new_events_schema()
+            ):
+                workload = Workload.NATIVE_EVENTS
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(

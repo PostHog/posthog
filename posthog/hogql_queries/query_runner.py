@@ -185,6 +185,7 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -1888,6 +1889,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
+        self._use_new_events_schema_without_user = self.modifiers.useNewEventsSchema
+        if user is not None:
+            self.modifiers = create_default_modifiers_for_user(user, team, self.modifiers)
+        elif self.modifiers.useNewEventsSchema is None:
+            self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
         self.query = query
         self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
             query, team, self.modifiers.webAnalyticsFirstPageviewFilters
@@ -1905,6 +1911,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user. Subclasses that override this to rebuild their own user-dependent state (e.g.
         a cached HogQLContext / Database) must call super()._on_user_changed()."""
         self._shared_database = None
+        self.modifiers.useNewEventsSchema = self._use_new_events_schema_without_user
+        if self.user is not None:
+            self.modifiers = create_default_modifiers_for_user(self.user, self.team, self.modifiers)
+        elif self.modifiers.useNewEventsSchema is None:
+            self.modifiers.useNewEventsSchema = use_new_events_schema(self.team.pk, self.modifiers)
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2044,6 +2055,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
+        query_json = self.query.model_dump()
+        modifier_source = (
+            query_json["source"]["source"] if isinstance(self.query, FunnelCorrelationQuery) else query_json
+        )
+        if "modifiers" in modifier_source and self.modifiers.useNewEventsSchema is not None:
+            modifier_source["modifiers"] = {
+                **(modifier_source["modifiers"] or {}),
+                "useNewEventsSchema": self.modifiers.useNewEventsSchema,
+            }
 
         return enqueue_process_query_task(
             team=self.team,
@@ -2051,7 +2071,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=self.query.model_dump(),
+            query_json=query_json,
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
@@ -2727,10 +2747,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         last_refresh = datetime.now(UTC)
         target_age = self.cache_target_age(last_refresh=last_refresh)
 
-        # Avoid affecting cache key
-        # Add user based modifiers here, primarily for user specific feature flagging
         if query_run.user:
-            self.modifiers = create_default_modifiers_for_user(query_run.user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
         query_scan_flag = get_query_scan_flag(self.team)
@@ -3091,12 +3108,21 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
+        # Queued queries carry the effective table choice; the resolved modifiers already key it.
+        modifier_source = query["source"]["source"] if isinstance(self.query, FunnelCorrelationQuery) else query
+        if isinstance(modifier_source.get("modifiers"), dict):
+            modifier_source["modifiers"].pop("useNewEventsSchema", None)
+            if not modifier_source["modifiers"]:
+                modifier_source.pop("modifiers")
 
+        cache_modifiers = to_dict(self.modifiers)
+        if cache_modifiers.get("useNewEventsSchema") is False:
+            cache_modifiers.pop("useNewEventsSchema")
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
             "team_id": self.team.pk,
-            "hogql_modifiers": to_dict(self.modifiers),
+            "hogql_modifiers": cache_modifiers,
             "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,

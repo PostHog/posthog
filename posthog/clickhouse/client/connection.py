@@ -412,6 +412,14 @@ def get_kwargs_for_client(
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
+    if workload == Workload.NATIVE_EVENTS:
+        if not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+            raise ValueError("Native events ClickHouse host is not configured")
+        return {
+            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
+            "host": settings.CLICKHOUSE_NATIVE_EVENTS_HOST,
+            "verify": settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY,
+        }
     if workload == Workload.LOGS:
         logs_kwargs = {
             "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
