@@ -45,6 +45,9 @@ fn main() -> Result<()> {
 
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
+    config
+        .request_budget()
+        .map_err(|err| anyhow::anyhow!("invalid request budget: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

@@ -41,6 +41,7 @@ pub struct SendRequest {
     pub request: RequestId,
     pub worker: WorkerId,
     pub class: RequestClass,
+    pub soft_budget: Option<Duration>,
     pub runs: Vec<KeyRun>,
 }
 
@@ -109,7 +110,19 @@ impl BatcherStateMachine {
             retry,
             stall_timeout,
             last_progress: now,
+            soft_budget: None,
         }))
+    }
+
+    /// The worker's soft time budget for every request. `None` sends none.
+    pub fn with_request_budget(self, soft_budget: Option<Duration>) -> Self {
+        match self {
+            BatcherStateMachine::Running(active) => BatcherStateMachine::Running(ActiveState {
+                soft_budget,
+                ..active
+            }),
+            other => other,
+        }
     }
 
     pub fn on_groups(
@@ -276,6 +289,7 @@ pub struct ActiveState {
     retry: RetryPolicy,
     stall_timeout: Duration,
     last_progress: Instant,
+    soft_budget: Option<Duration>,
 }
 
 impl ActiveState {
@@ -540,6 +554,7 @@ impl ActiveState {
             request: id,
             worker,
             class: request.class,
+            soft_budget: self.soft_budget,
             runs: request.runs,
         });
     }
