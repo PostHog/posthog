@@ -55,6 +55,6 @@ class WizardScanViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         )
         return Response(
-            WizardScanResultSerializer({"id": result.id, "created": result.created}).data,
+            WizardScanResultSerializer(result).data,
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )
