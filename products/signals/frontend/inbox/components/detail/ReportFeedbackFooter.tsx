@@ -44,13 +44,13 @@ export function ReportFeedbackFooter({
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
     // Re-clicking the chosen thumb is a no-op rather than a second identical feedback event.
-    const rate = (sentiment: InboxReportFeedbackSentiment, anchor: HTMLElement): void => {
+    const rate = (sentiment: InboxReportFeedbackSentiment): void => {
         if (feedbackSentiment === sentiment) {
             return
         }
         rateReport(sentiment)
         if (sentiment === 'positive') {
-            celebrate(anchor)
+            celebrate()
         }
     }
 
@@ -61,16 +61,19 @@ export function ReportFeedbackFooter({
             <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary select-none">
                 <span>{feedbackSentiment ? 'Thanks for the feedback' : 'Was this report useful?'}</span>
                 <div className="flex items-center gap-1">
-                    <LemonButton
-                        size="xsmall"
-                        type={isPositive ? 'primary' : 'secondary'}
-                        icon={isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                        tooltip="Yes, this was useful"
-                        aria-label="This report was useful"
-                        aria-pressed={isPositive}
-                        onClick={(event) => rate('positive', event.currentTarget)}
-                        data-attr="inbox-report-feedback-thumbs-up"
-                    />
+                    <span className="relative inline-flex">
+                        <LemonButton
+                            size="xsmall"
+                            type={isPositive ? 'primary' : 'secondary'}
+                            icon={isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                            tooltip="Yes, this was useful"
+                            aria-label="This report was useful"
+                            aria-pressed={isPositive}
+                            onClick={() => rate('positive')}
+                            data-attr="inbox-report-feedback-thumbs-up"
+                        />
+                        {celebration}
+                    </span>
                     <LemonButton
                         size="xsmall"
                         type={isNegative ? 'primary' : 'secondary'}
@@ -78,7 +81,7 @@ export function ReportFeedbackFooter({
                         tooltip="No, this wasn't useful"
                         aria-label="This report was not useful"
                         aria-pressed={isNegative}
-                        onClick={(event) => rate('negative', event.currentTarget)}
+                        onClick={() => rate('negative')}
                         data-attr="inbox-report-feedback-thumbs-down"
                     />
                 </div>
@@ -97,7 +100,6 @@ export function ReportFeedbackFooter({
                 )}
                 {feedbackNoteSent && <span>Note added</span>}
             </div>
-            {celebration}
             {feedbackNoteOpen && (
                 <div className="flex w-full max-w-prose flex-col items-start gap-2">
                     <LemonTextArea

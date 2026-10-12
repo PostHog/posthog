@@ -17,18 +17,20 @@ export default meta
 
 type Story = StoryObj<typeof ReportFeedbackCelebration>
 
-/** The hog in its resting pose, anchored where a thumbs-up button would sit. */
+/** The hog in its resting pose, anchored to a stand-in for the thumbs-up button. */
 export const Resting: Story = {
-    args: { origin: { x: 320, y: 300 }, onDone: () => {} },
+    args: { onDone: () => {} },
     render: (args) => (
-        <div className="relative h-[400px] w-[640px]">
-            <div className="absolute left-[308px] top-[300px] h-6 w-6 rounded border border-primary bg-surface-primary" />
-            <ReportFeedbackCelebration {...args} />
+        <div className="flex h-[240px] w-[400px] items-end justify-center p-8">
+            <span className="relative inline-flex">
+                <span className="h-6 w-6 rounded border border-primary bg-surface-primary" />
+                <ReportFeedbackCelebration {...args} />
+            </span>
         </div>
     ),
 }
 
-/** The real footer with the flag on: click the thumbs-up to see the hog pop. */
+/** The real footer, right-aligned as in the summary column, with the flag on: click the thumbs-up to see the hog pop. */
 export const InFooter: Story = {
     parameters: {
         featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_FEEDBACK_BANG]: true },
@@ -49,7 +51,10 @@ export const InFooter: Story = {
     render: () => (
         <div className="bg-primary flex min-h-[400px] items-end justify-center p-8">
             <div className="w-[32rem] border border-primary bg-surface-primary p-5">
-                <ReportFeedbackFooter report={makeReport({ title: 'Checkout errors spiked after the release' })} />
+                <ReportFeedbackFooter
+                    report={makeReport({ title: 'Checkout errors spiked after the release' })}
+                    align="end"
+                />
             </div>
         </div>
     ),

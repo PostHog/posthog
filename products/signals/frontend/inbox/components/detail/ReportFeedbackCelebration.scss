@@ -1,26 +1,21 @@
 // The resting pose (no animation running) is the fully visible hog, so the Storybook test
 // runner, which disables animations, still captures the artwork.
 .ReportFeedbackCelebration {
-    position: fixed;
-    inset: 0;
-
-    // Above every popover and modal, like Hogfetti.
-    z-index: 9999;
-    overflow: hidden;
+    // A zero-size point at the top centre of the wrapped button; the hog and confetti hang off it.
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    z-index: 10;
+    width: 0;
+    height: 0;
     pointer-events: none;
-
-    &__anchor {
-        position: absolute;
-        width: 0;
-        height: 0;
-    }
 
     &__hog {
         position: absolute;
         bottom: 4px;
         left: 0;
 
-        // The anchor is zero-width, so the global `img { max-width: 100% }` reset would collapse the hog.
+        // The root is zero-width, so the global `img { max-width: 100% }` reset would collapse the hog.
         max-width: none;
         filter: drop-shadow(0 3px 4px rgb(0 0 0 / 25%));
         transform: translateX(-50%);

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ChangeEvent, type MouseEvent } from 'react'
+import { type ChangeEvent } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { Button, Text, Textarea } from '@posthog/quill'
@@ -31,21 +31,24 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                 <Text size="xs" variant="muted" render={<span />} className="me-1">
                     {feedbackSentiment ? 'Thanks for the feedback' : 'Was this report useful?'}
                 </Text>
-                <TodayActionButton
-                    size="icon-sm"
-                    aria-label="This report was useful"
-                    aria-pressed={isPositive}
-                    tooltip="Yes, this was useful"
-                    onClick={(event: MouseEvent<HTMLElement>) => {
-                        if (!isPositive) {
-                            rateReport('positive', 'today')
-                            celebrate(event.currentTarget)
-                        }
-                    }}
-                    data-attr="today-report-feedback-up"
-                >
-                    {isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                </TodayActionButton>
+                <span className="relative inline-flex">
+                    <TodayActionButton
+                        size="icon-sm"
+                        aria-label="This report was useful"
+                        aria-pressed={isPositive}
+                        tooltip="Yes, this was useful"
+                        onClick={() => {
+                            if (!isPositive) {
+                                rateReport('positive', 'today')
+                                celebrate()
+                            }
+                        }}
+                        data-attr="today-report-feedback-up"
+                    >
+                        {isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                    </TodayActionButton>
+                    {celebration}
+                </span>
                 <TodayActionButton
                     size="icon-sm"
                     aria-label="This report was not useful"
@@ -75,7 +78,6 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     </Text>
                 )}
             </div>
-            {celebration}
             {feedbackNoteOpen && (
                 <div className="flex flex-col items-start gap-2">
                     <Textarea
