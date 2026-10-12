@@ -1011,6 +1011,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert published_revision[0].startswith("v2:")
         assert client.validate.call_count == 3
         assert build_catalog_mock.call_args.kwargs["database"] is build_schema.return_value.database
+        assert build_schema.call_args.kwargs["include_hidden_tables"] is True
 
     @patch("posthog.api.services.query.build_catalog", return_value={"tableAliases": {"alias": "canonical"}})
     @patch("posthog.api.services.query._build_database_schema_query")
@@ -1176,6 +1177,15 @@ class TestQueryService(APIBaseTest):
         assert catalog["tableAliases"][allowed.name] == "postgres.demo.orders"
         assert denied.name not in catalog["tableAliases"]
         assert "other_postgres_orders" not in catalog["tableAliases"]
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_language_service_catalog_keeps_hidden_tables(self, _properties: MagicMock) -> None:
+        schema_catalog = _build_database_schema_query(
+            self.team, DatabaseSchemaQuery(), user=self.user, include_hidden_tables=True
+        )
+        catalog = build_catalog(self.team, self.user, schema_catalog.response, database=schema_catalog.database)
+
+        assert "cohort_membership" in catalog["tables"]
 
     @patch("posthog.api.services.query.get_query_runner_or_none")
     def test_data_visualization_node_surfaces_hogql_resolution_error_without_value_error_context(

@@ -46,15 +46,15 @@ class TestDatabaseSchemaPayload(BaseTest):
         context = HogQLContext(team_id=self.team.pk, database=database)
 
         start = time.perf_counter()
-        full = database.serialize(context, include_hidden_posthog_tables=True)
+        full = database.serialize(context, include_all_posthog_tables=True)
         full_seconds = time.perf_counter() - start
 
         start = time.perf_counter()
-        shallow = database.serialize(context, include_hidden_posthog_tables=True, include_fields=False)
+        shallow = database.serialize(context, include_all_posthog_tables=True, include_fields=False)
         shallow_seconds = time.perf_counter() - start
 
         start = time.perf_counter()
-        one_table = database.serialize(context, include_only={"big_table_0"}, include_hidden_posthog_tables=True)
+        one_table = database.serialize(context, include_only={"big_table_0"}, include_all_posthog_tables=True)
         one_table_seconds = time.perf_counter() - start
 
         start = time.perf_counter()
