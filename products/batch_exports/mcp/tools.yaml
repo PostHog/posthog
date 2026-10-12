@@ -79,9 +79,9 @@ tools:
             Partially update a batch export. Top-level fields (name, paused, interval, timezone, offset_day,
             offset_hour, incremental_mode) work for any destination type. incremental_mode accepts APPEND or MERGE; omit
             it to preserve the saved mode. For the hogql model, hogql_query, hogql_modifiers, primary_key, and
-            version_key can also change. Keys use query output column names or aliases, and MERGE requires a primary_key.
-            hogql_modifiers replaces the stored object rather than merging into it, so read the current value
-            with batch-export-get and send every modifier to keep, or send null to remove them all. Timestamps are
+            version_key can also change. Keys use query output column names or aliases, and MERGE requires a
+            primary_key. hogql_modifiers replaces the stored object rather than merging into it, so read the current
+            value with batch-export-get and send every modifier to keep, or send null to remove them all. Timestamps are
             exported in UTC unless the export or the project sets convertToProjectTimezone to true. Typed destination
             config updates are available for Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake,
             and Redshift. The destination type cannot be changed. Do not change the model field on an existing batch
