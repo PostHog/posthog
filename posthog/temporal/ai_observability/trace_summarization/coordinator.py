@@ -20,6 +20,7 @@ fixed from the time Temporal started the run.
 
 import asyncio
 import dataclasses
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -41,8 +42,11 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_MODEL,
     DEFAULT_WINDOW_MINUTES,
     DEFAULT_WINDOW_OFFSET_MINUTES,
+    DISPATCH_STOP_BEFORE_TIMEOUT,
     FEWER_CONTINUATIONS_PATCH_ID,
+    FINISH_BEFORE_TIMEOUT,
     GENERATION_CHILD_WORKFLOW_ID_PREFIX,
+    RUN_DEADLINE_PATCH_ID,
     SLIDING_WINDOW_PATCH_ID,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
 )
@@ -63,6 +67,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         increment_team_succeeded,
         record_jobs_dispatched,
         record_teams_discovered,
+        record_teams_skipped,
     )
     from posthog.temporal.ai_observability.shared_activities import (
         FetchAllClusteringFiltersInput,
@@ -91,6 +96,7 @@ def _empty_summarization_results() -> dict[str, Any]:
         "failed_team_ids": [],
         "total_items": 0,
         "total_summaries": 0,
+        "teams_skipped": 0,
     }
 
 
@@ -117,6 +123,8 @@ class BatchTraceSummarizationCoordinatorInputs:
     results_so_far: dict[str, Any] | None = None
     window_start: str | None = None
     window_end: str | None = None
+    # The time the execution timeout closes the run. It is set on the first leg, because a continuation keeps the timeout.
+    run_deadline: str | None = None
 
 
 def _with_summarization_window(
@@ -261,11 +269,13 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
 
         # Final leg: return accumulated results
         total_teams = results_so_far["teams_succeeded"] + results_so_far["teams_failed"]
+        teams_skipped = results_so_far.get("teams_skipped", 0)
         logger.info(
             "Batch trace summarization coordinator completed",
             teams_processed=total_teams,
             teams_succeeded=results_so_far["teams_succeeded"],
             teams_failed=results_so_far["teams_failed"],
+            teams_skipped=teams_skipped,
             total_items=results_so_far["total_items"],
             total_summaries=results_so_far["total_summaries"],
         )
@@ -276,6 +286,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             failed_team_ids=results_so_far["failed_team_ids"],
             total_items=results_so_far["total_items"],
             total_summaries=results_so_far["total_summaries"],
+            teams_skipped=teams_skipped,
         )
 
     async def _dispatch_sliding_window(
@@ -307,6 +318,25 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             return in_flight == 0
 
         fewer_continuations = temporalio.workflow.patched(FEWER_CONTINUATIONS_PATCH_ID)
+        run_deadline = self._run_deadline(inputs) if temporalio.workflow.patched(RUN_DEADLINE_PATCH_ID) else None
+        if run_deadline is not None:
+            inputs = dataclasses.replace(inputs, run_deadline=run_deadline.isoformat())
+
+        async def wait_until(condition: Callable[[], bool], stop_before_timeout: timedelta) -> bool:
+            """Wait for the condition, and return False if the run reaches its stop time first."""
+            if run_deadline is None:
+                await temporalio.workflow.wait_condition(condition)
+                return True
+            if condition():
+                return True
+            remaining = run_deadline - stop_before_timeout - temporalio.workflow.now()
+            if remaining <= timedelta(0):
+                return False
+            try:
+                await temporalio.workflow.wait_condition(condition, timeout=remaining)
+            except TimeoutError:
+                return False
+            return True
 
         def should_continue_as_new() -> bool:
             info = temporalio.workflow.info()
@@ -317,10 +347,13 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 or info.get_current_history_size() >= inputs.continue_as_new_history_size_bytes
             )
 
+        teams_not_started = 0
         for index, team_id in enumerate(team_ids):
             if index > 0 and should_continue_as_new():
                 # Children close with this run, so let the running ones finish first.
-                await temporalio.workflow.wait_condition(is_drained)
+                if not await wait_until(is_drained, DISPATCH_STOP_BEFORE_TIMEOUT):
+                    teams_not_started = len(team_ids) - index
+                    break
                 logger.info(
                     "Continuing as new to keep history bounded",
                     teams_remaining=len(team_ids) - index,
@@ -329,14 +362,34 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 self._continue_as_new(inputs, team_ids[index:], per_team_jobs, per_team_filters, results_so_far)
 
             level_jobs = self._level_jobs(inputs, team_id, per_team_jobs, per_team_filters)
+            started_jobs = 0
             for job in level_jobs:
-                await temporalio.workflow.wait_condition(has_free_slot)
+                if not await wait_until(has_free_slot, DISPATCH_STOP_BEFORE_TIMEOUT):
+                    break
                 handle = await self._start_child(inputs, team_id, job, child_id_prefix)
                 in_flight += 1
+                started_jobs += 1
                 record_jobs_dispatched(1, "summarization", inputs.analysis_level)
                 pending.append(asyncio.create_task(collect(team_id, handle)))
+            if started_jobs < len(level_jobs):
+                # A team whose jobs did not all start counts as not started, even if some of its jobs run.
+                teams_not_started = len(team_ids) - index
+                break
 
-        await asyncio.gather(*pending)
+        if run_deadline is None:
+            await asyncio.gather(*pending)
+            return
+
+        # The children that still run at the finish time close with this run, so they count as skipped.
+        unfinished = 0 if await wait_until(is_drained, FINISH_BEFORE_TIMEOUT) else in_flight
+        if teams_not_started or unfinished:
+            results_so_far["teams_skipped"] = results_so_far.get("teams_skipped", 0) + teams_not_started + unfinished
+            record_teams_skipped(teams_not_started + unfinished, "summarization", inputs.analysis_level)
+            logger.warning(
+                "Summarization coordinator stopped before its execution timeout",
+                teams_not_started=teams_not_started,
+                teams_unfinished=unfinished,
+            )
 
     async def _dispatch_batches(
         self,
@@ -378,6 +431,15 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     teams_processed_this_leg=batch_start + len(batch),
                 )
                 self._continue_as_new(inputs, remaining, per_team_jobs, per_team_filters, results_so_far)
+
+    @staticmethod
+    def _run_deadline(inputs: BatchTraceSummarizationCoordinatorInputs) -> datetime | None:
+        if inputs.run_deadline:
+            return datetime.fromisoformat(inputs.run_deadline)
+        info = temporalio.workflow.info()
+        if info.execution_timeout is None:
+            return None
+        return info.workflow_start_time + info.execution_timeout
 
     @staticmethod
     def _level_jobs(

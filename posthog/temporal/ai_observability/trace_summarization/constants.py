@@ -78,6 +78,13 @@ CONTINUE_AS_NEW_HISTORY_LENGTH = 10_000
 CONTINUE_AS_NEW_HISTORY_SIZE_BYTES = 8 * 1024 * 1024
 FEWER_CONTINUATIONS_PATCH_ID = "llma-summarization-fewer-continuations-2026-10"
 
+# The execution timeout closes the whole run, continuations included, and logs nothing.
+# So a run stops starting children before the timeout, and it stops waiting for running children just before the timeout.
+# Then it completes, and it reports the teams it did not finish.
+DISPATCH_STOP_BEFORE_TIMEOUT = timedelta(minutes=10)
+FINISH_BEFORE_TIMEOUT = timedelta(minutes=2)
+RUN_DEADLINE_PATCH_ID = "llma-summarization-run-deadline-2026-10"
+
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 
