@@ -30,3 +30,39 @@ export const GroupsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.string(), zod.number(), zod.boolean(), zod.looseObject({}), zod.array(zod.unknown())])
         .describe('Value to set. Any JSON value other than null.'),
 })
+
+export const groupsTypesCreateDetailDashboardUpdateBodyNameSingularMax = 400
+
+export const groupsTypesCreateDetailDashboardUpdateBodyNamePluralMax = 400
+
+export const GroupsTypesCreateDetailDashboardUpdateBody = /* @__PURE__ */ zod.object({
+    name_singular: zod.string().max(groupsTypesCreateDetailDashboardUpdateBodyNameSingularMax).nullish(),
+    name_plural: zod.string().max(groupsTypesCreateDetailDashboardUpdateBodyNamePluralMax).nullish(),
+    detail_dashboard: zod.number().nullish(),
+    default_columns: zod.array(zod.string()).nullish(),
+    created_at: zod.iso.datetime({ offset: true }).nullish(),
+})
+
+export const groupsTypesSetDefaultColumnsUpdateBodyNameSingularMax = 400
+
+export const groupsTypesSetDefaultColumnsUpdateBodyNamePluralMax = 400
+
+export const GroupsTypesSetDefaultColumnsUpdateBody = /* @__PURE__ */ zod.object({
+    name_singular: zod.string().max(groupsTypesSetDefaultColumnsUpdateBodyNameSingularMax).nullish(),
+    name_plural: zod.string().max(groupsTypesSetDefaultColumnsUpdateBodyNamePluralMax).nullish(),
+    detail_dashboard: zod.number().nullish(),
+    default_columns: zod.array(zod.string()).nullish(),
+    created_at: zod.iso.datetime({ offset: true }).nullish(),
+})
+
+export const groupsTypesUpdateMetadataPartialUpdateBodyNameSingularMax = 400
+
+export const groupsTypesUpdateMetadataPartialUpdateBodyNamePluralMax = 400
+
+export const GroupsTypesUpdateMetadataPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name_singular: zod.string().max(groupsTypesUpdateMetadataPartialUpdateBodyNameSingularMax).nullish(),
+    name_plural: zod.string().max(groupsTypesUpdateMetadataPartialUpdateBodyNamePluralMax).nullish(),
+    detail_dashboard: zod.number().nullish(),
+    default_columns: zod.array(zod.string()).nullish(),
+    created_at: zod.iso.datetime({ offset: true }).nullish(),
+})

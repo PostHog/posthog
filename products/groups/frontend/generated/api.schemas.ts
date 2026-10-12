@@ -170,6 +170,48 @@ export interface GroupUpdatePropertyRequestApi {
     value: GroupUpdatePropertyRequestApiValue
 }
 
+export interface GroupTypeApi {
+    readonly group_type: string
+    readonly group_type_index: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
+    /** @nullable */
+    detail_dashboard?: number | null
+    /** @nullable */
+    default_columns?: string[] | null
+    /** @nullable */
+    created_at?: string | null
+}
+
+export interface PatchedGroupTypeApi {
+    readonly group_type?: string
+    readonly group_type_index?: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
+    /** @nullable */
+    detail_dashboard?: number | null
+    /** @nullable */
+    default_columns?: string[] | null
+    /** @nullable */
+    created_at?: string | null
+}
+
 export type GroupsListParams = {
     /**
      * Pagination cursor returned in the `next` URL of a previous response

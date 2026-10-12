@@ -13,6 +13,7 @@ import type {
     FindGroupApi,
     GroupApi,
     GroupDeletePropertyApi,
+    GroupTypeApi,
     GroupUpdatePropertyRequestApi,
     GroupsActivityRetrieveParams,
     GroupsDeletePropertyCreateParams,
@@ -20,8 +21,26 @@ import type {
     GroupsListParams,
     GroupsRelatedListParams,
     GroupsUpdatePropertyCreateParams,
+    PatchedGroupTypeApi,
     RelatedActorApi,
 } from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 export const getGroupsListUrl = (projectId: string, params: GroupsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -223,5 +242,82 @@ export const groupsUpdatePropertyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(groupUpdatePropertyRequestApi),
+    })
+}
+
+export const getGroupsTypesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/`
+}
+
+export const groupsTypesList = async (projectId: string, options?: RequestInit): Promise<GroupTypeApi[]> => {
+    return apiMutator<GroupTypeApi[]>(getGroupsTypesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getGroupsTypesDestroyUrl = (projectId: string, groupTypeIndex: number) => {
+    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/`
+}
+
+export const groupsTypesDestroy = async (
+    projectId: string,
+    groupTypeIndex: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getGroupsTypesDestroyUrl(projectId, groupTypeIndex), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getGroupsTypesCreateDetailDashboardUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/create_detail_dashboard/`
+}
+
+export const groupsTypesCreateDetailDashboardUpdate = async (
+    projectId: string,
+    groupTypeApi?: NonReadonly<GroupTypeApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getGroupsTypesCreateDetailDashboardUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeApi),
+    })
+}
+
+export const getGroupsTypesSetDefaultColumnsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/set_default_columns/`
+}
+
+export const groupsTypesSetDefaultColumnsUpdate = async (
+    projectId: string,
+    groupTypeApi?: NonReadonly<GroupTypeApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getGroupsTypesSetDefaultColumnsUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeApi),
+    })
+}
+
+export const getGroupsTypesUpdateMetadataPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/update_metadata/`
+}
+
+export const groupsTypesUpdateMetadataPartialUpdate = async (
+    projectId: string,
+    patchedGroupTypeApi?: NonReadonly<PatchedGroupTypeApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getGroupsTypesUpdateMetadataPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedGroupTypeApi),
     })
 }
