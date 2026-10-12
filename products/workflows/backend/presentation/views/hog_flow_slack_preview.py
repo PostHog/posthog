@@ -1,5 +1,3 @@
-import math
-import time
 import base64
 import binascii
 from typing import Any, cast
@@ -9,7 +7,6 @@ from rest_framework import exceptions, serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.models import Team, User
 from posthog.slack.formatting import channel_id_from_target
@@ -28,38 +25,6 @@ from products.workflows.backend.facade.slack_preview import (
 MAX_EMAIL_PREVIEW_BYTES = 1024 * 1024
 MAX_EMAIL_PREVIEWS = 10
 MAX_EMAIL_PREVIEW_BASE64_LENGTH = 4 * ((MAX_EMAIL_PREVIEW_BYTES + 2) // 3)
-
-
-class WorkflowSlackPreviewUserThrottle(SimpleRateThrottle):
-    """Each share posts to a Slack channel, so cap it per person. A request takes its slot with one
-    atomic increment, so parallel requests cannot all pass the check the way a read-then-write throttle lets them."""
-
-    scope = "workflow_slack_preview_user"
-    rate = "20/hour"
-    num_requests: int
-    duration: int
-
-    def get_cache_key(self, request: Request, view: Any) -> str:
-        return f"throttle_{self.scope}_{request.user.pk}_{int(time.time()) // self.duration}"
-
-    def allow_request(self, request: Request, view: Any) -> bool:
-        key = self.get_cache_key(request, view)
-        self.cache.add(key, 0, timeout=self.duration)
-        try:
-            shares = self.cache.incr(key)
-        except ValueError:
-            self.cache.set(key, 1, timeout=self.duration)
-            shares = 1
-        if shares > self.num_requests:
-            minutes = math.ceil(self.wait() / 60)
-            raise exceptions.Throttled(
-                detail=f"You can share {self.num_requests} previews an hour. "
-                f"Try again in {minutes} {'minute' if minutes == 1 else 'minutes'}.",
-            )
-        return True
-
-    def wait(self) -> float:
-        return self.duration - time.time() % self.duration
 
 
 class EmailStepImageSerializer(serializers.Serializer):
@@ -159,7 +124,6 @@ class HogFlowSlackPreviewMixin:
         methods=["POST"],
         pagination_class=None,
         filter_backends=[],
-        throttle_classes=[WorkflowSlackPreviewUserThrottle],
         url_path="share_preview_to_slack",
     )
     def share_preview_to_slack(self, request: Request, **kwargs: Any) -> Response:

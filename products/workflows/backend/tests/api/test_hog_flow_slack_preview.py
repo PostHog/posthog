@@ -1,4 +1,3 @@
-import re
 import base64
 from urllib.error import URLError
 
@@ -17,10 +16,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.presentation.views.hog_flow_slack_preview import (
-    SharePreviewToSlackRequestSerializer,
-    WorkflowSlackPreviewUserThrottle,
-)
+from products.workflows.backend.presentation.views.hog_flow_slack_preview import SharePreviewToSlackRequestSerializer
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-image-data"
 PNG_BASE64 = base64.b64encode(PNG_BYTES).decode()
@@ -156,19 +152,6 @@ class TestHogFlowSlackPreview(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_slack.assert_not_called()
-
-    @patch.object(WorkflowSlackPreviewUserThrottle, "rate", "1/hour")
-    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
-    def test_limits_how_often_a_person_can_share(self, mock_slack: MagicMock) -> None:
-        mock_slack.return_value.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
-
-        assert self._share().status_code == status.HTTP_200_OK
-        throttled = self._share()
-
-        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert re.fullmatch(
-            r"You can share 1 previews an hour\. Try again in \d+ minutes?\.", throttled.json()["detail"]
-        )
 
     @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_rejects_images_rendered_before_the_workflow_was_saved_again(self, mock_slack: MagicMock) -> None:

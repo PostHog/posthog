@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -81,26 +80,13 @@ describe('shareWorkflowPreviewLogic', () => {
         })
     })
 
-    it.each([
-        [
-            'both formats are over the limit',
-            () => render.mockResolvedValue('p'.repeat(ONE_MEGABYTE_IN_BASE64 + 8)),
-            'image_too_large',
-        ],
-        [
-            'the person shared too often',
-            () => {
-                render.mockResolvedValue('small-png')
-                share.mockRejectedValue(new ApiError('Throttled', 429, undefined, { detail: 'Try again later.' }))
-            },
-            'throttled',
-        ],
-    ])('keeps the modal open and reports why when %s', async (_name, arrange, expectedReason) => {
-        arrange()
+    it('keeps the modal open and posts nothing when an email is over the limit in both formats', async () => {
+        render.mockResolvedValue('p'.repeat(ONE_MEGABYTE_IN_BASE64 + 8))
 
         await expectLogic(logic, () => logic.actions.submit()).toDispatchActions([
-            (action) => action.type === logic.actionTypes.submitFailure && action.payload.reason === expectedReason,
+            (action) => action.type === logic.actionTypes.submitFailure && action.payload.reason === 'image_too_large',
         ])
         expect(logic.values.isOpen).toBe(true)
+        expect(share).not.toHaveBeenCalled()
     })
 })

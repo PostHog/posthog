@@ -260,7 +260,7 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
                 })
             } catch (e) {
                 actions.submitFailure(
-                    e instanceof ApiError && e.status === 429 ? 'throttled' : 'slack_rejected',
+                    'slack_rejected',
                     (e instanceof ApiError && e.detail) || "Couldn't share the preview to Slack. Try again."
                 )
                 return
