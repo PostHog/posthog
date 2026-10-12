@@ -231,6 +231,7 @@ Do this check before you attribute a dead-click cluster to users:
 SELECT properties.$session_id AS session_id,
        properties.$device_type AS device_type, properties.$os AS os,
        countIf(event = '$autocapture') AS clicks,
+       uniqIf(toStartOfMinute(timestamp), event = '$autocapture') AS click_minutes,
        uniqIf(elements_chain, event = '$autocapture') AS click_targets,
        countIf(event = '$rageclick') AS rageclicks,
        countIf(event = '$pageview') AS pageviews,
@@ -245,6 +246,7 @@ ORDER BY clicks DESC
 LIMIT 20
 ```
 
+- `click_minutes` against `span_s / 60` shows the burst shape: bursts leave most minutes empty, steady input fills almost every minute.
 - Human repeated clicks: bursts that stop, other targets and pageviews between bursts, `$rageclick` on the same sessions, errors after click or quick-backs, spread across device types.
 - Device noise: input that continues for minutes at a steady rate on one or two targets, no `$rageclick`, no navigation, and concentration on one device type or OS (for example, tablets only).
 - When the device pattern holds, or you cannot tell, do not claim user frustration and do not propose a UI fix. Write a `pattern:` memory with the device split. If the stream is wide enough to matter, file it as an investigation lead with `actionability=requires_human_input`: name the open question (device or person), and ask for a watch of one recording.
