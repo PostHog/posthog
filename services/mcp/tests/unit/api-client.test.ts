@@ -681,22 +681,25 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2)
         })
 
-        it('gives a query request more time than the default deadline', async () => {
-            stubStalledFetch()
-            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
-            let settled = false
-            const pending = client
-                .request({ method: 'POST', path: '/api/environments/17/query/' })
-                .finally(() => {
-                    settled = true
-                })
-                .catch((error) => error)
+        it.each(['/api/environments/17/query/', '/api/environments/17/mcp_tools/execute_sql/'])(
+            'gives a query request to %s more time than the default deadline',
+            async (path) => {
+                stubStalledFetch()
+                const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+                let settled = false
+                const pending = client
+                    .request({ method: 'POST', path })
+                    .finally(() => {
+                        settled = true
+                    })
+                    .catch((error) => error)
 
-            await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
-            expect(settled).toBe(false)
+                await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+                expect(settled).toBe(false)
 
-            await vi.runAllTimersAsync()
-            expect(await pending).toMatchObject({ timedOut: true })
-        })
+                await vi.runAllTimersAsync()
+                expect(await pending).toMatchObject({ timedOut: true })
+            }
+        )
     })
 })
