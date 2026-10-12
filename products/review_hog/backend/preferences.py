@@ -62,6 +62,7 @@ PREFERENCE_FIELDS: tuple[PreferenceField, ...] = (
     PreferenceField(
         key="default_review_mode", default=DefaultReviewMode.FOLLOW.value, choices=tuple(DefaultReviewMode.values)
     ),
+    PreferenceField(key="review_drafts", default=True),
     PreferenceField(key="resolve_comments", default=False),
     PreferenceField(
         key="urgency_threshold",
@@ -139,6 +140,7 @@ class ReviewPreferences:
     """A person's effective preferences, and where each value comes from."""
 
     default_review_mode: DefaultReviewMode
+    review_drafts: bool
     resolve_comments: bool
     urgency_threshold: UrgencyThreshold
     celebrate_clean_reviews: bool
@@ -166,6 +168,7 @@ class ReviewPreferences:
                 effective[field.key], sources[field.key] = cls._inherited(field, project)
         return cls(
             default_review_mode=DefaultReviewMode(str(effective["default_review_mode"])),
+            review_drafts=bool(effective["review_drafts"]),
             resolve_comments=bool(effective["resolve_comments"]),
             urgency_threshold=UrgencyThreshold(str(effective["urgency_threshold"])),
             celebrate_clean_reviews=bool(effective["celebrate_clean_reviews"]),

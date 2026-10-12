@@ -471,15 +471,27 @@ class TestFinalizeStatusComment(BaseTest):
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         report.status_comment_id = 555
-        report.save(update_fields=["status_comment_id"])
+        # Finalize already counted turn 1 before its publish failed.
+        report.run_count = 1
+        report.save(update_fields=["status_comment_id", "run_count"])
+        issue = self._issue("1-1-1", IssuePriority.MUST_FIX)
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue], run_index=1)
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=issue,
+            validation=IssueValidation(is_valid=True, argumentation="a"),
+            run_index=1,
+        )
 
-        fail_status_comment(self.team.id, report_id, review_mode=REVIEW_MODE_FLASH)
+        fail_status_comment(self.team.id, report_id, run_index=1, review_mode=REVIEW_MODE_FLASH)
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
         # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
         # leave a dead Standard run reading as a Deep one.
         assert body.startswith("### PostHog Review · Standard · couldn't finish reviewing ")
+        assert "1 kept, 0 dismissed" in body
 
 
 _DONE_BODY = f"### reviewed\n\n| Step | Status | Result |\n|---|---|---|\n| Publish | done | 1 posted |\n\n{status_marker('rid')}"

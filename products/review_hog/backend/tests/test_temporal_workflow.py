@@ -153,6 +153,7 @@ async def _run_full_review_pr_workflow(
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
     automatic_reviewed_head_sha: str | None = None,
+    skip_agent_review: bool = False,
     gate_skips: bool = False,
     fail_gate: bool = False,
     workflow_max_attempts: int | None = None,
@@ -230,6 +231,7 @@ async def _run_full_review_pr_workflow(
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
+            skip_agent_review=skip_agent_review,
         )
 
     gate_calls: list[str] = []
@@ -774,11 +776,17 @@ async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "enabled,completed,pr_open,expected_review",
-    [(True, False, True, True), (False, False, True, False), (True, True, True, False), (True, False, False, False)],
+    "enabled,completed,pr_open,skip_label,expected_review",
+    [
+        (True, False, True, False, True),
+        (False, False, True, False, False),
+        (True, True, True, False, False),
+        (True, False, False, False, False),
+        (True, False, True, True, False),
+    ],
 )
 async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_prs(
-    enabled: bool, completed: bool, pr_open: bool, expected_review: bool
+    enabled: bool, completed: bool, pr_open: bool, skip_label: bool, expected_review: bool
 ) -> None:
     recorded = await _run_full_review_pr_workflow(
         publish=True,
@@ -787,9 +795,11 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
         review_authored_prs=enabled,
         already_completed=completed,
         pr_open=pr_open,
+        skip_agent_review=skip_label,
     )
     assert bool(recorded["review"]) is expected_review
     assert bool(recorded["publish"]) is expected_review
+    assert bool(recorded["status_posts"]) is expected_review
 
 
 @pytest.mark.asyncio
