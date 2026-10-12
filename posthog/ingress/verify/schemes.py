@@ -1,9 +1,9 @@
 """Signature schemes: the part of a provider incarnation that decides "this is really them".
 
-A scheme with a network step answers `UNAVAILABLE` when that step fails on transport rather than
-on the signature, because a fetch that never completed proves nothing about the caller. `BearerJwt`
-does this for a JWKS fetch failure, and `SnsSignature` for a signing certificate its verifier
-could not fetch.
+A scheme whose lookup step fails answers `UNAVAILABLE` rather than judging the signature, because
+a step that never completed proves nothing about the caller. `BearerJwt` does this for a JWKS
+fetch failure, `HmacSha256` for a secret read that the database refuses, and `SnsSignature` for
+a signing certificate its verifier could not fetch.
 """
 
 import re
@@ -15,6 +15,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import field
 from enum import StrEnum
 from typing import Any, Literal, Protocol
+
+from django.db import DatabaseError, InterfaceError
 
 import structlog
 
@@ -132,7 +134,7 @@ class HmacSignature:
     timestamp_header: str | None = None
     timestamp_max_age_seconds: int = 300
     timestamp_max_future_seconds: int = 300
-    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU (Vapi).
+    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU.
     signature_pattern: re.Pattern[str] | None = None
 
     def _timestamp_is_fresh(self, timestamp: str) -> bool:
@@ -166,12 +168,28 @@ class HmacSignature:
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
         # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
-        if not self.secret_getter():
+        try:
+            secret = self.secret_getter()
+        except (DatabaseError, InterfaceError):
+            # Leave a failed read to `_outcome`, which answers UNAVAILABLE for it.
+            return False
+        if not secret:
             return False
         return self._headers_fail(headers)
 
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
-        secret = self.secret_getter()
+        try:
+            secret = self.secret_getter()
+        except (DatabaseError, InterfaceError) as error:
+            # A getter that keeps its secret in Postgres reads it here, so a dropped connection
+            # leaves the signature unchecked. Letting the error out answers 500, which asks no
+            # sender to come back and leaves the lost delivery uncounted.
+            logger.warning(
+                "ingress_secret_unavailable",
+                signature_header=self.signature_header,
+                error_type=type(error).__name__,
+            )
+            return VerificationOutcome.UNAVAILABLE
         if not secret:
             return VerificationOutcome.NOT_CONFIGURED
         if self._headers_fail(headers):

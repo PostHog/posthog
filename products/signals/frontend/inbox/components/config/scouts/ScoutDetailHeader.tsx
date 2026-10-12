@@ -27,6 +27,7 @@ import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutHealthStrip } from './ScoutHealthStrip'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
 import { ScoutOwners } from './ScoutOwners'
+import { ScoutRubricsButton } from './ScoutRubricsButton'
 import { ScoutSettingsButton } from './ScoutSettingsModal'
 
 /**
@@ -171,6 +172,7 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
+                <ScoutRubricsButton config={config} />
                 {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
                     <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
                         <LemonButton

@@ -1524,8 +1524,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "array_obj_array_obj",
                 ]:
                     self.assertIn(f"events.properties.{property_key}", clickhouse)
-                self.assertIn(json_dynamic_read_sql("events.properties", ["array_str", 1]), clickhouse)
-                self.assertIn(json_dynamic_read_sql("events.properties", ["obj_array", "id", 1]), clickhouse)
+                # An index reads the JSON text of the value, so a row holding a non-array there reads NULL.
+                self.assertIn(
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['array_str'], as_json=True)}, ",
+                    clickhouse,
+                )
+                self.assertIn(
+                    f"JSONExtractRaw({json_dynamic_read_sql('events.properties', ['obj_array', 'id'], as_json=True)}, ",
+                    clickhouse,
+                )
             else:
                 self.assertEqual(expected_legacy_clickhouse, clickhouse)
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -2298,6 +2305,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
+
+    def test_currency_conversion_with_null_currency_from(self):
+        # A source row with no currency must convert to 0 like an unknown one, not fail the whole query.
+        query = (
+            "SELECT convertCurrency(c, 'EUR', 100, _toDate('2024-01-01')) FROM (SELECT arrayJoin([NULL, 'USD']) AS c)"
+        )
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),), (Decimal("90.49"),)])
 
     def test_currency_conversion_with_bogus_currency_to(self):
         query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"

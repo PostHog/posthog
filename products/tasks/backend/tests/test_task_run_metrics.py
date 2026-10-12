@@ -7,7 +7,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build
+from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build, observe_sandbox_deadline
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
@@ -33,6 +33,16 @@ class TestCustomImageBuildMetrics:
     @patch("products.tasks.backend.metrics.CUSTOM_IMAGE_BUILD_TOTAL.labels", side_effect=RuntimeError("boom"))
     def test_counter_failure_does_not_escape(self, _mock_labels: MagicMock) -> None:
         observe_custom_image_build("succeeded")
+
+
+class TestSandboxDeadlineMetrics:
+    def test_turn_open_reason_is_preserved(self) -> None:
+        labels = {"outcome": "snapshot_only", "reason": "turn_open", "origin_product": "workflow"}
+        before = _sample_value("posthog_tasks_sandbox_deadline_total", labels)
+
+        observe_sandbox_deadline(dict[str, object](labels))
+
+        assert _sample_value("posthog_tasks_sandbox_deadline_total", labels) == before + 1
 
 
 class TestTaskRunMetrics(TestCase):
@@ -345,12 +355,16 @@ class TestTaskRunMetrics(TestCase):
 
     @parameterized.expand(
         [
-            ("modal", {}),
-            ("hogland", {"sandbox_backend": "hogland"}),
+            ("modal", {}, {}, "agent_reported"),
+            ("hogland", {"sandbox_backend": "hogland"}, {"error_type": "agent_declined"}, "agent_declined"),
         ]
     )
     def test_patch_terminal_failure_captures_single_typed_task_run_failed(
-        self, sandbox_backend: str, sandbox_state: dict[str, str]
+        self,
+        sandbox_backend: str,
+        sandbox_state: dict[str, str],
+        error_type_payload: dict[str, str],
+        expected_error_type: str,
     ) -> None:
         from products.tasks.backend.facade import api as facade
 
@@ -369,13 +383,13 @@ class TestTaskRunMetrics(TestCase):
                     run.id,
                     self.task.id,
                     self.team.id,
-                    validated_data={"status": "failed", "error_message": long_error},
+                    validated_data={"status": "failed", "error_message": long_error, **error_type_payload},
                 )
 
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
-        assert props["error_type"] == "agent_reported"
+        assert props["error_type"] == expected_error_type
         assert props["sandbox_backend"] == sandbox_backend
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("Error: wizard exited with code 7")

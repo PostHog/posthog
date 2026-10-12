@@ -220,7 +220,10 @@ class TestMCPDashboardSeriesGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTes
         [
             (kind, scopes, expected_status)
             for kind in (
+                "MCPHarnessBreakdownQuery",
                 "MCPMissingCapabilitiesQuery",
+                "MCPModelBreakdownQuery",
+                "MCPProtocolVersionBreakdownQuery",
                 "MCPToolCallsAndErrorsQuery",
                 "MCPToolCallBreakdownQuery",
                 "MCPToolCategoryMapQuery",

@@ -27,19 +27,19 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.tests.utils.events import generate_test_events
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.batch_exports.backend.api.file_download import (
-    COUNT_ROWS_TIMEOUT_MESSAGE,
-    DEFAULT_MAX_SIZE_MB,
-    _calculate_expiration_for_file_download,
-    _generate_s3_pre_signed_url,
-    _get_file_download_for_run,
-)
 from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportFileDownload,
     BatchExportOnDemand,
     BatchExportRun,
     BatchExportSource,
+)
+from products.batch_exports.backend.presentation.views.file_download import (
+    COUNT_ROWS_TIMEOUT_MESSAGE,
+    DEFAULT_MAX_SIZE_MB,
+    _calculate_expiration_for_file_download,
+    _generate_s3_pre_signed_url,
+    _get_file_download_for_run,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
@@ -165,7 +165,7 @@ def override_file_download_settings(aws_role_arn, s3_bucket):
 def mock_start_file_download_export():
     """Mock starting the Temporal workflow so create tests don't reach Temporal."""
     with unittest.mock.patch(
-        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+        "products.batch_exports.backend.presentation.views.file_download.start_file_download_batch_export"
     ) as mock_start:
         yield mock_start
 
@@ -606,7 +606,9 @@ async def test_file_download_cancel_mocked(
     mocked_handle = unittest.mock.AsyncMock()
     mocked_client.get_workflow_handle.return_value = mocked_handle
 
-    with unittest.mock.patch("products.batch_exports.backend.api.file_download.sync_connect") as mocked_connect:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.presentation.views.file_download.sync_connect"
+    ) as mocked_connect:
         mocked_connect.return_value = mocked_client
         status_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",
@@ -625,7 +627,7 @@ async def test_file_download_cancel_mocked(
 class TestFileDownloadHogQL:
     """File download batch exports created from a user-defined HogQL query."""
 
-    HOGQL_FLAG_PATCH_TARGET = "products.batch_exports.backend.api.utils.posthoganalytics.feature_enabled"
+    HOGQL_FLAG_PATCH_TARGET = "products.batch_exports.backend.presentation.views.utils.posthoganalytics.feature_enabled"
 
     @pytest.fixture
     def enable_hogql_flag(self):
@@ -741,6 +743,11 @@ class TestFileDownloadHogQL:
                 "'data_interval_start' and 'data_interval_end' are required",
                 id="events-model-missing-intervals",
             ),
+            pytest.param(
+                {"model": "events", "hogql_query": None, "hogql_modifiers": {"convertToProjectTimezone": False}},
+                "'hogql_modifiers' are only supported when 'model' is 'hogql'",
+                id="modifiers-with-events-model",
+            ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag")
@@ -817,6 +824,7 @@ class TestFileDownloadHogQL:
                 "file": {"format": "Parquet"},
                 "model": "hogql",
                 "hogql_query": hogql_query,
+                "hogql_modifiers": {"convertToProjectTimezone": False},
                 "last_modified_by": user.pk + 1,
                 "last_modified_by_id": user.pk + 1,
                 "user_id": user.pk + 1,
@@ -842,6 +850,7 @@ class TestFileDownloadHogQL:
         assert on_demand.last_modified_by_id == user.pk
         assert on_demand.source is not None
         assert on_demand.source.hogql_query == hogql_query
+        assert on_demand.source.hogql_modifiers == {"convertToProjectTimezone": False}
         assert on_demand.source.team_id == team.pk
         assert "include_events" not in on_demand.destination.config
 
@@ -850,6 +859,7 @@ class TestFileDownloadHogQL:
         assert batch_export_model.name == "hogql"
         assert batch_export_model.hogql_query == hogql_query
         assert batch_export_model.user_id == user.pk
+        assert batch_export_model.hogql_modifiers == {"convertToProjectTimezone": False}
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
         assert mock_start_file_download_export.call_args.kwargs["data_interval_start"] == run.data_interval_start
         assert mock_start_file_download_export.call_args.kwargs["data_interval_end"] == run.data_interval_end
@@ -1035,6 +1045,43 @@ class TestFileDownloadHogQL:
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"count": expected_count}
 
+    @pytest.mark.parametrize(
+        "hogql_modifiers,expected_count",
+        [(None, 10), ({"convertToProjectTimezone": True}, 0)],
+        ids=["utc-by-default", "project-timezone-from-modifier"],
+    )
+    @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
+    @pytest.mark.django_db(transaction=True)
+    async def test_count_rows_uses_the_export_timezone(
+        self, async_client: AsyncClient, team, user, hogql_modifiers, expected_count
+    ):
+        """Count rows in the timezone the export runs in, which can differ from the project timezone.
+
+        The project is in Asia/Tokyo, and the query keeps rows whose timestamp formats with a `+0000` offset.
+        HogQL passes the query timezone to `formatDateTime` as its last argument, so `%z` gives the offset of
+        the timezone the count ran in: `+0000` in UTC and `+0900` in Tokyo.
+
+        With no modifier, the count runs in UTC like the export, so it keeps all 10 rows. With
+        `convertToProjectTimezone` set to true, it runs in Tokyo and keeps none. If the count ignored the
+        export default, the first case would count 0 rows while the download exports 10.
+        """
+        team.timezone = "Asia/Tokyo"
+        await team.asave()
+        await async_client.aforce_login(user)
+
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+            {
+                "model": "hogql",
+                "hogql_query": "SELECT event AS event FROM events WHERE formatDateTime(timestamp, '%z') = '+0000'",
+                **({"hogql_modifiers": hogql_modifiers} if hogql_modifiers is not None else {}),
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"count": expected_count}
+
     @pytest.mark.usefixtures("enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
     async def test_count_rows_masks_properties_in_where(
@@ -1112,6 +1159,15 @@ class TestFileDownloadHogQL:
                 "'data_interval_end' is required",
                 id="missing-placeholder-bounds",
             ),
+            pytest.param(
+                {
+                    "model": "hogql",
+                    "hogql_query": "SELECT event AS event FROM events",
+                    "hogql_modifiers": {"notAModifier": True},
+                },
+                "Extra inputs are not permitted",
+                id="unknown-modifier",
+            ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag")
@@ -1121,7 +1177,9 @@ class TestFileDownloadHogQL:
     ):
         await async_client.aforce_login(user)
 
-        with unittest.mock.patch("products.batch_exports.backend.api.file_download.execute_hogql_query") as execute:
+        with unittest.mock.patch(
+            "products.batch_exports.backend.presentation.views.file_download.execute_hogql_query"
+        ) as execute:
             response = await async_client.post(
                 f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
                 body,
@@ -1153,7 +1211,7 @@ class TestFileDownloadHogQL:
         await async_client.aforce_login(user)
 
         with unittest.mock.patch(
-            "products.batch_exports.backend.api.file_download.execute_hogql_query",
+            "products.batch_exports.backend.presentation.views.file_download.execute_hogql_query",
             side_effect=ClickHouseQueryTimeOut(),
         ):
             response = await async_client.post(

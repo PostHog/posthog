@@ -176,7 +176,16 @@ class GoogleAdsSource(
         # budget has hit a longer-lived quota window than a few seconds of backoff can clear,
         # but Temporal's activity retry recovers once it does — self-recovering, not a bug, so
         # keep it out of error tracking as noise.
-        return {"Resource has been exhausted (e.g. check quota)"}
+        #
+        # `GoogleAdsCallDeadlineExceeded` (see google_ads.py) is raised deliberately when a single
+        # call runs past the generous per-call timeout — normal for a full page of a wide resource
+        # or a very large account. It is retryable by design: Temporal's activity retry builds a
+        # fresh channel and resumes from the saved page token. Matched without the timeout value,
+        # which is a tunable constant rather than a stable identifier.
+        return {
+            "Resource has been exhausted (e.g. check quota)",
+            "Google Ads call did not finish within",
+        }
 
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:

@@ -6,7 +6,7 @@ import structlog
 from cryptography.fernet import InvalidToken
 
 from products.feature_flags.backend.encrypted_flag_payloads import FlagPayloadCodec, flag_payload_codec
-from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -67,8 +67,7 @@ class Command(BaseCommand):
 
     def _skip_unsupported(self, flag: FeatureFlag) -> bool:
         """Only config format 1 stores ``payloads``; never touch a document in another format."""
-        filters = flag.filters
-        if filters is None or (isinstance(filters, dict) and detect_config_format(filters).kind == "v1"):
+        if is_v1_config(flag.filters):
             return False
         logger.warning("reencrypt_flag_payloads.skip_unsupported_config", flag_id=flag.id, team_id=flag.team_id)
         return True

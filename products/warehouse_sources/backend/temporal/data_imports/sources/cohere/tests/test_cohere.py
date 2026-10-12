@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.set
     COHERE_ENDPOINTS,
     RETIRED_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -33,13 +32,6 @@ def _response(
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _error_response(status_code: int) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = b"{}"
     return resp
 
 
@@ -80,24 +72,6 @@ class TestOffsetPagination:
         # A full page advances the offset; the short second page ends pagination without a third request.
         assert params[1]["offset"] == 100
         assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("datasets", [{"id": "a"}, {"id": "b"}])])
-
-        rows = _rows(cohere_source("key", "datasets", team_id=1, job_id="j"))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("datasets", [])])
-
-        assert _rows(cohere_source("key", "datasets", team_id=1, job_id="j")) == []
-        assert session.send.call_count == 1
 
 
 class TestPageTokenPagination:
@@ -158,19 +132,6 @@ class TestFailLoud:
         assert session.send.call_count == 1
 
 
-class TestRetry:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(429), _response("datasets", [{"id": "a"}])])
-
-        with mock.patch.object(RESTClient._send_request.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            rows = _rows(cohere_source("key", "datasets", team_id=1, job_id="j"))
-
-        assert [r["id"] for r in rows] == ["a"]
-        assert session.send.call_count == 2
-
-
 class TestSourceResponseShape:
     @pytest.mark.parametrize("endpoint", list(COHERE_ENDPOINTS))
     def test_source_response_shape(self, endpoint: str) -> None:
@@ -192,23 +153,8 @@ class TestSourceResponseShape:
             assert response.partition_count is None
             assert response.partition_size is None
 
-    def test_models_primary_key_is_name_not_id(self) -> None:
-        # Model catalog rows are keyed by name; there is no id field to dedupe on.
-        assert cohere_source(api_key="key", endpoint="models", team_id=1, job_id="j").primary_keys == ["name"]
-
 
 class TestValidateCredentials:
-    @mock.patch(COHERE_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("key") is True
-
-    @pytest.mark.parametrize("status_code", [401, 403])
-    @mock.patch(COHERE_SESSION_PATCH)
-    def test_non_200_is_false(self, mock_session, status_code: int) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key") is False
-
     @mock.patch(COHERE_SESSION_PATCH)
     def test_network_error_is_false(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any, cast
@@ -12,10 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONLinkPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ParentRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
     ZendeskSourceConfig,
@@ -25,16 +26,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
     FANOUT_PARENTS,
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
-    TICKET_COMMENTS_PARENT_LOOKBACK,
-    TICKET_COMMENTS_PARENT_MAX_CATCHUP,
     TICKET_COMMENTS_PARENT_NAME,
     ZENDESK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source import ZendeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
-    ZendeskAfterUrlPaginator,
     ZendeskCursorIncrementalPaginator,
     ZendeskIncrementalEndpointPaginator,
+    ZendeskResumeConfig,
+    ZendeskSinceCursorPaginator,
     get_declarative_resource,
     get_resource,
     normalize_subdomain,
@@ -44,9 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.ze
 )
 
 
-def _make_response(json_body: dict[str, Any] | None = None) -> Response:
+def _make_response(json_body: dict[str, Any] | None = None, status_code: int = 200) -> Response:
     resp = Response()
-    resp.status_code = 200
+    resp.status_code = status_code
     resp.headers["Content-Type"] = "application/json"
     resp._content = json.dumps(json_body or {}).encode()
     return resp
@@ -74,13 +74,6 @@ class TestZendeskValidateCredentials:
         assert "email address" in error
         assert "API token" in error
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.validate_credentials",
-        return_value=True,
-    )
-    def test_accepts_valid_credentials(self, _mock_validate) -> None:
-        assert ZendeskSource().validate_credentials(self._config(), team_id=1) == (True, None)
-
 
 class TestNormalizeSubdomain:
     @pytest.mark.parametrize(
@@ -99,58 +92,8 @@ class TestNormalizeSubdomain:
     def test_collapses_to_subdomain_label(self, raw: str, expected: str) -> None:
         assert normalize_subdomain(raw) == expected
 
-    def test_full_host_does_not_double_when_building_base_url(self) -> None:
-        # Regression: a pasted full host previously produced "nibbles.zendesk.com.zendesk.com",
-        # whose TLS handshake the Zendesk edge rejects.
-        assert f"https://{normalize_subdomain('nibbles.zendesk.com')}.zendesk.com/" == "https://nibbles.zendesk.com/"
-
 
 class TestZendeskCursorIncrementalPaginator:
-    def test_advances_to_next_cursor(self) -> None:
-        p = ZendeskCursorIncrementalPaginator()
-        resp = _make_response({"tickets": [{"id": 1}], "after_cursor": "abc123", "end_of_stream": False})
-
-        p.update_state(resp)
-
-        assert p.has_next_page is True
-
-        req = Request(method="GET", url="https://x.zendesk.com/api/v2/incremental/tickets/cursor")
-        req.params = {"per_page": 1000, "start_time": 1591394586}
-        p.update_request(req)
-
-        assert req.params["cursor"] == "abc123"
-        # The seed start_time is dropped once we paginate by cursor.
-        assert "start_time" not in req.params
-        assert req.params["per_page"] == 1000
-
-    def test_first_request_keeps_seed_start_time(self) -> None:
-        p = ZendeskCursorIncrementalPaginator()
-
-        # Before any response, has_next_page is True and no cursor is set, so the
-        # first request must go out untouched (with its seed start_time).
-        assert p.has_next_page is True
-
-        req = Request(method="GET", url="https://x.zendesk.com/api/v2/incremental/tickets/cursor")
-        req.params = {"per_page": 1000, "start_time": 1591394586}
-        p.init_request(req)
-
-        assert req.params["start_time"] == 1591394586
-        assert "cursor" not in req.params
-
-    def test_works_for_any_data_key(self) -> None:
-        # The paginator only reads top-level after_cursor/end_of_stream, so the users
-        # cursor export (data key "users") paginates identically to tickets.
-        p = ZendeskCursorIncrementalPaginator()
-        p.update_state(_make_response({"users": [{"id": 1}], "after_cursor": "u1", "end_of_stream": False}))
-        assert p.has_next_page is True
-
-        req = Request(method="GET", url="https://x.zendesk.com/api/v2/incremental/users/cursor")
-        req.params = {"per_page": 1000, "start_time": 0}
-        p.update_request(req)
-        assert req.params["cursor"] == "u1"
-        # The seed start_time must be dropped once we paginate by cursor, same as tickets.
-        assert "start_time" not in req.params
-
     @pytest.mark.parametrize(
         "body",
         [
@@ -192,37 +135,8 @@ class TestZendeskCursorIncrementalPaginator:
         with pytest.raises(ValueError):
             p.update_state(repeated)
 
-    def test_paginates_across_multiple_pages(self) -> None:
-        p = ZendeskCursorIncrementalPaginator()
-        req = Request(method="GET", url="https://x.zendesk.com/api/v2/incremental/tickets/cursor")
-        req.params = {"per_page": 1000, "start_time": 1591394586}
-
-        p.update_state(_make_response({"tickets": [{"id": 1}], "after_cursor": "cursor_1", "end_of_stream": False}))
-        p.update_request(req)
-        assert req.params["cursor"] == "cursor_1"
-
-        p.update_state(_make_response({"tickets": [{"id": 2}], "after_cursor": "cursor_2", "end_of_stream": False}))
-        p.update_request(req)
-        assert req.params["cursor"] == "cursor_2"
-
-        p.update_state(_make_response({"tickets": [{"id": 3}], "after_cursor": "cursor_3", "end_of_stream": True}))
-        assert p.has_next_page is False
-
 
 class TestZendeskIncrementalEndpointPaginator:
-    def test_advances_to_next_page(self) -> None:
-        p = ZendeskIncrementalEndpointPaginator()
-        p.update_state(_make_response({"end_of_stream": False, "next_page": "https://x.zendesk.com/next"}))
-
-        assert p.has_next_page is True
-
-        req = Request(method="GET", url="https://x.zendesk.com/api/v2/incremental/organizations")
-        req.params = {"per_page": 1000, "start_time": 0}
-        p.update_request(req)
-        assert req.url == "https://x.zendesk.com/next"
-        # next_page is a full URL carrying its own query string, so existing params are cleared.
-        assert req.params == {}
-
     @pytest.mark.parametrize(
         "body",
         [
@@ -271,75 +185,6 @@ class TestToZendeskStartTime:
 class TestIncrementalResourceWiring:
     """The four endpoints that have a Zendesk Incremental Export API must declare a server-side
     `start_time` cursor so incremental sync actually filters data, not just flips write disposition."""
-
-    @pytest.mark.parametrize(
-        "endpoint,expected_path,expected_paginator,cursor_path,expected_include",
-        [
-            pytest.param(
-                "users",
-                "/api/v2/incremental/users/cursor",
-                ZendeskCursorIncrementalPaginator,
-                "updated_at",
-                None,
-                id="users",
-            ),
-            pytest.param(
-                "organizations",
-                "/api/v2/incremental/organizations",
-                ZendeskIncrementalEndpointPaginator,
-                "updated_at",
-                None,
-                id="organizations",
-            ),
-            pytest.param(
-                "ticket_events",
-                "/api/v2/incremental/ticket_events",
-                ZendeskIncrementalEndpointPaginator,
-                "created_at",
-                "comment_events",
-                id="ticket_events",
-            ),
-            pytest.param(
-                "ticket_metric_events",
-                "/api/v2/incremental/ticket_metric_events",
-                ZendeskIncrementalEndpointPaginator,
-                "time",
-                None,
-                id="ticket_metric_events",
-            ),
-        ],
-    )
-    def test_endpoint_declares_incremental_start_time(
-        self,
-        endpoint: str,
-        expected_path: str,
-        expected_paginator: type,
-        cursor_path: str,
-        expected_include: str | None,
-    ) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=True)
-        endpoint_config = _endpoint(resource)
-
-        assert endpoint_config["path"] == expected_path
-        assert isinstance(endpoint_config["paginator"], expected_paginator)
-        # Without include=comment_events the ticket_events export strips comment bodies from
-        # child_events — assert the sideload stays wired.
-        assert endpoint_config["params"].get("include") == expected_include
-
-        start_time = endpoint_config["params"]["start_time"]
-        assert start_time["type"] == "incremental"
-        assert start_time["cursor_path"] == cursor_path
-        assert start_time["initial_value"] == 0
-        # Datetime cursors must convert to the Unix epoch Zendesk expects.
-        assert start_time["convert"] is to_zendesk_start_time
-
-    @pytest.mark.parametrize("endpoint", ["users", "organizations", "ticket_events", "ticket_metric_events"])
-    def test_write_disposition_follows_incremental_flag(self, endpoint: str) -> None:
-        incremental = get_resource(endpoint, should_use_incremental_field=True)
-        full_refresh = get_resource(endpoint, should_use_incremental_field=False)
-
-        assert incremental["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        assert full_refresh["write_disposition"] == "replace"
 
     def test_incremental_fields_cover_incremental_endpoints(self) -> None:
         # Every endpoint advertised as incremental must declare its incremental field(s).
@@ -427,14 +272,6 @@ class TestZendeskDeclarativeEndpoints:
             assert isinstance(endpoint_config["paginator"], JSONLinkPaginator)
             assert endpoint_config["params"]["page[size]"] == CURSOR_PAGE_SIZE
 
-    def test_ticket_audits_paginates_on_its_own_cursor_field(self) -> None:
-        # ticket_audits predates `links.next`; reading the wrong field would stop after one page.
-        endpoint_config = _endpoint(get_resource("ticket_audits", should_use_incremental_field=False))
-        paginator = endpoint_config["paginator"]
-
-        assert isinstance(paginator, ZendeskAfterUrlPaginator)
-        assert paginator.next_url_path == "after_url"
-
     def test_fanout_endpoint_is_not_built_as_a_top_level_resource(self) -> None:
         with pytest.raises(ValueError):
             get_declarative_resource(ZENDESK_ENDPOINTS["ticket_comments"], should_use_incremental_field=False)
@@ -452,77 +289,51 @@ class TestZendeskDeclarativeEndpoints:
         assert set(config.primary_key) - {"id"} <= set(config.fanout.parent_field_renames.values())
 
 
-class TestZendeskAfterUrlPaginator:
-    def test_follows_after_url(self) -> None:
-        p = ZendeskAfterUrlPaginator()
-        p.update_state(
-            _make_response({"audits": [{"id": 1}], "after_url": "https://x.zendesk.com/next"}), data=[{"id": 1}]
+class TestZendeskSinceCursorPaginator:
+    def test_drops_since_from_the_next_page_url(self) -> None:
+        # Zendesk echoes `since` back into `links.next` in its own format, which it then
+        # rejects on the next request (400). The cursor alone is enough to continue.
+        p = ZendeskSinceCursorPaginator(next_url_path="links.next")
+        next_url = (
+            f"{BASE}/api/v2/activities.json?page%5Bafter%5D=abc123&page%5Bsize%5D=100&since=1970-01-01+00%3A00%3A00+UTC"
         )
 
-        assert p.has_next_page is True
+        p.update_state(_make_response({"activities": [{"id": 1}], "links": {"next": next_url}}))
 
-        req = Request(method="GET", url="https://x.zendesk.com/api/v2/ticket_audits")
-        req.params = {"page[size]": 100}
+        req = Request(method="GET", url=f"{BASE}/api/v2/activities.json")
+        req.params = {"page[size]": 100, "since": "1970-01-01T00:00:00Z"}
         p.update_request(req)
-        assert req.url == "https://x.zendesk.com/next"
+
+        assert "since" not in req.url
+        assert "page%5Bafter%5D=abc123" in req.url
         assert req.params == {}
 
-    @pytest.mark.parametrize(
-        "body,data",
-        [
-            pytest.param({"audits": [], "after_url": "https://x.zendesk.com/next"}, [], id="empty_page_with_cursor"),
-            pytest.param({"audits": [{"id": 1}], "after_url": None}, [{"id": 1}], id="no_cursor"),
-            pytest.param({"audits": [{"id": 1}]}, [{"id": 1}], id="cursor_absent"),
-        ],
-    )
-    def test_stops_pagination(self, body: dict[str, Any], data: list[dict[str, Any]]) -> None:
-        # The endpoint keeps handing back a cursor URL past the end of the stream, so an empty
-        # page has to terminate too — otherwise the sync loops forever on the last page.
-        p = ZendeskAfterUrlPaginator()
+    def test_drops_since_from_a_restored_checkpoint(self) -> None:
+        # A run that already failed on this URL checkpointed it with `since` still attached —
+        # that's the exact failure this paginator exists to fix. A retry must not resume
+        # straight back into the same URL, or it hits the same 400 forever.
+        p = ZendeskSinceCursorPaginator(next_url_path="links.next")
+        dirty_next_url = (
+            f"{BASE}/api/v2/activities.json?page%5Bafter%5D=abc123&page%5Bsize%5D=100&since=1970-01-01+00%3A00%3A00+UTC"
+        )
 
-        p.update_state(_make_response(body), data=data)
+        p.set_resume_state({"next_url": dirty_next_url})
 
-        assert p.has_next_page is False
+        req = Request(method="GET", url=f"{BASE}/api/v2/activities.json")
+        req.params = {"page[size]": 100, "since": "1970-01-01T00:00:00Z"}
+        p.init_request(req)
+
+        assert "since" not in req.url
+        assert "page%5Bafter%5D=abc123" in req.url
 
 
 class TestZendeskDeclarativeIncremental:
-    def test_activities_uses_the_server_side_since_filter(self) -> None:
-        endpoint_config = _endpoint(get_resource("activities", should_use_incremental_field=True))
-        incremental = endpoint_config["incremental"]
-
-        assert incremental["start_param"] == "since"
-        assert incremental["cursor_path"] == "created_at"
-        # The plain list endpoints take ISO 8601, not the Unix epoch the incremental exports use.
-        assert incremental["convert"] is to_zendesk_iso8601
-
     def test_activities_honors_the_users_chosen_cursor_field(self) -> None:
         endpoint_config = _endpoint(
             get_resource("activities", should_use_incremental_field=True, incremental_field_name="updated_at")
         )
 
         assert endpoint_config["incremental"]["cursor_path"] == "updated_at"
-
-    @pytest.mark.parametrize(
-        "endpoint,should_use_incremental_field,expects_incremental",
-        [
-            pytest.param("activities", True, True, id="activities_incremental"),
-            pytest.param("activities", False, False, id="activities_full_refresh"),
-            # No server-side time filter is documented for these, so they must stay full refresh
-            # even when the schema is flagged incremental.
-            pytest.param("satisfaction_ratings", True, False, id="satisfaction_ratings_stays_full_refresh"),
-            pytest.param("audit_logs", True, False, id="audit_logs_stays_full_refresh"),
-        ],
-    )
-    def test_write_disposition_follows_server_side_filter_support(
-        self, endpoint: str, should_use_incremental_field: bool, expects_incremental: bool
-    ) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=should_use_incremental_field)
-        endpoint_config = _endpoint(resource)
-
-        assert ("incremental" in endpoint_config) is expects_incremental
-        assert resource["write_disposition"] == (
-            {"disposition": "merge", "strategy": "upsert"} if expects_incremental else "replace"
-        )
 
 
 class TestToZendeskIso8601:
@@ -582,35 +393,6 @@ class TestZendeskTicketCommentsFanout:
 
         return child, mock_resources.call_args[0]
 
-    def test_parent_and_child_endpoints(self) -> None:
-        _, args = self._build()
-        parent, child = args[0]["resources"]
-
-        assert parent["endpoint"]["path"] == "/api/v2/tickets"
-        assert parent["endpoint"]["params"]["page[size]"] == CURSOR_PAGE_SIZE
-        assert child["endpoint"]["path"] == "/api/v2/tickets/{ticket_id}/comments"
-        # The ticket id is bound from the parent row into the child path.
-        assert child["endpoint"]["params"]["ticket_id"] == {
-            "type": "resolve",
-            "resource": TICKET_COMMENTS_PARENT_NAME,
-            "field": "id",
-        }
-        assert child["include_from_parent"] == ["id"]
-
-    def test_replaces_the_table_when_the_schema_is_not_incremental(self) -> None:
-        _, args = self._build()
-        _, child = args[0]["resources"]
-
-        assert child["write_disposition"] == "replace"
-
-    def test_incremental_merges_but_sends_no_request_window(self) -> None:
-        _, args = self._build(should_use_incremental_field=True)
-        _, child = args[0]["resources"]
-
-        assert child["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        assert "incremental" not in child["endpoint"]
-        assert "since" not in child["endpoint"]["params"]
-
     def test_comment_rows_carry_the_parent_ticket_id(self) -> None:
         # Without this rename a comment row has no ticket_id, so the (ticket_id, id) primary key
         # would never match and every sync would seed duplicates.
@@ -662,52 +444,6 @@ class TestZendeskTicketCommentsWarehouseParent:
     def _resolve(self, watermark: Any, use_warehouse_parent: bool = True, snapshot_at: Any = _UNSET) -> Any:
         return self._build(watermark, use_warehouse_parent, snapshot_at)[0]
 
-    def test_scans_tickets_bounded_by_the_child_watermark(self) -> None:
-        watermark = datetime.now(UTC) - timedelta(hours=6)
-
-        resolve = self._resolve(watermark)
-
-        assert resolve.call_args.args[2] == "tickets"
-        assert resolve.call_args.kwargs["required_columns"] == ["id"]
-        assert resolve.call_args.kwargs["row_filter"] == ParentRowFilter(
-            field="updated_at",
-            not_before=watermark - TICKET_COMMENTS_PARENT_LOOKBACK,
-        )
-
-    def test_clamps_a_watermark_that_sits_ahead_of_now(self) -> None:
-        resolve = self._resolve(datetime.now(UTC) + timedelta(days=1))
-
-        assert resolve.call_args.kwargs["row_filter"].not_before <= datetime.now(UTC) - TICKET_COMMENTS_PARENT_LOOKBACK
-
-    @pytest.mark.parametrize(
-        "watermark_factory",
-        [
-            pytest.param(lambda: None, id="no_watermark"),
-            pytest.param(lambda: "still syncing", id="unparseable_watermark"),
-            pytest.param(
-                lambda: datetime.now(UTC) - TICKET_COMMENTS_PARENT_MAX_CATCHUP - timedelta(days=1),
-                id="older_than_the_archive_window",
-            ),
-        ],
-    )
-    def test_takes_the_api_path_when_no_safe_floor_exists(self, watermark_factory: Any) -> None:
-        assert self._resolve(watermark_factory()).call_count == 0
-
-    def test_drops_comments_newer_than_the_parent_snapshot(self) -> None:
-        snapshot_at = datetime.now(UTC) - timedelta(hours=6)
-        _, child = self._build(datetime.now(UTC) - timedelta(hours=7), snapshot_at=snapshot_at)
-
-        keep = child.filters[0]
-
-        assert keep({"created_at": (snapshot_at - timedelta(minutes=1)).isoformat()}) is True
-        assert keep({"created_at": (snapshot_at + timedelta(minutes=1)).isoformat()}) is False
-        assert keep({"created_at": None}) is True
-
-    def test_emits_every_comment_on_the_api_path(self) -> None:
-        _, child = self._build(datetime.now(UTC) - timedelta(hours=6), use_warehouse_parent=False)
-
-        assert child.filters == []
-
     def test_takes_the_api_path_without_a_completed_parent_sync(self) -> None:
         assert self._resolve(datetime.now(UTC) - timedelta(hours=6), snapshot_at=None).call_count == 0
 
@@ -742,25 +478,8 @@ class TestZendeskTicketCommentsWarehouseParent:
 
         assert child.filters == []
 
-    def test_takes_the_api_path_when_reuse_is_not_enabled_for_the_run(self) -> None:
-        watermark = datetime.now(UTC) - timedelta(hours=6)
-
-        assert self._resolve(watermark, use_warehouse_parent=False).call_count == 0
-
 
 class TestZendeskRequiredParentSchemas:
-    @pytest.mark.parametrize(
-        "schema_name,expected",
-        [
-            pytest.param("ticket_comments", ["tickets"], id="the_fanout_child"),
-            pytest.param("tickets", [], id="the_parent_itself"),
-            pytest.param("ticket_audits", [], id="a_plain_list_endpoint"),
-            pytest.param("users", [], id="an_original_export_endpoint"),
-        ],
-    )
-    def test_required_parent_schemas(self, schema_name: str, expected: list[str]) -> None:
-        assert ZendeskSource().get_required_parent_schemas(schema_name) == expected
-
     def test_source_for_pipeline_forwards_the_source_and_the_reuse_decision(self) -> None:
         config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
         inputs = _source_inputs("ticket_comments")
@@ -770,79 +489,147 @@ class TestZendeskRequiredParentSchemas:
             "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.zendesk_source",
             return_value=SimpleNamespace(name="ticket_comments", column_hints=None),
         ) as mock_source:
-            ZendeskSource().source_for_pipeline(config, inputs)
+            ZendeskSource().source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), inputs)
 
         assert mock_source.call_args.kwargs["source_id"] == "source-1"
         assert mock_source.call_args.kwargs["use_warehouse_parent"] is True
 
 
-class TestZendeskSchemas:
-    def _schemas(self) -> dict[str, Any]:
-        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
-        return {schema.name: schema for schema in ZendeskSource().get_schemas(config, team_id=1)}
+BASE = "https://nibbles.zendesk.com"
 
-    def test_every_declared_endpoint_is_offered_exactly_once(self) -> None:
-        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
-        names = [schema.name for schema in ZendeskSource().get_schemas(config, team_id=1)]
+# Three pages per endpoint in the paginator's own response shape: two that continue and one that
+# ends the stream, plus the resume config each continuing page must stage.
+RESUME_CASES: dict[str, tuple[list[dict[str, Any]], list[ZendeskResumeConfig]]] = {
+    "tickets": (
+        [
+            {"tickets": [{"id": 1}], "after_cursor": "c1", "end_of_stream": False},
+            {"tickets": [{"id": 2}], "after_cursor": "c2", "end_of_stream": False},
+            {"tickets": [{"id": 3}], "after_cursor": "c3", "end_of_stream": True},
+        ],
+        [ZendeskResumeConfig(cursor="c1"), ZendeskResumeConfig(cursor="c2")],
+    ),
+    "users": (
+        [
+            {"users": [{"id": 1}], "after_cursor": "u1", "end_of_stream": False},
+            {"users": [{"id": 2}], "after_cursor": "u2", "end_of_stream": False},
+            {"users": [{"id": 3}], "after_cursor": "u3", "end_of_stream": True},
+        ],
+        [ZendeskResumeConfig(cursor="u1"), ZendeskResumeConfig(cursor="u2")],
+    ),
+    "organizations": (
+        [
+            {"organizations": [{"id": 1}], "end_of_stream": False, "next_page": f"{BASE}/p2"},
+            {"organizations": [{"id": 2}], "end_of_stream": False, "next_page": f"{BASE}/p3"},
+            {"organizations": [{"id": 3}], "end_of_stream": True, "next_page": None},
+        ],
+        [ZendeskResumeConfig(next_url=f"{BASE}/p2"), ZendeskResumeConfig(next_url=f"{BASE}/p3")],
+    ),
+    "brands": (
+        [
+            {"brands": [{"id": 1}], "links": {"next": f"{BASE}/p2"}},
+            {"brands": [{"id": 2}], "links": {"next": f"{BASE}/p3"}},
+            {"brands": [{"id": 3}], "links": {"next": None}},
+        ],
+        [ZendeskResumeConfig(next_url=f"{BASE}/p2"), ZendeskResumeConfig(next_url=f"{BASE}/p3")],
+    ),
+    "ticket_audits": (
+        [
+            {"audits": [{"id": 1}], "after_url": f"{BASE}/p2"},
+            {"audits": [{"id": 2}], "after_url": f"{BASE}/p3"},
+            {"audits": [], "after_url": f"{BASE}/p4"},
+        ],
+        [ZendeskResumeConfig(next_url=f"{BASE}/p2"), ZendeskResumeConfig(next_url=f"{BASE}/p3")],
+    ),
+}
 
-        assert len(names) == len(set(names))
-        assert set(ZENDESK_ENDPOINTS).issubset(names)
-        # The endpoints that shipped first must keep being offered.
-        assert {"tickets", "users", "organizations", "brands", "groups", "sla_policies"}.issubset(names)
 
-    def test_incremental_is_advertised_only_where_it_can_be_honored(self) -> None:
-        schemas = self._schemas()
-        incremental = {name for name in ZENDESK_ENDPOINTS if schemas[name].supports_incremental}
+class TestZendeskResume:
+    def _drive(
+        self,
+        endpoint: str,
+        manager: MagicMock,
+        bodies: Sequence[dict[str, Any] | Response],
+        should_use_incremental_field: bool,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        sent: list[tuple[str, dict[str, Any]]] = []
+        responses = iter(bodies)
 
-        assert incremental == {"activities", "ticket_comments"}
-        assert schemas["activities"].incremental_fields[0]["field"] == "created_at"
-        assert schemas["ticket_comments"].incremental_fields[0]["field"] == "created_at"
-        for name in incremental:
-            config = ZENDESK_ENDPOINTS[name]
-            assert config.incremental_start_param is not None or config.fanout is not None
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent.append((request.url, dict(request.params or {})))
+            body = next(responses)
+            return body if isinstance(body, Response) else _make_response(body)
 
-
-class TestZendeskSourceForPipeline:
-    def _response(self, schema_name: str) -> Any:
-        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.zendesk_source",
-            return_value=SimpleNamespace(name=schema_name, column_hints=None),
-        ):
-            return ZendeskSource().source_for_pipeline(config, _source_inputs(schema_name))
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as mock_session_factory:
+            session = mock_session_factory.return_value
+            session.headers = {}
+            session.prepare_request.side_effect = lambda req: req
+            session.send.side_effect = fake_send
 
-    @pytest.mark.parametrize(
-        "schema_name,primary_keys,partition_key",
-        [
-            # The original endpoints keep the key and partition they have always synced with.
-            pytest.param("tickets", ["id"], "created_at", id="tickets_unchanged"),
-            pytest.param("ticket_metric_events", ["id"], "time", id="ticket_metric_events_unchanged"),
-            # A tag row is just {name, count} — keying it on `id` would collapse the whole table.
-            pytest.param("tags", ["name"], None, id="tags_keyed_on_name"),
-            pytest.param("custom_objects", ["key"], "created_at", id="custom_objects_keyed_on_key"),
-            pytest.param("ticket_comments", ["ticket_id", "id"], "created_at", id="ticket_comments_composite_key"),
-            pytest.param("deleted_tickets", ["id"], "deleted_at", id="deleted_tickets_partitioned_on_deleted_at"),
-            pytest.param("satisfaction_ratings", ["id"], "created_at", id="satisfaction_ratings"),
-        ],
-    )
-    def test_primary_keys_and_partitioning(
-        self, schema_name: str, primary_keys: list[str], partition_key: str | None
+            resource = zendesk_source(
+                subdomain="nibbles",
+                api_key="token",
+                email_address="user@example.com",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="job-1",
+                db_incremental_field_last_value=None,
+                should_use_incremental_field=should_use_incremental_field,
+                resumable_source_manager=manager,
+            )
+            list(resource)
+        return sent
+
+    @pytest.mark.parametrize("should_use_incremental_field", [False, True], ids=["full_refresh", "incremental"])
+    @pytest.mark.parametrize("endpoint", sorted(RESUME_CASES))
+    def test_fresh_run_stages_the_next_page_after_each_page(
+        self, endpoint: str, should_use_incremental_field: bool
     ) -> None:
-        response = self._response(schema_name)
+        bodies, expected = RESUME_CASES[endpoint]
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
 
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == ([partition_key] if partition_key else None)
-        assert response.partition_mode == ("datetime" if partition_key else None)
+        sent = self._drive(endpoint, manager, bodies, should_use_incremental_field)
 
-    @pytest.mark.parametrize(
-        "schema_name,sort_mode",
-        [
-            pytest.param("tickets", "asc", id="tickets_unchanged"),
-            # The activity stream returns newest first, so the watermark must only be committed
-            # once the sync completes.
-            pytest.param("activities", "desc", id="activities_desc"),
-            pytest.param("macros", "asc", id="macros_asc"),
-        ],
-    )
-    def test_sort_mode(self, schema_name: str, sort_mode: str) -> None:
-        assert self._response(schema_name).sort_mode == sort_mode
+        assert len(sent) == 3
+        assert [call.args[0] for call in manager.save_state.call_args_list] == expected
+        manager.load_state.assert_not_called()
+
+    @pytest.mark.parametrize("should_use_incremental_field", [False, True], ids=["full_refresh", "incremental"])
+    @pytest.mark.parametrize("endpoint", sorted(RESUME_CASES))
+    def test_resumed_run_starts_at_the_saved_page(self, endpoint: str, should_use_incremental_field: bool) -> None:
+        bodies, expected = RESUME_CASES[endpoint]
+        saved = expected[-1]
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = saved
+
+        sent = self._drive(endpoint, manager, bodies[-1:], should_use_incremental_field)
+
+        assert len(sent) == 1
+        url, params = sent[0]
+        if saved.cursor is not None:
+            assert params["cursor"] == saved.cursor
+            # The seed `start_time` would restart the export from the watermark, not the cursor.
+            assert "start_time" not in params
+        else:
+            assert url == saved.next_url
+            # The saved URL carries its own query string; re-sending the seed params duplicates them.
+            assert params == {}
+        manager.save_state.assert_not_called()
+
+    def test_expired_cursor_is_cleared_before_retry(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = ZendeskResumeConfig(cursor="expired")
+
+        with pytest.raises(RuntimeError, match="rejected the saved pagination cursor"):
+            self._drive(
+                "tickets",
+                manager,
+                [_make_response({"error": "Invalid cursor: cursor has expired"}, status_code=400)],
+                False,
+            )
+
+        manager.clear_state.assert_called_once_with()

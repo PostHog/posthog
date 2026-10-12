@@ -5,6 +5,9 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+APPFOLLOW_V2 = "v2"
+APPFOLLOW_V3 = "v3"
+
 # AppFollow's data model is app-centric: most data is queried per app via its store `ext_id`, and the
 # only way to discover a workspace's apps is to walk collections (`/account/apps`) and then their apps
 # (`/account/apps/app`). So the source exposes its endpoints across five request shapes:
@@ -21,7 +24,17 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #   - "app_fanout": the ASO and review-statistics endpoints, which all take one `ext_id` per request
 #               and differ only in how they page and how they take time. `paginated`, `requires_country`
 #               and `time_mode` below describe those differences declaratively.
-EndpointKind = Literal["list", "apps", "reviews", "ratings", "app_fanout"]
+#
+# API v3 replaces only the collection, app and review endpoints. Under a v3 pin those three tables move
+# to the v3 wire, and every other table stays on the v2 wire, which AppFollow still serves:
+#
+#   - "workspaces":     `app_collections` — `/workspaces`, rows are the values of the `collections` map.
+#   - "workspace_apps": `app_lists` — fans out over every workspace, `/workspaces/apps?appsId=<id>`.
+#   - "reviews_feed":   `reviews` — fans out over every workspace with a POST to `/reviews/feed`,
+#                       cursor paginated, with a `from` date filter we drive incrementally off `date`.
+EndpointKind = Literal[
+    "list", "apps", "reviews", "ratings", "app_fanout", "workspaces", "workspace_apps", "reviews_feed"
+]
 
 # How an "app_fanout" endpoint takes time:
 #   - "none":     no time parameter at all, so the endpoint returns its whole history (full refresh).
@@ -185,8 +198,58 @@ APPFOLLOW_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(APPFOLLOW_ENDPOINTS.keys())
-
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in APPFOLLOW_ENDPOINTS.items()
+_REVIEW_DATE_FIELD: IncrementalField = {
+    "label": "date",
+    "type": IncrementalFieldType.DateTime,
+    "field": "date",
+    "field_type": IncrementalFieldType.DateTime,
 }
+
+# v3 response schemas are published, so these keys and columns come from the v3 reference.
+APPFOLLOW_V3_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
+    **APPFOLLOW_ENDPOINTS,
+    "app_collections": AppfollowEndpointConfig(
+        name="app_collections",
+        path="/workspaces",
+        kind="workspaces",
+        primary_keys=["collectionId"],
+        partition_key="created",
+    ),
+    # `itemId` identifies an app within one workspace, so the key adds the workspace we stamp on.
+    "app_lists": AppfollowEndpointConfig(
+        name="app_lists",
+        path="/workspaces/apps",
+        kind="workspace_apps",
+        primary_keys=["collectionId", "itemId"],
+        data_key="apps",
+    ),
+    # The v3 feed has no last-modified filter, so the cursor is the review date. Edits to reviews
+    # older than the watermark are not re-synced. `date` and `app_version` are lifted from the nested
+    # `metaInformation` under their v2 names, because readers of this table key on those columns.
+    "reviews": AppfollowEndpointConfig(
+        name="reviews",
+        path="/reviews/feed",
+        kind="reviews_feed",
+        primary_keys=["itemId", "id"],
+        data_key="reviews",
+        partition_key="date",
+        default_incremental_field="date",
+        incremental_fields=[_REVIEW_DATE_FIELD],
+    ),
+}
+
+ENDPOINTS_BY_VERSION: dict[str, dict[str, AppfollowEndpointConfig]] = {
+    APPFOLLOW_V2: APPFOLLOW_ENDPOINTS,
+    APPFOLLOW_V3: APPFOLLOW_V3_ENDPOINTS,
+}
+
+
+def endpoints_for_version(api_version: str) -> dict[str, AppfollowEndpointConfig]:
+    try:
+        return ENDPOINTS_BY_VERSION[api_version]
+    except KeyError:
+        raise ValueError(f"AppFollow: no endpoint catalog for API version {api_version!r}")
+
+
+# The table set is identical across versions, so a source keeps every table whichever version it is on.
+ENDPOINTS = tuple(APPFOLLOW_ENDPOINTS.keys())

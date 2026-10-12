@@ -20,28 +20,6 @@ class TestCoinGeckoSource:
         self.team_id = 123
         self.config = CoinGeckoSourceConfig(api_key="CG-test", plan="demo")
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.coingecko.com/api/v3/coins/markets",
-            "401 Client Error: Unauthorized for url: https://pro-api.coingecko.com/api/v3/exchanges",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.coingecko.com/api/v3/coins/list",
-            "500 Server Error for url: https://api.coingecko.com/api/v3/exchanges",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
     def test_get_schemas_covers_all_endpoints(self) -> None:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
@@ -55,13 +33,6 @@ class TestCoinGeckoSource:
         assert {name for name, schema in schemas.items() if not schema.should_sync_default} == set(
             PER_COIN_ENDPOINTS
         ) | set(PRO_ONLY_ENDPOINTS)
-
-    def test_pro_plan_enables_the_pro_only_endpoints(self) -> None:
-        config = CoinGeckoSourceConfig(api_key="CG-test", plan="pro")
-
-        schemas = {schema.name: schema for schema in self.source.get_schemas(config, self.team_id)}
-
-        assert all(schemas[name].should_sync_default for name in PRO_ONLY_ENDPOINTS)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

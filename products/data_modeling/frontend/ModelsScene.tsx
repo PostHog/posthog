@@ -31,7 +31,7 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, dataQualityTabEnabled, suspensionBySavedQueryId } =
+    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, dataQualityTabEnabled, suspensionBySavedQueryId } =
         useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
@@ -68,6 +68,7 @@ export function ModelsScene(): JSX.Element {
             label: 'Lineage',
             link: urls.models('lineage'),
             content: <ModelsLineageTab />,
+            keepMounted: lineageTabVisited,
             'data-attr': 'models-tab-lineage',
         },
         ...(dataQualityTabEnabled

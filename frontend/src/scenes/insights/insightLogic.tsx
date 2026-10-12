@@ -73,6 +73,10 @@ import {
 } from '~/types'
 
 import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import {
+    titleMentionsMCP,
+    tryShowMCPAnalyticsNudge,
+} from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
 import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -1187,9 +1191,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
             })
             const insightName = savedInsight.name || savedInsight.derived_name
-            tryShowMCPHint('insights.create', {
-                derivedPrompt: insightName ? `Build an insight called ${insightName}` : undefined,
-            })
+            // An MCP-titled insight suggests a hand-rolled MCP server tracker, so offer MCP analytics
+            // instead of the PostHog MCP hint. Two MCP toasts about different products would confuse.
+            if (insightNumericId === undefined && titleMentionsMCP(insightName)) {
+                tryShowMCPAnalyticsNudge('insight')
+            } else {
+                tryShowMCPHint('insights.create', {
+                    derivedPrompt: insightName ? `Build an insight called ${insightName}` : undefined,
+                })
+            }
 
             dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 

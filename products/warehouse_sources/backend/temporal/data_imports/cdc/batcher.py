@@ -23,8 +23,7 @@ CDC_SEQ_COLUMN = "_ph_cdc_seq"
 # name (see the collision skip in _events_to_table).
 CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
-# Suffix of the SCD2 companion table's resource name ({schema.name}_cdc). Shared
-# so lane classification (validate_cdc_buffer) can never drift from the writers.
+# Suffix of the SCD2 companion table's resource name ({schema.name}_cdc).
 CDC_COMPANION_SUFFIX = "_cdc"
 
 
@@ -412,33 +411,6 @@ def enrich_toast_omitted_rows(
     return pa.table(new_columns, schema=pa.schema(new_fields))
 
 
-def deduplicate_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
-    """Keep only the last row per primary key in a CDC batch.
-
-    Rows are assumed to be in WAL order (oldest first). For each unique PK tuple
-    the last (most recent) row survives. If pk_columns is empty or none of the PK
-    columns are present in the table, the original table is returned unchanged.
-    """
-    if not pk_columns or pa_table.num_rows == 0:
-        return pa_table
-
-    present_pks = [col for col in pk_columns if col in pa_table.column_names]
-    if not present_pks:
-        return pa_table
-
-    pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
-
-    # Track the last row index seen for each PK tuple
-    pk_to_last_idx: dict[tuple, int] = {}
-    for i in range(pa_table.num_rows):
-        key = tuple(arr[i] for arr in pk_arrays)
-        pk_to_last_idx[key] = i
-
-    # Preserve original row ordering
-    indices = sorted(pk_to_last_idx.values())
-    return pa_table.take(indices)
-
-
 def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     """Add SCD Type 2 columns (valid_from, valid_to) to a raw CDC event table.
 
@@ -461,8 +433,7 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
             f"Source column(s) {sorted(taken)} collide with the history table's validity columns"
         )
     # Taken from the batch rather than assumed: `valid_from` is the timestamp column's own values,
-    # and declaring a type it does not have makes pyarrow reject the append outright. The buffered
-    # path normalizes timestamps to naive before this runs, the legacy path does not.
+    # and declaring a type it does not have makes pyarrow reject the append outright.
     ts_type = (
         pa_table.schema.field(CDC_TIMESTAMP_COLUMN).type
         if CDC_TIMESTAMP_COLUMN in pa_table.column_names
@@ -584,9 +555,8 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         arrays.append(pa.array(omitted_lists, type=pa.list_(pa.string())))
         fields.append(pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())))
 
-    # Skip on collision: a source column literally named _ph_cdc_seq must pass
-    # through to the legacy lane untouched. The batch then carries no engine seq
-    # and the shadow writer skips it.
+    # Skip on collision: a source column literally named _ph_cdc_seq is never overwritten. The batch
+    # then carries no engine seq, and capture refuses to write it to the buffer.
     if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
         seq_values = [position_to_seq(event.position_serialized) for event in events]
         arrays.append(pa.array(seq_values, type=pa.int64()))

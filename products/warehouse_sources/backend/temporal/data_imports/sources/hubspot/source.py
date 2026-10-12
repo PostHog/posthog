@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     DEFAULT_PROPS,
     ENDPOINTS as HUBSPOT_ENDPOINTS,
     HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_2026_09,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
     HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
@@ -58,8 +59,8 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
-    supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03)
-    default_version = HUBSPOT_API_VERSION_2026_03
+    supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_09)
+    default_version = HUBSPOT_API_VERSION_2026_09
     api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -173,6 +174,10 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             # documented rate-limit wording so this self-recovering condition doesn't get tracked
             # as noise once Temporal's activity retry picks it back up.
             "You have reached your rate limit.",
+            # auth.hubspot_refresh_access_token also raises this verbatim (same retry budget as
+            # above) while HubSpot migrates a portal between data centers; the portal becomes
+            # reachable again once the migration finishes, so it's self-recovering rather than a bug.
+            "Migration in progress",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options

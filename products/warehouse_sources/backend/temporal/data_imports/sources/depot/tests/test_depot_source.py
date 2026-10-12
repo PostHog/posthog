@@ -10,6 +10,7 @@ from requests import HTTPError, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import DEPOT_CI_SERVICE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.source import DepotSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot"
 
@@ -71,3 +72,12 @@ class TestDepotSource:
                 list(cast(Iterable[list[dict[str, Any]]], response.items()))
 
         assert any(pattern in str(error.value) for pattern in source.get_non_retryable_errors())
+
+    def test_rejects_existing_append_mode_before_extracting_replayed_attempts(self) -> None:
+        source = DepotSource()
+        inputs = mock.MagicMock(sync_type=ExternalDataSchemaSyncType.APPEND)
+        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
+            with pytest.raises(ValueError, match="Switch this table to incremental merge") as error:
+                source.source_for_pipeline(DepotSourceConfig(api_token="token", repository="a/b"), inputs)
+        assert str(error.value) in source.get_non_retryable_errors()
+        make_session.assert_not_called()

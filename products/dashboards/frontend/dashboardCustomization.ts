@@ -69,20 +69,143 @@ function occupy(occupancy: GridOccupancy, item: LayoutItem, cols: number): void 
     }
 }
 
-export const freePlacementCompactor: Compactor = noCompactor
+function snapBetweenAdjacentTiles(
+    items: Layout,
+    activeTile: LayoutItem,
+    overlappingItems: LayoutItem[],
+    cols: number
+): void {
+    if (overlappingItems.length < 2) {
+        return
+    }
+
+    const [left, ...others] = [...overlappingItems].sort((first, second) => first.x - second.x)
+    const right = others.find((item) => item.x > left.x)
+    if (
+        !right ||
+        left.x + left.w > right.x ||
+        overlappingItems.some(
+            (item) => (item.x !== left.x || item.w !== left.w) && (item.x !== right.x || item.w !== right.w)
+        )
+    ) {
+        return
+    }
+
+    for (let distance = 1; distance <= activeTile.w; distance++) {
+        let bestCandidate: { x: number; collisions: number } | undefined
+        for (const candidateX of [activeTile.x + distance, activeTile.x - distance]) {
+            if (candidateX < 0 || candidateX + activeTile.w > cols) {
+                continue
+            }
+
+            const collisions = items.filter(
+                (item) =>
+                    item.i !== activeTile.i &&
+                    item.x < candidateX + activeTile.w &&
+                    item.x + item.w > candidateX &&
+                    item.y < activeTile.y + activeTile.h &&
+                    item.y + item.h > activeTile.y
+            )
+            if (
+                collisions.length > 0 &&
+                collisions.every((collision) => overlappingItems.includes(collision)) &&
+                (collisions.every((collision) => collision.x === left.x) ||
+                    collisions.every((collision) => collision.x === right.x)) &&
+                (!bestCandidate || collisions.length < bestCandidate.collisions)
+            ) {
+                bestCandidate = { x: candidateX, collisions: collisions.length }
+            }
+        }
+        if (bestCandidate) {
+            activeTile.x = bestCandidate.x
+            return
+        }
+    }
+}
+
+export const freePlacementCompactor: Compactor = { ...noCompactor, allowOverlap: true }
 
 export const makeRoomInRowCompactor: Compactor = horizontalCompactor
 
 export interface DashboardGridCompactor extends Compactor {
-    compactInteraction: (cols: number, activeTileId: string, restoredLayout: Layout, resizedLayout: Layout) => Layout
+    compactInteraction: (
+        cols: number,
+        activeTileId: string,
+        restoredLayout: Layout,
+        resizedLayout: Layout,
+        isDragging?: boolean
+    ) => Layout
 }
 
-export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
+export function resolveFreePlacementCollisions(
+    layout: Layout,
+    cols: number,
+    activeTileId?: string | null,
+    isDragging = true
+): Layout {
     const items = layout.map((item) => ({
         ...cloneLayoutItem(item),
         h: Math.min(item.h, MAX_FREE_FORM_TILE_HEIGHT_ROWS),
     }))
     const activeTile = activeTileId ? items.find((item) => item.i === activeTileId) : undefined
+    if (activeTile && !activeTile.static && !items.some((item) => item.static)) {
+        const overlappingItems = items.filter(
+            (item) =>
+                item.i !== activeTileId &&
+                item.x < activeTile.x + activeTile.w &&
+                item.x + item.w > activeTile.x &&
+                item.y < activeTile.y + activeTile.h &&
+                item.y + item.h > activeTile.y
+        )
+
+        if (overlappingItems.length > 0) {
+            if (isDragging) {
+                snapBetweenAdjacentTiles(items, activeTile, overlappingItems, cols)
+            }
+
+            const occupancy: GridOccupancy = new Map()
+            const shiftByColumn = Array.from({ length: cols }, () => 0)
+            const lastOriginalBottomByColumn = Array.from({ length: cols }, () => 0)
+            const lastPlacedBottomByColumn = Array.from({ length: cols }, () => 0)
+            occupy(occupancy, activeTile, cols)
+
+            for (const item of items
+                .filter((item) => item.i !== activeTileId)
+                .sort((first, second) => first.y - second.y || first.x - second.x)) {
+                const originalY = item.y
+                const firstColumn = Math.max(0, item.x)
+                const lastColumn = Math.min(cols, item.x + item.w)
+
+                for (let column = firstColumn; column < lastColumn; column++) {
+                    if (
+                        originalY > lastOriginalBottomByColumn[column] &&
+                        originalY >= lastPlacedBottomByColumn[column]
+                    ) {
+                        shiftByColumn[column] = 0
+                    }
+                    item.y = Math.max(item.y, originalY + shiftByColumn[column])
+                }
+
+                let collisions = getOccupants(occupancy, item, cols)
+                while (collisions.length > 0) {
+                    item.y = Math.max(...collisions.map((collision) => collision.y + collision.h))
+                    collisions = getOccupants(occupancy, item, cols)
+                }
+
+                for (let column = firstColumn; column < lastColumn; column++) {
+                    shiftByColumn[column] = Math.max(shiftByColumn[column], item.y - originalY)
+                    lastOriginalBottomByColumn[column] = Math.max(
+                        lastOriginalBottomByColumn[column],
+                        originalY + item.h
+                    )
+                    lastPlacedBottomByColumn[column] = Math.max(lastPlacedBottomByColumn[column], item.y + item.h)
+                }
+                occupy(occupancy, item, cols)
+            }
+            return items
+        }
+    }
+
     const occupancy: GridOccupancy = new Map()
     for (const item of items) {
         if (item.static) {
@@ -124,10 +247,10 @@ export function getDashboardGridCompactor(layoutCompaction?: DashboardGridCompac
 
     return {
         ...compactor,
-        compactInteraction: (cols, activeTileId, restoredLayout, resizedLayout): Layout => {
+        compactInteraction: (cols, activeTileId, restoredLayout, resizedLayout, isDragging = true): Layout => {
             switch (selectedCompaction) {
                 case DashboardGridCompaction.Stable:
-                    return resolveFreePlacementCollisions(restoredLayout, cols, activeTileId)
+                    return resolveFreePlacementCollisions(restoredLayout, cols, activeTileId, isDragging)
                 case DashboardGridCompaction.Vertical:
                     return compactor.compact(resizedLayout, cols)
                 default:

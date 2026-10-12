@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs'
+import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs/BusinessKnowledgeTabs'
 import { BusinessKnowledgePreview } from './BusinessKnowledgePreview'
 import { BusinessKnowledgePrimaryAction } from './BusinessKnowledgePrimaryAction'
 import { businessKnowledgeSetupLogic } from './businessKnowledgeSetupLogic'

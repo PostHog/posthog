@@ -150,7 +150,12 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
             "event_name": "$groupidentify",
             "event_source": event_source,
             "distinct_id": str(distinct_id),
-            "properties": {"$group_type": group_type, "$group_key": str(group_key), "$group_set": properties},
+            "properties": {
+                "$group_type": group_type,
+                "$group_key": str(group_key),
+                "$group_set": properties,
+                "$geoip_disable": True,
+            },
             "process_person_profile": True,
         }
     return {
@@ -158,7 +163,7 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         "event_name": "$set",
         "event_source": event_source,
         "distinct_id": str(distinct_id),
-        "properties": {"$set": properties},
+        "properties": {"$set": properties, "$geoip_disable": True},
         "process_person_profile": True,
     }
 

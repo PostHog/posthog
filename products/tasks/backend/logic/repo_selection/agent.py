@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Q, Value, When
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
@@ -519,6 +521,41 @@ context and repo names alone.
 </jsonschema>"""
 
 
+def _names_repository(text: str, repo: str) -> bool:
+    # A longer name that starts with `repo` (`acme/api-client` for `acme/api`) is another repository.
+    # A dot that ends a sentence also ends the name, but a dot before a word (`acme/api.js`) does not.
+    return re.search(rf"(?<![\w.-]){re.escape(repo)}(?![\w-]|\.\w)", text, re.IGNORECASE) is not None
+
+
+def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelectionResult:
+    """Read a selection out of an end turn that did not validate against `RepoSelectionResult`.
+
+    A failure here costs the caller its automatic selection, so a reply that names exactly one
+    candidate is still worth keeping. Two or more named candidates leave the conclusion ambiguous:
+    raise instead, because the runner then fails the turn the way it did before this salvage, and
+    the caller keeps its own fallback. Never answer "no repository" from here — callers read that
+    as a decision the agent made.
+
+    A reply that got as far as its `repository` field has stated its choice, so only that value
+    counts. Its `reason` must cite the repositories the agent checked, so a cut-off
+    `{"repository": null, "reason": "checked acme/b...` names a candidate the agent rejected.
+    """
+    stated = re.findall(r'"repository"\s*:\s*(?:null|"([^"]*)")', text)
+    if stated:
+        # The answer comes last, after any tool call or error object that also holds the key.
+        choice = stated[-1].strip().lower()
+        named = {choice} if choice in candidate_repos else set()
+    else:
+        named = {repo for repo in candidate_repos if _names_repository(text, repo)}
+    if len(named) != 1:
+        raise ValueError(f"End-turn text names {len(named)} candidate repositories, so no selection can be read")
+    repository = named.pop()
+    return RepoSelectionResult(
+        repository=repository,
+        reason=f"The agent's answer was not readable, but its reply named only {repository}.",
+    )
+
+
 # Tells a pinned pick from an agent's pick when reading a stored `repo_selection` artefact.
 PINNED_REPOSITORY_REASON = "The request names this repository as its source."
 
@@ -551,6 +588,7 @@ async def select_repository(
     context: str,
     *,
     origin_product: Task.OriginProduct,
+    priority: Priority,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
@@ -613,7 +651,7 @@ async def select_repository(
     # concurrent calls for the same team wait on the leader and then read the warm cache.
     if output_fn:
         output_fn("Refreshing repository cache...")
-    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id)
+    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id, priority=priority)
     await repo_cache.sync_full_cache()
     # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
     # (the prompt treats SQL as primary evidence — a missing row reads as a false-negative).
@@ -672,6 +710,9 @@ async def select_repository(
         signal_report_id=signal_report_id,
         ai_stage="repo_selection",
         internal=True,
+        # An unreadable end turn used to fail the whole selection, and the caller then dropped the
+        # user into a manual repository picker. Read the pick out of the raw reply instead.
+        fallback_from_text=lambda text: _salvage_repo_selection(text, candidate_repos),
     )
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:

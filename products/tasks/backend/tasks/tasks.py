@@ -1,13 +1,53 @@
 from datetime import datetime
 from uuid import UUID
 
+from django.db import OperationalError
+
 from celery import shared_task
+from celery.app.task import Task as CeleryTask
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    Timeout as RequestsTimeout,
+)
+
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.logic.services.slack_pr_cards import post_pr_closed_slack_update
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run_id
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture, BudgetSteerProperties
+
+
+@shared_task(ignore_result=True, bind=True, max_retries=5)
+def reconcile_task_run_pull_request(self: CeleryTask, *, team_id: int, run_id: str, pr_url: str) -> None:
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/task import cycle
+        PullRequestReconciler,
+    )
+
+    try:
+        PullRequestReconciler(team_id=team_id, run_id=run_id, pr_url=pr_url).reconcile()
+    except (
+        GitHubIntegrationError,
+        GitHubRateLimitError,
+        GitHubEgressBudgetExhausted,
+        RequestsConnectionError,
+        RequestsTimeout,
+        OperationalError,
+    ) as error:
+        if (
+            isinstance(error, GitHubIntegrationError)
+            and error.status_code is not None
+            and 400 <= error.status_code < 500
+            and error.status_code not in {408, 429}
+        ):
+            raise
+        countdown = min(60 * 2**self.request.retries, 900)
+        retry_after = getattr(error, "retry_after", None)
+        if isinstance(retry_after, (int, float)):
+            countdown = max(countdown, retry_after)
+        raise self.retry(exc=error, countdown=countdown)
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5, acks_late=True)
@@ -42,13 +82,13 @@ def deliver_comment_slack_dms(
     *,
     team_id: int,
     comment_id: str,
-    task_id: str,
+    task_id: str | None,
     recipients: dict[str, str],
 ) -> None:
     send_comment_slack_dms(
         team_id=team_id,
         comment_id=UUID(comment_id),
-        task_id=UUID(task_id),
+        task_id=UUID(task_id) if task_id else None,
         recipients={int(user_id): kind for user_id, kind in recipients.items()},
     )
 

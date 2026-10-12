@@ -50,6 +50,7 @@ from posthog.tasks.email import (
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_team_matview_failure_digest,
+    send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
     send_workflow_email_sending_paused,
     send_workflow_email_sending_warning,
@@ -60,7 +61,7 @@ from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
-from products.batch_exports.backend.facade.contracts import BatchExportRunStatus, DestinationType
+from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
@@ -71,7 +72,7 @@ def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]
     batch_export_id = batch_exports_testing.create_batch_export(
         team_id,
         name="A batch export",
-        destination_type=DestinationType.AWS_S3,
+        destination_type=BatchExportDestinationType.AWS_S3,
         destination_config={"bucket_name": "my_production_s3_bucket"},
     )
     now = dt.datetime.now()
@@ -640,7 +641,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
             self.team.pk,
-            destination_type=DestinationType.AWS_S3,
+            destination_type=BatchExportDestinationType.AWS_S3,
             destination_config={"bucket_name": "my_production_s3_bucket"},
         )
         now = dt.datetime.now()
@@ -1053,6 +1054,76 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
+
+    def test_send_warehouse_destination_paused_names_the_error_and_respects_the_opt_out(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        user2 = self._create_user("test2@posthog.com")
+        destination_id = "0190a2b4-0000-0000-0000-000000000001"
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"warehouse_destination:{destination_id}": True},
+        }
+        self.user.save()
+
+        send_warehouse_destination_paused(
+            self.team.id, destination_id, "analytics postgres", "The host name does not exist.", "2026-01-01T00:00:00"
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+        assert "analytics postgres" in message.subject
+        assert "The host name does not exist." in message.html_body
+        assert f"/project/{self.team.id}/data-management/warehouse-destinations" in message.html_body
+
+    def test_send_warehouse_destination_paused_normalizes_subject_names(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.team.name = "project\nname"
+        self.team.save(update_fields=["name"])
+
+        send_warehouse_destination_paused(
+            self.team.id,
+            "0190a2b4-0000-0000-0000-000000000001",
+            "destination\r\nname",
+            "The host name does not exist.",
+            "2026-01-01T00:00:00",
+        )
+
+        assert mocked_email_messages[0].subject == (
+            "[Alert] Data warehouse destination 'destination name' paused in project 'project name'"
+        )
+
+    def test_send_warehouse_destination_paused_skips_members_without_destination_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("restricted@posthog.com")
+
+        class FakeUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                self.user = user
+
+            access_controls_supported = True
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                assert (resource, level) == ("external_data_source", "viewer")
+                return self.user.email != "restricted@posthog.com"
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_warehouse_destination_paused(
+                self.team.id,
+                "0190a2b4-0000-0000-0000-000000000001",
+                "analytics postgres",
+                "The host name does not exist.",
+                "2026-01-01T00:00:00",
+            )
+
+        assert len(mocked_email_messages) == 1
+        assert [r["recipient"] for r in mocked_email_messages[0].to] == [self.user.email]
 
     def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2320,7 +2391,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
 
-    @parameterized.expand(["task", "task_artifact", "desktop_canvas"])
+    @parameterized.expand(["task", "task_artifact", "canvas"])
     def test_send_discussions_mentioned_skips_desktop_comments(self, MockEmailMessage: MagicMock, scope: str) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mentioned_user = User.objects.create_and_join(

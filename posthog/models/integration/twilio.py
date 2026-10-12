@@ -7,28 +7,25 @@ from rest_framework.exceptions import ValidationError
 from . import model
 
 if TYPE_CHECKING:
-    from products.workflows.backend.providers import TwilioProvider
+    from products.workflows.backend.facade.contracts import TwilioPhoneNumber
 
 
 class TwilioIntegration:
     integration: model.Integration
-    twilio_provider: "TwilioProvider"
 
     def __init__(self, integration: model.Integration) -> None:
-        from products.workflows.backend.providers import (
-            TwilioProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
-        )
-
         if integration.kind != "twilio":
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
-        self.twilio_provider = TwilioProvider(
-            account_sid=self.integration.config["account_sid"],
-            auth_token=self.integration.sensitive_config["auth_token"],
+        self._account_sid = self.integration.config["account_sid"]
+        self._auth_token = self.integration.sensitive_config["auth_token"]
+
+    def list_twilio_phone_numbers(self) -> list["TwilioPhoneNumber"]:
+        from products.workflows.backend.facade.api import (
+            get_twilio_phone_numbers,  # noqa: PLC0415 — keeps the workflows facade off the model import path
         )
 
-    def list_twilio_phone_numbers(self) -> list[dict]:
-        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
+        twilio_phone_numbers = get_twilio_phone_numbers(account_sid=self._account_sid, auth_token=self._auth_token)
 
         if not twilio_phone_numbers:
             raise Exception(f"There was an internal error")
@@ -36,7 +33,11 @@ class TwilioIntegration:
         return twilio_phone_numbers
 
     def integration_from_keys(self) -> model.Integration:
-        account_info = self.twilio_provider.get_account_info()
+        from products.workflows.backend.facade.api import (
+            get_twilio_account_info,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+        )
+
+        account_info = get_twilio_account_info(account_sid=self._account_sid, auth_token=self._auth_token)
 
         if not account_info.get("sid"):
             raise ValidationError({"account_info": "Failed to get account info"})

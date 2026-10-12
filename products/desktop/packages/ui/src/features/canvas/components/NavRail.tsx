@@ -59,7 +59,6 @@ import {
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { NavRailTile } from "@posthog/ui/features/sidebar/components/NavRailTile";
@@ -282,7 +281,6 @@ function NavRailImpl() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
-  const inboxAvailable = useInboxAvailable();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
   const mentionsEnabled = useActivityFilterStore(
@@ -296,7 +294,7 @@ function NavRailImpl() {
   const toggleWorkActivity = useWorkActivityStore((state) => state.toggle);
   const railFlags = {
     home: homeEnabled,
-    inbox: inboxAvailable,
+    inbox: true,
     loops: loopsEnabled,
     context: contextEnabled,
     savedSearches: savedSearchesRailEnabled && hasSavedSearches,

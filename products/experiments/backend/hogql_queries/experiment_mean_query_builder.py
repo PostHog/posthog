@@ -16,6 +16,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     is_session_property_metric,
     validate_session_property,
 )
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 if TYPE_CHECKING:
@@ -32,8 +33,16 @@ class MeanQueryBuilder:
     and the shared exposure, metric-value, and CUPED helpers through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder"):
+    def __init__(
+        self,
+        builder: "ExperimentQueryBuilder",
+        exposure: ExposureQueryBuilder,
+        *,
+        metric_events_job_ids: list[str] | None = None,
+    ):
         self._b = builder
+        self._exposure = exposure
+        self._metric_events_job_ids = metric_events_job_ids
 
     def get_session_property_ctes(self) -> str:
         """
@@ -121,7 +130,7 @@ class MeanQueryBuilder:
             entity_metric_selects = """
                     {value_agg} AS value"""
 
-        if self._b.metric_events_preaggregation_job_ids:
+        if self._metric_events_job_ids:
             # Read from the precomputed table instead of scanning events. Only reachable
             # for eligible metrics (no breakdowns/CUPED/DW/session properties), so the
             # branches above never coexist with this one.
@@ -206,7 +215,7 @@ class MeanQueryBuilder:
 
         source_info = MetricSourceInfo.from_source(self._b.metric.source, entity_key=self._b.entity_key)
 
-        exposure_query = self._b._get_exposure_query()
+        exposure_query = self._exposure.select_query()
         if source_info.kind == "datawarehouse":
             assert isinstance(self._b.metric.source, ExperimentDataWarehouseNode)
             events_join_key_parts = cast(list[str | int], self._b.metric.source.events_join_key.split("."))
@@ -252,8 +261,8 @@ class MeanQueryBuilder:
                 value_expr=self._b._build_windowed_metric_value_expr(cuped_pre_window_predicate)
             )
 
-        if self._b.metric_events_preaggregation_job_ids:
-            placeholders["metric_events_job_ids"] = ast.Constant(value=self._b.metric_events_preaggregation_job_ids)
+        if self._metric_events_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self._metric_events_job_ids)
             placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
             placeholders["metric_events_date_from"] = self._b.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self._b.date_range_query.date_to_as_hogql()
@@ -272,7 +281,7 @@ class MeanQueryBuilder:
         """Placeholders for the CTEs from get_session_property_ctes()."""
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
-        exposure_query = self._b._get_exposure_query()
+        exposure_query = self._exposure.select_query()
 
         return {
             "exposure_select_query": exposure_query,

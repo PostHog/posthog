@@ -76,6 +76,15 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             "invalid token: missing expiration": bad_key,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `DOIT_RETRY` already retries a 429 at the transport level; this is DoIt's own account-wide
+        # concurrency quota (multiple schemas of one source can query reports at once), which can
+        # outlast that budget. It clears once the other in-flight requests finish, and Temporal
+        # retries the whole activity from there, so it's transient and self-recovering rather than a
+        # bug. Match the trailing phrase only — the quota key embedded earlier in the message is
+        # account-specific.
+        return {"exhausted; please wait for previous requests to complete"}
+
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
         report_id = resolve_report_id(config, inputs.schema_name, inputs.schema_metadata, logger=inputs.logger)
         return doit_source(

@@ -9,6 +9,7 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineExperimentQuerySerializer,
     OfflineHistoryQuerySerializer,
     OfflinePageQuerySerializer,
+    OfflineResultCellQuerySerializer,
     OfflineResultQuerySerializer,
     OfflineSummaryQuerySerializer,
 )
@@ -29,6 +30,27 @@ SCORER_VERSION_ID = UUID("01923333-3333-7333-8333-333333333333")
 
 
 class TestOfflineReadQuerySerializers(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("item_ids", ""),
+            ("item_ids", f"{ITEM_ID},{ITEM_ID}"),
+            ("item_ids", ",".join(str(UUID(int=index + 1)) for index in range(51))),
+            ("scorer_version_ids", ""),
+            ("scorer_version_ids", f"{SCORER_VERSION_ID},{SCORER_VERSION_ID}"),
+            ("scorer_version_ids", ",".join(str(UUID(int=index + 1)) for index in range(21))),
+        ]
+    )
+    def test_fixed_cell_reads_reject_unbounded_or_ambiguous_selections(self, field: str, value: str) -> None:
+        serializer = OfflineResultCellQuerySerializer(
+            data={
+                "item_ids": str(ITEM_ID),
+                "scorer_version_ids": str(SCORER_VERSION_ID),
+                field: value,
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
     @parameterized.expand(
         [
             ("empty", EmptyQuerySerializer, "limit"),

@@ -316,7 +316,7 @@ Material aspects (must align in spirit, not necessarily byte-for-byte):
 5. **Formulas** (``trendsFilter.formulaNodes``): must be semantically equivalent. ``A/B`` and ``B/A * 100`` are NOT equivalent — direction matters. ``A/B`` and ``A/B`` is fine even if one writes ``A / B``.
 6. **Date range**: relative windows (``-14d``, ``-30d``, ``-1y``) are acceptable when equivalent to the expected window. Absolute dates must match the same month/year. Default ``-30d`` is acceptable when the prompt has no time component.
 7. **Interval**: ``day`` / ``week`` / ``month`` / ``hour`` — must match the prompt's implied granularity. ``day`` is the default and acceptable when not specified.
-8. **Display type** (``trendsFilter.display``): only material when the prompt clearly calls for a specific display, OR when the expected sets a non-default like ``BoldNumber`` (single-value answer) or ``ActionsBar`` (categorical comparison) and that nature is intrinsic to the prompt. ``ActionsLineGraph`` is the default — do not penalize the actual for omitting it.
+8. **Display type** (``trendsFilter.display``): only material when the prompt clearly calls for a specific display, OR when the expected sets a non-default like ``BoldNumber`` (single-value answer) or ``ActionsBarValue`` (totals per category) and that nature is intrinsic to the prompt. ``ActionsLineGraph`` is the default — do not penalize the actual for omitting it.
 
 Ignore (do NOT penalize, even when the expected sets them):
 - ``filterTestAccounts``, ``samplingFactor``, ``showLegend``, ``showValuesOnSeries``, ``smoothingIntervals``, ``compareFilter``, ``kind`` defaults, presence/absence of optional containers when their effective content matches.
@@ -713,6 +713,18 @@ TYPED_QUERY_TOOLS = frozenset(
 )
 SERIES_QUERY_TOOLS = frozenset({QUERY_TRENDS_TOOL_NAME, QUERY_FUNNEL_TOOL_NAME})
 
+_QUERY_TOOL_BY_KIND = {
+    "TrendsQuery": QUERY_TRENDS_TOOL_NAME,
+    "FunnelsQuery": QUERY_FUNNEL_TOOL_NAME,
+    "RetentionQuery": QUERY_RETENTION_TOOL_NAME,
+    "PathsQuery": "query-paths",
+    "StickinessQuery": "query-stickiness",
+    "LifecycleQuery": "query-lifecycle",
+    "WebStatsTableQuery": "query-web-stats",
+    "WebOverviewQuery": "query-web-overview",
+    "HogQLQuery": "execute-sql",
+}
+
 _ANSWER_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     QUERY_TRENDS_TOOL_NAME: AssistantTrendsQuery,
     QUERY_FUNNEL_TOOL_NAME: AssistantFunnelsQuery,
@@ -723,7 +735,9 @@ _ANSWER_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
 class InsightShape(Scorer):
     """Binary: did the agent's answer query have the expected skeleton?
 
-    The most recent successful typed query is the answer query. A later SQL call is
+    When the agent saved an insight, the most recent saved query is the answer query, and
+    it is checked as the query tool for its kind, such as ``query-trends`` or ``execute-sql``.
+    Otherwise the most recent successful typed query is the answer query. A later SQL call is
     ignored because the desktop agent can rerun a typed query as SQL to render it.
     When no typed query ran, the most recent non-discovery SQL call is the answer.
 
@@ -753,29 +767,35 @@ class InsightShape(Scorer):
         parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+        calls = parser.get_tool_calls()
+        saved = [answer for answer in map(_saved_query, calls) if answer]
         successful = [
             call
-            for call in parser.get_tool_calls()
+            for call in calls
             if not call.is_error
             and (call.name in TYPED_QUERY_TOOLS or call.name == "execute-sql")
             and not is_schema_discovery_call(call)
         ]
-        if not successful:
+        if saved:
+            tool_name, raw_query = saved[-1]
+        elif successful:
+            typed = [call for call in successful if call.name in TYPED_QUERY_TOOLS]
+            answer = typed[-1] if typed else successful[-1]
+            tool_name, raw_query = answer.name, answer.input if isinstance(answer.input, dict) else {}
+        else:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Agent never ran an insight tool"})
-        typed = [call for call in successful if call.name in TYPED_QUERY_TOOLS]
-        answer = typed[-1] if typed else successful[-1]
 
-        query = _query_of(answer)
+        query = _query_of(tool_name, raw_query)
         actual: dict[str, Any] = {
-            "tool": answer.name,
-            "display": _actual_display(query, answer.name),
-            "compare": _actual_compare(query, answer.name),
-            "funnel_viz": _actual_funnel_viz(query, answer.name),
+            "tool": tool_name,
+            "display": _actual_display(query, tool_name),
+            "compare": _actual_compare(query, tool_name),
+            "funnel_viz": _actual_funnel_viz(query, tool_name),
             "breakdown": _actual_breakdown(query),
             "event_sequence": _actual_events(query),
         }
         actual["events"] = sorted(actual["event_sequence"], key=str)
-        checked = shape if answer.name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
+        checked = shape if tool_name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
         mismatches = {
             key: actual.get(key)
             for key, expected_value in checked.items()
@@ -788,9 +808,20 @@ class InsightShape(Scorer):
         )
 
 
-def _query_of(call: ToolCall) -> dict[str, Any]:
-    raw = call.input if isinstance(call.input, dict) else {}
-    schema = _ANSWER_TOOL_SCHEMAS.get(call.name)
+def _saved_query(call: ToolCall) -> tuple[str, dict[str, Any]] | None:
+    if call.is_error or call.name not in ("insight-create", "insight-update") or not isinstance(call.input, dict):
+        return None
+    query = call.input.get("query")
+    if isinstance(query, dict) and query.get("kind") in ("InsightVizNode", "DataVisualizationNode"):
+        query = query.get("source")
+    if not isinstance(query, dict):
+        return None
+    kind = str(query.get("kind"))
+    return _QUERY_TOOL_BY_KIND.get(kind, kind), query
+
+
+def _query_of(tool_name: str, raw: dict[str, Any]) -> dict[str, Any]:
+    schema = _ANSWER_TOOL_SCHEMAS.get(tool_name)
     if schema is None:
         return raw
     cleaned = {k: v for k, v in raw.items() if k in schema.model_fields}

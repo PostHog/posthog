@@ -10,19 +10,25 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-// A wait is woken by the matcher on a matching signal, so its re-check only has to reconcile a wake
-// lost between the condition being evaluated and the job being persisted.
-const WAIT_RECHECK_SECONDS = 60 * 60
-
-// Increments only when the periodic re-check advances a wait_until_condition that the subscription
-// matcher did NOT wake (and not an evaluate-on-entry match). It measures how often the backstop is
-// the only thing that moved a run, which is the rate of wakes the streams lost.
-// Labelled by team and flow so a non-zero reading names the workflow still leaning on the poll; a
-// series only exists for flows that actually poll-advance, so cardinality tracks incidence.
-export const counterHogflowWaitPollOnlyAdvance = new Counter({
-    name: 'cdp_hogflow_wait_poll_only_advance',
-    help: 'wait_until_condition advanced via the polling re-check, not the subscription matcher — a wake the streams missed.',
+// A wait parks for its whole max_wait_duration: the subscription matcher wakes it when a matching
+// event, person update or internal event arrives, so nothing has to re-check it on a timer.
+//
+// Increments when a wait's condition only matched once that ceiling arrived. The condition was
+// therefore true earlier and no stream woke the run, so this counts wakes the matcher lost. A
+// condition turning true in the same second as the ceiling is a coincidence, so a sustained
+// non-zero reading names a workflow whose wakes are going missing.
+export const counterHogflowWaitAdvancedAtMaxWait = new Counter({
+    name: 'cdp_hogflow_wait_advanced_at_max_wait',
+    help: 'wait_until_condition that only matched once max_wait_duration elapsed — a wake the streams missed.',
     labelNames: ['team_id', 'hog_flow_id'],
+})
+
+// A person re-read that failed, so the wait evaluated against the person the dequeue read. Kept as
+// a counter because swallowing the failure is what stops it from ending the wait early, and a
+// sustained non-zero reading means waits are routing on person data that is older than they expect.
+export const counterHogflowWaitPersonRefreshFailed = new Counter({
+    name: 'cdp_hogflow_wait_person_refresh_failed',
+    help: 'wait_until_condition evaluations whose person re-read failed, falling back to the dequeue read.',
 })
 
 // Outcome of a wait_until_condition re-check that ran because a person merge re-keyed the parked job
@@ -75,11 +81,16 @@ export class ConditionalBranchHandler implements ActionHandler {
 
         // The person the worker read at dequeue can predate a write this wait is waiting for, and a
         // wait that parks on that read is stuck: the write already happened, so no person message
-        // follows to wake it. Re-read before the first evaluation of each wait — including a wait
-        // reached later in the same dequeue. Re-checks of a wait that already parked run an hour
-        // apart, by when the cache has expired, so they keep the cheaper read.
-        if (action.type === 'wait_until_condition' && !invocation.state?.currentAction?.pollReparked) {
-            const refreshed = await invocation.refreshPerson?.()
+        // follows to wake it. Re-read before every evaluation of a wait: on entry, and on each
+        // matcher wake, where the person the wake refers to is the point of the re-check.
+        if (action.type === 'wait_until_condition') {
+            const refreshed = await invocation.refreshPerson?.().catch(() => {
+                // A read that throws keeps the dequeue's person as well. Letting it reach the
+                // executor's error handling would follow the continue edge, which for a wait is the
+                // timeout edge, so one failed read would end a multi-day wait early.
+                counterHogflowWaitPersonRefreshFailed.inc()
+                return undefined
+            })
             // A refresh that finds no person keeps the dequeue's read. The refresh exists to make a
             // just-written property visible, not to drop a person: a lookup that comes back empty
             // (replica lag, a transient miss) would otherwise evaluate the condition against nothing.
@@ -112,27 +123,20 @@ export class ConditionalBranchHandler implements ActionHandler {
             conditionalAction,
             this.createMemberCohortIdsLoader(invocation),
             action.type === 'wait_until_condition' && action.config.max_wait_duration
-                ? { maxWaitDuration: action.config.max_wait_duration, recheckSeconds: WAIT_RECHECK_SECONDS }
+                ? { maxWaitDuration: action.config.max_wait_duration }
                 : undefined
         )
 
         const isWait = action.type === 'wait_until_condition'
 
         if (conditionResult.scheduledAt) {
-            // Record that this wait has re-parked at least once, so a later condition match is
-            // attributable to the polling re-check rather than an evaluate-on-entry match.
-            if (isWait && invocation.state.currentAction) {
-                invocation.state.currentAction.pollReparked = true
-            }
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('reparked').inc()
             }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            // Poll-only advance: a wait matched on a re-check that no matcher wake caused, and not on
-            // entry. Re-key and anchor wakes arrive without eventMatched, so both must be excluded.
-            if (isWait && !rekeyWoken && !anchorWoken && invocation.state.currentAction?.pollReparked === true) {
-                counterHogflowWaitPollOnlyAdvance
+            if (isWait && !rekeyWoken && !anchorWoken && matchedAtMaxWait(invocation, action)) {
+                counterHogflowWaitAdvancedAtMaxWait
                     .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
                     .inc()
             }
@@ -184,13 +188,38 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
+// True when this wait is being evaluated at or past the max_wait_duration it parked against.
+// calculatedScheduledAt returns null once that instant has passed, which is the same test the
+// timeout path uses. A wait that never parked, or that parked against a ceiling the flow has since
+// changed, reads false: neither is a wake the streams missed.
+function matchedAtMaxWait(
+    invocation: CyclotronJobInvocationHogFlow,
+    action: Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
+): boolean {
+    const startedAtTimestamp = invocation.state.currentAction?.startedAtTimestamp
+    const maxWait = action.type === 'wait_until_condition' ? action.config.max_wait_duration : undefined
+    if (!startedAtTimestamp || !maxWait) {
+        return false
+    }
+    if (invocation.state.currentAction?.parkedMaxWaitDuration !== maxWait) {
+        return false
+    }
+    try {
+        return calculatedScheduledAt(maxWait, startedAtTimestamp) === null
+    } catch {
+        // An unreadable duration is the timeout path's problem, not this counter's.
+        return false
+    }
+}
+
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
     loadMemberCohortIds?: () => Promise<number[]>,
-    // Only a wait re-parks; a conditional_branch routes on the spot. A wait is normalised into a
-    // branch before it gets here, so the caller passes its ceiling rather than the type carrying it.
-    repark?: { maxWaitDuration: string; recheckSeconds: number }
+    // Only a wait re-parks, for its whole ceiling; a conditional_branch routes on the spot. A wait is
+    // normalised into a branch before it gets here, so the caller passes its ceiling rather than the
+    // type carrying it.
+    repark?: { maxWaitDuration: string }
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -200,7 +229,8 @@ export async function checkConditions(
         // Loaded only when evaluation actually reaches a cohort condition, so a run whose earlier
         // condition matches never touches the behavioral cohorts DB. A lookup failure throws here
         // on purpose (following the action's on_error) instead of guessing non-membership; the
-        // inCohort/notInCohort STL functions read the resulting cohort_ids global.
+        // inCohort/notInCohort STL functions read the resulting cohort_ids global. The matcher does
+        // not watch cohort membership, so a wait gated on a cohort advances at its deadline.
         const cohortGlobals =
             loadMemberCohortIds && conditionReferencesCohorts(condition)
                 ? { cohort_ids: await loadMemberCohortIds() }
@@ -226,15 +256,17 @@ export async function checkConditions(
     }
 
     if (repark) {
-        // A wake arriving between this evaluation and the job being persisted finds no available row
-        // and is never replayed, so a wait cannot rely on the matcher alone.
+        // Park to the ceiling rather than a re-check interval: the matcher wakes the job when
+        // something relevant changes, so the deadline is the only timer left.
         const scheduledAt = calculatedScheduledAt(
             repark.maxWaitDuration,
-            invocation.state.currentAction?.startedAtTimestamp,
-            repark.recheckSeconds
+            invocation.state.currentAction?.startedAtTimestamp
         )
 
         if (scheduledAt) {
+            if (invocation.state.currentAction) {
+                invocation.state.currentAction.parkedMaxWaitDuration = repark.maxWaitDuration
+            }
             return {
                 scheduledAt,
             }

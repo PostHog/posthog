@@ -83,6 +83,38 @@ export const WithExternalLinks: Story = {
     name: 'Issue with external links',
 }
 
+const issueWithBreakdown: ErrorIssueData = {
+    ...activeIssue,
+    breakdown: {
+        date_from: '2025-12-11T00:00:00Z',
+        date_to: '2025-12-18T00:00:00Z',
+        range_limited: false,
+        occurrences: 1240,
+        sample_session_ids: ['0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', '0193a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c'],
+        top_values: {
+            path: [
+                { value: '/project/1/dashboard/42', count: 910 },
+                { value: '/project/1/dashboard', count: 330 },
+            ],
+            browser: [
+                { value: 'Chrome', count: 800 },
+                { value: 'Safari', count: 440 },
+            ],
+            os: [{ value: 'Mac OS X', count: 1240 }],
+            library: [{ value: 'web', count: 1240 }],
+            library_version: [
+                { value: '1.300.0', count: 1000 },
+                { value: '1.299.2', count: 240 },
+            ],
+        },
+    },
+}
+
+export const WithBreakdown: Story = {
+    render: () => <ErrorIssueView issue={issueWithBreakdown} />,
+    name: 'Issue with breakdown',
+}
+
 const sampleListData: ErrorIssueListData = {
     count: 4,
     results: [activeIssue, resolvedIssue, issueWithLinks, suppressedIssue],

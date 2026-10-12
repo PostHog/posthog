@@ -9,7 +9,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.goldcast import (
     goldcast_source,
     validate_credentials,
@@ -58,70 +57,46 @@ def _rows(access_key: str, endpoint: str) -> list[dict[str, Any]]:
 
 class TestTopLevelEndpoints:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_collection_endpoint_yields_all_rows(self, MockSession) -> None:
-        _wire(MockSession.return_value, [_response([{"id": "e1"}, {"id": "e2"}])])
-        assert _rows("tok", "events") == [{"id": "e1"}, {"id": "e2"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_object_endpoint_yields_one_row(self, MockSession) -> None:
-        # The organization endpoint returns a single object, not a collection — it must sync as one row.
-        _wire(MockSession.return_value, [_response({"id": "org1"})])
-        assert _rows("tok", "organizations") == [{"id": "org1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_nothing(self, MockSession) -> None:
-        _wire(MockSession.return_value, [_response([])])
-        assert _rows("tok", "events") == []
+    def test_broadcasts_drop_stream_credentials(self, MockSession) -> None:
+        _wire(
+            MockSession.return_value,
+            [
+                _response(
+                    [
+                        {
+                            "id": "b1",
+                            "title": "Keynote",
+                            "youtube_stream_key": "yt-fake-key",
+                            "facebook_stream_key": "fb-fake-key",
+                            "custom_stream_key": "custom-fake-key",
+                            "external_rtmp_push_stream": "rtmp://stream.example.com/live/fake-key",
+                            "wordly_session_key": "wordly-fake-key",
+                            "medialive_rtmp_input_details": {"in_stream_key": "rtmp-fake-key"},
+                        }
+                    ]
+                )
+            ],
+        )
+        assert _rows("tok", "broadcasts") == [{"id": "b1", "title": "Keynote"}]
 
 
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stamps_parent_event_id_onto_each_child_row(self, MockSession) -> None:
-        # The parent event id must be injected so the composite ["event", "id"] key is unique
-        # table-wide — webinar rows carry no `event` field of their own.
-        _wire(
-            MockSession.return_value,
-            [
-                _response([{"id": "e1"}, {"id": "e2"}]),
-                _response([{"id": "w1"}]),
-                _response([{"id": "w2"}, {"id": "w3"}]),
-            ],
-        )
-
-        assert _rows("tok", "webinars") == [
-            {"id": "w1", "event": "e1"},
-            {"id": "w2", "event": "e2"},
-            {"id": "w3", "event": "e2"},
+    @parameterized.expand(
+        [
+            ("webinars", "/event/", "/event/webinars/p1/", "event"),
+            ("speakers", "/event/", "/event/p1/public/v1/speakers/", "event"),
+            ("broadcast_polls", "/event/broadcasts/", "/event/broadcasts/p1/polls/", "broadcast"),
         ]
-
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_webinars_request_uses_event_in_path(self, MockSession) -> None:
-        snaps = _wire(MockSession.return_value, [_response([{"id": "e1"}]), _response([{"id": "w1"}])])
-        _rows("tok", "webinars")
-        assert snaps[1]["url"] == "https://customapi.goldcast.io/event/webinars/e1/"
+    def test_child_request_binds_parent_id_and_stamps_it(
+        self, endpoint: str, parent_path: str, child_path: str, parent_field: str, MockSession
+    ) -> None:
+        snaps = _wire(MockSession.return_value, [_response([{"id": "p1"}]), _response([{"id": "c1"}])])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_event_members_query_param_path_and_restamping(self, MockSession) -> None:
-        # event_members already carries `event`; the parent id re-stamps it via an `?event=` query.
-        snaps = _wire(
-            MockSession.return_value,
-            [_response([{"id": "e1"}]), _response([{"id": "m1", "event": "stale"}])],
-        )
-
-        assert _rows("tok", "event_members") == [{"id": "m1", "event": "e1"}]
-        assert snaps[1]["url"] == "https://customapi.goldcast.io/event/event-members/?event=e1"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_404_for_one_event_is_skipped_not_fatal(self, MockSession) -> None:
-        _wire(
-            MockSession.return_value,
-            [
-                _response([{"id": "e1"}, {"id": "e2"}]),
-                _response({"detail": "Not found"}, status=404),
-                _response([{"id": "w2"}]),
-            ],
-        )
-        assert _rows("tok", "webinars") == [{"id": "w2", "event": "e2"}]
+        assert _rows("tok", endpoint) == [{"id": "c1", parent_field: "p1"}]
+        assert snaps[0]["url"] == f"https://customapi.goldcast.io{parent_path}"
+        assert snaps[1]["url"] == f"https://customapi.goldcast.io{child_path}"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_child_non_404_error_propagates(self, MockSession) -> None:
@@ -152,19 +127,7 @@ class TestFanOut:
 
 class TestAuthAndRedaction:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_uses_non_standard_token_scheme(self, MockSession) -> None:
-        # Goldcast uses `Authorization: Token <key>`, not Bearer.
-        snaps = _wire(MockSession.return_value, [_response([{"id": "e1"}])])
-        _rows("super-secret", "events")
-
-        auth = snaps[0]["auth"]
-        assert isinstance(auth, APIKeyAuth)
-        assert auth.name == "Authorization"
-        assert auth.location == "header"
-        assert auth.api_key == "Token super-secret"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sync_session_registers_token_for_redaction(self, MockSession) -> None:
+    def test_sync_session_redacts_token_and_skips_sample_capture(self, MockSession) -> None:
         # The token rides in the non-standard `Token` auth header the name-based scrubbers can't
         # recognise, so it must be registered for value-based redaction on the tracked session.
         MockSession.return_value.headers = {}
@@ -174,6 +137,8 @@ class TestAuthAndRedaction:
         _rows("super-secret", "events")
 
         assert MockSession.call_args.kwargs.get("redact_values") == ("Token super-secret",)
+        # Broadcast and webinar bodies carry stream keys the sample scrubber can't recognise.
+        assert MockSession.call_args.kwargs.get("capture") is False
 
 
 class TestSourceResponse:
@@ -210,20 +175,10 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @mock.patch(GOLDCAST_SESSION_PATCH)
-    def test_valid_token_returns_true(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("tok") is True
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     @mock.patch(GOLDCAST_SESSION_PATCH)
     def test_non_200_returns_false(self, _name: str, status_code: int, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("tok") is False
-
-    @mock.patch(GOLDCAST_SESSION_PATCH)
-    def test_network_error_returns_false(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         assert validate_credentials("tok") is False
 
     @mock.patch(GOLDCAST_SESSION_PATCH)

@@ -7,7 +7,7 @@ from dateutil.rrule import rrulestr
 
 from posthog.models.utils import UUIDTModel
 
-from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
+from products.workflows.backend.facade.api import compute_next_occurrences, validate_rrule
 
 from .evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 
@@ -24,7 +24,7 @@ class EvaluationReportQuerySet(models.QuerySet):
 
     def reportable(self) -> "EvaluationReportQuerySet":
         return self.for_supported_evaluations().exclude(
-            models.Q(evaluation__output_type="numeric")
+            models.Q(evaluation__output_type__in=("numeric", "categorical"))
             & (
                 ~models.Q(evaluation__output_config__has_key="passing_rule")
                 | models.Q(evaluation__output_config__passing_rule=None)
@@ -111,6 +111,13 @@ class EvaluationReport(UUIDTModel):
         default=10,
         help_text="Maximum count-triggered report runs per calendar day (UTC)",
     )
+    # Running count for count-triggered reports. `counted_results` covers results from
+    # `count_anchor_at` up to, but not including, `count_cursor_at`, and holds only for the
+    # count predicates hashed in `count_predicates_hash`.
+    count_anchor_at = models.DateTimeField(null=True, blank=True)
+    count_cursor_at = models.DateTimeField(null=True, blank=True)
+    counted_results = models.IntegerField(null=True, blank=True)
+    count_predicates_hash = models.CharField(max_length=64, null=True, blank=True)
 
     # Optional per-report custom guidance appended to the agent's system prompt.
     # Lets users steer focus/scope/section choices without touching the base prompt.

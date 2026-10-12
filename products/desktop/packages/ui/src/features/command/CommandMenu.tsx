@@ -108,7 +108,6 @@ import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearch
 import { useSearchRows } from "@posthog/ui/features/command/useSearchRows";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
@@ -267,7 +266,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  const inboxAvailable = useInboxAvailable();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const openBrowserTab = useOpenBrowserTab();
   const { theme, setTheme } = useThemeStore();
@@ -432,27 +430,20 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      ...(inboxAvailable
-        ? [
-            {
-              id: "inbox",
-              label: "Self-driving",
-              keywords: "reports pull requests agents notifications",
-              icon: (
-                <EnvelopeSimpleIcon
-                  size={12}
-                  className="text-muted-foreground"
-                />
-              ),
-              action: "open-inbox",
-              shortcut: SHORTCUTS.INBOX,
-              onRun: () => {
-                closeSettingsDialog();
-                navigateToInbox();
-              },
-            } satisfies Command,
-          ]
-        : []),
+      {
+        id: "inbox",
+        label: "Self-driving",
+        keywords: "reports pull requests agents notifications",
+        icon: (
+          <EnvelopeSimpleIcon size={12} className="text-muted-foreground" />
+        ),
+        action: "open-inbox",
+        shortcut: SHORTCUTS.INBOX,
+        onRun: () => {
+          closeSettingsDialog();
+          navigateToInbox();
+        },
+      },
       {
         id: "archived",
         label: "Archived",
@@ -761,7 +752,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
-    inboxAvailable,
     bluebirdEnabled,
     spacesLayout,
   ]);
@@ -928,6 +918,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     mode,
     scope,
     hasFilterTokens,
+    matchNoun,
     searchText,
     keyChips,
     matchCount,
@@ -1179,7 +1170,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               <div className="border-border border-b px-3 py-1.5 text-subtle-foreground text-xs tabular-nums">
                 {partialResults
                   ? "Some matching tasks may not be shown."
-                  : matchSummary(matchCount, shownCount, hasRepairs)}
+                  : matchSummary(matchCount, shownCount, hasRepairs, matchNoun)}
               </div>
             ) : (
               query !== "" && (

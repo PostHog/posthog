@@ -150,8 +150,9 @@ backend_files:
                 name = models.CharField(max_length=255)
                 status = models.CharField(
                     max_length=32,
-                    choices=[(s.value, s.value) for s in SplineStatus],
-                    default=SplineStatus.PENDING,
+                    choices=SplineStatus.choices,
+                    # A member default would make the migration import the enum's module.
+                    default=SplineStatus.PENDING.value,
                 )
                 created_at = models.DateTimeField(auto_now_add=True)
 
@@ -287,12 +288,15 @@ backend_files:
                 If an enum appears in a contract dataclass field, it belongs here.
                 Internal-only constants (DB magic values, feature flags) stay in
                 the implementation (logic.py, models.py).
+
+                No Django imports: use LabeledStrEnum or LabeledIntEnum, not
+                models.TextChoices, for an enum that backs model or serializer choices.
                 """
 
-                from enum import StrEnum
+                from posthog.enums import LabeledStrEnum
 
 
-                class SplineStatus(StrEnum):
+                class SplineStatus(LabeledStrEnum):
                     PENDING = "pending"
                     RETICULATED = "reticulated"
 

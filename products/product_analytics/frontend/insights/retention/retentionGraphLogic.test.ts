@@ -127,6 +127,13 @@ describe('retentionGraphLogic', () => {
         expect(logic.values.xAxisLabels).toEqual(['2024-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z'])
     })
 
+    it('provides empty chart labels when a retention query has no cohorts', async () => {
+        await loadResults({ kind: NodeKind.RetentionQuery, retentionFilter: { period: RetentionPeriod.Week } }, [])
+
+        expect(logic.values.filteredTrendSeries).toEqual([])
+        expect(logic.values.xAxisLabels).toEqual([])
+    })
+
     it('per-cohort series keep rawBreakdownValue unset when filtered to one breakdown value', async () => {
         await loadResults(breakdownQuery, breakdownRows)
 

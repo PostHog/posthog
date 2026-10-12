@@ -38,3 +38,11 @@ export function backfillCoveredCount(backfill: EvaluationBackfillApi): number {
             : backfill.dispatched_count + backfill.skipped_count
     return clamp(covered, 0, total)
 }
+
+/** A rerun dispatches every unit, so only a run over ungraded units has a gap the live path filled. */
+export function backfillLiveCoveredCount(backfill: EvaluationBackfillApi): number {
+    if (backfill.rerun_existing || backfill.status !== 'completed' || backfill.remaining_count === null) {
+        return 0
+    }
+    return Math.max(0, backfillCoveredCount(backfill) - backfill.dispatched_count - backfill.skipped_count)
+}

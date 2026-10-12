@@ -161,10 +161,7 @@ export function CanvasSidePanel({
                   key={option}
                   tab={option}
                   active={visibleTab === option}
-                  disabled={
-                    (option === "comments" && !commentTaskId) ||
-                    (option === "blocks" && firstBuildRunning)
-                  }
+                  disabled={option === "blocks" && firstBuildRunning}
                   onSelect={setTab}
                 />
               ))}
@@ -205,7 +202,7 @@ export function CanvasSidePanel({
             versionLabel={commentVersionLabel}
             onOpen={onCommentOpen}
           />
-        ) : visibleTab === "comments" && commentTaskId ? (
+        ) : visibleTab === "comments" ? (
           <CanvasComments
             taskId={commentTaskId}
             dashboardId={dashboardId}
@@ -269,7 +266,7 @@ function CanvasComments({
   commentVersionLabel,
   onCommentOpen,
 }: {
-  taskId: string;
+  taskId: string | null;
   dashboardId: string;
   name: string;
   displayedVersionId: string | null;
@@ -282,7 +279,7 @@ function CanvasComments({
       onlySource={{
         kind: "canvas",
         name,
-        target: { scope: "desktop_canvas", itemId: dashboardId },
+        target: { scope: "canvas", itemId: dashboardId },
         url: null,
       }}
       canvasVersionId={displayedVersionId}

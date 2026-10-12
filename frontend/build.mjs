@@ -20,6 +20,7 @@ import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
 import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
+import { zodJitlessEsbuildPlugin } from './plugins/zodJitless.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -42,6 +43,7 @@ copyRRWebWorkerFiles(__dirname)
 writeIndexHtml()
 writeExporterHtml()
 writeRenderQueryHtml()
+writeInfrastructureAdminHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -49,6 +51,10 @@ const common = {
     bundle: true,
     writeMetaFile: !isDev,
 }
+
+// Not part of `common`: the toolbar spreads `common` over its own config, so an `extraPlugins` key
+// there would replace the toolbar's module plugin. The toolbar bundles no zod.
+const appBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
 
 await buildInParallel(
     [
@@ -60,14 +66,14 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
         },
         ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
             entryPoints: [entryPoint],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', outfileName),
-            ...common,
+            ...appBundle,
             ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
         {
@@ -80,7 +86,7 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
         },
         {
             name: 'Render Query',
@@ -88,7 +94,14 @@ await buildInParallel(
             entryPoints: ['src/render-query/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
-            ...common,
+            ...appBundle,
+        },
+        {
+            name: 'Infrastructure Admin',
+            entryPoints: ['../products/tasks/frontend/infrastructure/mountInfrastructureAdmin.tsx'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'infrastructure-admin.js'),
+            ...appBundle,
         },
         {
             ...getToolbarAppBuildConfig(__dirname),
@@ -153,6 +166,10 @@ await buildInParallel(
 
             if (config.name === 'Render Query') {
                 writeRenderQueryHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Infrastructure Admin') {
+                writeInfrastructureAdminHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Toolbar') {
@@ -239,6 +256,17 @@ export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
+export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
+        'dist/infrastructure_admin.html',
+        'infrastructure-admin',
+        chunks,
+        entrypoints
+    )
 }
 
 export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {

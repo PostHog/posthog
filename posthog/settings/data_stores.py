@@ -614,6 +614,12 @@ WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
 )
 
+# Signs the tokens a workflow's "Classify with AI" action calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_CLASSIFY_JWT_SECRET", "local-dev-workflow-classify-jwt" if DEBUG or TEST else "")
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
@@ -651,12 +657,6 @@ AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381
 
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 
-# Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
-# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
-# except in local dev where it defaults to the gateway's local listen addr
-# (AI_GATEWAY_LISTEN_ADDR=:8080 in PostHog/ai-gateway).
-AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:8080" if DEBUG else "")
-
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
@@ -666,6 +666,8 @@ HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
 HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
     get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
 )
+
+MCP_SERVER_URL: str = get_from_env("MCP_SERVER_URL", "http://localhost:8787/mcp" if DEBUG and not TEST else "")
 
 # Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
 FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
@@ -810,7 +812,6 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
 
-WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
     "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""

@@ -128,6 +128,13 @@ def _expand_columnar(data: Any) -> list[dict[str, Any]]:
     return [{key: values[index] for key, values in columns.items()} for index in range(length)]
 
 
+def _expand_string_list(values: Any, field: str) -> list[dict[str, Any]]:
+    """Turn a bare array of strings (peers, index constituents) into one row per string."""
+    if not isinstance(values, list):
+        return []
+    return [{field: value} for value in values if isinstance(value, str) and value]
+
+
 def _extract_rows(data: Any, config: FinnhubEndpointConfig) -> list[dict[str, Any]]:
     """Normalize a Finnhub response into a list of row dicts per the endpoint's shape."""
     if config.columnar:
@@ -138,7 +145,12 @@ def _extract_rows(data: Any, config: FinnhubEndpointConfig) -> list[dict[str, An
         return [data] if isinstance(data, dict) and data else []
     if config.data_key:
         rows = data.get(config.data_key) if isinstance(data, dict) else None
+        if not rows and config.fallback_string_list_key and config.string_list_field:
+            fallback = data.get(config.fallback_string_list_key) if isinstance(data, dict) else None
+            return _expand_string_list(fallback, config.string_list_field)
         return rows or []
+    if config.string_list_field:
+        return _expand_string_list(data, config.string_list_field)
     return data if isinstance(data, list) else []
 
 
@@ -191,7 +203,7 @@ def _emit(rows: list[dict[str, Any]], symbol: str | None, config: FinnhubEndpoin
         # Inject the requested ticker: several per-symbol endpoints (quote, company-news) omit it,
         # and it's part of those tables' primary keys.
         for row in rows:
-            row["symbol"] = symbol
+            row[config.symbol_field] = symbol
     if config.incremental_fields:
         # Guarantee ascending order so the declared `sort_mode="asc"` matches the data the
         # incremental watermark is checkpointed against, regardless of the API's response order.
@@ -223,18 +235,20 @@ def get_rows(
     symbols: str | None,
     exchange: str | None,
     logger: FilteringBoundLogger,
+    indices: str | None = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = FINNHUB_ENDPOINTS[endpoint]
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
-    if config.requires_symbol:
-        tickers = _parse_symbols(symbols, logger)
+    if config.requires_symbol or config.requires_index:
+        field_label = "Indices" if config.requires_index else "Symbols"
+        tickers = _parse_symbols(indices if config.requires_index else symbols, logger)
         if not tickers:
             logger.warning(
-                f"Finnhub: endpoint '{endpoint}' needs symbols but none are configured; nothing to sync. "
-                "Add tickers to the source's Symbols field."
+                f"Finnhub: endpoint '{endpoint}' needs {field_label.lower()} but none are configured; nothing "
+                f"to sync. Add them to the source's {field_label} field."
             )
             return
         for ticker in tickers:
@@ -260,6 +274,7 @@ def finnhub_source(
     symbols: str | None,
     exchange: str | None,
     logger: FilteringBoundLogger,
+    indices: str | None = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -273,6 +288,7 @@ def finnhub_source(
             symbols=symbols,
             exchange=exchange,
             logger=logger,
+            indices=indices,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),

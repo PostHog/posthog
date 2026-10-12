@@ -52,6 +52,17 @@ describe('sessionReplayTemplatesLogic', () => {
         expect(logic.values.matchCount).toEqual({ count: resultCount, hasMore: hasNext })
     })
 
+    it('lets a template apply from its default value without edits', () => {
+        const withDefault = sessionReplayTemplatesLogic({
+            template: { ...template, variables: [{ ...template.variables![0], value: '/signup' }] },
+            category: 'B2C',
+        })
+        withDefault.mount()
+
+        expect(withDefault.values.canApplyFilters).toBe(true)
+        expect(logic.values.canApplyFilters).toBe(false)
+    })
+
     it('applies the template with the same base filters the count uses', () => {
         logic.actions.setVariable({ ...template.variables![0], value: '/sign-up' })
 

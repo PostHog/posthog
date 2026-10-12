@@ -6,20 +6,13 @@ workflows that set it. Used (e.g.) to surface which workflows reference a custom
 definition via the "Update account property" action's ``properties`` input.
 """
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from products.workflows.backend.facade.contracts import HogFlowReference
 from products.workflows.backend.models import HogFlow
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
-
-
-@dataclass(frozen=True)
-class HogFlowReference:
-    id: str
-    name: str
-    status: str
 
 
 def get_hog_flows_referencing_template_input_keys(

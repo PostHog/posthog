@@ -26,6 +26,7 @@ from ..logic.config import get_gate_config, set_gate_materialization_on_checks
 from ..logic.contracts import CompiledCheck, SubjectIdentity, SubjectRef
 from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolvableError
 from ..logic.health import CheckStatusRow, roll_up_health
+from ..logic.materialization import materialization_failure_summary
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
 from ..logic.output_schema import metric_output_schema
@@ -89,6 +90,7 @@ __all__ = [
     "restrict_subject_types",
     "sql_denial_context",
     "live_subject_checks",
+    "materialization_failure_summary",
     "caller_denial_context",
     "can_be_object_denied",
     "checks_for_subject",

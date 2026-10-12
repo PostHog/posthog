@@ -1,0 +1,111 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Classifying an uploaded receipt PDF",
+  "scenario": "ReceiptWise, a personal expense tracker, sends each uploaded PDF to a vision model that returns a document type code, a confidence tier, and a language code so the app can file it correctly.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "anthropic"
+    ],
+    "frameworks": [],
+    "models": [
+      "us.anthropic.claude-sonnet-4-6"
+    ],
+    "content_types": [
+      "document",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_input_tokens": 7074,
+        "$ai_http_status": 200,
+        "$ai_output_tokens": 23,
+        "$process_person_profile": false,
+        "$ai_stop_reason": "end_turn",
+        "$ai_model": "us.anthropic.claude-sonnet-4-6",
+        "context": "prod",
+        "$os_version": "12",
+        "$python_version": "3.12.13",
+        "$ai_latency": 2.699777841567993,
+        "$context_tags": [
+          "$ai_base_url",
+          "$ai_input",
+          "$ai_stop_reason",
+          "$ai_model",
+          "$ai_latency",
+          "$ai_model_parameters",
+          "$ai_usage",
+          "$process_person_profile",
+          "$ai_input_tokens",
+          "$ai_output_tokens",
+          "$ai_output_choices",
+          "$ai_provider",
+          "$ai_trace_id",
+          "$ai_http_status"
+        ],
+        "$lib": "posthog-python",
+        "$is_server": true,
+        "$os_distro": "Debian GNU/Linux",
+        "$geoip_disable": true,
+        "$ai_tokens_source": "sdk",
+        "$ai_provider": "anthropic",
+        "$ai_trace_id": "8dd7c25c-2e83-777b-22a9-8198e6955678",
+        "$ai_base_url": "https://api.anthropic.com/v1/messages",
+        "$os": "Linux",
+        "$lib_version": "7.22.1",
+        "organization": "receiptwise-eu",
+        "$python_runtime": "CPython",
+        "$ai_model_parameters": {
+          "max_tokens": 8192
+        },
+        "$ai_cache_creation_5m_input_tokens": 0,
+        "$ai_cache_creation_1h_input_tokens": 0,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "source": {
+                  "data": "⟦media:python_anthropic_pdf_receipt__M5667582.pdf⟧",
+                  "media_type": "application/pdf",
+                  "type": "base64"
+                },
+                "type": "document"
+              },
+              {
+                "text": "Classify the attached PDF for our expense tracker.\n\nReturn JSON only, no other text, with exactly these keys:\n- source_document_type_code: one of \"inv\" (invoice), \"rcp\" (receipt), \"qte\" (quote), \"po\" (purchase order), \"oth\" (other)\n- extraction_confidence_tier: one of \"high\", \"med\", \"low\", \"none\"\n- language: ISO 639-1 two-letter code for the document's primary language\n\nHow to tell the codes apart:\n- \"inv\": has an invoice number, a due date, and a bill-to section, even if the vendor also calls it something else on the page.\n- \"rcp\": already marked paid, usually from a point-of-sale system, with a shorter itemized list and a payment method printed near the total.\n- \"qte\": explicitly says \"quote\" or \"estimate\" and has no due date, since nothing has been billed yet.\n- \"po\": issued by the buyer rather than the seller, referencing a vendor and a delivery address rather than a bill-to address.\n- \"oth\": anything that does not clearly match one of the above, including contracts, statements, and delivery notes.\n\nConfidence tier guidance:\n- \"high\": every field above is clearly printed and unambiguous, and the file is a clean digital export rather than a scan.\n- \"med\": the fields are present but partly handwritten, faint, or on a scanned photo rather than a digital export.\n- \"low\": some required fields are missing or only partially legible.\n- \"none\": use only if the file is unreadable, corrupted, or blank; do not use it just because you are unsure of the document type.\n\nIf the document is a scanned photo rather than a clean PDF export, prefer \"med\" over \"high\" even when the text looks fully legible, since totals on a scan can still be misread by a downstream parser.\n\nDo not guess a document type if the page has no visible vendor name, line items, or total; return \"oth\" in that case rather than picking the closest-sounding option.\n",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"source_document_type_code\": \"rcp\", \"extraction_confidence_tier\": \"high\", \"language\": \"en\"}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

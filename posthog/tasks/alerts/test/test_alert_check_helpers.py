@@ -5,13 +5,29 @@ from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
-from posthog.tasks.alerts.utils import AlertEvaluationResult, record_alert_delivery
+from posthog.tasks.alerts.utils import AlertEvaluationResult, add_alert_check, record_alert_delivery
 
-from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 
 
 class TestRunAlertCheck(APIBaseTest):
+    def test_skipped_check_preserves_firing_state_without_notification(self) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert_id)
+        alert.state = AlertState.FIRING
+        alert.save(update_fields=["state"])
+        check, notify = add_alert_check(
+            alert, AlertEvaluationResult(value=None, breaches=[], skipped_reason="Not enough completed intervals"), None
+        )
+        alert.refresh_from_db()
+        assert alert.state == AlertState.FIRING
+        assert alert.enabled
+        assert not notify
+        assert check.calculated_value is None
+        assert check.triggered_metadata is not None
+        assert check.triggered_metadata["skipped_reason"] == "Not enough completed intervals"
+        assert alert.next_check_at is not None
+
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)

@@ -9,6 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -21,15 +22,21 @@ import {
 
 export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalProps): JSX.Element {
     const modalLogic = sceneDashboardChoiceModalLogic({ scene })
-    const { isOpen, currentDashboardId, dashboards, searchTerm } = useValues(modalLogic)
+    const { isOpen, currentDashboardId, dashboards, searchTerm, dashboardChoiceView } = useValues(modalLogic)
     const { closeSceneDashboardChoiceModal, setSceneDashboardChoice, setSearchTerm } = useActions(modalLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <LemonModal
-            isOpen={isOpen}
+            isOpen={isOpen && (scene !== Scene.ProductAnalyticsHomeTab || dashboardChoiceView === 'existing')}
             onClose={closeSceneDashboardChoiceModal}
-            title={<>Select a default dashboard for {sceneDescription[scene]}</>}
+            title={
+                scene === Scene.ProductAnalyticsHomeTab ? (
+                    <>Choose an existing dashboard</>
+                ) : (
+                    <>Select a default dashboard for {sceneDescription[scene]}</>
+                )
+            }
             footer={
                 <div className={cn('flex gap-2 w-full', currentDashboardId ? 'justify-between' : 'justify-end')}>
                     {currentDashboardId ? (
@@ -42,7 +49,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                 closeSceneDashboardChoiceModal()
                             }}
                         >
-                            Reset to "new tab"
+                            {scene === Scene.ProductAnalyticsHomeTab ? 'Use PostHog Home' : 'Reset to "new tab"'}
                         </LemonButton>
                     ) : null}
                     <LemonButton
@@ -87,7 +94,11 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                             <SceneIcon scene={scene} size="small" /> <span>Default</span>
                                         </>
                                     ) : (
-                                        <strong className="set-default-text">Set as default</strong>
+                                        <strong className="set-default-text">
+                                            {scene === Scene.ProductAnalyticsHomeTab
+                                                ? 'Set as Home dashboard'
+                                                : 'Set as default'}
+                                        </strong>
                                     )}
                                 </div>
                             )
@@ -107,7 +118,14 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                         setSceneDashboardChoice(dashboard.id)
                                         setSearchTerm('')
                                         closeSceneDashboardChoiceModal()
-                                        router.actions.replace(urls.projectHomepage())
+                                        // Only the project homepage scene needs a redirect — its
+                                        // trigger can live elsewhere, so the result isn't
+                                        // necessarily on screen yet. Other scenes (including this
+                                        // one) render the modal from the same place its result
+                                        // shows, so the picked dashboard already appears in place.
+                                        if (scene === Scene.ProjectHomepage) {
+                                            router.actions.replace(urls.projectHomepage())
+                                        }
                                     }}
                                 >
                                     {rowContents}

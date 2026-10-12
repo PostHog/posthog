@@ -226,6 +226,31 @@ def default_ui_configuration_for_new_users() -> dict[str, Any]:
     }
 
 
+def preserve_starred_products_setup(
+    user: Optional["User"], configuration: Optional[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    """Carry the completed starred products setup into a new configuration that omits it.
+
+    Writers send the whole configuration, so a client that does not know this key (an API call,
+    the MCP tool, an older frontend) would otherwise drop it and show the setup again.
+    Sending the key explicitly, even as false, still wins.
+    """
+    stored = user.ui_configuration if user else None
+    if not isinstance(stored, dict):
+        return configuration
+    stored_sidebar = stored.get("sidebar")
+    if not (isinstance(stored_sidebar, dict) and stored_sidebar.get("starred_products_setup_completed")):
+        return configuration
+    if configuration is None:
+        return {"version": stored.get("version", 1), "sidebar": {"starred_products_setup_completed": True}}
+    sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
+    if not isinstance(configuration, dict) or not isinstance(sidebar, dict | None):
+        return configuration
+    if sidebar is not None and "starred_products_setup_completed" in sidebar:
+        return configuration
+    return {**configuration, "sidebar": {**(sidebar or {}), "starred_products_setup_completed": True}}
+
+
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
@@ -718,8 +743,7 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
 def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
     """Pause every loop owned by a user when they are deactivated (is_active True->False).
 
-    Loops execute as their owner for GitHub authorship and MCP identity (see
-    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
+    Loops execute as their owner for GitHub authorship and MCP identity; deactivation is often the
     security response and must not leave a loop still scheduled, or a sandbox still running,
     under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
     Temporal schedule is an irreversible external side effect.

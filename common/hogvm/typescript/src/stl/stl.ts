@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { DEFAULT_MAX_MEMORY } from '../constants'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
-import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
-import { HogVMException, getNestedValue, like } from '../utils'
+import { AsyncSTLFunction, ExecOptions, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
+import { COST_PER_UNIT, HogVMException, calculateCost, getNestedValue, like } from '../utils'
 import { md5, sha1, sha1HmacChain, sha256, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
@@ -412,7 +413,29 @@ function toDateTimeFromDate(date: HogDate): HogDateTime {
     }
 }
 
-function rangeFn(args: any[]): any[] {
+// `Array.from` truncates the length and treats a negative or NaN length as 0.
+function rangeLength(args: any[]): number {
+    const length = Math.trunc(args.length === 1 ? Number(args[0]) : args[1] - args[0])
+    return length > 0 ? length : 0
+}
+
+// `args[0] + i` builds strings when `args[0]` is a string. The last element is the longest, so its cost prices every element.
+function rangeMemoryCost(args: any[]): number {
+    const length = rangeLength(args)
+    if (length === 0) {
+        return COST_PER_UNIT
+    }
+    const last = args.length === 1 ? length - 1 : args[0] + (length - 1)
+    return COST_PER_UNIT + length * calculateCost(last)
+}
+
+// The VM skips the `memoryCost` check when the caller turns the limit off, so the default limit applies then.
+function rangeFn(args: any[], _name: string, options?: ExecOptions): any[] {
+    const limit = options?.memoryLimit && options.memoryLimit > 0 ? options.memoryLimit : DEFAULT_MAX_MEMORY
+    const cost = rangeMemoryCost(args)
+    if (cost > limit) {
+        throw new HogVMException(`Memory limit of ${limit} bytes exceeded. Tried to allocate ${cost} bytes.`, 'limit')
+    }
     if (args.length === 1) {
         return Array.from({ length: args[0] }, (_, i) => i)
     }
@@ -1704,6 +1727,7 @@ export const STL: Record<string, STLFunction> = {
         example: 'range($1, $2)',
         minArgs: 1,
         maxArgs: 2,
+        memoryCost: rangeMemoryCost,
     },
     round: {
         fn: roundFn,

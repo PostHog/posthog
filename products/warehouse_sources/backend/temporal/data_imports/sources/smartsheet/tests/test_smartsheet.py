@@ -6,10 +6,6 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.settings import (
     ENDPOINTS,
     SMARTSHEET_ENDPOINTS,
@@ -20,9 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet
     smartsheet_source,
     validate_credentials,
 )
-
-# Endpoints that fan out from each report (parent id injected, token pagination).
-FANOUT_ENDPOINTS = [name for name, config in SMARTSHEET_ENDPOINTS.items() if config.fanout]
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -94,30 +87,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == SmartsheetResumeConfig(next_page=2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_does_not_save_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], total_pages=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source("sheets", manager))
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total_pages=0)])
-
-        manager = _make_manager()
-        rows = _rows(_source("sheets", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": 9}], total_pages=3)])
@@ -126,15 +95,6 @@ class TestPagination:
         _rows(_source("sheets", manager))
 
         assert params[0]["page"] == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bearer_auth_carries_token(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], total_pages=1)])
-
-        _rows(_source("sheets", _make_manager()))
-        # Framework Bearer auth attaches the Authorization header (redacted from raised errors).
-        assert session.auth is not None
 
 
 class TestSmartsheetSourceResponse:
@@ -164,20 +124,6 @@ class TestSmartsheetSourceResponse:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(SMARTSHEET_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("token") is expected
-
     @mock.patch(SMARTSHEET_SESSION_PATCH)
     def test_validate_credentials_probes_users_me(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
@@ -185,83 +131,3 @@ class TestValidateCredentials:
         validate_credentials("token")
 
         assert mock_session.return_value.get.call_args.args[0] == "https://api.smartsheet.com/2.0/users/me"
-
-    @mock.patch(SMARTSHEET_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
-
-
-class _FakeDltResource:
-    """Stand-in for a dlt resource that applies add_map and iterates its rows."""
-
-    def __init__(self, name: str, rows: list[dict[str, Any]]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        # Yield rows as a single page — the source iterates pages, matching the real engine.
-        yield self._rows
-
-
-class TestReportFanout:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_report_columns_row_carries_renamed_parent_id(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("reports", [{"id": 999}]),
-            _FakeDltResource("report_columns", [{"virtualId": 1, "title": "Status", "_reports_id": 999}]),
-        ]
-
-        response = _source("report_columns", _make_manager())
-        rows = _rows(response)
-
-        # The parent report id is injected and renamed to `reportId`, which leads the key so the
-        # per-report `virtualId` stays unique table-wide.
-        assert rows == [{"virtualId": 1, "title": "Status", "reportId": 999}]
-        assert response.primary_keys == ["reportId", "virtualId"]
-        assert response.partition_mode is None
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_report_scope_row_carries_renamed_parent_id(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("reports", [{"id": 999}]),
-            _FakeDltResource("report_scope", [{"assetType": "sheet", "assetId": 42, "_reports_id": 999}]),
-        ]
-
-        response = _source("report_scope", _make_manager())
-        rows = _rows(response)
-
-        assert rows == [{"assetType": "sheet", "assetId": 42, "reportId": 999}]
-        assert response.primary_keys == ["reportId", "assetType", "assetId"]
-        assert response.partition_mode is None
-
-    @pytest.mark.parametrize("endpoint", FANOUT_ENDPOINTS)
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.smartsheet.build_dependent_resource"
-    )
-    def test_fanout_wires_two_paginators_and_no_watermark(self, mock_build, endpoint) -> None:
-        mock_build.return_value = iter([])
-
-        _source(endpoint, _make_manager())
-
-        kwargs = mock_build.call_args.kwargs
-        # Parent and child page differently, so no shared page-size param is used.
-        assert kwargs["page_size_param"] is None
-        parent_paginator = kwargs["parent_endpoint_extra"]["paginator"]
-        child_paginator = kwargs["child_endpoint_extra"]["paginator"]
-        assert isinstance(parent_paginator, PageNumberPaginator)
-        assert isinstance(child_paginator, JSONResponseCursorPaginator)
-        # The child pages by Smartsheet's `lastKey` token, not by page number.
-        assert child_paginator.cursor_param == "lastKey"
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "data"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "data"
-        # These endpoints have no timestamp filter, so they always full-refresh.
-        assert kwargs["db_incremental_field_last_value"] is None

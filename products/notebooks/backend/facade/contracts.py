@@ -53,6 +53,17 @@ class NotebookContentNotConvertible(Exception):
     """
 
 
+class NotebookMarkdownContentInvalid(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class NotebookMarkdownComponent:
+    tag_name: str
+    node_id: str
+    props: dict[str, Any]
+
+
 @dataclass(frozen=True)
 class NotebookData:
     """A notebook's persisted state, as other products read it."""

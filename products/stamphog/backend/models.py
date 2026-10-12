@@ -47,7 +47,7 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     review_mode = models.CharField(
         max_length=16,
         choices=[(m.value, m.value) for m in ReviewMode],
-        default=ReviewMode.ALL,
+        default=ReviewMode.ALL.value,
     )
     trigger_label = models.CharField(max_length=100, default="stamphog")
     # The PostHog user who connected this repo's installation (plain id, no FK — multi-DB product).
@@ -244,12 +244,12 @@ class ReviewRun(ProductTeamModel):
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in ReviewRunStatus],
-        default=ReviewRunStatus.QUEUED,
+        default=ReviewRunStatus.QUEUED.value,
     )
     verdict = models.CharField(
         max_length=32,
         choices=[(v.value, v.value) for v in ReviewVerdict],
-        default=ReviewVerdict.NONE,
+        default=ReviewVerdict.NONE.value,
     )
     gate_result = models.JSONField(null=True)
     output = models.JSONField(default=dict)
@@ -304,13 +304,13 @@ class DigestRun(ProductTeamModel):
     resolution_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in ChannelResolutionSource],
-        default=ChannelResolutionSource.SLACK_NAME_MATCH,
+        default=ChannelResolutionSource.SLACK_NAME_MATCH.value,
         db_default=ChannelResolutionSource.SLACK_NAME_MATCH.value,
     )
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in DigestRunStatus],
-        default=DigestRunStatus.PENDING,
+        default=DigestRunStatus.PENDING.value,
     )
     pr_count = models.IntegerField(default=0)
     # LLM (or fallback) summary output that was rendered into the Slack message.

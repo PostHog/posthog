@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -116,11 +117,11 @@ def _get_config_for_interval(
         )
 
     if interval == "hour":
-        # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
-        # TODO: Review timeouts for internal stage activity.
         return IntervalConfig(
+            # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
             main_start_to_close=max(dt.timedelta(hours=6), override_start_to_close),
-            stage_start_to_close=dt.timedelta(hours=1),
+            # TODO - we should reduce this once we are more confident about hitting 1 hour SLAs.
+            stage_start_to_close=dt.timedelta(hours=2),
             failure_check_window=24,  # A day's worth of runs
         )
 
@@ -160,7 +161,7 @@ def _get_config_for_interval(
     raise ValueError(f"Unsupported interval: '{interval}'")
 
 
-def _get_status_for_activity_error(error: exceptions.ActivityError) -> BatchExportRun.Status:
+def _get_status_for_activity_error(error: exceptions.ActivityError) -> BatchExportRunStatus:
     """Decide what a failed run's status should be, given the error raised.
 
     The error could be raised by either the `insert_into_internal_stage_activity` or the

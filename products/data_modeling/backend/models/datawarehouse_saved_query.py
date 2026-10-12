@@ -17,7 +17,13 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database, is_reserved_system_name
+from posthog.hogql.database.database import (
+    MODELS_NAMESPACE_QUERY_ERROR,
+    MODELS_NAMESPACE_ROOT_ERROR,
+    Database,
+    is_reserved_models_name,
+    is_reserved_system_name,
+)
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -30,7 +36,12 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
 )
+from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.client.limit import app_org_concurrency_slot
+from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
@@ -49,8 +60,32 @@ logger = structlog.get_logger(__name__)
 
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
+_IN_SUBQUERY_OPS = (
+    ast.CompareOperationOp.In,
+    ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.GlobalIn,
+    ast.CompareOperationOp.GlobalNotIn,
+)
+
+
+def _limit_to_zero_rows(select_query: ast.SelectQuery | ast.SelectSetQuery) -> None:
+    for branch in extract_select_queries(select_query):
+        branch.limit = ast.Constant(value=0)
+        branch.offset = None
+
+
+class _InSubqueryZeroRows(TraversingVisitor):
+    # ClickHouse builds the set of an IN subquery before it plans the outer read, so the outer LIMIT 0
+    # does not stop that read. A scalar subquery keeps its rows, because an empty one is a ClickHouse error.
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        super().visit_compare_operation(node)
+        if node.op in _IN_SUBQUERY_OPS and isinstance(node.right, ast.SelectQuery | ast.SelectSetQuery):
+            _limit_to_zero_rows(node.right)
+
 
 def validate_saved_query_name(value: str) -> None:
+    if value == "models":
+        raise ValidationError(MODELS_NAMESPACE_ROOT_ERROR, params={"value": value})
     if is_reserved_system_name(value):
         raise ValidationError(
             "The system namespace is reserved for built-in tables. Choose a different view name.",
@@ -192,7 +227,28 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         "last_full_refresh_at, last_run_mode. System-written, not user-editable.",
     )
 
+    def _validate_models_namespace(self) -> None:
+        if self.name == "models":
+            message = MODELS_NAMESPACE_ROOT_ERROR
+        elif is_reserved_models_name(self.name) and self.origin in {self.Origin.ENDPOINT, self.Origin.MANAGED_VIEWSET}:
+            message = MODELS_NAMESPACE_QUERY_ERROR
+        else:
+            return
+        # A query saved with this name before the reservation existed must stay editable. Materialization
+        # and other system writes call save() on it without changing the name.
+        if (
+            not self._state.adding
+            and type(self).objects.filter(pk=self.pk, team_id=self.team_id, name=self.name).exists()
+        ):
+            return
+        raise ValidationError({"name": message})
+
+    def clean(self) -> None:
+        super().clean()
+        self._validate_models_namespace()
+
     def save(self, *args, **kwargs):
+        self._validate_models_namespace()
         if self.is_test and not self.expires_at:
             from django.utils import timezone
 
@@ -286,6 +342,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
+                .order_by("created_at")
                 .first()
             )
             dag_to_bootstrap = None
@@ -433,28 +490,27 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.column_order = list(columns.keys())
 
     def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
-        from posthog.api.services.query import process_query_dict
-        from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-        from posthog.hogql_queries.query_runner import ExecutionMode
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         query = self.query or {}
-        if not isinstance(query, dict):
+        if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
 
-        # Saved queries store {"query": "SELECT ..."} without a kind discriminator.
-        # process_query_dict requires a valid QuerySchemaRoot, so wrap as HogQLQuery.
-        if "kind" not in query and "query" in query:
-            query = {"kind": "HogQLQuery", **query}
+        # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
+        select_query = parse_select(query["query"])
+        _limit_to_zero_rows(select_query)
+        _InSubqueryZeroRows().visit(select_query)
 
         # Resolve as the acting user so warehouse access control is enforced against them - a userless
         # build fails closed and denies every warehouse table, breaking column inference for all users.
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(
-                self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=user
-            )
-        result = getattr(response, "types", [])
+            tag_contains_user_hogql()
+            # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
+            with app_org_concurrency_slot(self.team):
+                response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
+        result = response.types
 
-        if result is None or isinstance(result, int):
+        if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")
 
         columns = {

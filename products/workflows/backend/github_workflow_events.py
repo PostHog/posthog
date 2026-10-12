@@ -17,10 +17,11 @@ from django.conf import settings
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
+
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 
 logger = structlog.get_logger(__name__)
 
@@ -134,7 +135,9 @@ def _event_properties(event_type: str, payload: dict[str, Any], *, integration_i
         "integration_id": integration_id,
         "event_type": event_type,
         "action": payload.get("action"),
-        "repository": repository.get("full_name"),
+        # Lowercased on both sides of the match (the API lowercases a repository filter on save), so
+        # "PostHog/posthog" and "posthog/posthog" name the same repository like they do on GitHub.
+        "repository": (repository.get("full_name") or "").lower() or None,
         # A string, not a boolean: GitHub deliveries never reach ClickHouse, so a filter has no
         # stored property definition to coerce "true"/"false" back into a real boolean, and an
         # exact match against a raw boolean here would never match.

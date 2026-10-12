@@ -1,6 +1,6 @@
 Fetch sampled `$exception` events for one Error tracking issue.
 
-Use this when the user asks for concrete examples, stack traces, code variables, affected URLs, browser/OS/library context, release details, diagnostics, or Session replay links for a specific issue.
+Use this when the user asks for concrete examples, stack traces, code variables, release details, diagnostics, or trace IDs for a specific issue. To learn which URLs, browsers, OS, or versions an issue affects, call `query-error-tracking-issue` with `includeBreakdown: true` instead of fetching many events.
 
 Returns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_level`, `$exception_handled`, `$session_id`, OpenTelemetry and AI trace/span IDs, `$lib`, browser/OS fields, and `$current_url`.
 

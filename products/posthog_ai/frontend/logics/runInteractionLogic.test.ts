@@ -207,7 +207,7 @@ describe('runInteractionLogic', () => {
         jest.clearAllMocks()
         localStorage.clear()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({ jsonrpc: '2.0', result: { queued: true } })
-        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
+        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ run: { id: 'run-2' }, latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
         ;(tasksWarmResumeCreate as jest.Mock).mockResolvedValue({ task_id: TASK_ID, run_id: 'warm-run' })
         initKeaTests()
@@ -1096,7 +1096,7 @@ describe('runInteractionLogic', () => {
             TASK_ID,
             {
                 runtime_adapter: 'claude',
-                model: 'claude-sonnet-5',
+                model: 'claude-sonnet-5-5',
                 reasoning_effort: 'high',
                 initial_permission_mode: 'auto',
                 resume_from_run_id: RUN_ID,
@@ -1180,7 +1180,7 @@ describe('runInteractionLogic', () => {
             expect(tasksWarmResumeCreate).toHaveBeenCalledWith('997', TASK_ID, {
                 resume_from_run_id: RUN_ID,
                 runtime_adapter: 'claude',
-                model: 'claude-sonnet-5',
+                model: 'claude-sonnet-5-5',
                 reasoning_effort: 'high',
                 initial_permission_mode: 'auto',
             })

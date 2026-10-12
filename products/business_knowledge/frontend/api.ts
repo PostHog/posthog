@@ -89,8 +89,8 @@ export async function getSource(id: string): Promise<KnowledgeSourceApi> {
 }
 
 export async function getSourceDocuments(id: string): Promise<KnowledgeSourceDocumentApi[]> {
-    // 500 matches the crawl cap (MAX_URLS_PER_SOURCE), so one page is the full set.
-    const response = await businessKnowledgeSourcesDocumentsList(String(getCurrentTeamId()), id, { limit: 500 })
+    // 5000 matches the crawl cap (MAX_URLS_PER_SOURCE), so one page is the full set.
+    const response = await businessKnowledgeSourcesDocumentsList(String(getCurrentTeamId()), id, { limit: 5000 })
     return response.results
 }
 

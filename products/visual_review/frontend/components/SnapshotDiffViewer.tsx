@@ -10,10 +10,16 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import type {
+    QuarantineLiftEntryApi,
+    QuarantinedIdentifierEntryApi,
+    SnapshotApi,
+    ToleratedHashEntryApi,
+} from '../generated/api.schemas'
 import { QUARANTINE_NUDGE_WINDOW_DAYS, type RecentTolerations, shouldSuggestQuarantine } from '../lib/quarantineNudge'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
+import { QuarantineLiftOnMerge } from './QuarantineLiftOnMerge'
 import { QuarantineModal, type OnQuarantine } from './QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
@@ -73,6 +79,12 @@ interface SnapshotDiffViewerProps {
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
     onQuarantine?: OnQuarantine
     onUnquarantine?: () => void
+    liftRequest?: QuarantineLiftEntryApi | null
+    liftOnMergeDisabledReason?: string | null
+    isRequestingLift?: boolean
+    isCancellingLift?: boolean
+    onRequestLiftOnMerge?: () => void
+    onCancelLiftOnMerge?: (requestId: string) => void
     commitSha?: string
     prNumber?: number | null
     repoId?: string | null
@@ -96,6 +108,12 @@ export function SnapshotDiffViewer({
     quarantineEntry,
     onQuarantine,
     onUnquarantine,
+    liftRequest,
+    liftOnMergeDisabledReason,
+    isRequestingLift,
+    isCancellingLift,
+    onRequestLiftOnMerge,
+    onCancelLiftOnMerge,
     commitSha,
     prNumber,
     repoId,
@@ -159,6 +177,14 @@ export function SnapshotDiffViewer({
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
     // Default-branch (tracking-only) runs are never approvable — don't offer accept/reject/tolerate.
     const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined && !isReportingOnly
+    // A quarantined change never blocks the PR, so it needs no action. It still needs an approval
+    // before a lift on merge can name its picture, so accepting it stays available here.
+    const canAcceptQuarantined =
+        isQuarantined &&
+        (snapshot.result === 'changed' || snapshot.result === 'new') &&
+        !isApproved &&
+        !isReportingOnly &&
+        !!onApprove
 
     // A snapshot that keeps needing a toleration is flaky, and one more toleration
     // only covers this exact rendering. While the history loads, fall back to the
@@ -192,6 +218,37 @@ export function SnapshotDiffViewer({
             primaryButton: {
                 children: 'Tolerate',
                 onClick: onMarkTolerated,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    // Accepting writes this picture into the baseline for every branch. On a pull request that does
+    // not touch the story, the picture is usually the flake the quarantine is hiding.
+    const openAcceptQuarantinedDialog = (): void => {
+        // The dialog stays clickable during its close transition, so a double click would approve twice.
+        let submitted = false
+        LemonDialog.open({
+            title: 'Accept a change to a quarantined snapshot?',
+            description: (
+                <div className="flex flex-col gap-2">
+                    <code className="break-all">{snapshot.identifier}</code>
+                    <p className="m-0">
+                        This snapshot is quarantined because it renders inconsistently, so its change does not block
+                        your pull request. Accept it only if your pull request changes this story. Otherwise leave it as
+                        it is: accepting it makes this picture the baseline for everyone.
+                    </p>
+                </div>
+            ),
+            primaryButton: {
+                children: 'Accept change',
+                onClick: () => {
+                    if (!submitted) {
+                        submitted = true
+                        onApprove?.()
+                    }
+                },
+                'data-attr': 'visual-review-snapshot-accept-quarantined-confirm',
             },
             secondaryButton: { children: 'Cancel' },
         })
@@ -248,11 +305,28 @@ export function SnapshotDiffViewer({
                                 size="small"
                                 onClick={onApprove}
                                 loading={isApproving}
+                                disabledReason={
+                                    snapshot.result === 'removed'
+                                        ? 'A removed snapshot has no new image to accept. Finalize the run to remove it from the baseline.'
+                                        : undefined
+                                }
                                 data-attr="visual-review-snapshot-accept"
                             >
                                 Accept change
                             </LemonButton>
                         </>
+                    )}
+                    {canAcceptQuarantined && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={openAcceptQuarantinedDialog}
+                            loading={isApproving}
+                            tooltip="This change does not block the pull request because the story is quarantined. Accept it only if your pull request changes this story."
+                            data-attr="visual-review-snapshot-accept-quarantined"
+                        >
+                            Accept change
+                        </LemonButton>
                     )}
                 </div>
             </div>
@@ -559,7 +633,11 @@ export function SnapshotDiffViewer({
 
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
-                        <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                        <QuarantineAction
+                            identifier={snapshot.identifier}
+                            onQuarantine={onQuarantine}
+                            runType={runType}
+                        />
                     )}
                     {nudgedIdentifier && onQuarantine && (
                         <QuarantineModal
@@ -568,6 +646,7 @@ export function SnapshotDiffViewer({
                             identifier={nudgedIdentifier}
                             onQuarantine={onQuarantine}
                             initialReason="Keeps changing in unrelated PRs"
+                            runType={runType}
                         />
                     )}
                     {isQuarantined && onUnquarantine && (
@@ -595,6 +674,18 @@ export function SnapshotDiffViewer({
                                 Unquarantine
                             </LemonButton>
                         </div>
+                    )}
+                    {prNumber != null && onRequestLiftOnMerge && onCancelLiftOnMerge && (
+                        <QuarantineLiftOnMerge
+                            prNumber={prNumber}
+                            isQuarantined={isQuarantined}
+                            liftRequest={liftRequest ?? null}
+                            disabledReason={liftOnMergeDisabledReason ?? null}
+                            isRequesting={!!isRequestingLift}
+                            isCancelling={!!isCancellingLift}
+                            onRequest={onRequestLiftOnMerge}
+                            onCancel={onCancelLiftOnMerge}
+                        />
                     )}
                 </div>
             </div>

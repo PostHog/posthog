@@ -74,7 +74,8 @@ class FakeRedis {
         return entry.value
     }
 
-    async set(key: string, value: string, ...args: (string | number)[]): Promise<'OK'> {
+    async set(key: string, value: string, ...args: (string | number)[]): Promise<string | null> {
+        const previous = await this.get(key)
         let ttl: number | null = null
         let nx = false
         for (let i = 0; i < args.length; i++) {
@@ -99,7 +100,7 @@ class FakeRedis {
             value,
             expireAt: ttl !== null ? Date.now() + ttl * 1000 : null,
         })
-        return 'OK'
+        return args.includes('GET') ? previous : 'OK'
     }
 
     // Real ioredis returns null when SET NX fails. Override for that contract.
@@ -196,7 +197,7 @@ FakeRedis.prototype.set = async function (
     key: string,
     value: string,
     ...args: (string | number)[]
-): Promise<'OK' | null> {
+): Promise<string | null> {
     let nx = false
     for (const arg of args) {
         if (typeof arg === 'string' && arg.toUpperCase() === 'NX') {
@@ -646,6 +647,58 @@ describe('ingest-handler', () => {
             })
             expect(String(request?.body)).not.toContain('not-for-analytics')
             expect(callback.mock.calls[1]![1]?.body).toBe(request?.body)
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
+    it('forwards a process kill once, without the command line', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' })
+            const event = {
+                type: 'notification',
+                notification: {
+                    method: '_posthog/process_killed',
+                    params: {
+                        pid: 443,
+                        comm: 'bash',
+                        signal: 'SIGTERM',
+                        treeRssBytes: 12_884_901_888,
+                        memoryCurrentBytes: 14_698_577_920,
+                        memoryLimitBytes: 17_179_869_184,
+                        cmdline: ['bash', '-c', 'deploy --token not-for-analytics'],
+                    },
+                },
+            }
+            const line = JSON.stringify({ seq: 1, event }) + '\n'
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const response = await handleIngest(
+                    makeContext({ body: makeStringBody(line) }),
+                    fakeRedis as unknown as Redis,
+                    config,
+                    [] as CryptoKey[]
+                )
+                expect(response.status).toBe(200)
+            }
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1))
+            const request = callback.mock.calls[0]![1]
+            expect(JSON.parse(String(request?.body))).toMatchObject({
+                kind: 'process_killed',
+                task_id: TASK_ID,
+                team_id: TEAM_ID,
+                sequence: 1,
+                process_killed: {
+                    comm: 'bash',
+                    signal: 'SIGTERM',
+                    tree_rss_bytes: 12_884_901_888,
+                    memory_current_bytes: 14_698_577_920,
+                    memory_limit_bytes: 17_179_869_184,
+                },
+            })
+            expect(String(request?.body)).not.toContain('not-for-analytics')
         } finally {
             callback.mockRestore()
         }
@@ -1434,8 +1487,22 @@ describe('ingest-handler', () => {
     // -----------------------------------------------------------------------
 
     describe('heartbeatWorkflowIfNeeded', () => {
-        it('sets agent inactive and fires awaiting_input for a turn-complete event', async () => {
-            const fired: { kind: string }[] = []
+        it.each([
+            [
+                'an end_turn turn-complete event',
+                {
+                    type: 'notification',
+                    notification: { method: '_posthog/turn_complete', params: { stopReason: 'end_turn' } },
+                },
+                true,
+            ],
+            [
+                'a turn-complete event without end_turn',
+                { type: 'notification', notification: { method: '_posthog/turn_complete' } },
+                false,
+            ],
+        ])('sets agent inactive and fires awaiting_input for %s', async (_label, event, expectedSucceeded) => {
+            const fired: { kind: string; turn_succeeded?: boolean }[] = []
             const originalFetch = global.fetch
             global.fetch = vi.fn(async (_, init) => {
                 fired.push(JSON.parse(String((init as RequestInit).body)))
@@ -1443,12 +1510,11 @@ describe('ingest-handler', () => {
             }) as typeof fetch
 
             const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
-            const event = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
             await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
 
             expect(await redisStream.getAgentActive()).toBe(false)
             await new Promise((r) => setTimeout(r, 0))
-            expect(fired.some((f) => f.kind === 'awaiting_input')).toBe(true)
+            expect(fired.find((f) => f.kind === 'awaiting_input')?.turn_succeeded).toBe(expectedSucceeded)
 
             global.fetch = originalFetch
         })
@@ -1516,8 +1582,13 @@ describe('ingest-handler', () => {
             }
         )
 
-        it('sets agent active and fires heartbeat for a session/update event', async () => {
-            const fired: { kind: string }[] = []
+        it.each([
+            { type: 'notification', notification: { method: 'session/update' } },
+            ...['assistant_message_chunk', 'assistant_thought_chunk', 'tool_call_started', 'tool_call_updated'].map(
+                (type) => ({ type: 'pi_event', event: { type } })
+            ),
+        ])('reports new activity across consecutive turns for %j', async (event) => {
+            const fired: { kind: string; activity_started?: boolean }[] = []
             const originalFetch = global.fetch
             global.fetch = vi.fn(async (_, init) => {
                 fired.push(JSON.parse(String((init as RequestInit).body)))
@@ -1525,12 +1596,23 @@ describe('ingest-handler', () => {
             }) as typeof fetch
 
             const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
-            const event = { type: 'notification', notification: { method: 'session/update' } }
             await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
-
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+            expect(await redisStream.getAgentActive()).toBe(true)
+            await heartbeatWorkflowIfNeeded(
+                redisStream,
+                RUN_ID,
+                { type: 'pi_event', event: { type: 'turn_completed' } },
+                TASK_ID,
+                TEAM_ID,
+                'tok',
+                config
+            )
+            expect(await redisStream.getAgentActive()).toBe(false)
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
             expect(await redisStream.getAgentActive()).toBe(true)
             await new Promise((r) => setTimeout(r, 0))
-            expect(fired.some((f) => f.kind === 'heartbeat')).toBe(true)
+            expect(fired.filter((f) => f.kind === 'heartbeat').map((f) => f.activity_started)).toEqual([true, true])
 
             global.fetch = originalFetch
         })

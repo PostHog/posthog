@@ -87,6 +87,15 @@ GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request 
 
 The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
 
+### Superseded runs
+
+Depot's concurrency policy keeps the workflow it created last, and a Depot run gets its workflow some time after the run itself, so the policy can keep an older event. Measured 2026-09-29 on 284 `ci-backend.yml` pull request workflows: the workflow followed its run by 55 seconds at the median and 120 seconds at most, and in 11 of 165 consecutive run pairs of one pull request the older run's workflow was created first or in the same second. Two of those cancelled the event that GitHub Actions had handed off, and the relay failed with "Depot CI started no run for this event":
+
+- PR 107856: run `wq9rjmvr7z` for head `056fb05982` was created at 16:09:59Z and got its workflow at 16:11:10Z. Run `0k16ml32s1` for the newer head `b9fbb26201` was created at 16:10:18Z and got its workflow at 16:11:09Z, so Depot cancelled `0k16ml32s1`.
+- PR 108622: two events of `d484f7a101` at 18:29:23Z and 18:29:34Z. GitHub Actions kept the second. Depot kept the first, whose gate passed, and the relay's 2-second racing window did not reach it.
+
+Run creation keeps event order: across 138 pairs of distinct events, each run's `created_at` followed its event by 1 to 12 seconds and never inverted. Across 356 consecutive run pairs of one pull request, Depot's run order matched GitHub Actions' run order in 355, and the other pair was a same-second tie on GitHub. So `.depot/workflows/ci-backend.yml` gives each event its own concurrency group, and its `cancel-superseded-runs` job orders the pull request's runs by run `created_at`, and the run id breaks a same-second tie on one commit. Each run cancels the older runs it sees, and cancels itself when it sees a newer run, so the run whose workflow Depot creates last settles each pair.
+
 ## pull_request_target checks
 
 Depot can post a `pull_request_target` job's check on another pull request's head commit. A `pull_request_target` run's `github.sha` is the base branch head, so pull requests opened against the same master commit share it, and every misplaced check measured sat on a commit whose own run shared that base commit. Measured 2026-09-25 on a migration report workflow that ran on `pull_request_target`: 35 of its 42 checks sat on the wrong commit. For example, check `108123656729` on PR 106758's head `0295b92b41` links Depot workflow `ljv421dmlt`, whose run `vpg4b1kvh7` tested PR 106767's head `fb236b6c26`, and both runs had base `7af9307723`. The jobs' own writes, a check posted with an explicit `head_sha` and a comment on an explicit PR number, reached the right pull request. Post pull-request-facing results from a `pull_request` workflow, whose checks land on the right head.

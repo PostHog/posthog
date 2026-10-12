@@ -44,6 +44,7 @@ from posthog.api.integration import (
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
     github_rate_limited_response,
+    github_repos_page,
     validate_github_repository_name,
 )
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -479,9 +480,6 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         """List repositories accessible to a specific GitHub installation (paginated, cached)."""
         query_serializer = GitHubReposQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
-        search = query_serializer.validated_data["search"]
-        limit = query_serializer.validated_data["limit"]
-        offset = query_serializer.validated_data["offset"]
 
         integration = UserIntegration.objects.filter(
             user=self._get_user(), kind="github", integration_id=installation_id
@@ -489,10 +487,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
-        github = UserGitHubIntegration(integration)
-        repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
-        total = github.count_cached_repositories(search=search)
-        return Response({"repositories": repositories, "has_more": has_more, "total": total})
+        return Response(github_repos_page(UserGitHubIntegration(integration), query_serializer.validated_data))
 
     @extend_schema(
         summary="Refresh repositories for a personal GitHub installation",

@@ -8,11 +8,13 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
+    ConvexDataSyncCursor,
     ConvexResumeConfig,
     convex_source,
     get_json_schemas,
@@ -26,7 +28,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 
 @SourceRegistry.register
-class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
+class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig], CursorSource[ConvexDataSyncCursor]):
     api_docs_url = "https://docs.convex.dev/"
 
     @property
@@ -114,12 +116,11 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         return {
             "401 Client Error": "Authentication failed. Check your Convex deploy key.",
             "403 Client Error": "Access denied. Check your Convex deploy key.",
-            # A sync only calls list_snapshot / document_deltas, and Convex answers those with a 404
-            # when the table schema discovery listed is gone at read time (deleted on the source, or a
-            # component table that isn't served by streaming export). The next scheduled run reissues
-            # the identical request, so every retry replays the same 404. Cloudflare surfaces transient
-            # edge problems as the 52x/530 family instead (retried in `_CONVEX_RETRY`), so a 404 is
-            # never a transient blip that this could disable a sync over.
+            # Convex answers a read with a 404 when the table discovery listed is gone at read time
+            # (deleted on the source, or a component table streaming export doesn't serve). The next
+            # run reissues the identical request, so every retry replays the same 404. Cloudflare
+            # surfaces transient edge problems as the 52x/530 family instead (retried in
+            # `_CONVEX_RETRY`), so a 404 is never a transient blip that this could disable a sync over.
             "404 Client Error": (
                 "PostHog couldn't find this table in your Convex deployment. It was likely deleted, so "
                 "turn off syncing for this table, then re-enable the sync."
@@ -132,20 +133,14 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                 "PostHog can't send your Convex deploy key. Copy the key again from your Convex "
                 "dashboard, then update this source's credentials."
             ),
-            # Convex treats a document_deltas/list_snapshot cursor conflict as deterministic, not
-            # transient (it's one of the few codes their own backend classifies as a user error
-            # rather than retryable). It surfaces when a data import or backup restore on the
-            # deployment invalidates the cursor's position in the document log, so every retry
-            # replays the same request against the same now-invalid cursor.
+            # Convex treats a `list_snapshot` cursor conflict as deterministic rather than transient. It
+            # surfaces when a data import or backup restore invalidates the cursor's position, so every
+            # retry replays the same request against the same now-invalid cursor.
             "409 Client Error": (
                 "PostHog's sync position for this table no longer matches your Convex deployment. "
                 "This can happen after a data import or backup restore. Trigger a full resync of "
                 "this source to continue syncing."
             ),
-            # Match a stable substring of the raised message, not the `InvalidWindowError` class name:
-            # the non-retryable check compares against `str(exception)`, which contains the message
-            # but not the class name. The table name in the message is volatile, so it's excluded.
-            "is older than Convex's ~30 day retention window": "Delta cursor is older than Convex's ~30 day retention window. Please trigger a full resync of this source.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -155,7 +150,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         # so Temporal's activity retry recovers once it clears rather than surfacing it as tracked
         # exception noise. `requests.Response.raise_for_status` derives these prefixes from the
         # status code alone, not the vendor's reason text, so they're stable to match on.
-        return {"Server Error", "429 Client Error"}
+        return {"Server Error", "429 Client Error", "Convex full resync requested"}
 
     def validate_credentials(
         self,
@@ -165,6 +160,9 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_convex_credentials(config.deploy_url, config.deploy_key)
+
+    def cursor_class(self) -> type[ConvexDataSyncCursor]:
+        return ConvexDataSyncCursor
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ConvexResumeConfig]:
         return ResumableSourceManager[ConvexResumeConfig](inputs, ConvexResumeConfig)
@@ -178,10 +176,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         return convex_source(
             deploy_url=config.deploy_url,
             deploy_key=config.deploy_key,
-            table_name=inputs.schema_name,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            inputs=inputs,
+            cursor_manager=self.get_cursor_manager(inputs),
             resumable_source_manager=resumable_source_manager,
         )

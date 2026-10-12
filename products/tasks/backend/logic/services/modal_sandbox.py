@@ -356,6 +356,7 @@ LOCAL_MODAL_HOGLI_SHIM_SCRIPT = Path("products/tasks/backend/sandbox/images/hogl
 LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
+LOCAL_MODAL_MEMORY_WATCHDOG = Path("products/tasks/backend/sandbox/images/memory_watchdog.py")
 # The base image builds the agent-shadow observer from source in its first stage.
 LOCAL_MODAL_AGENT_SHADOW_DIR = Path("packages/agent/agent-shadow")
 
@@ -742,6 +743,7 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         destination_sampler_path = context_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER
         destination_sampler_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
+        shutil.copy2(base_dir / LOCAL_MODAL_MEMORY_WATCHDOG, context_dir / LOCAL_MODAL_MEMORY_WATCHDOG)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT
@@ -814,6 +816,9 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         return ()
+
+    def _sandbox_runtime(self) -> str | None:
+        return "vm" if self.config.is_vm else "gvisor"
 
     def _on_agent_server_reused(self) -> None:
         # A restored snapshot can carry a healthy agent-server with a stale bash-env

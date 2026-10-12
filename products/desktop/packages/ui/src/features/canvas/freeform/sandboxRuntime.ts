@@ -46,6 +46,12 @@ import {
 // CDN path as a one-line fallback while v4 is validated against real canvases.
 const TAILWIND_ENGINE: "v3" | "v4" = "v4";
 
+// Retry tuning for the in-iframe data shim below. The host refuses only after
+// its queue has stayed full for seconds, so the first retry waits about a
+// second, jittered to keep a refused batch from coming back in one burst.
+const MAX_CALL_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1_000;
+
 // Tailwind v4 browser JIT. `@import "tailwindcss"` brings in v4's layered theme/
 // base(preflight)/components/utilities — so preflight sits in `@layer base`,
 // BELOW Quill's `@layer components` (primitives.css), and can't clobber Quill
@@ -219,15 +225,41 @@ export function buildSandboxDocument(
   const bootstrap = /* js */ `
     import * as Babel from "${FREEFORM_BABEL_URL}";
     const CHANNEL = "posthog-canvas";
-    const post = (msg) => parent.postMessage({ channel: CHANNEL, ...msg }, "*");
+    const portOnly = new URLSearchParams(location.hash.slice(1)).get("bridge") === "port";
+    let bridgePort = null;
+    let sendToHost = null;
+    let disconnectBridge = null;
+    const post = (msg) => {
+      const message = { channel: CHANNEL, ...msg };
+      if (sendToHost) sendToHost(message);
+      else if (!portOnly) parent.postMessage(message, "*");
+    };
 
     // --- data shim: the ONLY way canvas code reaches PostHog. No token here. ---
     const pending = new Map();
     let reqSeq = 0;
-    const call = (method, payload) =>
+    // The host caps how many requests run at once and queues the rest. Past
+    // that queue it refuses the request and marks it retryable.
+    const MAX_CALL_RETRIES = ${MAX_CALL_RETRIES};
+    const RETRY_BASE_DELAY_MS = ${RETRY_BASE_DELAY_MS};
+    const call = (method, payload, attempt = 0) =>
       new Promise((resolve, reject) => {
         const id = String(++reqSeq);
-        pending.set(id, { resolve, reject });
+        pending.set(id, {
+          resolve,
+          reject: (error, retryable) => {
+            if (!retryable || attempt >= MAX_CALL_RETRIES) {
+              reject(error);
+              return;
+            }
+            const delay =
+              RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * (0.5 + Math.random());
+            setTimeout(
+              () => call(method, payload, attempt + 1).then(resolve, reject),
+              delay,
+            );
+          },
+        });
         post({ type: "data-request", id, method, payload });
       });
     // posthog-js runs IN here (the only way replay records the app's DOM). It is
@@ -495,7 +527,7 @@ export function buildSandboxDocument(
           if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
             event.preventDefault();
             event.stopPropagation();
-            post({ type: "comment-activate", id: item.id });
+            post({ type: "comment-activate", id: item.id, rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left } });
             return;
           }
         }
@@ -685,8 +717,7 @@ export function buildSandboxDocument(
       }
     };
 
-    window.addEventListener("message", (e) => {
-      const d = e.data;
+    const receive = (d) => {
       if (!d || d.channel !== CHANNEL) return;
       if (editing.handle(d)) return;
       if (d.type === "init") {
@@ -705,9 +736,24 @@ export function buildSandboxDocument(
         const p = pending.get(d.id);
         if (!p) return;
         pending.delete(d.id);
-        d.ok ? p.resolve(d.result) : p.reject(new Error(d.error || "data error"));
+        d.ok
+          ? p.resolve(d.result)
+          : p.reject(new Error(d.error || "data error"), d.retryable === true);
+      }
+    };
+    window.addEventListener("message", (e) => {
+      if (e.source !== parent) return;
+      if (e.data?.channel === CHANNEL && e.data.type === "connect" && e.ports[0] && !bridgePort) {
+        bridgePort = e.ports[0];
+        sendToHost = bridgePort.postMessage.bind(bridgePort);
+        disconnectBridge = bridgePort.close.bind(bridgePort);
+        bridgePort.onmessage = (event) => receive(event.data);
+        post({ type: "ready" });
+      } else if (!portOnly && !bridgePort) {
+        receive(e.data);
       }
     });
+    window.addEventListener("pagehide", () => disconnectBridge?.());
 
     post({ type: "ready" });
   `;
@@ -787,9 +833,8 @@ function contentSecurityPolicy(analyticsApiHost?: string): string {
   return [
     "default-src 'none'",
     // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
-    // posthog-js recorder script + the in-browser Tailwind engine (JIT-compiles,
-    // so 'unsafe-eval' is required).
-    `script-src 'unsafe-inline' 'unsafe-eval' blob: ${twCdn} ${esm} ${ph}`,
+    // posthog-js recorder script + the in-browser Tailwind engine.
+    `script-src 'unsafe-inline' blob: ${twCdn} ${esm} ${ph}`,
     `style-src 'unsafe-inline' ${esm}`,
     `font-src data: ${esm}`,
     "img-src data: blob: https:",

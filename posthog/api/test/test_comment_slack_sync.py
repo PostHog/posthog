@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from celery.exceptions import Retry
@@ -21,6 +22,8 @@ from posthog.tasks.comment_slack_sync import (
     backfill_comment_slack_thread,
     mirror_comment_reply_to_slack,
 )
+
+from products.canvas.backend.facade import testing as canvas_testing
 
 
 class TestDiscussionCardBlocks(APIBaseTest):
@@ -613,6 +616,34 @@ class TestSlackThreadSerialization(APIBaseTest):
         assert res.status_code == status.HTTP_200_OK
         results = {r["id"]: r for r in res.json()["results"]}
         assert results[str(self.parent.id)]["slack_thread"] is None
+
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_canvas_mirror_is_found_under_either_scope_name(self, _mock_flag):
+        channel = (
+            apps.get_model("tasks", "Channel")
+            .objects.unscoped()
+            .create(team=self.team, name="mirror-space", channel_type="public", created_by=self.user)
+        )
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=channel.id, name="Mirrored canvas", created_by_id=self.user.id
+        )
+        root = Comment.objects.create(team=self.team, scope="desktop_canvas", item_id=str(canvas_id), content="root")
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="canvas",
+            item_id=str(canvas_id),
+            source_comment=root,
+            integration=self.integration,
+            slack_channel_id="C2",
+            slack_channel_name="canvas-feedback",
+            slack_thread_ts="1700.2",
+        )
+
+        res = self.client.get(f"/api/projects/{self.team.id}/comments/?scope=canvas&item_id={canvas_id}")
+
+        assert res.status_code == status.HTTP_200_OK
+        results = {r["id"]: r for r in res.json()["results"]}
+        assert results[str(root.id)]["slack_thread"]["channel_id"] == "C2"
 
     def test_slack_thread_lookup_skipped_when_flag_off(self):
         # Unflagged teams must not pay the mirror lookup on the hot comments endpoint.

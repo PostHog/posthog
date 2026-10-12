@@ -43,6 +43,7 @@ export interface modelsSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     activeTab: ModelsSceneTab
+    lineageTabVisited: boolean
     dataQualityTabEnabled: boolean
     nodes: DataModelingNode[] // lineageDataLogic
     nodesLoading: boolean // lineageDataLogic
@@ -137,6 +138,12 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        lineageTabVisited: [
+            false,
+            {
+                setActiveTab: (visited, { tab }) => visited || tab === 'lineage',
+            },
+        ],
         now: [
             Date.now(),
             {
@@ -162,7 +169,6 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (nodes: DataModelingNode[]): DataModelingNode[] =>
                 nodes.filter((node) => node.last_run_status === 'Failed'),
         ],
-        // The saved-query list response omits `suspended`, so read it off the nodes.
         /**
          * Only a marker on the serving engine means scheduled runs stopped. The shadow engine marks
          * its own failures, and those leave the schedule firing.

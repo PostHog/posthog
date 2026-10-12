@@ -1,6 +1,7 @@
 """Temporal workflow for logs alert checking — two-phase fan-out."""
 
 import asyncio
+import contextlib
 from itertools import batched
 
 import temporalio
@@ -34,6 +35,8 @@ from products.logs.backend.temporal.constants import (
     EMIT_SIGNAL_BATCH_SIZE,
     WORKFLOW_NAME,
 )
+
+_PATCH_BOUNDED_BATCH_FANOUT = "logs-alerting-bounded-batch-fanout"
 
 
 @temporalio.workflow.defn(name=WORKFLOW_NAME)
@@ -70,18 +73,25 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
             for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
-        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
-        # batch's `ActivityError` doesn't abort the cycle.
-        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
-            *(
-                workflow.execute_activity(
+        # Bounds ClickHouse concurrency across the whole cycle, which the per-batch cohort
+        # limit alone cannot do. Activity scheduling order is recorded in history, so the
+        # patch keeps runs that started before the bound on the unbounded path.
+        limit = discovery.max_concurrent_batches if workflow.patched(_PATCH_BOUNDED_BATCH_FANOUT) else 0
+        slot = asyncio.Semaphore(limit) if limit > 0 else contextlib.nullcontext()
+
+        async def run_batch(batch: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+            async with slot:
+                return await workflow.execute_activity(
                     evaluate_cohort_batch_activity,
                     batch,
                     start_to_close_timeout=ACTIVITY_TIMEOUT,
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
-                for batch in batches
-            ),
+
+        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
+        # batch's `ActivityError` doesn't abort the cycle.
+        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
+            *(run_batch(batch) for batch in batches),
             return_exceptions=True,
         )
 

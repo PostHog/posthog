@@ -109,6 +109,31 @@ class TestHybridSearch(BaseTest):
                 KnowledgeChunk.objects.filter(source_id=source.id).order_by("ordinal").values_list("id", flat=True)
             )
 
+    def test_search_result_includes_document_url(self) -> None:
+        source = self._ready_source_with_chunks(["The refund policy states thirty day returns."])
+        page = "https://example.com/docs/refunds"
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(url=page)
+            KnowledgeSource.objects.filter(id=source.id).update(always_include=True)
+            chunk_id = KnowledgeChunk.objects.filter(source_id=source.id, ordinal=0).values_list("id", flat=True).get()
+            document_id = KnowledgeDocument.objects.filter(source_id=source.id).values_list("id", flat=True).get()
+
+        with self.assertNumQueries(2):
+            results = search_knowledge(self.team.id, "refund policy", use_semantic=False)
+        assert results[0].url == page
+
+        with self.assertNumQueries(1):
+            window = get_document_window(self.team.id, document_id, results[0].ordinal)
+        assert window[0].url == page
+
+        with self.assertNumQueries(1):
+            hydrated = logic.get_chunks_by_ids(self.team.id, [chunk_id])
+        assert hydrated[0].url == page
+
+        with self.assertNumQueries(1):
+            always_on = logic.get_always_on_context(self.team.id)
+        assert always_on[0].url == page
+
     def test_use_semantic_false_is_pure_fts(self) -> None:
         self._ready_source_with_chunks(["The refund policy states thirty day returns."])
         results_kw = search_knowledge(self.team.id, "refund policy", use_semantic=False)

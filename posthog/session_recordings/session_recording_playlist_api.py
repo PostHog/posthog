@@ -2,7 +2,7 @@ import json
 import builtins
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
@@ -30,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
@@ -37,6 +38,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.redis import get_client
+from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
@@ -176,18 +178,20 @@ def create_synthetic_playlist_instance(
     return instance
 
 
+def live_playlist_items(
+    items: QuerySet[SessionRecordingPlaylistItem], team: Team
+) -> QuerySet[SessionRecordingPlaylistItem]:
+    cutoff = now() - timedelta(days=retention_period_in_days(team.session_recording_retention_period))
+    return items.exclude(deleted=True).exclude(recording__start_time__lt=cutoff)
+
+
 def count_collection_recordings(
     playlist: SessionRecordingPlaylist, user: User, team: Team
 ) -> dict[str, int | bool | None]:
-    playlist_items: QuerySet[SessionRecordingPlaylistItem] = playlist.playlist_items.exclude(deleted=True)
-    watched_playlist_items = current_user_viewed(
-        list(playlist.playlist_items.values_list("recording_id", flat=True)),
-        user,
-        team,
-    )
+    session_ids = list(live_playlist_items(playlist.playlist_items.all(), team).values_list("recording_id", flat=True))
 
-    item_count = playlist_items.count()
-    watched_count = len(watched_playlist_items)
+    item_count = len(session_ids)
+    watched_count = len(current_user_viewed(session_ids, user, team))
 
     return {
         "count": item_count if item_count > 0 else None,
@@ -335,20 +339,14 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
     # Defense-in-depth: the current caller (`list()`) passes team-scoped playlists
     # from `safely_get_queryset`, but filtering here keeps the helper safe if it's
     # ever reused by a caller that does not pre-scope.
-    base_qs = SessionRecordingPlaylistItem.objects.filter(
-        playlist_id__in=playlist_ids,
-        playlist__team_id=team.id,
+    base_qs = live_playlist_items(
+        SessionRecordingPlaylistItem.objects.filter(playlist_id__in=playlist_ids, playlist__team_id=team.id), team
     )
 
-    # Counts via SQL aggregation — avoids materializing non-deleted rows when we
-    # only need the count. Matches `.exclude(deleted=True)` semantics on the
-    # nullable BooleanField (both True=excluded, False/NULL=included).
     counts_by_playlist: dict[int, int] = dict(
-        base_qs.exclude(deleted=True).values("playlist_id").annotate(c=Count("id")).values_list("playlist_id", "c")
+        base_qs.values("playlist_id").annotate(c=Count("id")).values_list("playlist_id", "c")
     )
 
-    # Separate scan for session_ids — includes soft-deleted rows to preserve the
-    # watched-count semantics of the pre-change count_collection_recordings.
     session_ids_by_playlist: dict[int, list[str]] = defaultdict(list)
     for playlist_id, session_id in base_qs.values_list("playlist_id", "recording_id"):
         if session_id is not None:
@@ -451,6 +449,13 @@ def log_playlist_activity(
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    # Not a model column.
+    creation_method = serializers.ChoiceField(
+        choices=["new", "pin", "duplicate"],
+        required=False,
+        write_only=True,
+        help_text="How the PostHog app created the playlist, for product analytics. Not stored.",
+    )
     is_synthetic = serializers.SerializerMethodField()
     name = serializers.CharField(
         max_length=400,
@@ -502,6 +507,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "type",
             "is_synthetic",
             "_create_in_folder",
+            "creation_method",
         ]
         read_only_fields = [
             "id",
@@ -582,6 +588,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
+        creation_method = validated_data.pop("creation_method", None)
         playlist_type = validated_data.pop("type", None)
         if not playlist_type or playlist_type not in ["collection", "filters"]:
             raise ValidationError("Must provide a valid playlist type: either filters or collection")
@@ -610,6 +617,17 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             user=self.context["request"].user,
             was_impersonated=is_impersonated(self.context["request"]),
         )
+        report_user_action(
+            user=cast(User, request.user),
+            event="recording playlist created",
+            properties={
+                "playlist_id": playlist.short_id,
+                "playlist_type": playlist.type,
+                "creation_method": creation_method,
+            },
+            team=team,
+            request=request,
+        )
 
         return playlist
 
@@ -620,6 +638,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         # type cannot be changed after creation
         validated_data.pop("type", None)
+        validated_data.pop("creation_method", None)
 
         try:
             before_update = SessionRecordingPlaylist.objects.get(pk=instance.id)
@@ -649,6 +668,17 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             user=self.context["request"].user,
             was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
+        )
+        report_user_action(
+            user=cast(User, self.context["request"].user),
+            event="recording playlist updated",
+            properties={
+                "playlist_id": updated_playlist.short_id,
+                "playlist_type": updated_playlist.type,
+                "updated_fields": sorted(validated_data.keys()),
+            },
+            team=self.context["get_team"](),
+            request=self.context["request"],
         )
 
         return updated_playlist

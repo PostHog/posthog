@@ -387,6 +387,8 @@ export const sharingLogic = kea<sharingLogicType>([
         setIsEnabled: (enabled) => {
             if (props.dashboardId) {
                 posthog.capture(`dashboard share toggled`, { dashboard_id: props.dashboardId, is_shared: enabled })
+            } else if (props.insightShortId) {
+                posthog.capture('insight share toggled', { insight_short_id: props.insightShortId, is_shared: enabled })
             }
         },
         setIsEnabledSuccess: () => {

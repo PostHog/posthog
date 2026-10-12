@@ -1,7 +1,10 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,6 +12,9 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models import AccessControl
 
@@ -158,6 +164,53 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert response.json() == {"count": 123}
         preview.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("personal_api_key", ["data_deletion:write"], status.HTTP_200_OK),
+            ("personal_api_key", ["data_deletion:read"], status.HTTP_403_FORBIDDEN),
+            ("personal_api_key", ["event:write"], status.HTTP_403_FORBIDDEN),
+            ("oauth", ["data_deletion:write"], status.HTTP_200_OK),
+            ("oauth", ["data_deletion:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=7)
+    def test_preview_with_scoped_token_requires_write_scope(
+        self, auth: str, scopes: list[str], expected_status: int, _preview, _feature_flag
+    ) -> None:
+        if auth == "oauth":
+            application = OAuthApplication.objects.create(
+                name="Test OAuth App",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = "pha_data_deletion_preview_token"
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope=" ".join(scopes),
+            )
+        else:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="scoped", user=self.user, secure_value=hash_key_value(token), scopes=scopes
+            )
+        self.client.logout()
+
+        response = self.client.post(
+            f"{self.url}/preview/",
+            {"query": "SELECT uuid FROM events", "variables": {}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status, response.json()
+
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=1)
     def test_preview_throttles_session_requests(self, _preview, _rate_limit, _feature_flag) -> None:
@@ -187,8 +240,11 @@ class TestDataDeletionRequestAPIAccess(APIBaseTest):
         url = f"/api/projects/{self.team.id}/data_deletion_requests"
 
         with patch(FEATURE_FLAG, return_value=False):
-            assert self.client.get(f"{url}/").status_code == status.HTTP_403_FORBIDDEN
-            assert self.client.post(f"{url}/preview/", {}).status_code == status.HTTP_403_FORBIDDEN
+            responses = [self.client.get(f"{url}/"), self.client.post(f"{url}/preview/", {})]
+
+        for response in responses:
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.json()["detail"] == "This endpoint is in alpha and is not yet publicly available."
 
     def test_organization_member_has_no_deletion_access_by_default(self) -> None:
         url = f"/api/projects/{self.team.id}/data_deletion_requests/"

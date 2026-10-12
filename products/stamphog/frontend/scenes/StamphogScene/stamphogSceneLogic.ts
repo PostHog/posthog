@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -88,10 +89,12 @@ export interface stamphogSceneLogicValues {
     repoConfigsLoading: boolean
     repoSearch: string
     repositoryToAdd: string | null
+    savingTriggerLabelRepoIds: string[]
     skippedRepos: readonly string[]
     stamphogAccessLevel: AccessControlLevel | undefined
     syncResult: StamphogSyncInstallationResponseApi | null
     syncResultLoading: boolean
+    triggerLabelFieldResets: Record<string, number>
     updatingRepoIds: string[]
 }
 
@@ -184,6 +187,9 @@ export interface stamphogSceneLogicActions {
     repoUpdateDone: (id: string) => {
         id: string
     }
+    resetTriggerLabelField: (id: string) => {
+        id: string
+    }
     setAvailableSearch: (search: string) => {
         search: string
     }
@@ -237,6 +243,12 @@ export interface stamphogSceneLogicActions {
             state: string
         }
     }
+    triggerLabelEditStarted: (id: string) => {
+        id: string
+    }
+    triggerLabelSaveDone: (id: string) => {
+        id: string
+    }
     updateRepoConfig: (
         id: string,
         patch: PatchedStamphogRepoConfigWriteApi
@@ -289,6 +301,9 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         // payload from its first parameter, and every `loadRepoConfigs()` call would stop compiling.
         loadRepoConfigs: true,
         updateRepoConfig: (id: string, patch: PatchedStamphogRepoConfigWriteApi) => ({ id, patch }),
+        triggerLabelEditStarted: (id: string) => ({ id }),
+        resetTriggerLabelField: (id: string) => ({ id }),
+        triggerLabelSaveDone: (id: string) => ({ id }),
         repoUpdateDone: (id: string) => ({ id }),
         repoConfigUpdated: (config: StamphogRepoConfigApi) => ({ config }),
         setRepoSearch: (search: string) => ({ search }),
@@ -390,6 +405,23 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             {
                 updateRepoConfig: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 repoUpdateDone: (state, { id }) => state.filter((x) => x !== id),
+            },
+        ],
+        // Repos with an in-flight label PATCH. A second label save before the first settles could land
+        // out of order and leave the older label stored.
+        savingTriggerLabelRepoIds: [
+            [] as string[],
+            {
+                updateRepoConfig: (state, { id, patch }) =>
+                    'trigger_label' in patch && !state.includes(id) ? [...state, id] : state,
+                triggerLabelSaveDone: (state, { id }) => state.filter((x) => x !== id),
+            },
+        ],
+        // The label editor keeps a draft it did not save on screen, so a bumped count remounts it from the stored label.
+        triggerLabelFieldResets: [
+            {} as Record<string, number>,
+            {
+                resetTriggerLabelField: (state, { id }) => ({ ...state, [id]: (state[id] ?? 0) + 1 }),
             },
         ],
         repoConfigs: {
@@ -559,11 +591,29 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 actions.repoConfigUpdated(
                     await stamphogRepoConfigsPartialUpdate(String(values.currentProjectId), id, patch)
                 )
+                // The event names are frozen: insights on settings usage break if one is renamed. The label
+                // text is left out because it is free text a team typed.
+                posthog.capture('stamphog repo settings updated', {
+                    repo_config_id: id,
+                    fields: Object.keys(patch),
+                    review_mode: patch.review_mode,
+                    enabled: patch.enabled,
+                    digest_enabled: patch.digest_enabled,
+                })
             } catch {
                 lemonToast.error('Failed to update repository')
+                if ('trigger_label' in patch) {
+                    actions.resetTriggerLabelField(id)
+                }
             } finally {
                 actions.repoUpdateDone(id)
+                if ('trigger_label' in patch) {
+                    actions.triggerLabelSaveDone(id)
+                }
             }
+        },
+        triggerLabelEditStarted: ({ id }) => {
+            posthog.capture('stamphog trigger label edit started', { repo_config_id: id })
         },
         setAvailableSearch: async ({ search }, breakpoint) => {
             await breakpoint(AVAILABLE_SEARCH_DEBOUNCE_MS)

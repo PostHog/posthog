@@ -3,10 +3,21 @@
 from datetime import UTC, datetime
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
-from products.experiments.backend.facade import create_experiment
+from parameterized import parameterized
+
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+
+from products.experiments.backend.facade import count_running_experiments_on_feature_flag_called, create_experiment
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+PAGEVIEW_EXPOSURE = {
+    "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "$pageview", "properties": []}
+}
 
 
 class TestCreateExperiment(APIBaseTest):
@@ -128,3 +139,55 @@ class TestCreateExperiment(APIBaseTest):
 
         assert result.name == "Comprehensive Test"
         assert result.description == "Full feature test"
+
+
+class TestCountRunningExperimentsOnFeatureFlagCalled(BaseTest):
+    @parameterized.expand(
+        [
+            ("running_on_the_default_exposure", {}, datetime(2026, 8, 1, tzinfo=UTC), None, False, False, False, 1),
+            (
+                "custom_exposure_event",
+                PAGEVIEW_EXPOSURE,
+                datetime(2026, 8, 1, tzinfo=UTC),
+                None,
+                False,
+                False,
+                False,
+                0,
+            ),
+            ("draft", {}, None, None, False, False, False, 0),
+            ("ended", {}, datetime(2026, 8, 1, tzinfo=UTC), datetime(2026, 8, 20, tzinfo=UTC), False, False, False, 0),
+            ("archived", {}, datetime(2026, 8, 1, tzinfo=UTC), None, True, False, False, 0),
+            ("deleted", {}, datetime(2026, 8, 1, tzinfo=UTC), None, False, True, False, 0),
+            ("another_organization", {}, datetime(2026, 8, 1, tzinfo=UTC), None, False, False, True, 0),
+        ]
+    )
+    def test_counts_only_running_experiments_that_count_exposures_on_feature_flag_called(
+        self,
+        _name: str,
+        exposure_criteria: dict,
+        start_date: datetime | None,
+        end_date: datetime | None,
+        archived: bool,
+        deleted: bool,
+        other_organization: bool,
+        expected: int,
+    ) -> None:
+        team = (
+            Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+            if other_organization
+            else self.team
+        )
+        flag = FeatureFlag.objects.create(team=team, key="experiment-flag", created_by=self.user)
+        Experiment.objects.create(
+            team=team,
+            name="Experiment",
+            feature_flag=flag,
+            exposure_criteria=exposure_criteria,
+            start_date=start_date,
+            end_date=end_date,
+            archived=archived,
+            deleted=deleted,
+        )
+
+        assert count_running_experiments_on_feature_flag_called(self.organization.id) == expected

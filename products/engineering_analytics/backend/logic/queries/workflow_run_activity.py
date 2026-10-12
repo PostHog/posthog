@@ -26,6 +26,7 @@ from datetime import datetime
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     WorkflowHealthRunScope,
     WorkflowRunActivity,
     WorkflowRunActivityPoint,
@@ -51,7 +52,7 @@ _MIN_REAL_RUNS = 2
 _SELECT = f"""
     SELECT
         id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha,
-        {NO_OP_RUN_FLAG} AS is_noop
+        {NO_OP_RUN_FLAG} AS is_noop, ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
         AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
@@ -103,7 +104,7 @@ def query_workflow_run_activity(
 
 
 def _to_point(row: tuple) -> WorkflowRunActivityPoint:
-    run_id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha, _is_noop = row
+    run_id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha, _is_noop, ci_engine = row
     return WorkflowRunActivityPoint(
         run_id=int(run_id),
         # Empty string means "no conclusion yet" (still running) — normalize to None for the contract.
@@ -113,4 +114,5 @@ def _to_point(row: tuple) -> WorkflowRunActivityPoint:
         head_branch=head_branch or "",
         pr_number=int(pr_number) if pr_number is not None else 0,
         head_sha=head_sha or "",
+        ci_engine=CIEngine(ci_engine),
     )

@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/valyala/fastjson"
 )
 
 func TestProcessLineErrorsOnMalformedJSON(t *testing.T) {
@@ -28,16 +27,34 @@ func TestDropKeysJSON(t *testing.T) {
 		keys              []string
 	}{
 		{
-			name:  "dotted key in unfiltered sibling stays literal",
+			name:  "dotted keys under a filtered path stay flat",
 			input: `{"keep":{"a.b":1},"items":{"a.b":2,"a.c":3}}`,
-			want:  `{"keep":{"a.b":1},"items":{"a":{"c":3}}}`,
+			want:  `{"keep":{"a.b":1},"items":{"a.c":3}}`,
 			keys:  []string{"items.a.b"},
 		},
 		{
-			name:  "dotted key at root expands even outside filter",
+			name:  "dotted keys at root stay flat",
 			input: `{"keep.a.b":1,"items.a.b":2,"items.a.c":3}`,
-			want:  `{"keep":{"a":{"b":1}},"items":{"a":{"c":3}}}`,
+			want:  `{"keep.a.b":1,"items.a.c":3}`,
 			keys:  []string{"items.a.b"},
+		},
+		{
+			name:  "flat and nested spellings of a path are both dropped",
+			input: `{"a.b":1,"a":{"b":2,"c":3},"x":4}`,
+			want:  `{"a":{"c":3},"x":4}`,
+			keys:  []string{"a.b"},
+		},
+		{
+			name:  "dotted key inside a nested object matches the rest of the path",
+			input: `{"a":{"b.c":1,"b":{"c":2,"d":3},"b.d":4}}`,
+			want:  `{"a":{"b":{"d":3},"b.d":4}}`,
+			keys:  []string{"a.b.c"},
+		},
+		{
+			name:  "dropping a parent drops its dotted children",
+			input: `{"a.b":1,"ab":2,"a":3}`,
+			want:  `{"ab":2}`,
+			keys:  []string{"a"},
 		},
 		{
 			"empty",
@@ -123,16 +140,16 @@ func TestDropKeysJSON(t *testing.T) {
 	}
 }
 
-func TestDropKeysPreservesDottedScopeAndEncoding(t *testing.T) {
+func TestDropKeysPreservesStructureAndEncoding(t *testing.T) {
 	for _, tc := range []struct {
 		input, want string
 		keys        []string
 	}{
-		{`{"a.b":1,"a":{"c":2},"a.d":3}`, `{"a":{"b":1},"a":{"c":2,"d":3}}`, nil},
-		{`{"a.b":1,"a":2,"a.c":3}`, `{"a":{},"a":2,"a":{"c":3}}`, []string{"a.b"}},
-		{`{"keep":{"a.b":1},"items":[{"a.b":2,"a.c":3}]}`, `{"keep":{"a.b":1},"items":[{"a":{"c":3}}]}`, []string{"items.a.b"}},
+		{`{"a.b":1,"a":{"c":2},"a.d":3}`, `{"a.b":1,"a":{"c":2},"a.d":3}`, nil},
+		{`{"a.b":1,"a":2,"a.c":3}`, `{"a":2,"a.c":3}`, []string{"a.b"}},
+		{`{"keep":{"a.b":1},"items":[{"a.b":2,"a.c":3}]}`, `{"keep":{"a.b":1},"items":[{"a.c":3}]}`, []string{"items.a.b"}},
 		{`{"a":1,"a":2,"b":3}`, `{"b":3}`, []string{"a"}},
-		{`[[{"a.b":1,"a.c":2}],null,3]`, `[[{"a":{"c":2}}],null,3]`, []string{"a.b"}},
+		{`[[{"a.b":1,"a.c":2}],null,3]`, `[[{"a.c":2}],null,3]`, []string{"a.b"}},
 		{`{"\u0061":1,"text":"\u0000\u001b\u263a\/","number":-1.230e+04}`, `{"text":"\u0000\u001b☺/","number":-1.230e+04}`, []string{"a"}},
 	} {
 		var output bytes.Buffer
@@ -145,7 +162,7 @@ func TestDropKeysPreservesDottedScopeAndEncoding(t *testing.T) {
 	}
 }
 
-func TestDropKeysLargeRowsAndMemoryReuse(t *testing.T) {
+func TestDropKeysLargeRows(t *testing.T) {
 	for _, size := range []int{31, 4*1024*1024 + 17} {
 		row := `{"keep":"` + strings.Repeat("x", size) + `\n\t","drop":1}`
 		want := `{"keep":"` + strings.Repeat("x", size) + `\n\t"}`
@@ -161,15 +178,6 @@ func TestDropKeysLargeRowsAndMemoryReuse(t *testing.T) {
 			if output.String() != expected {
 				t.Fatalf("row size=%d ending=%q changed", size, ending)
 			}
-		}
-	}
-	obj := &objectNode{entries: make([]objectEntry, 1, 32)}
-	obj.entries[0] = objectEntry{key: "drop", value: (*scalarNode)(fastjson.MustParse(`"secret"`))}
-	obj.DropKeys(makeKeyDict([]string{"drop"}))
-	recycleNode(obj)
-	for _, entry := range obj.entries[:cap(obj.entries)] {
-		if entry.key != "" || entry.value != nil {
-			t.Fatal("recycled object retains dropped values")
 		}
 	}
 }

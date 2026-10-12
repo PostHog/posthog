@@ -30,7 +30,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
@@ -117,9 +117,10 @@ def create_layer_reports(
             status=SignalReport.Status.READY,
             title=layer.title,
             summary=_layer_summary(parent=parent, layer=layer, index=index, total=len(layers)),
-            promoted_at=now,
             # Born directly in a visible status without `transition_to`, which stamps this for
-            # pipeline reports, so the daily report limit counts the layer from creation.
+            # pipeline reports, so the daily report limit counts the layer from creation. No
+            # `promoted_at`: a layer runs no research, so it never fires `signal_report_started`,
+            # and lifecycle monitoring expects that event from every promoted report.
             first_visible_at=now,
             billing_exempt_reason=billing_exempt_reason,
         )
@@ -141,6 +142,7 @@ def create_layer_reports(
                 reason=f"Layer {index + 1} of {len(layers)} of the research plan.",
             ),
             attribution=attribution,
+            write_path=ReportLinkWritePath.PIPELINE,
         )
         if layer.depends_on is not None:
             SignalReportArtefact.add_log(
@@ -152,6 +154,7 @@ def create_layer_reports(
                     reason=f"Layer {index + 1} stacks on layer {layer.depends_on + 1}.",
                 ),
                 attribution=attribution,
+                write_path=ReportLinkWritePath.PIPELINE,
             )
         child_ids.append(child_id)
     logger.info("signals.stack_plan.layers_created", report_id=str(parent.id), team_id=team_id, layers=len(child_ids))

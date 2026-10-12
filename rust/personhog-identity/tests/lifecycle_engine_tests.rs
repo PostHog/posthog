@@ -451,7 +451,7 @@ async fn lease_is_live(pool: &PgPool, op_id: Uuid) -> bool {
 
 /// Driver whose first step gets its lease stolen mid-run. `fail_after_steal`
 /// picks the exit: Err exercises the engine's release path, Ok without
-/// advancing (a lost CAS) exercises the renew path.
+/// advancing (a lost CAS) exercises the attempt check on the reloaded row.
 struct StolenLeaseDriver {
     steps_run: AtomicUsize,
     fail_after_steal: bool,
@@ -512,6 +512,107 @@ async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing
     assert!(
         lease_is_live(&ctx.pool, op_id).await,
         "the displaced driver must not have renewed or cleared the stealer's lease"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+/// The two-step dummy op, recording the op's lease expiry as each step
+/// starts and pausing its first step for `first_step_pause`.
+struct LeaseRecordingDriver {
+    inner: DummyDriver,
+    first_step_pause: std::time::Duration,
+    expiries: std::sync::Mutex<Vec<chrono::DateTime<chrono::Utc>>>,
+}
+
+#[async_trait]
+impl OpDriver for LeaseRecordingDriver {
+    fn op_type(&self) -> &'static str {
+        "merge"
+    }
+
+    fn initial_step(&self) -> &'static str {
+        "started"
+    }
+
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+        let expiry: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT lease_expires_at FROM lifecycle_op WHERE op_id = $1")
+                .bind(op.op_id)
+                .fetch_one(pools.fast())
+                .await
+                .map_err(SagaError::Db)?;
+        self.expiries.lock().unwrap().push(expiry);
+        if op.step == "started" {
+            tokio::time::sleep(self.first_step_pause).await;
+        }
+        self.inner.run_step(pools, op).await
+    }
+}
+
+/// Lease expiries seen by the dummy op's two steps under a `lease`-long lease.
+async fn step_lease_expiries(
+    ctx: &TestContext,
+    lease: std::time::Duration,
+    first_step_pause: std::time::Duration,
+) -> Vec<chrono::DateTime<chrono::Utc>> {
+    let driver = LeaseRecordingDriver {
+        inner: DummyDriver::new(),
+        first_step_pause,
+        expiries: std::sync::Mutex::new(Vec::new()),
+    };
+    let engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pools.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease,
+            execute_timeout: std::time::Duration::from_secs(10),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        ctx.tables.clone(),
+    );
+    engine
+        .execute(&driver, Uuid::now_v7(), ctx.team_id, &json!({}))
+        .await
+        .expect("the op completes");
+    assert_eq!(driver.inner.steps_run.load(Ordering::SeqCst), 2);
+    driver.expiries.into_inner().unwrap()
+}
+
+#[tokio::test]
+async fn steps_that_finish_inside_a_third_of_the_lease_run_on_the_claim_without_renewing() {
+    let ctx = TestContext::new().await;
+
+    let expiries = step_lease_expiries(
+        &ctx,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::ZERO,
+    )
+    .await;
+
+    assert_eq!(
+        expiries[0], expiries[1],
+        "the second step ran on the claim's lease"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_step_that_starts_after_a_third_of_the_lease_renews_it_first() {
+    let ctx = TestContext::new().await;
+
+    let expiries = step_lease_expiries(
+        &ctx,
+        std::time::Duration::from_secs(3),
+        std::time::Duration::from_millis(1_200),
+    )
+    .await;
+
+    assert!(
+        expiries[1] > expiries[0],
+        "the second step ran on a renewed lease"
     );
 
     ctx.cleanup().await.expect("cleanup");
@@ -814,14 +915,46 @@ fn database_conflicts_classify_as_retriable() {
     assert!(!SagaError::Busy.is_db_conflict());
 }
 
-/// Driver whose first attempts lose a deadlock; every later attempt
+fn connection_lost() -> SagaError {
+    SagaError::Db(sqlx::Error::Io(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "expected to read 5 bytes, got 0 bytes at EOF",
+    )))
+}
+
+#[test]
+fn lost_connections_classify_as_retriable_and_unavailable() {
+    for err in [
+        connection_lost(),
+        db_error("08006"),
+        db_error("57P01"),
+        db_error("57P02"),
+    ] {
+        assert!(
+            err.is_db_connection_lost(),
+            "{err} must be a lost connection"
+        );
+        assert!(!err.is_db_conflict());
+        assert_eq!(tonic::Status::from(err).code(), tonic::Code::Unavailable);
+    }
+    for err in [db_error("23505"), db_error("40P01"), SagaError::Busy] {
+        assert!(
+            !err.is_db_connection_lost(),
+            "{err} is not a lost connection"
+        );
+    }
+}
+
+type FailStep = fn() -> SagaError;
+
+/// Driver whose first attempts fail with `error`; every later attempt
 /// behaves like [`DummyDriver`]. Failing more than once exercises the
-/// repeated backoff-and-renew passes of the retry loop, not just the
-/// first.
+/// repeated backoff passes of the retry loop, not just the first.
 struct DeadlockingDriver {
     inner: DummyDriver,
     fail_first: usize,
     attempts: AtomicUsize,
+    error: FailStep,
 }
 
 #[async_trait]
@@ -836,37 +969,47 @@ impl OpDriver for DeadlockingDriver {
 
     async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         if self.attempts.fetch_add(1, Ordering::SeqCst) < self.fail_first {
-            return Err(db_error("40P01"));
+            return Err((self.error)());
         }
         self.inner.run_step(pools, op).await
     }
 }
 
 #[tokio::test]
-async fn a_step_that_loses_a_database_conflict_is_retried_not_surfaced() {
+async fn a_step_that_loses_a_database_conflict_or_its_connection_is_retried_not_surfaced() {
     let ctx = TestContext::new().await;
     let engine = ctx.engine();
-    let driver = DeadlockingDriver {
-        inner: DummyDriver::new(),
-        fail_first: 3,
-        attempts: AtomicUsize::new(0),
-    };
-    let op_id = Uuid::now_v7();
+    let failures: [(&str, FailStep); 2] = [
+        ("deadlock", || db_error("40P01")),
+        ("lost connection", connection_lost),
+    ];
+    for (name, error) in failures {
+        let driver = DeadlockingDriver {
+            inner: DummyDriver::new(),
+            fail_first: 3,
+            attempts: AtomicUsize::new(0),
+            error,
+        };
+        let op_id = Uuid::now_v7();
 
-    let row = engine
-        .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
-        .await
-        .expect("the conflict is retried inside the engine, not surfaced");
+        let row = engine
+            .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
+            .await
+            .unwrap_or_else(|err| panic!("{name}: retried inside the engine, not surfaced: {err}"));
 
-    assert_eq!(row.step, STEP_COMPLETED);
-    assert_eq!(
-        driver.inner.steps_run.load(Ordering::SeqCst),
-        2,
-        "both real steps ran after the deadlocked attempts"
-    );
-    let (_, attempt, _, completed) = op_row(&ctx, op_id).await;
-    assert!(completed);
-    assert_eq!(attempt, 1, "the retry re-drives under the original claim");
+        assert_eq!(row.step, STEP_COMPLETED, "{name}");
+        assert_eq!(
+            driver.inner.steps_run.load(Ordering::SeqCst),
+            2,
+            "{name}: both real steps ran after the failed attempts"
+        );
+        let (_, attempt, _, completed) = op_row(&ctx, op_id).await;
+        assert!(completed, "{name}");
+        assert_eq!(
+            attempt, 1,
+            "{name}: the retry re-drives under the original claim"
+        );
+    }
 
     ctx.cleanup().await.expect("cleanup");
 }

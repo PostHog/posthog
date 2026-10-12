@@ -1,9 +1,9 @@
 """Exported enums for ml_inference."""
 
-from django.db import models
+from posthog.enums import LabeledStrEnum
 
 
-class DecisionQuestionType(models.TextChoices):
+class DecisionQuestionType(LabeledStrEnum):
     NOUL = "noul", "Yes or no"
     CHOICE = "choice", "Multiple choice"
     SCORE = "score", "Rating scale"

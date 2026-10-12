@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
+import { mockSourceMetadata, pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { SignalReport, SignalRun } from '../../types'
 import { PullRequestsTab } from './PullRequestsTab'
@@ -57,6 +57,9 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
             ],
             '/api/projects/:id/signals/reports/available_reviewers': () => [200, []],
             '/api/projects/:id/signals/scout/configs': () => [200, []],
+        },
+        post: {
+            '/api/projects/:id/signals/reports/source_metadata/': mockSourceMetadata(reports),
         },
     })
 }

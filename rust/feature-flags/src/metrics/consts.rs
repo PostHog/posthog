@@ -88,6 +88,7 @@ pub const GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER: &str =
 // (per-request sequential/parallel strategy metrics emitted from flag_matching.rs).
 pub const FLAG_BATCH_EVAL_REQUESTS_COUNTER: &str = "flags_batch_eval_requests_total";
 pub const FLAG_BATCH_EVAL_PERSONS_COUNTER: &str = "flags_batch_eval_persons_total";
+pub const FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER: &str = "flags_batch_eval_person_retries_total";
 pub const FLAG_BATCH_EVAL_TIME: &str = "flags_batch_eval_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
@@ -382,12 +383,6 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
-// Billing decision for a /flags/definitions 304. Labels: outcome (billable, not_billable,
-// unknown = the payload was unreadable, slow, or not served from Redis, so the poll went
-// unbilled). Compare with the etag `hit` counter to see how many 304s went unbilled.
-pub const FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER: &str =
-    "flags_flag_definitions_not_modified_billing_total";
-
 // Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
 // 0 on the shared one. Every emission carries a `reason` label, so
 // `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could
@@ -395,8 +390,9 @@ pub const FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER: &str =
 pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
     "flags_flag_definitions_reads_dedicated_redis";
 
-// Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
-// worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
+// Flag definitions self-heal: a request enqueued a rebuild request for a Celery worker to
+// drain. Labels: result (ok = enqueued, error = redis zadd failed), trigger (cache_miss =
+// nothing served the request, s3_hit = Redis lost the entry and S3 answered).
 pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
     "flags_flag_definitions_rebuild_requested_total";
 

@@ -158,6 +158,19 @@ _RETRYABLE_CODES = frozenset(
     }
 )
 
+# grpcio reports this exact, hardcoded message - never sent by the server - when the client fails to
+# deserialize the response bytes (e.g. a connection cut mid-stream). That's a transport corruption,
+# not an application-level failure, so unlike INTERNAL in general it's always safe to retry.
+_DESERIALIZATION_FAILURE_DETAILS = "Exception deserializing response!"
+
+
+def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Collection[grpc.StatusCode]) -> bool:
+    if code is None:
+        return False
+    if code in codes:
+        return True
+    return code == grpc.StatusCode.INTERNAL and details == _DESERIALIZATION_FAILURE_DETAILS
+
 
 def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
     """Whether ``exc``, or the error it was raised from, is a gRPC failure with a status in ``codes``.
@@ -170,7 +183,10 @@ def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode
     while current is not None:
         if isinstance(current, grpc.RpcError):
             code = getattr(current, "code", None)
-            return callable(code) and code() in codes
+            if not callable(code):
+                return False
+            details = getattr(current, "details", None)
+            return _is_retryable(code(), details() if callable(details) else None, codes)
         current = current.__cause__
     return False
 
@@ -178,11 +194,15 @@ def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     """Retries transient gRPC errors with jittered backoff.
 
-    Covers four failure modes:
+    Covers five failure modes:
     - UNAVAILABLE: client-to-router connection failure
     - ABORTED: HTTP/2 stream reset during router deploys
     - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness)
     - UNKNOWN: catch-all for transient failures that don't map to a specific code
+    - INTERNAL, but only the client-side response deserialization failure (see
+      ``_DESERIALIZATION_FAILURE_DETAILS``) - INTERNAL otherwise stays terminal here since personhog
+      also maps DB-level conditions (lock timeouts, a read-only primary) to it, and those must not be
+      hammered with a fast in-process retry.
 
     Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
     """
@@ -210,8 +230,10 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
                 return continuation(client_call_details, request)
             except grpc.RpcError as exc:
                 code = exc.code()
+                details_fn = getattr(exc, "details", None)
+                details = details_fn() if callable(details_fn) else None
                 error_type = _grpc_error_type(code) if code else "Unknown"
-                retryable = code in _RETRYABLE_CODES if code else False
+                retryable = _is_retryable(code, details, _RETRYABLE_CODES)
 
                 if not retryable or attempt == self._max_retries:
                     PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(

@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
+from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -68,6 +69,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     slack_api_error_code,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
+from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
@@ -374,6 +376,29 @@ def deliver_scout_slack_thread_replies(
         )
         return
 
+    # The earlier attempt recorded the replies it reached, so this one updates those instead of
+    # posting them again.
+    message = (
+        scout_report_slack_message(
+            team_id=team_id,
+            report_id=report_id,
+            slack_workspace_id=integration.integration_id,
+            thread_ts=thread_ts,
+        )
+        if report_id is not None
+        else None
+    )
+
+    def _record_reply_ts(posted: list[str]) -> None:
+        if message is not None:
+            record_scout_report_slack_replies(
+                team_id=team_id,
+                slack_workspace_id=integration.integration_id,
+                channel=message.channel,
+                thread_ts=thread_ts,
+                reply_ts=posted,
+            )
+
     _post_scout_report_thread_replies(
         slack.client,
         channel_id=channel_id,
@@ -383,6 +408,9 @@ def deliver_scout_slack_thread_replies(
         fallback=fallback,
         schedule_retry=_schedule_retry,
         chunk_offset=chunk_offset,
+        conversation=message.channel if message is not None else None,
+        reply_ts=message.reply_ts if message is not None else None,
+        record_reply_ts=_record_reply_ts,
     )
 
 
@@ -988,6 +1016,22 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         capture_exception(exc, {"team_id": team_id, "repository": repository})
     finally:
         cache.delete(lock_key)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_signal_scout_background_bands",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def refresh_signal_scout_background_bands() -> None:
+    """Daily: recompute which projects can get a background scout, and their activity band.
+
+    Runs here rather than on the coordinator tick, because it reads a week of fleet-wide event
+    volume and activity bands do not change by the half hour.
+    """
+    outcome = refresh_background_bands()
+    logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
 
 
 @shared_task(

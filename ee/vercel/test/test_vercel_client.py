@@ -158,9 +158,24 @@ class TestVercelAPIClient:
         assert result.error == "HTTP error"
         assert result.status_code == 400
 
+    @pytest.mark.parametrize(
+        "body,expected_detail",
+        [
+            ("Forbidden", "Forbidden"),
+            ("a" * 500 + "b" * 100, "a" * 500),
+        ],
+        ids=["short_body", "long_body"],
+    )
     @patch("ee.vercel.client.requests.Session.request")
-    def test_http_error_status_code_survives_falsy_response(self, mock_request, client, test_ids):
-        mock_request.return_value = self.real_response(403, "Forbidden")
+    def test_http_error_keeps_status_code_and_first_500_chars_of_body(
+        self,
+        mock_request: MagicMock,
+        client: VercelAPIClient,
+        test_ids: dict[str, str],
+        body: str,
+        expected_detail: str,
+    ) -> None:
+        mock_request.return_value = self.real_response(403, body)
 
         result = client.update_resource_secrets(
             test_ids["integration_config_id"], test_ids["resource_id"], [{"name": "A", "value": "b"}]
@@ -168,7 +183,7 @@ class TestVercelAPIClient:
 
         assert not result.success
         assert result.status_code == 403
-        assert result.error_detail == "Forbidden"
+        assert result.error_detail == expected_detail
 
     @patch("ee.vercel.client.requests.Session.request")
     def test_check_installation_active_false_on_real_404(self, mock_request, client):

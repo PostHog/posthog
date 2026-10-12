@@ -12,6 +12,7 @@ from posthog.models.organization import OrganizationMembership
 
 from ..facade import contracts
 from ..facade.contracts import PropertyAccessLevel
+from ..facade.enums import AI_EVENT_PROPERTY_CHOICES, SCOPE_OBJECT_CHOICES
 from ..facade.user_access_control import RULE_RESOURCE_CHOICES
 from .access_control import ResolvedAccessSerializer
 
@@ -84,7 +85,13 @@ class PropertyAccessControlUpdateSerializer(serializers.Serializer):
     """Request body for upserting a rule (create or update)."""
 
     property_definition_id = serializers.CharField(
-        help_text="The property definition ID this rule applies to.",
+        required=False,
+        help_text="The existing property definition ID. Provide this or ai_property.",
+    )
+    ai_property = serializers.ChoiceField(
+        choices=AI_EVENT_PROPERTY_CHOICES,
+        required=False,
+        help_text="A built-in AI event property. Creates its definition if missing. Provide this or property_definition_id.",
     )
     access_level = serializers.ChoiceField(
         choices=_ACCESS_LEVEL_CHOICES,
@@ -102,6 +109,11 @@ class PropertyAccessControlUpdateSerializer(serializers.Serializer):
         default=None,
         help_text="The role UUID to set an override for.",
     )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        if ("property_definition_id" in attrs) == ("ai_property" in attrs):
+            raise serializers.ValidationError("Provide exactly one of property_definition_id or ai_property.")
+        return attrs
 
 
 class PropertyAccessControlDeleteSerializer(serializers.Serializer):
@@ -222,7 +234,9 @@ class AccessControlResourceDefaultSerializer(serializers.Serializer):
 
 
 class AccessControlObjectRuleResourceSerializer(serializers.Serializer):
-    resource = serializers.CharField(help_text="A resource type that supports rules on single objects.")
+    resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="A resource type that supports rules on single objects."
+    )
     available_access_levels = serializers.ListField(
         child=serializers.CharField(),
         help_text="The levels an object rule on this resource type accepts, lowest first.",
@@ -247,7 +261,9 @@ class AccessControlDefaultsResponseSerializer(_AccessControlSettingsResponseSeri
 class AccessControlObjectRuleSerializer(serializers.Serializer):
     """A stored rule on one object, as configured for a subject."""
 
-    resource = serializers.CharField(help_text="The object's resource type, for example `dashboard`.")
+    resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="The object's resource type, for example `dashboard`."
+    )
     resource_id = serializers.CharField(help_text="The object's primary key.")
     name = serializers.CharField(help_text="The object's display name. Falls back to the id when it has no name.")
     short_id = serializers.CharField(

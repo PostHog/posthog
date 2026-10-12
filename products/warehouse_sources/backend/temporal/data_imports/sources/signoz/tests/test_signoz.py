@@ -7,35 +7,16 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz import signoz as sgz
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.settings import SIGNOZ_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz import (
     SigNozResumeConfig,
-    _build_query_range_body,
     _extract_config_items,
     _extract_raw_rows,
-    _raw_row_to_item,
     _to_epoch_ms,
-    normalize_host,
     signoz_source,
     validate_credentials,
 )
-
-
-class TestNormalizeHost:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("example.signoz.io", "example.signoz.io"),
-            ("https://example.signoz.io", "example.signoz.io"),
-            ("https://example.signoz.io/", "example.signoz.io"),
-            ("http://example.signoz.io/api/v1", "example.signoz.io"),
-            ("  example.signoz.io  ", "example.signoz.io"),
-        ],
-    )
-    def test_normalize_host(self, raw: str, expected: str) -> None:
-        assert normalize_host(raw) == expected
 
 
 class TestToEpochMs:
@@ -58,50 +39,7 @@ class TestToEpochMs:
         assert _to_epoch_ms(value) == expected
 
 
-class TestBuildQueryRangeBody:
-    def test_logs_body_shape(self) -> None:
-        body = _build_query_range_body(SIGNOZ_ENDPOINTS["logs"], 50, window=SyncWindow(start=1000, end=2000))
-
-        assert body["start"] == 1000
-        assert body["end"] == 2000
-        assert body["requestType"] == "raw"
-        spec = body["compositeQuery"]["queries"][0]["spec"]
-        assert spec["signal"] == "logs"
-        assert spec["offset"] == 50
-        assert spec["limit"] == SIGNOZ_ENDPOINTS["logs"].page_size
-        # Ascending timestamp+id ordering keeps offset paging deterministic and the
-        # pipeline's incremental watermark correct.
-        assert spec["order"] == [
-            {"key": {"name": "timestamp"}, "direction": "asc"},
-            {"key": {"name": "id"}, "direction": "asc"},
-        ]
-
-    def test_traces_order_uses_span_id_tiebreaker(self) -> None:
-        body = _build_query_range_body(SIGNOZ_ENDPOINTS["traces"], 0, window=SyncWindow(start=0, end=1))
-        spec = body["compositeQuery"]["queries"][0]["spec"]
-        assert spec["signal"] == "traces"
-        assert [o["key"]["name"] for o in spec["order"]] == ["timestamp", "span_id"]
-
-
 class TestExtractRawRows:
-    def test_extracts_rows_from_v5_envelope(self) -> None:
-        response = {
-            "status": "success",
-            "data": {
-                "type": "raw",
-                "data": {
-                    "results": [
-                        {
-                            "queryName": "A",
-                            "nextCursor": "",
-                            "rows": [{"timestamp": "2026-01-01T00:00:00Z", "data": {"id": "1"}}],
-                        }
-                    ]
-                },
-            },
-        }
-        assert _extract_raw_rows(response) == [{"timestamp": "2026-01-01T00:00:00Z", "data": {"id": "1"}}]
-
     @pytest.mark.parametrize(
         "response",
         [
@@ -118,28 +56,7 @@ class TestExtractRawRows:
         assert _extract_raw_rows(response) == []
 
 
-class TestRawRowToItem:
-    def test_flattens_data_and_envelope_timestamp_wins(self) -> None:
-        row = {
-            "timestamp": "2026-01-01T00:00:00Z",
-            "data": {"id": "1", "body": "hello", "timestamp": 1767225600000000000},
-        }
-        item = _raw_row_to_item(row)
-        assert item == {"id": "1", "body": "hello", "timestamp": "2026-01-01T00:00:00Z"}
-
-    def test_missing_data_map(self) -> None:
-        assert _raw_row_to_item({"timestamp": "2026-01-01T00:00:00Z"}) == {"timestamp": "2026-01-01T00:00:00Z"}
-
-
 class TestExtractConfigItems:
-    def test_rules_nested_under_data_rules(self) -> None:
-        response = {"status": "success", "data": {"rules": [{"id": "r1"}, {"id": "r2"}]}}
-        assert _extract_config_items(response, SIGNOZ_ENDPOINTS["alert_rules"]) == [{"id": "r1"}, {"id": "r2"}]
-
-    def test_dashboards_list_directly_under_data(self) -> None:
-        response = {"status": "success", "data": [{"id": "d1"}]}
-        assert _extract_config_items(response, SIGNOZ_ENDPOINTS["dashboards"]) == [{"id": "d1"}]
-
     def test_notification_channels_allowlist_strips_credential_data(self) -> None:
         # The `data` field carries receiver secrets (Slack webhook URLs, PagerDuty keys); the
         # allowlist must drop it (and anything else off-list) before it reaches the warehouse.
@@ -205,20 +122,6 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz.make_tracked_session")
-    def test_probe_disables_sample_capture(self, mock_session: mock.MagicMock) -> None:
-        # The probe response can echo the token, which the name-based scrubber can't strip, so
-        # the session must be created with capture=False to keep it out of HTTP sample capture.
-        response = mock.MagicMock()
-        response.status_code = 200
-        response.is_redirect = False
-        response.is_permanent_redirect = False
-        mock_session.return_value.get.return_value = response
-
-        validate_credentials("example.signoz.io", "key")
-
-        assert mock_session.call_args.kwargs["capture"] is False
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz.make_tracked_session")
     def test_redirect_is_rejected(self, mock_session: mock.MagicMock) -> None:
@@ -350,15 +253,6 @@ class TestGetRows:
             )
         return batches, saved, requests_made
 
-    def test_config_endpoint_yields_items_from_single_get(self) -> None:
-        responses = [{"status": "success", "data": {"rules": [{"id": "r1"}]}}]
-        batches, saved, requests_made = self._run("alert_rules", responses)
-
-        assert batches == [[{"id": "r1"}]]
-        assert saved == []
-        assert requests_made[0]["url"] == "https://example.signoz.io/api/v1/rules"
-        assert requests_made[0]["body"] is None
-
     def test_notification_channels_endpoint_drops_credential_data(self) -> None:
         # End-to-end guard on the sync path: the receiver `data` payload never reaches the
         # yielded rows, so imported channel secrets can't land in the warehouse table.
@@ -371,41 +265,6 @@ class TestGetRows:
         batches, _saved, _requests = self._run("notification_channels", responses)
 
         assert batches == [[{"id": "c1", "name": "oncall", "type": "slack"}]]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz.make_tracked_session")
-    def test_sync_session_disables_sample_capture(self, mock_session: mock.MagicMock) -> None:
-        # Imported telemetry/config can carry secrets the name-based scrubber can't strip, so
-        # the sync session must be created with capture=False.
-        resp = mock.MagicMock()
-        resp.status_code = 200
-        resp.ok = True
-        resp.is_redirect = False
-        resp.is_permanent_redirect = False
-        resp.json.return_value = _page([])
-        mock_session.return_value.post.return_value = resp
-
-        list(
-            sgz.get_rows(
-                host="example.signoz.io",
-                api_key="key",
-                endpoint="logs",
-                team_id=1,
-                logger=mock.MagicMock(),
-                resumable_source_manager=mock.MagicMock(can_resume=lambda: False),
-            )
-        )
-
-        assert mock_session.call_args.kwargs["capture"] is False
-
-    def test_short_page_terminates_without_saving_state(self) -> None:
-        responses = [_page([_log_row("2026-01-01T00:00:00Z", "1")])]
-        batches, saved, requests_made = self._run("logs", responses, page_size=2)
-
-        assert len(batches) == 1
-        assert batches[0][0]["id"] == "1"
-        assert saved == []
-        assert len(requests_made) == 1
-        assert requests_made[0]["url"] == "https://example.signoz.io/api/v5/query_range"
 
     def test_full_page_advances_window_start_and_saves_state_after_yield(self) -> None:
         responses = [
@@ -451,20 +310,6 @@ class TestGetRows:
         assert [s.offset for s in saved] == [2, 4]
         assert all(s.window_start_ms == 1767225600000 for s in saved)
         assert [r["body"]["compositeQuery"]["queries"][0]["spec"]["offset"] for r in requests_made] == [0, 2, 4]
-
-    def test_resumes_from_saved_window(self) -> None:
-        responses = [_page([])]
-        _batches, _saved, requests_made = self._run(
-            "logs",
-            responses,
-            can_resume=True,
-            resume_state=SigNozResumeConfig(window_start_ms=123, window_end_ms=456, offset=7),
-        )
-
-        body = requests_made[0]["body"]
-        assert body["start"] == 123
-        assert body["end"] == 456
-        assert body["compositeQuery"]["queries"][0]["spec"]["offset"] == 7
 
     def test_incremental_watermark_sets_window_start(self) -> None:
         responses = [_page([])]

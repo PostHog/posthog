@@ -7,6 +7,7 @@ from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
+from posthog.models.file_system.starred_products import star_custom_products
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
 from posthog.products import Products
 from posthog.schema_enums import ProductItemCategory, ProductKey
@@ -45,12 +46,20 @@ def add_default_products_for_user(user: "User", team: "Team") -> "list[UserProdu
     if not missing_paths:
         return []
 
+    had_custom_products = user_has_custom_products(user)
     # `ignore_conflicts` + `unique_together` on (team, user, product_path) keep this
     # idempotent under concurrent seeding.
-    return UserProductList.objects.bulk_create(
+    created = UserProductList.objects.bulk_create(
         [UserProductList(user=user, team=team, product_path=path, enabled=True) for path in missing_paths],
         ignore_conflicts=True,
     )
+    star_custom_products(user, team, missing_paths, had_custom_products=had_custom_products)
+    return created
+
+
+def user_has_custom_products(user: "User") -> bool:
+    """Whether the user has any enabled custom product in any project."""
+    return UserProductList.objects.filter(user=user, enabled=True).exists()
 
 
 def add_default_products_for_accessible_teams(user: "User", organization: "Organization") -> None:
@@ -124,6 +133,12 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # `get_or_create` round-trips, then bulk-flip any rows the user had previously
         # disabled. `unique_together` on (team, user, product_path) makes this idempotent.
         # `auto_now` doesn't fire on bulk update, so set updated_at explicitly.
+        had_custom_products = user_has_custom_products(user)
+        already_enabled = set(
+            UserProductList.objects.filter(
+                user=user, team=team, product_path__in=target_paths, enabled=True
+            ).values_list("product_path", flat=True)
+        )
         UserProductList.objects.bulk_create(
             [UserProductList(user=user, team=team, product_path=path, enabled=True) for path in target_paths],
             ignore_conflicts=True,
@@ -131,6 +146,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths, enabled=False).update(
             enabled=True, updated_at=timezone.now()
         )
+        # Products that were already enabled keep whatever star choice the user made for them.
+        newly_enabled = [path for path in target_paths if path not in already_enabled]
+        star_custom_products(user, team, newly_enabled, had_custom_products=had_custom_products)
         return list(UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths))
 
     @staticmethod
@@ -142,16 +160,21 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         if not products:
             return []
 
+        had_custom_products = user_has_custom_products(user)
         user_product_lists = []
+        added_paths = []
         for product in products:
-            item, _ = UserProductList.objects.get_or_create(
+            item, created = UserProductList.objects.get_or_create(
                 user=user,
                 team=product_intent.team,
                 product_path=product.path,
                 defaults={"enabled": True},
             )
             user_product_lists.append(item)
+            if created:
+                added_paths.append(product.path)
 
+        star_custom_products(user, product_intent.team, added_paths, had_custom_products=had_custom_products)
         return user_product_lists
 
 
