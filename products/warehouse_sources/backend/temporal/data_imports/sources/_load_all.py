@@ -240,6 +240,7 @@ from .chargify.source import ChargifySource
 from .charthop.source import ChartHopSource
 from .chartmogul.source import ChartMogulSource
 from .chatwoot.source import ChatwootSource
+from .checkhq.source import CheckHQSource
 from .checkly.source import ChecklySource
 from .checkmarx.source import CheckmarxSource
 from .checkout_com.source import CheckoutComSource
@@ -993,6 +994,7 @@ from .quickbooks.source import QuickBooksSource
 from .quo.source import QuoSource
 from .railway.source import RailwaySource
 from .railz.source import RailzSource
+from .rainforest_pay.source import RainforestPaySource
 from .raisely.source import RaiselySource
 from .raken.source import RakenSource
 from .rakuten_advertising.source import RakutenAdvertisingSource
@@ -1161,6 +1163,7 @@ from .squadcast.source import SquadcastSource
 from .square.source import SquareSource
 from .squarespace.source import SquarespaceSource
 from .stack_overflow_for_teams.source import StackOverflowForTeamsSource
+from .stackadapt.source import StackAdaptSource
 from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
