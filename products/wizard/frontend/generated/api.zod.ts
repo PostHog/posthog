@@ -111,6 +111,8 @@ export const wizardScansCreateBodyProgramMax = 50
 
 export const wizardScansCreateBodyWizardVersionMax = 32
 
+export const wizardScansCreateBodyWorkspaceFingerprintMax = 64
+
 export const wizardScansCreateBodyWorkspaceFingerprintRegExp = new RegExp('^[0-9a-f]{64}$')
 export const wizardScansCreateBodyToolsItemKindMax = 64
 
@@ -136,6 +138,7 @@ export const WizardScansCreateBody = /* @__PURE__ */ zod.object({
         .describe('Version of the wizard that made the scan.'),
     workspace_fingerprint: zod
         .string()
+        .max(wizardScansCreateBodyWorkspaceFingerprintMax)
         .regex(wizardScansCreateBodyWorkspaceFingerprintRegExp)
         .describe('sha256 hex digest that identifies the scanned repository without naming it.'),
     scanned_at: zod.iso.datetime({ offset: true }).describe('When the wizard scanned the codebase.'),

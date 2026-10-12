@@ -490,6 +490,7 @@ export interface RecordWizardScanRequestApi {
     wizard_version: string
     /**
      * sha256 hex digest that identifies the scanned repository without naming it.
+     * @maxLength 64
      * @pattern ^[0-9a-f]{64}$
      */
     workspace_fingerprint: string
