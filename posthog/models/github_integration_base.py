@@ -51,6 +51,8 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 # Branch cache: 10-minute staleness, 24-hour eviction timeout.
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_REFRESH_MAX_WAIT_SECONDS = 60.0
+# Outlives a paced refresh and its retries, so picker views do not queue a second one meanwhile.
+GITHUB_BRANCH_REFRESH_LOCK_SECONDS = 60 * 60
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
@@ -2843,16 +2845,16 @@ class GitHubIntegrationBase:
         return f"{self._get_branch_cache_key(repo)}:refreshing"
 
     def _schedule_branch_cache_refresh(self, repo: str) -> None:
-        lock_key = self._branch_refresh_lock_key(repo)
-        if not cache.add(lock_key, True, timeout=GITHUB_BRANCH_CACHE_TTL_SECONDS):
+        lock_token = uuid.uuid4().hex
+        if not cache.add(self._branch_refresh_lock_key(repo), lock_token, timeout=GITHUB_BRANCH_REFRESH_LOCK_SECONDS):
             return
         # The tasks module imports the integration models, so a module-level import is circular.
         from posthog.tasks.integrations import refresh_github_branch_cache  # noqa: PLC0415
 
         try:
-            refresh_github_branch_cache.delay(str(self.integration.id), repo, self.is_user_integration)
+            refresh_github_branch_cache.delay(str(self.integration.id), repo, self.is_user_integration, lock_token)
         except Exception:
-            cache.delete(lock_key)
+            self.release_branch_refresh_lock(repo, lock_token)
             logger.warning(
                 "GitHubIntegration: failed to schedule branch cache refresh",
                 integration_id=self.integration.id,
@@ -2860,12 +2862,15 @@ class GitHubIntegrationBase:
                 exc_info=True,
             )
 
+    def release_branch_refresh_lock(self, repo: str, lock_token: str) -> None:
+        # Only the owner releases, so a refresh that outlived its lock cannot free a newer refresh's lock.
+        lock_key = self._branch_refresh_lock_key(repo)
+        if cache.get(lock_key) == lock_token:
+            cache.delete(lock_key)
+
     def refresh_branch_cache(self, repo: str) -> None:
         """List the branches at the budget's pace and store them, for the background refresh."""
-        try:
-            self.sync_branch_cache(repo, paced=True)
-        finally:
-            cache.delete(self._branch_refresh_lock_key(repo))
+        self.sync_branch_cache(repo, paced=True)
 
     def list_cached_branches(
         self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0

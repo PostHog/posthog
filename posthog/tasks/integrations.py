@@ -1,5 +1,6 @@
-from celery import shared_task
+from celery import Task, shared_task
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
@@ -15,6 +16,8 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.facade.api import delete_ses_identity
+
+GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
@@ -141,9 +144,11 @@ def push_vercel_secrets(team_id: int) -> None:
     VercelIntegration.push_secrets_to_vercel(team)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(bind=True, ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, max_retries=5)
 @skip_team_scope_audit
-def refresh_github_branch_cache(integration_id: str, repo: str, is_user_integration: bool) -> None:
+def refresh_github_branch_cache(
+    self: Task, integration_id: str, repo: str, is_user_integration: bool, lock_token: str
+) -> None:
     """Refresh one repository's cached branch list for the branch picker, on the batch lane."""
     github: GitHubIntegrationBase
     if is_user_integration:
@@ -156,4 +161,15 @@ def refresh_github_branch_cache(integration_id: str, repo: str, is_user_integrat
         if integration is None:
             return
         github = GitHubIntegration(integration, source="github_branch_picker", priority=Priority.BATCH)
-    github.refresh_branch_cache(repo)
+    try:
+        github.refresh_branch_cache(repo)
+    except GitHubEgressBudgetExhausted as error:
+        if self.request.retries < self.max_retries:
+            # The lock stays held, so picker views do not queue a second refresh while this one waits.
+            raise self.retry(exc=error, countdown=GITHUB_BRANCH_REFRESH_RETRY_SECONDS)
+        github.release_branch_refresh_lock(repo, lock_token)
+        raise
+    except Exception:
+        github.release_branch_refresh_lock(repo, lock_token)
+        raise
+    github.release_branch_refresh_lock(repo, lock_token)

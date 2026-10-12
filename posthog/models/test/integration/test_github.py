@@ -2239,7 +2239,8 @@ class TestGitHubIntegrationModel(BaseTest):
         assert default_branch == "main"
         assert has_more is False
         mock_list_branches.assert_not_called()
-        mock_refresh_delay.assert_called_once_with(str(integration.id), repo, False)
+        mock_refresh_delay.assert_called_once()
+        assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
@@ -2263,11 +2264,9 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_default_branch.side_effect = Exception("GitHub is slow")
 
         github = GitHubIntegration(integration)
-        cache.set(github._branch_refresh_lock_key(repo), True)
         github.refresh_branch_cache(repo)
 
         cached = cache.get(GitHubIntegration(integration)._get_branch_cache_key(repo))
-        assert cache.get(github._branch_refresh_lock_key(repo)) is None
         assert cached["branches"] == ["main", "develop", "feature/test"]
         assert cached["default_branch"] == "main"
         mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
