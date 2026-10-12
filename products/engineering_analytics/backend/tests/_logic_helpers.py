@@ -112,6 +112,7 @@ def _job_row(
     completed: str | None = None,
     head_branch: str = "main",
     head_sha: str = "sha60",
+    steps: str = "[]",
 ) -> dict[str, Any]:
     # Default to the same relative anchor the seeded runs use, not a fixed calendar date. GitHub
     # creates a job when its run attempt starts, so a job's created_at tracks its run's start — and
@@ -138,7 +139,7 @@ def _job_row(
         "created_at": started,
         "started_at": started,
         "completed_at": completed,
-        "steps": "[]",
+        "steps": steps,
     }
 
 

@@ -47,34 +47,36 @@ def _make_manager(resume_state: LeverResumeConfig | None = None) -> mock.MagicMo
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session, returning a list that captures each request's params AT SEND TIME.
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Wire a mock session, returning each request's params and URL captured AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
     run shows only the final state — snapshot a copy when each request is prepared instead.
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
+    urls: list[str] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        urls.append(request.url)
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
-    return param_snapshots
+    return param_snapshots, urls
 
 
 def _drive(endpoint: str, manager: mock.MagicMock, responses: list[Response], **kwargs: Any):
-    """Run ``lever_source`` against a mocked session and return (param snapshots, yielded batches)."""
+    """Run ``lever_source`` against a mocked session and return (param snapshots, yielded batches, URLs)."""
     with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
         session = MockSession.return_value
-        params = _wire(session, responses)
+        params, urls = _wire(session, responses)
         source_response = lever_source(
             "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
         )
         yielded = list(cast("Iterable[Any]", source_response.items()))
-    return params, yielded
+    return params, yielded, urls
 
 
 class TestBuildInitialParams:
@@ -134,7 +136,7 @@ class TestLeverPaginationAndResume:
             _page([{"id": "o2", "createdAt": 1700000005000}], False),
         ]
 
-        sent_params, yielded = _drive("opportunities", manager, responses)
+        sent_params, yielded, _ = _drive("opportunities", manager, responses)
 
         # First request has no offset; second request uses the saved offset token.
         assert sent_params[0].get("offset") is None
@@ -153,7 +155,7 @@ class TestLeverPaginationAndResume:
         manager = _make_manager(LeverResumeConfig(offset="saved_offset"))
 
         responses = [_page([{"id": "o5"}], False)]
-        sent_params, _ = _drive("opportunities", manager, responses)
+        sent_params, _, _ = _drive("opportunities", manager, responses)
 
         assert sent_params[0].get("offset") == "saved_offset"
 
@@ -167,6 +169,68 @@ class TestLeverPaginationAndResume:
             _drive("opportunities", manager, responses)
 
         manager.save_state.assert_not_called()
+
+
+class TestLeverOpportunityChildren:
+    @pytest.mark.parametrize("endpoint", ["offers", "interviews", "feedback"])
+    def test_fans_out_per_opportunity_and_tags_rows_with_parent(self, endpoint: str) -> None:
+        responses = [
+            _page([{"id": "opp1"}], True, "parent_2"),
+            _page([{"id": "c1", "createdAt": 1700000000000}], True, "child_2"),
+            _page([{"id": "c2", "createdAt": 1700000005000}], False),
+            _page([{"id": "opp2"}, {"id": "opp_deleted"}], False),
+            _page([{"id": "c1", "createdAt": 1700000010000}], False),
+            _make_response({"code": "NotFound"}, status_code=404),
+        ]
+
+        sent_params, yielded, urls = _drive(endpoint, _make_manager(), responses)
+
+        assert [url.removeprefix("https://api.lever.co/v1") for url in urls] == [
+            "/opportunities",
+            f"/opportunities/opp1/{endpoint}",
+            f"/opportunities/opp1/{endpoint}",
+            "/opportunities",
+            f"/opportunities/opp2/{endpoint}",
+            f"/opportunities/opp_deleted/{endpoint}",
+        ]
+        assert sent_params[0] == {"limit": 100, "include": "id"}
+        assert sent_params[2].get("offset") == "child_2"
+        assert sent_params[3].get("offset") == "parent_2"
+        assert [row for batch in yielded for row in batch] == [
+            {"id": "c1", "createdAt": 1700000000, "opportunity_id": "opp1"},
+            {"id": "c2", "createdAt": 1700000005, "opportunity_id": "opp1"},
+            {"id": "c1", "createdAt": 1700000010, "opportunity_id": "opp2"},
+        ]
+
+
+class TestLeverApplications:
+    def test_flattens_expanded_applications_from_opportunities(self) -> None:
+        responses = [
+            _page(
+                [
+                    {"applications": [{"id": "a1", "opportunityId": "o1", "createdAt": 1700000000000}]},
+                    {"applications": []},
+                ],
+                True,
+                "offset_2",
+            ),
+            _page([{"applications": [{"id": "a2", "opportunityId": "o2", "createdAt": 1700000005000}]}], False),
+        ]
+
+        sent_params, yielded, urls = _drive("applications", _make_manager(), responses)
+
+        assert urls[0] == "https://api.lever.co/v1/opportunities"
+        assert sent_params[0] == {"limit": 100, "expand": "applications", "include": "applications"}
+        assert [row for batch in yielded for row in batch] == [
+            {"id": "a1", "opportunityId": "o1", "createdAt": 1700000000},
+            {"id": "a2", "opportunityId": "o2", "createdAt": 1700000005},
+        ]
+
+    def test_unexpanded_application_ids_fail_loudly(self) -> None:
+        responses = [_page([{"applications": ["a1"]}], False)]
+
+        with pytest.raises(ValueError, match="expected expanded applications objects"):
+            _drive("applications", _make_manager(), responses)
 
 
 class TestResumeConfigSerialization:

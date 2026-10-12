@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.instance_setting import _clear_instance_setting_cache
+
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
@@ -17,7 +19,9 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
+    REVIEW_HOG_FINDING_MARKER,
     REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     ReviewArm,
     review_arm_for_mode,
 )
@@ -29,7 +33,8 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     LensReviewInput,
@@ -38,6 +43,7 @@ from products.review_hog.backend.temporal.activities import (
     SandboxStageInput,
     SelectPerspectivesInput,
     _current_pr_comments,
+    dedup_activity,
     lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -628,3 +634,38 @@ def test_full_dedup_reads_current_comments_without_outdated_ones(
         comments = _current_pr_comments(SandboxStageInput(**_single_agent_stage()), snapshot)
 
     assert [comment.id for comment in comments] == expected_ids
+
+
+@pytest.mark.django_db
+async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_not_cached() -> None:
+    _clear_instance_setting_cache()
+    ours = PRComment(
+        id=1, path="a.py", line=1, body=REVIEW_HOG_FINDING_MARKER, diff_hunk="", user="reviewhog[bot]", created_at="c"
+    )
+    theirs = PRComment(id=2, path="a.py", line=1, body="x", diff_hunk="", user="alice", created_at="c")
+    outcome = DedupOutcome(
+        kept=[],
+        duplicates=[
+            Duplicate(issue=_wave_issue("Mine again"), duplicate_of="1"),
+            Duplicate(issue=_wave_issue("Already said"), duplicate_of="2"),
+        ],
+    )
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}._combine_and_clean", return_value=[]),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
+        patch(f"{_MODULE}.load_prior_findings_with_verdicts", return_value=[]),
+        patch(f"{_MODULE}._current_pr_comments", return_value=[ours, theirs]),
+        patch(f"{_MODULE}.deduplicate_issues", AsyncMock(return_value=outcome)),
+        patch(f"{_MODULE}.replace_deduplicated_findings", return_value=[]),
+        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
+    ):
+        result = await ActivityEnvironment().run(
+            dedup_activity,
+            SandboxStageInput(
+                **_single_agent_stage(review_mode=REVIEW_MODE_FULL, review_design=REVIEW_DESIGN_PIPELINE)
+            ),
+        )
+
+    assert result.raised_elsewhere == [AlreadyRaised(title="Already said", level="P2", comment_id=2, commenter="alice")]

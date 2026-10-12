@@ -87,6 +87,42 @@ A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col
 Log ramp by default; `colorScale: 'linear'` to opt out.
 A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex, yIndex, value }`, and `onBrush` reports row and column index ranges.
 
+## SankeyChart
+
+Flow between stages: `nodes: { id, label?, color?, meta? }[]` and `links: { source, target, value, color?, meta? }[]`, where `source` and `target` are node ids.
+There is no `series` or `labels`.
+
+- Node ids must be unique. The graph must be acyclic, every link must name existing nodes, and link values must be finite and non-negative; the layout throws otherwise, and the chart's error boundary reports it through `onError`.
+  A node that recurs at several stages (the same tool called twice) needs one id per stage, so prefix ids with the stage.
+- Nodes that share a `label` share a palette color, so a repeated tool keeps one hue across columns.
+  A link without `color` takes its source node's color.
+  `var(--…)` colors resolve inside the chart.
+- `nodeAlign` decides where a flow that ends early sits: `justify` (default) moves terminal nodes to the last column; `left` keeps each node at its own depth, which reads right when columns are stages.
+  `preserveNodeOrder` keeps input order within a column instead of untangling ribbons.
+  A node with `column` set is pinned there whatever its depth, and the graph grows to fit the highest pin; use it when the data names its own stage, so `columnLabels` stay truthful for flows that end early or start late.
+  Pin every node or none, because an unpinned node is placed by depth and ignores its neighbors' pins.
+  Pins must run forward along the links: a link whose target column is at or before its source's draws backwards, with no error.
+  A pin that is not a whole number from 0 to `MAX_SANKEY_COLUMN` throws.
+- `columnLabels` renders headers above each column and reserves room for them, added to any consumer `margins.top`; a header too wide for its column truncates.
+  Node labels are DOM overlays beside each node, truncated to the free space before the next column; the last column's labels sit to its left.
+  `lastColumnLabels: 'outside'` moves the last column's labels to the right of the nodes and reserves a margin for them (capped at 160px and at half the plot width), so names in that column read in full on a narrow chart. The margin counts only the nodes that land in the last column under `nodeAlign`, and it adds to a consumer `margins.right` rather than being replaced by it.
+  Hovering a label counts as hovering its node, so a truncated name shows in full in the tooltip.
+  A label that would print over a larger neighbor's label in the same column is dropped; the tooltip still names that node.
+  `showNodeValues` appends the node value.
+- Hovering a node lifts its ribbons and dims the rest of the graph; hovering a ribbon lifts just that ribbon.
+  The default tooltip shows the node label or `source → target`, the value, and its share of `layout.total` (the summed value of source nodes with no incoming link).
+  `onNodeClick` and `onLinkClick` receive the laid-out datum with its `meta`.
+  `tooltip.placement` takes the cartesian charts' values and defaults to `cursor`.
+  On touch, the first tap on a node or ribbon shows its tooltip and a second tap on the same one fires the click handler.
+- `onHoverChange` reports the node or ribbon under the cursor or a touch tap, and `null` when the cursor leaves, a tap lands on empty space, or the layout changes.
+  `highlight` takes over emphasis: the chart dims everything outside `{ nodeIds, linkIndices }` and stops its own hover dimming, so a host can light up a whole downstream path or a selection.
+  Link indices are positions in the `links` prop; the layout keeps that order.
+- Custom overlays read `useSankeyLayout()` for the positioned `nodes`, `links`, `columnX`, and `total`.
+  An overlay with its own pointer handling marks its root with `data-hog-charts-interactive-overlay`, which also stops the chart from reporting a hover while the cursor is on it.
+- The layout engine ships on its own as `sankeyLayout` (plus the `sankeyLeft` / `sankeyJustify` alignments and `sankeyLinkHorizontal`) for hosts that draw their own SVG.
+  It does not validate its input: the checks above run in `computeSankeyLayout`, so a host that calls the engine directly validates its own graph.
+  Links resolve their endpoints by array index by default; for links that name string node ids, call `sankeyLayout().nodeId((node) => node.id)` first.
+
 ## Sparkline
 
 An axis-less preset over `LineChart` (default, gradient-filled line) or stacked bars via `type: 'bar'`.
@@ -101,9 +137,11 @@ Bars use `hitArea: 'band'`.
 A left-aligned tile: headline number, change pill, sparkline.
 
 - `title={null}` drops the title row. The header band collapses when there is no title and no change pill, and the subtitle row is omitted when there is no subtitle and no `labels`, so a value-only card renders just the number.
-- `changeSize="md"` renders a larger pill (default `sm`); `changeInline` puts it beside the headline instead of in the header.
+- `changeSize="md"` renders a larger pill (default `sm`); `changeInline` puts it beside the headline instead of in the header. The inline pill wraps under the headline when the card is too narrow for both.
+- `headlineClassName` replaces the headline's default `text-4xl`, for example with container query sizes so a narrow tile keeps the number on one line.
 - `sparklineFill` makes the sparkline fill the card's remaining height instead of a fixed `sparklineHeight`; `sparklineDashedFromIndex` dashes it from that index onward (an in-progress trailing period).
 - `subtitle` always wins. `restingSubtitle` (`'Avg'`) shows only at rest and yields to the hovered point's label on hover; pair it with a `value` that summarizes the series.
+- `formatLabel` formats the point label in the default subtitle, for example an ISO time as a short date. The sparkline keeps the raw `labels`, so they stay unique.
 - `hoverChangeFromPreviousPoint` keeps the resting `change` pill at rest but, while hovering, swaps it for the hovered point's change versus the previous point (hidden at the first point).
 - `changeTooltip` shows a styled hover tooltip on the change pill, using the host's tooltip surface tokens with chart-surface fallbacks.
 

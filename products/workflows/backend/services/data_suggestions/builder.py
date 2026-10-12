@@ -328,6 +328,6 @@ def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) 
 
 
 def clean_copy(text: str) -> str:
-    cleaned = _TEMPLATE_TAGS.sub("", text).replace("—", ", ").strip()
+    cleaned = re.sub(r"\s*—\s*", ", ", _TEMPLATE_TAGS.sub("", text)).strip()
     # Sentence case starts with a capital, which the model does not always write.
     return cleaned[:1].upper() + cleaned[1:]

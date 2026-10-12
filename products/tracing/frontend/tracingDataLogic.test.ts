@@ -394,6 +394,86 @@ describe('tracingDataLogic', () => {
         )
     })
 
+    describe('query failures', () => {
+        let toastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            toastSpy.mockRestore()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])(
+            'sets the $name error instead of toasting once the retry also fails',
+            async ({ apiMethod, fetch, error }) => {
+                const apiSpy = jest.spyOn(api.tracing, apiMethod).mockRejectedValue(new Error('boom'))
+                logic = mountWithSpans([])
+
+                await fetch(logic).catch(() => {})
+
+                expect(apiSpy).toHaveBeenCalledTimes(2)
+                expect(error(logic)).toBe('boom')
+                expect(toastSpy).not.toHaveBeenCalled()
+            }
+        )
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                result: { results: [], hasMore: false },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                result: { results: [] },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])('recovers when the retry of a fast $name failure succeeds', async ({ apiMethod, result, fetch, error }) => {
+            const apiSpy = jest
+                .spyOn(api.tracing, apiMethod)
+                .mockRejectedValueOnce(new Error('boom'))
+                .mockResolvedValueOnce(result as any)
+            logic = mountWithSpans([])
+
+            await fetch(logic)
+
+            expect(apiSpy).toHaveBeenCalledTimes(2)
+            expect(error(logic)).toBeNull()
+        })
+
+        it('clears the spans error when the next query starts', () => {
+            jest.spyOn(api.tracing, 'listSpans').mockReturnValue(new Promise(() => {}) as any)
+            logic = mountWithSpans([])
+            logic.actions.fetchSpansFailure('boom')
+            expect(logic.values.spansError).toBe('boom')
+
+            logic.actions.fetchSpans()
+
+            expect(logic.values.spansError).toBeNull()
+        })
+    })
+
     describe('cancelled requests', () => {
         // A superseded query and a scene teardown both abort whatever is in flight. Neither is a
         // fault the user can act on, so neither may reach them as a toast or land in error

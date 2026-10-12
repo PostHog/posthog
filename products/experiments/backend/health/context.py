@@ -18,6 +18,12 @@ class FlagVariant:
 class FlagReleaseGroup:
     rollout_percentage: float | None
     property_count: int | None
+    # The variant override of the release condition, as stored. The flag service ignores a key that is
+    # not one of the flag's variants.
+    variant: str | None
+    # The group type the condition aggregates on, or None for persons. A condition without its own value
+    # takes the flag's value, as `effective_aggregation` in rust/feature-flags/src/flags/flag_property_group.rs.
+    aggregation_group_type_index: int | None
 
 
 @frozen
@@ -26,6 +32,9 @@ class FlagState:
     deleted: bool
     release_groups: tuple[FlagReleaseGroup, ...]
     variants: tuple[FlagVariant, ...]
+    # With early exit, the flag service stops at the first condition whose properties match, also when the
+    # user falls outside that condition's rollout.
+    early_exit: bool
 
 
 @frozen
@@ -54,23 +63,48 @@ class HealthContext:
         return self.is_launched and not self.has_ended
 
 
-def parse_flag_state(*, active: bool, deleted: bool, groups: object, variants: object) -> FlagState:
+def parse_flag_state(
+    *,
+    active: bool,
+    deleted: bool,
+    groups: object,
+    variants: object,
+    aggregation_group_type_index: object = None,
+    early_exit: object = False,
+) -> FlagState:
+    flag_aggregation = _group_type_index(aggregation_group_type_index)
     return FlagState(
         active=active,
         deleted=deleted,
-        release_groups=tuple(_release_group(group) for group in groups) if isinstance(groups, list) else (),
+        release_groups=(
+            tuple(_release_group(group, flag_aggregation) for group in groups) if isinstance(groups, list) else ()
+        ),
         variants=tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else (),
+        early_exit=early_exit is True,
     )
 
 
-def _release_group(group: object) -> FlagReleaseGroup:
+def _release_group(group: object, flag_aggregation: int | None) -> FlagReleaseGroup:
     if not isinstance(group, dict):
-        return FlagReleaseGroup(rollout_percentage=None, property_count=None)
+        return FlagReleaseGroup(
+            rollout_percentage=None, property_count=None, variant=None, aggregation_group_type_index=flag_aggregation
+        )
     properties = group.get("properties")
+    variant = group.get("variant")
     return FlagReleaseGroup(
         rollout_percentage=_percentage(group.get("rollout_percentage")),
         property_count=len(properties) if isinstance(properties, list) else None,
+        variant=variant if isinstance(variant, str) and variant else None,
+        aggregation_group_type_index=(
+            _group_type_index(group["aggregation_group_type_index"])
+            if "aggregation_group_type_index" in group
+            else flag_aggregation
+        ),
     )
+
+
+def _group_type_index(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _variant(variant: object) -> FlagVariant:
@@ -98,7 +132,12 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
         return None
     flag = experiment.feature_flag
     return parse_flag_state(
-        active=bool(flag.active), deleted=bool(flag.deleted), groups=flag.conditions, variants=flag.variants
+        active=bool(flag.active),
+        deleted=bool(flag.deleted),
+        groups=flag.conditions,
+        variants=flag.variants,
+        aggregation_group_type_index=flag.aggregation_group_type_index,
+        early_exit=flag.early_exit,
     )
 
 

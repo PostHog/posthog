@@ -51,7 +51,7 @@ __all__ = [
 ]
 
 # Loop CRUD MCP tools must never be reachable from inside a loop-fired run, regardless of the
-# loop's configured connector scope (products/tasks/docs/LOOPS.md, Connectors section): a
+# loop's configured connector scope: a
 # triggered run has no legitimate reason to create/edit/delete loops, and this closes the
 # injected-instructions plant-a-persistent-loop path. loop:read stays granted.
 LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
@@ -82,7 +82,8 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 
 
 def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
-    if task.origin_product == Task.OriginProduct.POSTHOG_AI:
+    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
+    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"

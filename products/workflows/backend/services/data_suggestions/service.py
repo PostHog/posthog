@@ -130,7 +130,9 @@ def get_data_suggestions(*, team: Team, user: User, refresh: bool = False) -> Da
     # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
     if result.status != "ready" and isinstance(cached, DataSuggestionsResult) and cached.status == "ready":
         return cached
-    cache.set(key, result, CACHE_TTL_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS)
+    # An empty answer often means the team's events have not arrived yet, so it is retried as soon as a failure.
+    ttl = CACHE_TTL_SECONDS if result.status == "ready" and result.suggestions else FAILURE_CACHE_TTL_SECONDS
+    cache.set(key, result, ttl)
     return result
 
 
@@ -264,8 +266,9 @@ def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
                 reason=clean_copy(idea.reason),
                 trigger_event=idea.trigger_event,
                 weekly_count=weekly_counts[idea.trigger_event],
-                # Jev's stage wins: it judges each event the same way for every customer.
-                stage=jev_stages.get(idea.trigger_event, idea.stage),
+                # Jev's stage wins: it judges each event the same way for every customer. An event Jev did not
+                # classify is "other", because the model's own label skips the confidence and name checks.
+                stage=jev_stages.get(idea.trigger_event, "other"),
                 step_outline=outline,
             )
         )
