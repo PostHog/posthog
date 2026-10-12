@@ -50,22 +50,6 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.hog_invocation_cancel import (
-    HogInvocationCancelRequestSerializer,
-    HogInvocationCancelResponseSerializer,
-)
-from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
-from posthog.api.hog_invocation_results import (
-    HogInvocationResultDetailSerializer,
-    HogInvocationResultsCountSerializer,
-    HogInvocationResultSerializer,
-    HogInvocationResultsFiltersSerializer,
-    HogInvocationResultsRequestSerializer,
-    fetch_hog_invocation_result,
-    fetch_hog_invocation_results,
-    fetch_hog_invocation_results_count,
-    tag_invocation_results_query,
-)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -103,6 +87,25 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
+)
+from products.cdp.backend.presentation.hog_invocations.cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.rerun import (
+    HogInvocationRerunRequestSerializer,
+    HogInvocationRerunResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.results import (
+    HogInvocationResultDetailSerializer,
+    HogInvocationResultsCountSerializer,
+    HogInvocationResultSerializer,
+    HogInvocationResultsFiltersSerializer,
+    HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_result,
+    fetch_hog_invocation_results,
+    fetch_hog_invocation_results_count,
+    tag_invocation_results_query,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
