@@ -47,8 +47,9 @@ function JobFailureLog({ job, jobName }: { job: CIJobFailureLogApi; jobName?: st
 
 /**
  * A set of failed jobs with their log excerpts, straight from the loader's union: ``null`` is the
- * not-loaded state, ``'unavailable'`` a failed fetch, and ``logs_available === false`` means the run
- * didn't fail or its logs aged out of retention.
+ * not-loaded state, ``'unavailable'`` a failed fetch, and ``logs_available === false`` means no log lines
+ * were collected or they aged out of retention. Callers render this only for a run known to have failed,
+ * so the empty text must not suggest that nothing failed.
  */
 export function FailureLogGroups({
     logs,
@@ -56,7 +57,7 @@ export function FailureLogGroups({
     onRetry,
     jobNames,
     errorDescription = 'Retry, or open the run on GitHub to read its logs.',
-    emptyText = 'No failure logs. Nothing failed, or the logs have aged out of retention.',
+    emptyText = "Failure logs aren't available for this run. They weren't collected, or they've aged out of retention. Open the run on GitHub to read its logs.",
 }: {
     logs: { jobs: CIJobFailureLogApi[]; logs_available: boolean } | 'unavailable' | null | undefined
     loading: boolean

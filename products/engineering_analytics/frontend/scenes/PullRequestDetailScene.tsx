@@ -753,7 +753,7 @@ export function PullRequestDetailScene(): JSX.Element {
                         loading={failureLogsLoading}
                         onRetry={loadFailureLogs}
                         errorDescription="Retry, or open one of the failed runs on GitHub to read its logs."
-                        emptyText="No failure logs. Fork runs may not be linked to this pull request, nothing failed, or the logs have aged out of retention."
+                        emptyText="Failure logs aren't available for these runs. They weren't collected, fork runs may not be linked to this pull request, or the logs have aged out of retention. Open a failed run on GitHub to read its logs."
                     />
                 </Section>
             )}
