@@ -917,7 +917,8 @@ export interface replayScannerLogicMeta {
         creditLimitState: (
             scanner: ScannerFormValues,
             scannerEstimate: EstimateResponseApi | null,
-            creditLimitUnit: any
+            scannerEstimateLoading: boolean,
+            creditLimitUnit: CreditLimitUnit
         ) => CreditLimitState
     }
 }
