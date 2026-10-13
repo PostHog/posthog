@@ -348,9 +348,7 @@ function assistantChunkText(entry: Record<string, unknown>): string | null {
     : null;
 }
 
-function agentMessageEntry(
-  chunks: Record<string, unknown>[],
-): StoredLogEntry {
+function agentMessageEntry(chunks: Record<string, unknown>[]): StoredLogEntry {
   const first = chunks[0];
   const last = chunks[chunks.length - 1];
   return {
@@ -380,20 +378,19 @@ function agentMessageEntry(
   } as StoredLogEntry;
 }
 
-export function piAcpLogEntries(
-  entries: object[],
+export function piAcpLogEntries<T extends object>(
+  entries: T[],
   { final }: { final: boolean },
-): { wire: StoredLogEntry[]; carry: object[] } {
+): { wire: StoredLogEntry[]; carry: T[] } {
   const wire: StoredLogEntry[] = [];
-  let chunks: Record<string, unknown>[] = [];
-  for (const source of entries) {
-    const entry = source as Record<string, unknown>;
-    if (assistantChunkText(entry) !== null) {
+  let chunks: T[] = [];
+  for (const entry of entries) {
+    if (assistantChunkText(entry as Record<string, unknown>) !== null) {
       chunks.push(entry);
       continue;
     }
     if (chunks.length > 0) {
-      wire.push(agentMessageEntry(chunks));
+      wire.push(agentMessageEntry(chunks as Record<string, unknown>[]));
       chunks = [];
     }
     const converted = piAcpWireEntry(entry);
@@ -401,12 +398,9 @@ export function piAcpLogEntries(
       wire.push(converted);
     }
   }
-  if (chunks.length === 0) {
-    return { wire, carry: [] };
+  if (final && chunks.length > 0) {
+    wire.push(agentMessageEntry(chunks as Record<string, unknown>[]));
+    chunks = [];
   }
-  if (!final) {
-    return { wire, carry: chunks };
-  }
-  wire.push(agentMessageEntry(chunks));
-  return { wire, carry: [] };
+  return { wire, carry: chunks };
 }
