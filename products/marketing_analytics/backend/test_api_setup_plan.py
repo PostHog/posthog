@@ -1,7 +1,11 @@
+from datetime import timedelta
+
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -63,6 +67,19 @@ class TestSetupPlanEndpoint(APIBaseTest):
         flag = patch(_FLAG_TARGET, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
+
+    @time_machine.travel("2026-10-07T12:00:00Z", tick=False)
+    def test_cached_plan_reports_the_actual_seven_day_scan_time(self) -> None:
+        scanned_at = timezone.now() - timedelta(days=6)
+        cache.set(f"marketing_analytics:source_scan:v1:{self.team.pk}:7:scanned_at", scanned_at)
+        cache.set(f"marketing_analytics:source_scan:v1:{self.team.pk}:90:scanned_at", timezone.now())
+        with patch(_PLAN_TARGET, return_value=_plan().model_copy(update={"degraded": []})) as build:
+            first = self.client.get(self.url)
+            second = self.client.get(self.url)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.json()["source_scanned_at"], scanned_at.isoformat())
+        self.assertEqual(first.json()["source_scanned_at"], second.json()["source_scanned_at"])
+        build.assert_called_once()
 
     def test_returns_the_plan(self):
         with patch(_PLAN_TARGET, return_value=_plan()):

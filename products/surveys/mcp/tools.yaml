@@ -108,8 +108,8 @@ tools:
             translations:
                 description: >
                     Optional survey-level translations keyed by language code. Use for translated survey name,
-                    description, and thank-you message fields. Question text translations belong inside each question's
-                    translations object.
+                    description, thank-you message, and intro screen fields. Question text translations belong inside
+                    each question's translations object.
             form_content:
                 description: >
                     Optional hosted-form content configuration for external_survey forms. Only include this when the
