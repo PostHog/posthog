@@ -121,7 +121,12 @@ TAX_LINES_FRAGMENT = f"""{{
     title
 }}"""
 
-LINE_ITEM_FRAGMENT = f"""{{
+
+def build_line_item_fragment(include_product: bool) -> str:
+    """`product` and `variant` need `read_products`, so callers without that scope omit them."""
+    product_fields = "product { id }" if include_product else ""
+    variant_fields = "variant { id }" if include_product else ""
+    return f"""{{
     id
     currentQuantity
     customAttributes {KV_FRAGMENT}
@@ -132,9 +137,7 @@ LINE_ITEM_FRAGMENT = f"""{{
     nonFulfillableQuantity
     originalTotalSet {MONEY_BAG_FRAGMENT}
     originalUnitPriceSet {MONEY_BAG_FRAGMENT}
-    product {{
-        id
-    }}
+    {product_fields}
     quantity
     refundableQuantity
     requiresShipping
@@ -147,11 +150,10 @@ LINE_ITEM_FRAGMENT = f"""{{
     unfulfilledDiscountedTotalSet {MONEY_BAG_FRAGMENT}
     unfulfilledOriginalTotalSet {MONEY_BAG_FRAGMENT}
     unfulfilledQuantity
-    variant {{
-        id
-    }}
+    {variant_fields}
     vendor
 }}"""
+
 
 CUSTOMER_FRAGMENT = f"""{{
     addresses {MAILING_ADDRESS_FRAGMENT}
