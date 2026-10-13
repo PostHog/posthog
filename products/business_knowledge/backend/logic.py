@@ -2049,6 +2049,11 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     # Each URL is written once. A second outcome for a new URL would insert the same chunk ids again.
     safe_urls = list(dict.fromkeys(safe_urls))
 
+    def _is_already_stored(u: str) -> bool:
+        return u in existing_by_url
+
+    safe_urls.sort(key=_is_already_stored)
+
     def _etag_for(u: str) -> str | None:
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
