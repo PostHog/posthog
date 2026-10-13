@@ -42,6 +42,7 @@ import {
   saveLayout,
 } from "../layout";
 import type { LocalAgent } from "../local";
+import type { McpClient } from "../mcp";
 import { type PiControl, runModel } from "../models";
 import type { MouseEvents } from "../mouse";
 import { openUrl } from "../openUrl";
@@ -78,6 +79,8 @@ export interface Session {
   today?: TodayClient;
   // The ChatGPT account PostHog holds for cloud Codex runs; absent in tests that do not need it.
   codexCloud?: CodexCloudClient;
+  // The account's MCP servers; absent in tests that do not need it.
+  mcp?: McpClient;
 }
 
 // Hands the terminal's input to `run` and takes it back after, around Ink's own suspension.
@@ -320,6 +323,7 @@ export function App({
       logout,
       runSetup,
       codexCloud: session?.codexCloud,
+      mcp: session?.mcp,
     });
 
   const sidebar = useSidebar({

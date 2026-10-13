@@ -39,6 +39,7 @@ import { LOG_PATH } from "./errors";
 import type { CodexCloudClient } from "./hooks/useSettings";
 import { type LocalAgent, LocalSession } from "./local";
 import { LocalChats } from "./localChats";
+import type { McpClient } from "./mcp";
 import { type PiCommand, type PiControl, piControl } from "./models";
 import { loadPrefs } from "./prefs";
 import { CloudRuns } from "./runs";
@@ -225,6 +226,7 @@ export function createCloud(
   startLocal: (id: string, pick?: StartPick) => Promise<LocalAgent>;
   today: TodayClient;
   codexCloud: CodexCloudClient;
+  mcp: McpClient;
 } {
   let teamId: Promise<number> | null = null;
   const context = async () => {
@@ -380,6 +382,7 @@ export function createCloud(
       connect: (tokens) => api.connectCodexUserIntegration(tokens),
       disconnect: () => api.disconnectCodexUserIntegration(),
     },
+    mcp: { installations: () => api.getMcpServerInstallations() },
     chats: new PiChats(
       api,
       sendMessage,
