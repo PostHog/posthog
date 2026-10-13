@@ -17,7 +17,7 @@ import {
     storedVisualizationWarnings,
     VISUALIZATION_PARAM_DESCRIPTION,
 } from './cellVisualization'
-import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor, replaceMarkdownCell } from './markdownDoc'
+import { applyMarkdownEdit, fetchMarkdownNotebook, replaceMarkdownCell } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 import { runExistingCell, type RunCellResult } from './runCell'
 
