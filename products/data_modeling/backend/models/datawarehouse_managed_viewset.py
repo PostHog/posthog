@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExpectedView:
     name: str
     query: dict[str, Any]
