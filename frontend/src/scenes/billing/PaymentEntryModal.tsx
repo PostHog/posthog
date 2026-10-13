@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { SupportFormFields, supportLogic } from 'lib/components/Support/supportLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
@@ -33,6 +34,7 @@ export const PaymentForm = (): JSX.Element => {
     const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
         useActions(paymentEntryLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const showContactSupport = useFeatureFlag('PAYMENT_ENTRY_CONTACT_SUPPORT')
 
     const stripe = useStripe()
     const elements = useElements()
@@ -80,7 +82,7 @@ export const PaymentForm = (): JSX.Element => {
             </p>
             {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
             <div className="flex justify-end deprecated-space-x-2 mt-2">
-                {stripeError && (
+                {stripeError && showContactSupport && (
                     <LemonButton
                         type="secondary"
                         onClick={() => {
@@ -107,6 +109,7 @@ export const PaymentEntryModal = (): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const showContactSupport = useFeatureFlag('PAYMENT_ENTRY_CONTACT_SUPPORT')
     const [stripePromise, setStripePromise] = useState<any>(null)
 
     useEffect(() => {
@@ -151,24 +154,27 @@ export const PaymentEntryModal = (): JSX.Element => {
                 ) : apiError ? (
                     <div className="flex flex-col gap-2 my-2">
                         <p className="text-md">
-                            We could not complete your upgrade at this time. Review the error below, and contact us if
-                            you need help. We answer billing questions on every plan.
+                            {showContactSupport
+                                ? 'We could not complete your upgrade at this time. Review the error below, and contact us if you need help. We answer billing questions on every plan.'
+                                : 'We could not complete your upgrade at this time. Please review the error below and contact support if you need help.'}
                         </p>
                         <LemonBanner type="error">{apiError}</LemonBanner>
                         <div className="flex justify-end gap-2 mt-2">
                             <LemonButton type="secondary" onClick={hidePaymentEntryModal}>
                                 Close
                             </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    hidePaymentEntryModal()
-                                    openSupportForm(supportRequestForError(apiError))
-                                }}
-                                data-attr="payment-entry-api-error-contact-support"
-                            >
-                                Contact support
-                            </LemonButton>
+                            {showContactSupport && (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => {
+                                        hidePaymentEntryModal()
+                                        openSupportForm(supportRequestForError(apiError))
+                                    }}
+                                    data-attr="payment-entry-api-error-contact-support"
+                                >
+                                    Contact support
+                                </LemonButton>
+                            )}
                         </div>
                     </div>
                 ) : (

@@ -6,6 +6,8 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -30,6 +32,7 @@ describe('PaymentEntryModal', () => {
     afterEach(cleanup)
 
     it('files a blocked upgrade as a billing issue, which every plan may raise', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PAYMENT_ENTRY_CONTACT_SUPPORT]: true })
         render(
             <Provider>
                 <PaymentEntryModal />
@@ -43,5 +46,18 @@ describe('PaymentEntryModal', () => {
         await waitFor(() => expect(supportLogic.values.sendSupportRequest.billing_issue).toBe(true))
         expect(supportLogic.values.sendSupportRequest.message).toContain('Failed to initialize payment')
         expect(paymentEntryLogic.values.paymentEntryModalOpen).toBe(false)
+    })
+
+    it('hides contact support while the flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        render(
+            <Provider>
+                <PaymentEntryModal />
+            </Provider>
+        )
+        paymentEntryLogic.actions.showPaymentEntryModal()
+
+        await screen.findByText('Close')
+        expect(document.querySelector('[data-attr="payment-entry-api-error-contact-support"]')).not.toBeInTheDocument()
     })
 })
