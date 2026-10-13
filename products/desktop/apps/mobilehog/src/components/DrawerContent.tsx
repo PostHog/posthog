@@ -11,7 +11,7 @@ import { activityAt, RowSkeletons, TaskRow } from "@/components/TaskRow";
 import { useActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
 import { useTasks } from "@/lib/queries";
-import { useReports, useSeenReports } from "@/lib/reports";
+import { useReportReadStates, useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
 export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
@@ -20,11 +20,12 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const tasks = useTasks();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const unread = useActivity().data?.unread_count ?? 0;
-  const reports = useReports().data ?? [];
-  const seenReports = useSeenReports((s) => s.seen);
-  const newReports = reports.filter(
-    (report) => !seenReports.has(report.id),
-  ).length;
+  const reports = useReports().data;
+  const reportIds = useMemo(
+    () => (reports ?? []).map((report) => report.id),
+    [reports],
+  );
+  const newReports = useReportReadStates(reportIds).unread.size;
   const sorted = useMemo(
     () =>
       [...(tasks.data ?? [])].sort((a, b) =>

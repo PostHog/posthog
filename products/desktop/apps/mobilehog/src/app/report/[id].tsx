@@ -21,8 +21,8 @@ import {
 import {
   useDismissReport,
   useHasLiveImplementationTask,
+  useMarkReportRead,
   useReport,
-  useSeenReports,
   useStartReportTask,
 } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
@@ -34,16 +34,10 @@ export default function ReportScreen() {
   const dismiss = useDismissReport();
   const startTask = useStartReportTask();
   const liveTask = useHasLiveImplementationTask(id);
-  const seenHydrated = useSeenReports((s) => s.hydrated);
-  const isSeen = useSeenReports((s) => s.seen.has(id));
-  const markSeen = useSeenReports((s) => s.markSeen);
-
-  const reportId = report?.id;
+  const markRead = useMarkReportRead();
   useEffect(() => {
-    if (reportId && seenHydrated && !isSeen) {
-      markSeen([reportId]).catch(() => {});
-    }
-  }, [reportId, seenHydrated, isSeen, markSeen]);
+    if (id) markRead(id);
+  }, [id, markRead]);
 
   if (!report) {
     return (
