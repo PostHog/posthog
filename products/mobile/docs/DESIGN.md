@@ -82,4 +82,5 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover and a simple thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
-- **Sign-in** and **Settings**: minimal, built from the same tokens.
+- **Sign-in** and **Settings**: minimal, built from the same tokens. Settings keeps its Back chip on blurred floating chrome; the
+  large title scrolls up into the chrome beside the chip, shrinking to section-header size (`SettingsChrome`, `collapsingTitle`).
