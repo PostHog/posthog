@@ -75,7 +75,7 @@ def _previous_sends(
             LIMIT %(limit)s
             """,
             {"team_id": team_id, "flow_ids": flow_ids, "limit": limit},
-            settings={"max_execution_time": QUERY_TIMEOUT_SECONDS},
+            settings={"max_execution_time": QUERY_TIMEOUT_SECONDS, "timeout_overflow_mode": "throw"},
         )
     rows = cast(list, rows)
     if len(rows) >= limit:
@@ -87,7 +87,7 @@ def _previous_sends(
     )
 
 
-def _person_ids_with_emails(team: Team, emails: list[str], limit: int) -> list[str]:
+def _person_ids_with_emails(team: Team, user: User, emails: list[str], limit: int) -> list[str]:
     """
     Every person whose email matches an address already emailed. A broadcast sends once per address, so a second
     profile with the same address would otherwise get the email the first one already got.
@@ -109,8 +109,11 @@ def _person_ids_with_emails(team: Team, emails: list[str], limit: int) -> list[s
         response = execute_hogql_query(
             query=query,
             team=team,
+            # The caller's property access applies, so the lookup reads only emails they may see.
+            user=user,
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=QUERY_TIMEOUT_SECONDS),
+            # A partial answer would leave people out of the exclusion, so a slow lookup fails instead.
+            settings=HogQLGlobalSettings(max_execution_time=QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"),
         )
     return [str(row[0]) for row in response.results or []]
 
@@ -127,7 +130,9 @@ def build_previous_recipients_cohort(
         return PreviousRecipients(cohort_id=None, people=0)
     # Distinct IDs, not stored person IDs, so a person merged since the send still matches.
     by_distinct_id, _ = get_person_uuids_and_matched_distinct_ids(team.id, sends.distinct_ids)
-    person_ids = sorted({*by_distinct_id, *_person_ids_with_emails(team, sends.emails, MAX_PREVIOUS_RECIPIENTS + 1)})
+    person_ids = sorted(
+        {*by_distinct_id, *_person_ids_with_emails(team, user, sends.emails, MAX_PREVIOUS_RECIPIENTS + 1)}
+    )
     if not person_ids:
         return PreviousRecipients(cohort_id=None, people=0)
     if len(person_ids) > MAX_PREVIOUS_RECIPIENTS:
