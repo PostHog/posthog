@@ -63,6 +63,7 @@ export function usePointer({
   activate,
   navigate,
   setNavigating,
+  setCollapsed,
   setLayout,
   chatIn,
   chats,
@@ -77,6 +78,7 @@ export function usePointer({
   // The wheel over the sidebar walks its chats, as the arrow keys do.
   navigate: (step: 1 | -1) => void;
   setNavigating: (navigating: boolean) => void;
+  setCollapsed: (workspaceId: string, collapsed: boolean) => void;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   chatIn: (paneId: string) => ChatView;
   chats: () => Iterable<ChatView>;
@@ -110,8 +112,10 @@ export function usePointer({
       const onScreen = click.row - sidebar.top;
       const index = onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP);
       const row = rows[index];
-      // A click opens what the keyboard can select, and a workspace's label too.
-      if (row && (isSelectable(row) || row.kind === "workspace")) {
+      // A click on a workspace's title folds it, or opens it, which unfolds it; one on a chat opens the chat.
+      if (row?.kind === "workspace" && row.expanded) {
+        setCollapsed(row.workspaceId, true);
+      } else if (row && isSelectable(row)) {
         setNavigating(row.kind !== "viewMore");
         activate(index);
       } else {

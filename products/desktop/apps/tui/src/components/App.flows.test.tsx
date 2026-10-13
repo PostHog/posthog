@@ -292,7 +292,7 @@ describe("App flows", () => {
     }
   });
 
-  it("folds a workspace with ← from one of its chats, parks the cursor on its title, and unfolds it with →", async () => {
+  it("folds a workspace with ← from one of its chats or a click on its title, and unfolds it with →, Enter or a click", async () => {
     const split = splitFocused(openTask(initialLayout(), "c1"), "row");
     const app = cloudApp({ layout: split });
     try {
@@ -308,6 +308,26 @@ describe("App flows", () => {
       );
       expect(app.plain().slice(-3000)).not.toContain("╰");
       app.press("\x1b[C");
+      await vi.waitFor(() => expect(app.plain().slice(-3000)).toContain("╰"));
+      // Folded again, Shift+Tab back to the sidebar lands on the title, and Enter opens the workspace, unfolding it.
+      app.press("\x1b[D");
+      await vi.waitFor(() =>
+        expect(app.plain().slice(-3000)).toContain("Workspace #1 (2)"),
+      );
+      app.press("\x1b[Z");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      app.press("\r");
+      await vi.waitFor(() => expect(app.plain().slice(-3000)).toContain("╰"));
+      // A click on the title folds it, and a later click (past a double-click's window) opens it again.
+      const title = { column: 4, row: 5 };
+      app.mouse.emit("press", title);
+      app.mouse.emit("release", title);
+      await vi.waitFor(() =>
+        expect(app.plain().slice(-3000)).toContain("Workspace #1 (2)"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      app.mouse.emit("press", title);
+      app.mouse.emit("release", title);
       await vi.waitFor(() => expect(app.plain().slice(-3000)).toContain("╰"));
     } finally {
       app.close();

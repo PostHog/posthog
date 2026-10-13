@@ -93,6 +93,13 @@ export function useSidebar({
       const row = rows[index];
       if (!row) return;
       setSelected(selectionKey(row));
+      // Opening a folded workspace unfolds it.
+      if (row.kind === "workspace" && !row.expanded)
+        setCollapsed((current) => {
+          const next = new Set(current);
+          next.delete(row.workspaceId);
+          return next;
+        });
       const next = activateRow(layout, row);
       if (next === "viewMore") {
         loadMore();
