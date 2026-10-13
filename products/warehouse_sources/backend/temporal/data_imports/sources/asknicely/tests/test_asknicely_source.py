@@ -3,8 +3,13 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import build_responses_url
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source import AsknicelySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
     AsknicelySourceConfig,
@@ -104,12 +109,15 @@ class TestAsknicelySource:
             db_incremental_field_last_value=1700000000,
         )
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source.asknicely_source")
-    def test_source_for_pipeline_drops_last_value_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_drops_last_value_on_full_refresh(self) -> None:
         # A stale watermark left over from a previous incremental run must not leak into a
         # full-refresh sync, or the refresh would silently skip older responses.
-        inputs = _make_inputs(should_use_incremental_field=False, db_incremental_field_last_value=1700000000)
+        result = SourceDriver(self.source, self.config).run(
+            "responses",
+            [ScriptedResponse(json={"success": True, "data": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1700000000,
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(spec=ResumableSourceManager), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.urls == [build_responses_url("acme", page_number=1, since_time=0)]

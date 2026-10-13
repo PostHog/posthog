@@ -94,12 +94,19 @@ class ScriptedResponder:
         return answer.to_bytes()
 
 
-def always(response: ScriptedResponse) -> Callable[[RecordedRequest], ScriptedResponse]:
-    """Give every request the same answer.
+def always(answer: ScriptedResponse | BaseException) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Give every request the same answer, or fail every request with the same error.
 
-    The real stack retries a 429 and a 5xx, so a list with one such answer runs out on the first retry.
+    The real stack retries a 429, a 5xx and a dropped connection, so a list with one such answer runs
+    out on the first retry.
     """
-    return lambda _request: response
+
+    def respond(_request: RecordedRequest) -> ScriptedResponse:
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    return respond
 
 
 def route(table: Mapping[str, Sequence[ScriptedResponse]]) -> Callable[[RecordedRequest], ScriptedResponse]:

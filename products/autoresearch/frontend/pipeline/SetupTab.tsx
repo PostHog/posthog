@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { AutoresearchPipelineApi } from '../generated/api.schemas'
 import { MetricCard } from './MetricCard'
+import { SectionCard } from './SectionCard'
 
 export function SetupTab(): JSX.Element {
     const { pipeline } = useValues(autoresearchPipelineLogic)
@@ -14,17 +15,27 @@ export function SetupTab(): JSX.Element {
         return <LemonSkeleton className="h-40" />
     }
     return (
-        <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                <MetricCard label="Target event" value={pipeline.target_event} />
-                <MetricCard label="Prediction horizon" value={`${pipeline.horizon_days ?? '—'}d`} />
-                <MetricCard label="Training lookback" value={`${pipeline.training_lookback_days ?? '—'}d`} />
-                <MetricCard
-                    label="Budget remaining"
-                    value={`${pipeline.iteration_budget_remaining} / ${pipeline.iteration_budget ?? '—'}`}
-                />
+        <SectionCard
+            title="Model definition"
+            description={
+                <>
+                    Editing the target, populations, and budget in the UI is coming soon. For now, use the{' '}
+                    <code>autoresearch</code> API or MCP tools, or recreate the model.
+                </>
+            }
+        >
+            <div className="@container">
+                <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
+                    <MetricCard label="Target event" value={pipeline.target_event} />
+                    <MetricCard label="Prediction horizon" value={`${pipeline.horizon_days ?? '—'}d`} />
+                    <MetricCard label="Training lookback" value={`${pipeline.training_lookback_days ?? '—'}d`} />
+                    <MetricCard
+                        label="Budget remaining"
+                        value={`${pipeline.iteration_budget_remaining} / ${pipeline.iteration_budget ?? '—'}`}
+                    />
+                </div>
             </div>
-            <div className="border rounded p-4">
+            <div>
                 <DetailRow label="Output person property">
                     <code>{pipeline.output_person_property ?? '—'}</code>
                 </DetailRow>
@@ -39,11 +50,7 @@ export function SetupTab(): JSX.Element {
                     {pipeline.created_by?.first_name ? ` by ${pipeline.created_by.first_name}` : ''}
                 </DetailRow>
             </div>
-            <p className="text-sm text-muted">
-                Editing the target, populations, and budget in the UI is coming soon. For now, use the{' '}
-                <code>autoresearch</code> API or MCP tools, or recreate the model.
-            </p>
-        </div>
+        </SectionCard>
     )
 }
 

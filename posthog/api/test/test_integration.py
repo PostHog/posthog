@@ -7919,7 +7919,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         refreshed = self.client.get(f"/api/projects/{target.id}/integrations/github/available_installations/")
         assert refreshed.json()["installations"] == []
 
-    @patch("posthog.cdp.internal_events.produce_internal_event")
+    @patch("products.cdp.backend.internal_events.produce_internal_event")
     def test_invalid_credential_discard_is_private_and_retained(self, produce: MagicMock) -> None:
         integration = UserIntegration.objects.create(
             user=self.user,
