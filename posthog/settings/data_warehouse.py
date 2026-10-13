@@ -53,10 +53,13 @@ DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS = get_from_env(
     "DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS", 300.0, type_cast=float
 )
 
-# Longest time in seconds that one source request may spend on retries, from its first failure. No
-# new try starts after it. A client can pass its own value when a vendor's rate limit window is longer.
+# Longest time in seconds that one source request may take, from the start of its first try to the
+# end of its last, with all retries and waits. Each try gets only the time that is left, so a stalled
+# vendor holds a worker for this long at most. Keep it at or below
+# DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS, the time a source gets to hand off at a worker
+# shutdown. A client can pass its own value when a vendor's rate limit window is longer.
 DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS = get_from_env(
-    "DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS", 600.0, type_cast=float
+    "DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS", 300.0, type_cast=float
 )
 
 # Longest server-provided retry delay (`Retry-After` or a rate limit reset header) in seconds that

@@ -75,7 +75,10 @@ class TestBoundedRetry:
 
     @parameterized.expand(
         [
-            ("status", {"response": MagicMock(status=503, **{"get_redirect_location.return_value": False})}),
+            (
+                "status",
+                {"response": MagicMock(status=503, headers={}, **{"get_redirect_location.return_value": False})},
+            ),
             ("read_error", {"error": ReadTimeoutError(MagicMock(), "/items", "read timed out")}),
         ]
     )

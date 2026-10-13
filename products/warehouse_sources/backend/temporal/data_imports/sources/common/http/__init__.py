@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     default_request_timeout,
     make_tracked_adapter,
     make_tracked_session,
+    request_deadline,
     resolve_request_timeout,
     suspend_adapter_retries,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "default_request_timeout",
     "make_tracked_adapter",
     "make_tracked_session",
+    "request_deadline",
     "resolve_request_timeout",
     "scoped_job_context",
     "suspend_adapter_retries",

@@ -216,7 +216,7 @@ class ClientConfig(TypedDict, total=False):
     # server-provided delay. Left unset, RESTClient uses its default. Raise it for an endpoint whose
     # rate-limit window is longer than the default ceiling, so the retry budget can outlast the window.
     retry_backoff_max_seconds: float
-    # Longest time one request may spend on retries, and longest server-provided delay
+    # Longest time one request may take with all of its tries and waits, and longest server-provided delay
     # (`Retry-After` or a rate limit reset header) the client waits for. Left unset, the
     # `DATA_WAREHOUSE_SOURCE_*` settings apply. Raise both for a vendor with a longer rate limit window.
     retry_budget_seconds: float
