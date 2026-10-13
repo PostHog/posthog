@@ -1,8 +1,9 @@
-// The mounted Kubernetes Secret: reads it and holds the secrets it carries.
+// The Kubernetes Secret's contents: parses them and holds the secrets they carry.
 //
-// Kubelet projects the secret as a directory, one file per key, and rewrites it in place
-// when the content changes, swapping the `..data` symlink atomically. So a rotation reaches
-// the pod without a restart and a read never sees a half-written set.
+// The values come from a secret source (see source.ts). For the directory source, kubelet
+// projects the secret as a directory, one file per key, and rewrites it in place when the
+// content changes, swapping the `..data` symlink atomically. So a rotation reaches the pod
+// without a restart and a read never sees a half-written set.
 
 import { createHash } from 'node:crypto'
 import { readFile, readdir, readlink } from 'node:fs/promises'
@@ -73,8 +74,8 @@ export async function readMount(dir: string): Promise<Record<string, string> | n
 }
 
 export interface SecretMountOptions {
-    /** Directory the Kubernetes Secret is mounted at. */
-    dir: string
+    /** Directory `reload()` reads. Absent when a secret source calls `apply()` instead. */
+    dir?: string
     now?: () => number
 }
 
@@ -98,8 +99,18 @@ export class SecretMount {
     }
 
     async reload(): Promise<void> {
+        if (this.opts.dir === undefined) {
+            throw new Error('SecretMount.reload() needs a directory')
+        }
+        this.apply(await readMount(this.opts.dir))
+    }
+
+    /**
+     * Replace the held set with one parsed from `values`, the whole secret at one version.
+     * Null means the source could not be read, which keeps what is held.
+     */
+    apply(values: Record<string, string> | null): void {
         const now = this.opts.now ?? Date.now
-        const values = await readMount(this.opts.dir)
         const next = values ? this.build(values) : null
         if (next) {
             this.held = next
@@ -152,7 +163,7 @@ export class SecretMount {
             // Counting files rather than secrets would call a mount holding nothing but
             // signing keys healthy, and every resolve would answer all-missing, which a
             // caller treats as a deleted secret.
-            logger.warn('mount:no_secrets', { dir: this.opts.dir })
+            logger.warn('mount:no_secrets', { dir: this.opts.dir ?? null })
             return null
         }
 

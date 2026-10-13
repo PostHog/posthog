@@ -270,6 +270,31 @@ class TestNonRetryableErrors:
         non_retryable = AnthropicSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
 
+    @parameterized.expand(
+        [
+            (
+                "long_retry_after",
+                "RESTClientRetryableError: HTTP 429 for https://api.anthropic.com/v1/organizations/usage_report/claude_code"
+                " (the server asked for a wait of 3600 seconds)",
+            ),
+            (
+                "retry_budget_spent",
+                "RESTClientRetryableError: HTTP 429 for https://api.anthropic.com/v1/organizations/usage_report/messages",
+            ),
+        ]
+    )
+    def test_exhausted_rate_limit_stays_retryable_with_sync_frequency_guidance(
+        self, _name: str, observed_error: str
+    ) -> None:
+        source = AnthropicSource()
+        assert not error_message_matches(observed_error, source.get_non_retryable_errors().keys())
+        messages = [
+            message
+            for pattern, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages and "sync less often" in messages[0]
+
 
 def _cc_record(actor_email: str = "dev@example.com") -> dict[str, Any]:
     return {
