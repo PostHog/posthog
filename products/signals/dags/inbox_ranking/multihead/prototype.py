@@ -40,12 +40,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     VECTOR_KINDS,
     project_vectors,
 )
-from products.signals.dags.inbox_ranking.multihead.network import (
-    MultiHeadNetwork,
-    NetworkConfig,
-    NetworkInputs,
-    ProjectContext,
-)
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
 from products.signals.dags.inbox_ranking.training.calibration import calibration_buckets, expected_calibration_error
 from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_examples, example_moments, holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
@@ -230,8 +225,12 @@ def network_scores(
     name: str, table: ExampleTable, inputs: NetworkInputs, config: NetworkConfig
 ) -> tuple[list[HeadScore], list[float]]:
     """Fit one network on the shared train rows and grade each head on its own holdout."""
+    from products.signals.dags.inbox_ranking.multihead.network import (  # noqa: PLC0415 — keeps torch off the import path
+        MultiHeadNetwork,
+    )
+
     network = MultiHeadNetwork(
-        heads=len(PROTOTYPE_HEADS),
+        heads=[head.name for head in PROTOTYPE_HEADS],
         with_context=inputs.context is not None,
         kinds=len(VECTOR_KINDS),
         config=config,

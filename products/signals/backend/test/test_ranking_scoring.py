@@ -1,12 +1,17 @@
+import sys
 import json
 import datetime
+import subprocess
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 import numpy as np
@@ -34,6 +39,8 @@ from products.signals.backend.ranking.serving_manifest import (
     DAILY_CANDIDATE_ROLE,
     MANIFEST_SERVED_ROLE,
     METADATA_FILE,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
     PINNED_ROLE,
     SERVED_OVERRIDE_ROLE,
     SERVED_ROLE,
@@ -57,6 +64,10 @@ OLDER_VERSION = "2026-08-25"
 NOW = datetime.datetime(2026, 9, 2, 12, 0, tzinfo=datetime.UTC)
 LANDED = datetime.datetime(2026, 9, 2, 9, 0, tzinfo=datetime.UTC)
 HEADS = ("open", "thumbs_up")
+ONNX_FIXTURES = Path(__file__).parent / "fixtures" / "onnx"
+# The column order of the fixture's `probabilities` output. Reversed from HEADS, so a model that
+# reads columns in manifest order gives each head the other head's probability.
+ONNX_OUTPUT_HEADS = ("thumbs_up", "open")
 
 _BOOSTERS: dict[tuple[str, ...], bytes] = {}
 
@@ -100,10 +111,12 @@ class FakeObjectStore:
         booster_feature_names: tuple[str, ...] | None = None,
         missing_heads: Sequence[str] = (),
         thresholds: Mapping[str, float] | None = None,
+        onnx_fixture: str = "report.onnx",
     ) -> ServingManifestEntry:
         key = model_key(model_name, version)
         prefix = serving_model_prefix(PREFIX, key)
-        metadata = {
+        onnx = model_kind == ONNX_MODEL_KIND
+        metadata: dict[str, Any] = {
             "model_name": model_name,
             "model_version": version,
             "model_kind": model_kind,
@@ -113,7 +126,7 @@ class FakeObjectStore:
             "heads": [
                 {
                     "head": head,
-                    "file": f"{head}.ubj",
+                    "file": ONNX_MODEL_FILE if onnx else f"{head}.ubj",
                     "readable": head == "open",
                     **(
                         {"refit_classification_threshold": thresholds[head]}
@@ -124,11 +137,15 @@ class FakeObjectStore:
                 for head in HEADS
             ],
         }
+        if onnx:
+            metadata["output_heads"] = list(ONNX_OUTPUT_HEADS)
+            self.objects[f"{prefix}/{ONNX_MODEL_FILE}"] = (ONNX_FIXTURES / onnx_fixture).read_bytes()
+        else:
+            booster = _booster_ubj(booster_feature_names or feature_set.feature_names)
+            for head in HEADS:
+                if head not in missing_heads:
+                    self.objects[f"{prefix}/{head}.ubj"] = booster
         self.objects[f"{prefix}/{METADATA_FILE}"] = json.dumps(metadata).encode()
-        booster = _booster_ubj(booster_feature_names or feature_set.feature_names)
-        for head in HEADS:
-            if head not in missing_heads:
-                self.objects[f"{prefix}/{head}.ubj"] = booster
         return ServingManifestEntry(
             key=key,
             model_name=model_name,
@@ -137,6 +154,7 @@ class FakeObjectStore:
             roles=list(roles),
             prefix=prefix,
             heads=list(HEADS),
+            model_file=ONNX_MODEL_FILE if onnx else None,
         )
 
     def publish_manifest(self, entries: Sequence[ServingManifestEntry]) -> ServingManifest:
@@ -187,6 +205,16 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
             ("booster_on_other_features", {"booster_feature_names": ("age_hours",)}, "booster"),
             ("missing_head_file", {"missing_heads": ["thumbs_up"]}, "thumbs_up.ubj"),
             ("unknown_model_kind", {"model_kind": "torch"}, "torch"),
+            (
+                "onnx_input_width",
+                {"model_kind": ONNX_MODEL_KIND, "onnx_fixture": "narrow_report.onnx"},
+                "input report is tensor(float) ['batch', 8], not float (batch, 1536)",
+            ),
+            (
+                "onnx_input_name",
+                {"model_kind": ONNX_MODEL_KIND, "onnx_fixture": "unknown_input.onnx"},
+                "inputs ['vector'] are not ['report']",
+            ),
         ]
     )
     def test_a_challenger_that_cannot_load_is_skipped(self, _name: str, kwargs: dict, reason: str) -> None:
@@ -360,6 +388,47 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert outcome.score.served_key == manifest.served.key
         assert outcome.score.embedding_inserted_at == LANDED
         assert captured.events == []
+
+    def test_xgboost_and_onnx_models_score_in_one_pass(self) -> None:
+        served = self._served()
+        onnx = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET, model_kind=ONNX_MODEL_KIND)
+        self.store.publish_manifest([served, onnx])
+        expected = np.load(ONNX_FIXTURES / "report.expected.npz")
+        report_ids = [f"r{index}" for index in range(len(expected["report"]))]
+        vectors = {
+            rendering: {
+                report_id: ReportVector(embedding=vector, inserted_at=LANDED)
+                for report_id, vector in zip(report_ids, expected["report"])
+            }
+            for rendering in (EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE)
+        }
+
+        outcomes, _, _ = self._score(report_ids, vectors, persist=False)
+
+        for outcome, probabilities in zip(outcomes, expected["probabilities"]):
+            assert outcome.score is not None
+            results = outcome.score.results
+            assert (results[served.key].status, set(results[served.key].scores)) == ("scored", set(HEADS))
+            assert results[onnx.key].status == "scored"
+            expected_scores = dict(zip(ONNX_OUTPUT_HEADS, probabilities.tolist()))
+            assert results[onnx.key].scores == pytest.approx(expected_scores, abs=1e-6)
+
+
+def test_importing_the_scoring_sweep_loads_no_model_runtime() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, django; django.setup(); import products.signals.backend.ranking.sweep; "
+            "print(sorted({'onnxruntime', 'xgboost'} & set(sys.modules)))",
+        ],
+        cwd=settings.BASE_DIR,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "[]"
 
 
 class TestClassificationProperties(SimpleTestCase):

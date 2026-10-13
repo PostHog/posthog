@@ -21,6 +21,8 @@ import {
     MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    hasTimeoutCause,
+    isTimeoutError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
@@ -978,7 +980,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (hasTimeoutCause(error)) {
         return { errorType: 'timeout' }
     }
 
@@ -1079,7 +1081,7 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     if (error instanceof ExecCommandError) {
         return `Exec command rejected: ${error.reason}`
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (isTimeoutError(error)) {
         return 'Tool call timed out'
     }
     const apiError = findRecoverableApiError(error)

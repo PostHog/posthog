@@ -140,6 +140,12 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   When set it takes precedence over `run_interval_minutes`, so a "slow it down" edit on a cron scout has to change or clear the cron (set `null` to return to the rolling interval).
   A new or edited schedule anchors on the edit time and waits for its next slot rather than catching up on a past one.
   Reach for it when the run should land at a wall-clock time: a digest before standup, a weekday-only watch.
+- A scheduled run starts inside a window, not at an exact minute.
+  Each scout has a fixed offset in that window, so its cadence does not change from run to run.
+  A cron scout starts within 20 minutes of its cron time, so a `0 9 * * *` scout starts at the same minute between 9:00 and 9:20 every day.
+  An interval scout starts within the same 30-minute coordinator tick, and `last_run_at` records the tick, not the start.
+  A scout's first run, a manual run, a workflow run, and a report-check run start at once.
+  When you explain or write a schedule, describe the time as a window.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `precheck_query` — defaults to null: a HogQL `SELECT` that a scheduled run evaluates before it starts, with `{since}`, `{now}`, and `{interval_minutes}` placeholders.
   No rows, or one row with one false value (such as a zero `count()`), skips the run before it creates a run row or a sandbox. Any other result starts the run, and the rows enter the run prompt. A query error also starts the run.

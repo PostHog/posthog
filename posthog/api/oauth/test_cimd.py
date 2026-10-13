@@ -180,7 +180,7 @@ def test_validate_cimd_url_ssrf_blocked(mock_return, url, expected_error):
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
-class TestFetchCimdMetadata(APIBaseTest):
+class TestFetchCimdMetadata(SimpleTestCase):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_success(self, mock_get, _url_mock):
         metadata = _make_metadata()
