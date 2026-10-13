@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from threading import Barrier
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -35,6 +35,7 @@ from products.web_analytics.backend.temporal.page_history.types import ClaimedCa
 TASK_MODULE = "products.web_analytics.backend.heatmap_history"
 SCHEDULING_MODULE = "products.web_analytics.backend.temporal.page_history.scheduling"
 RENDER_MODULE = "products.web_analytics.backend.tasks.heatmap_screenshot"
+API_MODULE = "products.web_analytics.backend.api.heatmaps_api"
 STORAGE_MODULE = "products.web_analytics.backend.heatmap_history_storage"
 
 
@@ -89,10 +90,12 @@ class TestHeatmapHistory(APIBaseTest):
             (f"{STORAGE_MODULE}.object_storage", self.storage),
             (f"{TASK_MODULE}.history_enabled", lambda team: True),
             (f"{SCHEDULING_MODULE}.history_enabled", lambda team: True),
+            (f"{API_MODULE}.history_enabled", lambda team: True),
         ]:
             patcher = patch(name, replacement)
             patcher.start()
             self.addCleanup(patcher.stop)
+        self.base_url = f"/api/projects/{self.team.id}/saved/{self.heatmap.short_id}/screenshot_history/"
 
     def enqueue(self, trigger: str = "manual") -> HeatmapCaptureRequest:
         with patch.object(HeatmapHistoryService, "dispatch"), self.captureOnCommitCallbacks(execute=True):
@@ -306,9 +309,51 @@ class TestHeatmapHistory(APIBaseTest):
         request = self.enqueue()
         with patch.object(HeatmapHistoryService, "thumbnail", return_value=None):
             self.execute_capture(request)
-        history = self.history()
-        assert history.has_content
-        assert not history.has_thumbnail
+        row = self.client.get(self.base_url).json()["results"][0]
+        assert row["content_url"]
+        assert row["thumbnail_url"] is None
+        assert self.client.get(row["content_url"] + "&variant=thumbnail").status_code == 404
+
+    def test_capture_api_status_and_cooldown(self) -> None:
+        with patch.object(HeatmapHistoryService, "dispatch"), self.captureOnCommitCallbacks(execute=True):
+            result = self.client.post(self.base_url + "capture/")
+            throttled = self.client.post(self.base_url + "capture/")
+        assert result.status_code == 202
+        assert throttled.status_code == 429
+        assert throttled["Retry-After"] == "600"
+        request_id = result.json()["request_id"]
+        assert self.client.get(self.base_url + f"requests/{request_id}/").json()["state"] == "queued"
+        assert self.client.get(self.base_url + f"requests/{uuid4()}/").status_code == 404
+        with patch(f"{API_MODULE}.history_enabled", return_value=False):
+            assert self.client.get(self.base_url).status_code == 404
+
+    def test_image_revisions_expiry_and_cache_headers(self) -> None:
+        request = self.enqueue()
+        self.execute_capture(request)
+        row = self.client.get(self.base_url).json()["results"][0]
+        url = row["content_url"]
+        image = self.client.get(url)
+        assert image.status_code == 200
+        assert image.content == jpeg()
+        cached = self.client.get(url, HTTP_IF_NONE_MATCH=image["ETag"])
+        assert cached.status_code == 304
+        assert cached["ETag"] == image["ETag"]
+        assert cached["Cache-Control"] == image["Cache-Control"]
+        assert self.client.get(url.replace(str(request.id), str(uuid4()))).status_code == 404
+        rows = HeatmapScreenshotHistory.objects.for_team(self.team.id).filter(id=row["id"])
+        rows.update(expires_at=timezone.now() + timedelta(seconds=30))
+        assert int(self.client.get(url)["Cache-Control"].split("=")[1]) <= 30
+        rows.update(expires_at=timezone.now() - timedelta(seconds=1))
+        assert self.client.get(url).status_code == 404
+        assert self.client.get(self.base_url).json()["results"] == []
+
+    def test_missing_object_returns_404_including_conditional_requests(self) -> None:
+        request = self.enqueue()
+        self.execute_capture(request)
+        url = self.client.get(self.base_url).json()["results"][0]["content_url"]
+        etag = self.client.get(url)["ETag"]
+        self.blobs.clear()
+        assert self.client.get(url, HTTP_IF_NONE_MATCH=etag).status_code == 404
 
     def test_scheduler_enqueues_once_per_day(self) -> None:
         with patch.object(HeatmapHistoryService, "dispatch") as dispatch, self.captureOnCommitCallbacks(execute=True):
