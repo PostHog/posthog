@@ -50,6 +50,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     USER_SERVER_ACTIONS_COLUMNS,
     USER_STATUS_COLUMNS,
     USER_STATUS_SQL,
+    USER_STATUS_STREAM,
     hogql_rows,
     merge_label_streams,
     region_app_host,
@@ -66,6 +67,7 @@ AFTER_SNAPSHOT_END = datetime.datetime(2026, 7, 30, 1, 0, tzinfo=datetime.UTC)
 BEFORE_CUTOFF = datetime.datetime(2026, 7, 28, 9, 0, tzinfo=datetime.UTC)
 UUID_A = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
 UUID_B = "0198c0e8-93c8-0000-38f5-a934eeb1b93f"
+UUID_C = "0198c0e8-93c8-0000-38f5-a934eeb1b940"
 
 
 def test_s3_key_layout_is_stable():
@@ -464,11 +466,22 @@ def test_user_grain_rows_match_the_parquet_schema_exactly():
         stream_columns=USER_LABEL_STREAM_COLUMNS,
         defaults=USER_LABEL_DEFAULTS,
     )
-    rows = assemble_user_interaction_rows(merged, {UUID_A: 2}, {2}, {"person-1": "uuid-1"})
-    assert set(rows[0]) == set(USER_INTERACTIONS_SCHEMA.names)
+    assembled = assemble_user_interaction_rows(merged, {UUID_A: 2}, {2}, {2: {"person-1"}}, {"person-1": "uuid-1"})
+    assert set(assembled.rows[0]) == set(USER_INTERACTIONS_SCHEMA.names)
 
 
 def test_user_grain_keeps_one_row_per_person_and_only_consented_reports():
+    report_teams = {UUID_A: 2, UUID_B: 7, UUID_C: 2}
+    status = dag.scoped_user_status_rows(
+        [
+            (UUID_A, "person-1", 0, None, 1, T2, 0, None, "analysis_wrong", "agent", 2),
+            # The latest transition of UUID_C names another team, or no team.
+            (UUID_C, "person-1", 1, T2, 0, None, 0, None, None, None, 999),
+            (UUID_C, "person-2", 1, T2, 0, None, 0, None, None, None, None),
+        ],
+        report_teams,
+    )
+    assert status.dropped == 2
     stream_rows: dict[str, list[tuple[Any, ...]]] = {
         "user_opens": [
             (UUID_A, "person-1", 2, T1, T2, "click"),
@@ -476,9 +489,11 @@ def test_user_grain_keeps_one_row_per_person_and_only_consented_reports():
             (UUID_A.upper(), "person-1", 99, T2, T2, "deeplink"),
             (UUID_A, "person-2", 1, T2, T2, "deeplink"),
             (UUID_A, "", 1, T2, T2, "click"),
+            (UUID_A, "outsider", 3, T1, T1, "click"),
             (UUID_B, "person-1", 1, T1, T1, "click"),
+            (UUID_C, "person-1", 1, T1, T1, "click"),
         ],
-        "user_status_changes": [(UUID_A, "person-1", 0, None, 1, T2, 0, None, "analysis_wrong", "agent")],
+        "user_status_changes": status.rows,
     }
     merged = merge_label_streams(
         stream_rows,
@@ -489,13 +504,18 @@ def test_user_grain_keeps_one_row_per_person_and_only_consented_reports():
     )
 
     # UUID_B belongs to a team that has not opted in to AI training, so its person gets no row.
-    rows = assemble_user_interaction_rows(merged, {UUID_A: 2, UUID_B: 7}, {2}, {"person-1": "uuid-1"})
+    assembled = assemble_user_interaction_rows(
+        merged, report_teams, {2}, {2: {"person-1", "person-2"}, 7: {"person-1"}}, {"person-1": "uuid-1"}
+    )
+    rows = assembled.rows
 
     assert [(row["report_id"], row["user_distinct_id"]) for row in rows] == [
         (UUID_A, "person-1"),
         (UUID_A, "person-2"),
+        (UUID_C, "person-1"),
     ]
-    person_1, person_2 = rows
+    assert assembled.non_member_pairs == 1
+    person_1, person_2, mismatched = rows
     assert person_1["open_count"] == 2
     assert person_1["first_open_method"] == "click"
     assert person_1["status_dismissed_count"] == 1
@@ -504,6 +524,10 @@ def test_user_grain_keeps_one_row_per_person_and_only_consented_reports():
     assert person_1["report_team_id"] == 2
     assert person_2["status_dismissed_count"] == 0
     assert person_2["user_uuid"] is None
+    assert mismatched["open_count"] == 1
+    assert {column: mismatched[column] for column in USER_STATUS_COLUMNS} == {
+        column: USER_LABEL_DEFAULTS[column] for column in USER_STATUS_COLUMNS
+    }
 
 
 class TestSpineInclusion(BaseTest):
@@ -720,6 +744,17 @@ class TestServerActions(BaseTest):
         assert row["note_count"] == 2
         assert row["first_viewed_at"] == view.first_at
         assert row["first_read_at"] is None
+
+    def test_org_members_resolve_only_within_each_teams_organization(self):
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        outsider = User.objects.create_and_join(other_org, "outsider@example.com", "password")
+
+        member_id, outsider_id = str(self.user.distinct_id), str(outsider.distinct_id)
+
+        members = dag.org_member_distinct_ids({self.team.id, other_team.id}, [member_id, outsider_id, "unknown"])
+
+        assert members == {self.team.id: {member_id}, other_team.id: {outsider_id}}
 
 
 class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
@@ -952,7 +987,7 @@ class TestUserGrainStreams(ClickhouseTestMixin, BaseTest):
 
     def _status_rows(self) -> dict[str, dict[str, Any]]:
         rows = hogql_rows(USER_STATUS_SQL, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
-        return {row[1]: dict(zip(USER_STATUS_COLUMNS, row[2:], strict=True)) for row in rows}
+        return {row[1]: dict(zip((*USER_STATUS_COLUMNS, "status_event_team_id"), row[2:], strict=True)) for row in rows}
 
     def test_every_user_stream_reads_its_person_from_its_source(self):
         events: list[tuple[str, str, dict[str, Any]]] = [
@@ -993,7 +1028,8 @@ class TestUserGrainStreams(ClickhouseTestMixin, BaseTest):
             rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
             # The impersonated refund and the merge with no mapped merger name nobody.
             assert [row[:2] for row in rows] == [(UUID_A, "person-1")], stream_name
-            assert len(rows[0]) == 2 + len(columns), stream_name
+            # The status stream carries its tenant as one more column, which the asset strips.
+            assert len(rows[0]) == 2 + len(columns) + (stream_name == USER_STATUS_STREAM), stream_name
 
     def test_a_person_gets_their_own_dismissal_and_an_agent_acting_for_them_is_named(self):
         self._transition(T1, "suppressed", "person-1", "user", reason="analysis_wrong")
@@ -1023,6 +1059,11 @@ class TestUserGrainStreams(ClickhouseTestMixin, BaseTest):
                 self._transition(T1, status, actor, "user", reason="analysis_wrong", team_id=999)
 
         assert self._status_rows() == genuine_only
+        assert genuine_only["person-1"]["status_event_team_id"] == self.team.id
+
+        self._transition(T2 + datetime.timedelta(days=1), "resolved", "person-1", "user", team_id=999)
+
+        assert self._status_rows()["person-1"]["status_event_team_id"] == 999
 
 
 def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({2})):
@@ -1104,10 +1145,16 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_title_embeddings,
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
+            dag.inbox_project_vectors,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
-    for leaf in (dag.TITLE_EMBEDDINGS_TABLE, dag.REVIEWERS_TABLE, dag.USER_INTERACTIONS_TABLE):
+    for leaf in (
+        dag.TITLE_EMBEDDINGS_TABLE,
+        dag.REVIEWERS_TABLE,
+        dag.USER_INTERACTIONS_TABLE,
+        dag.PROJECT_VECTORS_TABLE,
+    ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps
 

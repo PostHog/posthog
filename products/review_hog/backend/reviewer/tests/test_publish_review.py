@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -27,6 +28,8 @@ _PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_a
 _REPORT = "products.review_hog.backend.reviewer.tools.publish_review.ReviewReport"
 _LOAD_FINDINGS = "products.review_hog.backend.reviewer.tools.publish_review.load_valid_findings"
 _POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_review"
+_ADD_REACTION = "products.review_hog.backend.reviewer.tools.publish_review.add_pr_reaction"
+_REMOVE_REACTIONS = "products.review_hog.backend.reviewer.tools.publish_review.remove_own_pr_reactions"
 
 # The should_fix threshold: publishes should_fix and must_fix, drops consider. These tests use it to
 # exercise the publish gate, not the default (consider), which publishes everything.
@@ -303,6 +306,13 @@ def _verdict(adjusted_priority: IssuePriority | None = None) -> ValidationVerdic
 
 
 class TestPublishReviewGate:
+    @pytest.fixture(autouse=True)
+    def _reactions(self) -> Iterator[None]:
+        with patch(_ADD_REACTION) as add_reaction, patch(_REMOVE_REACTIONS) as remove_reactions:
+            self.add_reaction = add_reaction
+            self.remove_reactions = remove_reactions
+            yield
+
     def _wire_report(self, mock_report_cls: MagicMock) -> None:
         mock_report = MagicMock()
         mock_report.report_markdown = "# PostHog Review"
@@ -312,9 +322,18 @@ class TestPublishReviewGate:
         [
             # A valid finding on an off-diff line resolves zero inline comments, but the review (its body
             # carries it in the "Other findings" section) must still post, not be silently dropped.
-            ("all_off_diff", [240], 0, False),
-            ("mixed", [1, 240], 1, False),
-            ("all_inline", [1], 1, True),
+            ("all_off_diff", [240], 0, "full", None),
+            ("mixed", [1, 240], 1, "full", None),
+            ("all_inline", [1], 1, "full", ""),
+            # Standard has no status comment, so its review body always says which turn it is.
+            (
+                "standard_all_inline",
+                [1],
+                1,
+                "flash",
+                "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix.\n\n",
+            ),
+            ("standard_mixed", [1, 240], 1, "flash", None),
         ]
     )
     @patch(_POST)
@@ -325,7 +344,8 @@ class TestPublishReviewGate:
         _name: str,
         finding_lines: list[int],
         expected_comments: int,
-        expect_marker_only: bool,
+        review_mode: str,
+        inline_prefix: str | None,
         mock_report_cls: MagicMock,
         mock_load: MagicMock,
         mock_post: MagicMock,
@@ -356,6 +376,7 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             published_priorities=_SHOULD_FIX_PUBLISHED,
+            review_mode=review_mode,
         )
 
         assert outcome.posted is True
@@ -363,16 +384,28 @@ class TestPublishReviewGate:
         assert len(mock_post.call_args.args[4]) == expected_comments
         marker = mock_post.call_args.kwargs["marker"]
         assert marker in mock_post.call_args.args[3]
-        assert mock_post.call_args.kwargs["inline_body"] == (marker if expect_marker_only else None)
+        expected_inline_body = None if inline_prefix is None else f"{inline_prefix}{marker}"
+        assert mock_post.call_args.kwargs["inline_body"] == expected_inline_body
+        # A 👍 from an earlier clean turn must not sit next to these findings.
+        assert self.remove_reactions.call_args.args == ("o/r", 1, "+1")
+        self.add_reaction.assert_not_called()
 
+    @parameterized.expand([("deep", "full", []), ("standard_reacts", "flash", [("o/r", 1, "+1")])])
     @patch(_POST)
     @patch(_LOAD_FINDINGS)
     @patch(_REPORT)
     def test_skips_when_only_consider_findings(
-        self, mock_report_cls: MagicMock, mock_load: MagicMock, mock_post: MagicMock
+        self,
+        _name: str,
+        review_mode: str,
+        expected_reactions: list[tuple[str, int, str]],
+        mock_report_cls: MagicMock,
+        mock_load: MagicMock,
+        mock_post: MagicMock,
     ) -> None:
         # Below the should_fix threshold: a run whose only valid finding is `consider` has
         # nothing publishable, so it posts nothing (guards the off-diff fix against over-surfacing).
+        # A clean Standard turn has no status comment, so its 👍 is the only sign that it ran.
         self._wire_report(mock_report_cls)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
 
@@ -387,10 +420,12 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             published_priorities=_SHOULD_FIX_PUBLISHED,
+            review_mode=review_mode,
         )
 
         assert outcome.posted is False
         mock_post.assert_not_called()
+        assert [c.args for c in self.add_reaction.call_args_list] == expected_reactions
 
     @parameterized.expand(
         [
