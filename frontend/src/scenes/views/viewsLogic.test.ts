@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { resetViewFeedSnapshot } from './viewFeedLogic'
-import { viewsLogic } from './viewsLogic'
+import { typeFilterFromUrl, viewsLogic } from './viewsLogic'
 
 describe('viewsLogic', () => {
     beforeEach(() => {
@@ -56,5 +56,29 @@ describe('viewsLogic', () => {
         router.actions.push(urls.views(), { type: 'not-a-view-type' })
         await expectLogic(logic).toDispatchActions(['loadViews'])
         expect(logic.values.typeFilter).toEqual('canvas')
+    })
+
+    it('clears the url filter when the url asks for the full list', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true })
+        const logic = viewsLogic()
+        logic.mount()
+
+        router.actions.push(urls.views(), { type: 'canvas' })
+        await expectLogic(logic).toDispatchActions(['applyTypeFilterFromUrl', 'loadViews'])
+        expect(logic.values.typeFilter).toEqual('canvas')
+
+        router.actions.push(urls.views())
+        await expectLogic(logic).toDispatchActions(['applyTypeFilterFromUrl', 'loadViews'])
+        expect(logic.values.typeFilter).toEqual('all')
+
+        router.actions.push(urls.views(), { type: 'canvas' })
+        await expectLogic(logic).toDispatchActions(['applyTypeFilterFromUrl', 'loadViews'])
+        router.actions.push(urls.views(), { type: 'all' })
+        await expectLogic(logic).toDispatchActions(['applyTypeFilterFromUrl', 'loadViews'])
+        expect(logic.values.typeFilter).toEqual('all')
+    })
+
+    it.each(['toString', 'constructor', '__proto__'])('ignores the inherited name %s as a type filter', (type) => {
+        expect(typeFilterFromUrl(type)).toBeNull()
     })
 })
