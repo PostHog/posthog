@@ -6,7 +6,7 @@ import { MessageTemplate } from './message-template-manager.service'
 
 // The id of the email step in a transactional send's flow. It is signed into the tracking code as
 // the action id, which is how engagement tracking tells a template send from a workflow send. The
-// workflows API reserves it (graph_validation.py), so no workflow step can use it.
+// workflows API reserves it (HogFlowActionSerializer.validate_id), so no workflow step can use it.
 export const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
 
 const TRIGGER_ACTION_ID = 'trigger_node'
