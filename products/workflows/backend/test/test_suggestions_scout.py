@@ -13,7 +13,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision, WorkflowProposal
 from products.workflows.backend.services.suggestions_scout import (
-    SENDS_MATURED_MAX_EXECUTION_S,
+    EMAIL_METRICS_MAX_EXECUTION_S,
     suggestions_scout_run_reason,
 )
 
@@ -54,20 +54,28 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
     def _age(self, model: type[HogFlowOptimization] | type[HogFlowRevision], pk: UUID, *, days: float) -> None:
         model.objects.unscoped().filter(pk=pk).update(created_at=NOW - timedelta(days=days))
 
-    def _send(self, flow: HogFlow, *, hours_ago: float, instance: str = "step-1") -> None:
+    def _send(
+        self,
+        flow: HogFlow,
+        *,
+        hours_ago: float,
+        metric: str = "email_sent",
+        version: int | None = None,
+        instance: str = "step-1",
+    ) -> None:
         create_app_metric2(
             team_id=flow.team_id,
             app_source="hog_flow_version",
-            app_source_id=f"{flow.id}/{flow.version}",
+            app_source_id=f"{flow.id}/{version or flow.version}",
             instance_id=instance,
             metric_kind="email",
-            metric_name="email_sent",
+            metric_name=metric,
             count=30,
             timestamp=NOW - timedelta(hours=hours_ago),
         )
 
-    def _reason(self) -> str | None:
-        return suggestions_scout_run_reason(self.team.pk, last_run_at=LAST_RUN, now=NOW)
+    def _reason(self, last_run_at: datetime = LAST_RUN) -> str | None:
+        return suggestions_scout_run_reason(self.team.pk, last_run_at=last_run_at, now=NOW)
 
     def test_first_run_always_runs(self) -> None:
         assert suggestions_scout_run_reason(self.team.pk, last_run_at=None, now=NOW) == "first_run"
@@ -84,6 +92,8 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
             ("re_enabled", "opted_in"),
             ("newly_opted_in_flow", "opted_in"),
             ("send_matured", "sends_matured"),
+            ("archived_workflow_made_live_again", "reactivated"),
+            ("first_opens_on_a_mature_version", "first_opens"),
         ]
     )
     def test_new_input_runs(self, change: str, reason: str) -> None:
@@ -99,8 +109,22 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
             self._opt_in(self._flow(self.team, "active"), days_ago=0.1)
         elif change == "send_matured":
             self._send(self.flow, hours_ago=50)
+        elif change == "archived_workflow_made_live_again":
+            ActivityLog.objects.create(
+                team_id=self.team.pk,
+                scope="HogFlow",
+                activity="updated",
+                item_id=str(self.flow.id),
+                detail={"changes": [{"type": "HogFlow", "action": "changed", "field": "status", "after": "active"}]},
+            )
+        elif change == "first_opens_on_a_mature_version":
+            self._send(self.flow, hours_ago=100)
+            self._send(self.flow, hours_ago=2, metric="email_opened")
 
         assert self._reason() == reason
+
+    def test_quiet_for_a_week_runs(self) -> None:
+        assert self._reason(last_run_at=NOW - timedelta(days=7)) == "backstop"
 
     @parameterized.expand(
         [
@@ -108,6 +132,9 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
             ("send_from_a_workflow_not_opted_in", "not_opted_in"),
             ("change_to_a_draft_workflow", "draft"),
             ("change_in_another_project", "other_project"),
+            ("more_opens_on_a_version_already_opened", "more_opens"),
+            ("send_of_a_version_no_longer_live", "old_version"),
+            ("workflow_archived", "archived"),
         ]
     )
     def test_changes_the_scout_cannot_read_skip(self, _name: str, case: str) -> None:
@@ -124,6 +151,19 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
             other_flow = self._flow(other_team, "active")
             self._opt_in(other_flow, days_ago=0.1)
             self._send(other_flow, hours_ago=50)
+        elif case == "more_opens":
+            self._send(self.flow, hours_ago=100, metric="email_opened", instance="step-1")
+            self._send(self.flow, hours_ago=2, metric="email_opened", instance="step-2")
+        elif case == "old_version":
+            self._send(self.flow, hours_ago=50, version=1)
+        elif case == "archived":
+            ActivityLog.objects.create(
+                team_id=self.team.pk,
+                scope="HogFlow",
+                activity="updated",
+                item_id=str(self.flow.id),
+                detail={"changes": [{"type": "HogFlow", "action": "changed", "field": "status", "after": "archived"}]},
+            )
 
         assert self._reason() is None
 
@@ -140,6 +180,6 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
 
         query.assert_called_once()
         assert query.call_args.kwargs["settings"] == {
-            "max_execution_time": SENDS_MATURED_MAX_EXECUTION_S,
+            "max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S,
             "timeout_overflow_mode": "throw",
         }

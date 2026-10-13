@@ -14,6 +14,7 @@ from django.db.models import Q
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, Team, User
 from posthog.schema_enums import ProductKey
 
@@ -25,7 +26,7 @@ from products.signals.backend.facade.api import (
     scout_status_for_product,
 )
 from products.workflows.backend.facade.contracts import SuggestionsScoutRunReason
-from products.workflows.backend.metrics import HOG_FLOW_VERSION_APP_SOURCE, TARGET_SEND_METRIC
+from products.workflows.backend.metrics import HOG_FLOW_VERSION_APP_SOURCE, TARGET_OPEN_METRIC, TARGET_SEND_METRIC
 from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision, WorkflowProposal
 
 SUGGESTIONS_SCOUT = "signals-scout-workflows"
@@ -35,7 +36,9 @@ PROPOSAL_WRITE_SCOPE = "hog_flow_proposal:write"
 _LOCK_NAMESPACE = 72_031
 # The scout skill reads a send only once it is this old, because opens and bounces arrive after the send.
 SEND_MATURITY = timedelta(hours=48)
-SENDS_MATURED_MAX_EXECUTION_S = 5
+EMAIL_METRICS_MAX_EXECUTION_S = 5
+# The longest the scout goes without a run, so workflows a short run left unread still get read.
+BACKSTOP_INTERVAL = timedelta(days=7)
 
 
 def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: bool) -> None:
@@ -92,40 +95,60 @@ def suggestions_scout_status(team: Team) -> str:
     return "running" if status is not None else "not_running"
 
 
+@frozen
+class _OptedInWorkflow:
+    id: UUID
+    # The workflow's environment, which its metrics are recorded under. The opt-in row is scoped to the project.
+    team_id: int
+    version: int
+    opted_in_at: datetime
+
+    @property
+    def version_source_id(self) -> str:
+        return f"{self.id}/{self.version}"
+
+
 def suggestions_scout_run_reason(
     project_id: int, *, last_run_at: datetime | None, now: datetime
 ) -> SuggestionsScoutRunReason | None:
     """Why the suggestions scout has something new to read since its last run, or None when it has nothing.
 
-    The scout decides only from opted-in live workflows: their opt-in, their published versions, how
-    people resolved its suggestions, and email sends old enough to carry their opens. When none of
-    these changed since `last_run_at`, a new run reads the same input as the last one.
+    The scout decides only from opted-in live workflows: their opt-in, their status and published
+    versions, how people resolved its suggestions, and email metrics of the live version. When none
+    of these changed since `last_run_at`, a new run reads the same input as the last one.
     """
     if last_run_at is None:
         return "first_run"
+    # A run can cover only part of the opted-in workflows, and nothing records which part.
+    if now - last_run_at >= BACKSTOP_INTERVAL:
+        return "backstop"
     environments = Team.objects.filter(Q(id=project_id) | Q(parent_team_id=project_id)).values("id")
-    opted_in = list(
-        HogFlowOptimization.objects.unscoped()
+    opted_in = [
+        _OptedInWorkflow(id=flow_id, team_id=team_id, version=version, opted_in_at=created_at)
+        for flow_id, team_id, version, created_at in HogFlowOptimization.objects.unscoped()
         .filter(team_id__in=environments, enabled=True, hog_flow__status=HogFlow.State.ACTIVE)
-        # The opt-in row is scoped to the project, while metrics are recorded under the workflow's environment.
-        .values_list("hog_flow_id", "hog_flow__team_id", "created_at")
-    )
+        .values_list("hog_flow_id", "hog_flow__team_id", "hog_flow__version", "created_at")
+    ]
     if not opted_in:
         return None
-    flow_ids = [flow_id for flow_id, _, _ in opted_in]
+    flow_ids = [workflow.id for workflow in opted_in]
 
     # The row keeps its first `created_at` when someone turns suggestions off and on again, so a
     # re-enable is only visible in the activity log.
-    if any(created_at >= last_run_at for _, _, created_at in opted_in) or (
-        ActivityLog.objects.filter(
-            team_id__in=environments,
-            scope="HogFlow",
-            activity="optimization_enabled",
-            item_id__in=[str(flow_id) for flow_id in flow_ids],
-            created_at__gte=last_run_at,
-        ).exists()
-    ):
+    if any(workflow.opted_in_at >= last_run_at for workflow in opted_in):
         return "opted_in"
+    # Turning suggestions back on and making an archived workflow live again write no revision, so the
+    # activity log is the only record of either.
+    activity = ActivityLog.objects.filter(
+        team_id__in=environments,
+        scope="HogFlow",
+        item_id__in=[str(flow_id) for flow_id in flow_ids],
+        created_at__gte=last_run_at,
+    )
+    if activity.filter(activity="optimization_enabled").exists():
+        return "opted_in"
+    if activity.filter(activity="updated", detail__changes__contains=[{"field": "status", "after": "active"}]).exists():
+        return "reactivated"
     if (
         HogFlowRevision.objects.unscoped()
         .filter(team_id__in=environments, hog_flow_id__in=flow_ids, created_at__gte=last_run_at)
@@ -138,42 +161,58 @@ def suggestions_scout_run_reason(
         .exists()
     ):
         return "suggestion_resolved"
-    if _sends_matured_since(opted_in, last_run_at=last_run_at, now=now):
-        return "sends_matured"
-    return None
+    return _email_metrics_reason(opted_in, last_run_at=last_run_at, now=now)
 
 
-def _sends_matured_since(opted_in: list[tuple[UUID, int, datetime]], *, last_run_at: datetime, now: datetime) -> bool:
-    """Whether any opted-in workflow sent email that reached `SEND_MATURITY` after `last_run_at`.
+def _email_metrics_reason(
+    opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime
+) -> SuggestionsScoutRunReason | None:
+    """`sends_matured` when a send of a live version reached `SEND_MATURITY` after `last_run_at`, and
+    `first_opens` when a live version recorded its first opens since then.
 
-    Reads the per-version source because a batch send records its email metrics under the batch
-    job id on the per-flow source, and under `<flow id>/<version>` here for every trigger type.
+    The skill rules out a step with zero opens as a measurement gap and reads it again once opens
+    appear, which can happen after its sends matured. Reads the per-version source because a batch
+    send records its email metrics under the batch job id on the per-flow source, and under
+    `<flow id>/<version>` here for every trigger type. Sends of an older version need no run,
+    because the skill reads the live version only.
     """
-    tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutSendsMatured")
+    tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutEmailMetrics")
     rows = sync_execute(
         """
-        SELECT 1
+        SELECT
+            sumIf(count, metric_name = %(sent)s
+                AND timestamp >= toDateTime64(%(matured_after)s, 6)
+                AND timestamp < toDateTime64(%(matured_before)s, 6)) AS matured_sends,
+            sumIf(count, metric_name = %(opened)s AND timestamp >= toDateTime64(%(last_run_at)s, 6)) AS new_opens,
+            sumIf(count, metric_name = %(opened)s AND timestamp < toDateTime64(%(last_run_at)s, 6)) AS earlier_opens
         FROM app_metrics2
         WHERE team_id IN %(team_ids)s
           AND app_source = %(app_source)s
-          AND metric_name = %(metric_name)s
-          AND timestamp >= toDateTime64(%(after)s, 6)
-          AND timestamp < toDateTime64(%(before)s, 6)
-          AND splitByChar('/', app_source_id)[1] IN %(flow_ids)s
-          AND count > 0
-        LIMIT 1
+          AND app_source_id IN %(version_source_ids)s
+          AND metric_name IN (%(sent)s, %(opened)s)
+        GROUP BY app_source_id
         """,
         {
-            "team_ids": sorted({team_id for _, team_id, _ in opted_in}),
+            "team_ids": sorted({workflow.team_id for workflow in opted_in}),
             "app_source": HOG_FLOW_VERSION_APP_SOURCE,
-            "metric_name": TARGET_SEND_METRIC,
-            "after": (last_run_at - SEND_MATURITY).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-            "before": (now - SEND_MATURITY).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-            "flow_ids": [str(flow_id) for flow_id, _, _ in opted_in],
+            "version_source_ids": [workflow.version_source_id for workflow in opted_in],
+            "sent": TARGET_SEND_METRIC,
+            "opened": TARGET_OPEN_METRIC,
+            "matured_after": _clickhouse_time(last_run_at - SEND_MATURITY),
+            "matured_before": _clickhouse_time(now - SEND_MATURITY),
+            "last_run_at": _clickhouse_time(last_run_at),
         },
         workload=Workload.OFFLINE,
         # The pre-check activity gives up after its own timeout and runs the scout, so a longer read
         # would only hold a worker thread and a connection for an answer nobody uses.
-        settings={"max_execution_time": SENDS_MATURED_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
+        settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
     )
-    return bool(rows)
+    if any(matured_sends > 0 for matured_sends, _, _ in rows):
+        return "sends_matured"
+    if any(new_opens > 0 and earlier_opens == 0 for _, new_opens, earlier_opens in rows):
+        return "first_opens"
+    return None
+
+
+def _clickhouse_time(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
