@@ -623,7 +623,7 @@ def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
-        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,  # type: ignore[arg-type]
+        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,
         is_repeatable=False,
         type_url="",
     )
