@@ -358,6 +358,19 @@ describe("CloudRuns", () => {
     expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1");
   });
 
+  it("leaves the engine's watch alone when a pane stops before its own watch opened, so a reply's hold on the run survives a re-render", async () => {
+    const { engine, runs } = setup();
+    // The reply's hold is the only subscriber; a pane mounted and unmounted in one render must not take it away.
+    void runs.agentRestarted("t1", "r1", Date.now()).catch(() => {});
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(1));
+
+    runs.watch("t1", "r1", () => {}).stop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(engine.watch).toHaveBeenCalledTimes(1);
+    expect(engine.unwatch).not.toHaveBeenCalled();
+  });
+
   it("pages older entries in above the window until it reaches the start", async () => {
     const { engine, runs } = setup(logOf(8));
     let latest = emptyRunView;

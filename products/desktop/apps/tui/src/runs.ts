@@ -454,9 +454,6 @@ export class CloudRuns {
     ) => Promise<string[]>,
   ) {}
 
-  // Open watches by run, so a run brought back can be watched again for its panes.
-  private readonly watching = new Map<string, number>();
-
   // What a cloud run waits on the user for, by task: a Claude Code or Codex permission request, or the engine's
   // approval of a relayed MCP call. Answered through the engine, which keeps a relay approval to itself.
   private prompts = new Map<string, AgentPrompt[]>();
@@ -564,7 +561,6 @@ export class CloudRuns {
     since: number,
     timeoutMs = AGENT_RESTART_TIMEOUT_MS,
   ): Promise<void> {
-    const key = keyOf(taskId, runId);
     return new Promise((resolve, reject) => {
       let settled = false;
       // Set when this wait opened the watch, rather than restarting the panes' one.
@@ -574,9 +570,8 @@ export class CloudRuns {
         settled = true;
         clearTimeout(timer);
         this.engine.off(CloudTaskEvent.Update, listener);
-        // A watch opened only for this wait closes with it; one the panes rely on stays.
-        if (opened && !this.watching.get(key))
-          this.engine.unwatch(taskId, runId);
+        // The engine counts watches, so this one closes only its own; a pane's keeps the stream open.
+        if (opened) this.engine.unwatch(taskId, runId);
         if (error) reject(error);
         else resolve();
       };
@@ -668,8 +663,9 @@ export class CloudRuns {
   ): RunSubscription {
     let own = this.previews.get(keyOf(taskId, runId)) ?? emptyRunView;
     let stopped = false;
-    const key = keyOf(taskId, runId);
-    this.watching.set(key, (this.watching.get(key) ?? 0) + 1);
+    // Whether this subscription reached the engine; a stop before then has nothing of its own to close, and an
+    // unmatched unwatch once took away a reply's hold on the run and lost its sandbox's token request.
+    let opened = false;
     // Entries paged in from earlier runs, and how many each earlier run still holds above them.
     let earlierEntries: StoredLogEntry[] = [];
     const earlier: { runId: string; remaining: number }[] = [];
@@ -695,7 +691,9 @@ export class CloudRuns {
     this.engine.on(CloudTaskEvent.Update, listener);
     this.context().then(
       ({ apiHost, teamId }) => {
-        if (!stopped) this.engine.watch({ taskId, runId, apiHost, teamId });
+        if (stopped) return;
+        opened = true;
+        this.engine.watch({ taskId, runId, apiHost, teamId });
       },
       (error: unknown) =>
         publish({
@@ -749,10 +747,9 @@ export class CloudRuns {
 
     return {
       stop: () => {
-        if (!stopped) this.watching.set(key, (this.watching.get(key) ?? 1) - 1);
         stopped = true;
         this.engine.off(CloudTaskEvent.Update, listener);
-        this.engine.unwatch(taskId, runId);
+        if (opened) this.engine.unwatch(taskId, runId);
       },
       loadOlder: async () => {
         if (own.loadingOlder) return;
