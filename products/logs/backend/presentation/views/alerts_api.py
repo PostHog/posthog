@@ -78,10 +78,10 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.facade.api import (
     close_incident_before_delete,
     close_incident_on_commit,
+    follow_logs_alert,
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.platform_alert_backfill import follow_logs_alert
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20

@@ -4,8 +4,9 @@ from products.logs.backend import alert_incidents
 from products.logs.backend.alert_state_machine import FIRING_STATES, IncidentCloseReason, IncidentEdge, incident_edge
 from products.logs.backend.alert_utils import next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_alert_backfill import follow_logs_alert
 
-__all__ = ["close_incident_before_delete", "close_incident_on_commit", "next_allowed_check_at"]
+__all__ = ["close_incident_before_delete", "close_incident_on_commit", "follow_logs_alert", "next_allowed_check_at"]
 
 
 def _close_if_subscribed(*, team_id: int, alert_id: str, reason: IncidentCloseReason) -> None:
