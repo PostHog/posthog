@@ -2,7 +2,7 @@
 //! out, and its later messages wait until that run settles.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -103,6 +103,23 @@ pub struct UnclaimedSettle {
     pub routing_key: String,
 }
 
+pub enum Settlement {
+    Done,
+    Unfinished(Vec<SerializedKafkaMessage>),
+    Failed {
+        messages: Vec<SerializedKafkaMessage>,
+        retry_at: Instant,
+    },
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Settled {
+    pub evicted: bool,
+    /// The key's run went out with a budget and its resend goes without one.
+    /// True on one settle per escalation, so a counter of it counts keys.
+    pub escalated: bool,
+}
+
 struct Segment {
     class: RequestClass,
     queued_at: Instant,
@@ -121,6 +138,7 @@ impl Segment {
 
 struct Claim {
     assignment_epoch: u64,
+    unbudgeted: bool,
     /// Requeued messages of these partitions drop; the new owner replays them.
     revoked: Vec<(String, i32)>,
 }
@@ -130,6 +148,10 @@ struct KeyState {
     segments: VecDeque<Segment>,
     claim: Option<Claim>,
     retry_at: Option<Instant>,
+    /// Settles that left messages unfinished since the key last finished a
+    /// run. A failure leaves it, because a failed request says nothing about
+    /// the budget.
+    unfinished_attempts: u32,
 }
 
 impl KeyState {
@@ -185,6 +207,7 @@ impl KeyState {
         let segment = self.segments.pop_front().expect("a ready key has messages");
         self.claim = Some(Claim {
             assignment_epoch: segment.class.assignment_epoch,
+            unbudgeted: segment.class.unbudgeted,
             revoked: Vec::new(),
         });
         segment
@@ -247,8 +270,10 @@ impl ReadySizes {
     }
 }
 
-fn send_order(class: &RequestClass) -> (bool, u64) {
-    (!class.replay, class.assignment_epoch)
+/// An unbudgeted replay goes ahead of a budgeted one of its epoch, because
+/// it is the request that surely finishes its messages.
+fn send_order(class: &RequestClass) -> (bool, u64, bool) {
+    (!class.replay, class.assignment_epoch, !class.unbudgeted)
 }
 
 #[derive(Default)]
@@ -260,6 +285,7 @@ pub struct KeyQueues {
     waiting_keys: BTreeSet<(Instant, Arc<str>)>,
     ready_sizes: ReadySizes,
     run_cap: RunCap,
+    budget_attempts: Option<NonZeroU32>,
     queued_messages: usize,
     queued_bytes: usize,
     claimed_keys: usize,
@@ -270,6 +296,13 @@ impl KeyQueues {
         Self {
             run_cap,
             ..Self::default()
+        }
+    }
+
+    pub fn with_budget_attempts(self, budget_attempts: Option<NonZeroU32>) -> Self {
+        Self {
+            budget_attempts,
+            ..self
         }
     }
 
@@ -321,6 +354,7 @@ impl KeyQueues {
         let class = RequestClass {
             assignment_epoch,
             replay: false,
+            unbudgeted: false,
         };
         let state = match self.keys.get_mut(&*routing_key) {
             Some(state) => state,
@@ -413,10 +447,9 @@ impl KeyQueues {
     pub fn settle(
         &mut self,
         routing_key: &Arc<str>,
-        mut requeued: Vec<SerializedKafkaMessage>,
-        retry_at: Option<Instant>,
+        settlement: Settlement,
         now: Instant,
-    ) -> Result<bool, UnclaimedSettle> {
+    ) -> Result<Settled, UnclaimedSettle> {
         let unclaimed = || UnclaimedSettle {
             routing_key: routing_key.to_string(),
         };
@@ -428,6 +461,22 @@ impl KeyQueues {
         };
         self.claimed_keys = self.claimed_keys.saturating_sub(1);
 
+        let (mut requeued, retry_at) = match settlement {
+            Settlement::Done => {
+                state.unfinished_attempts = 0;
+                (Vec::new(), None)
+            }
+            Settlement::Unfinished(messages) => {
+                state.unfinished_attempts = state.unfinished_attempts.saturating_add(1);
+                (messages, None)
+            }
+            Settlement::Failed { messages, retry_at } => (messages, Some(retry_at)),
+        };
+        let unbudgeted = self
+            .budget_attempts
+            .is_some_and(|attempts| state.unfinished_attempts >= attempts.get());
+        let mut settled = Settled::default();
+
         if !claim.revoked.is_empty() {
             requeued.retain(|message| {
                 !claim.revoked.iter().any(|(topic, partition)| {
@@ -436,6 +485,7 @@ impl KeyQueues {
             });
         }
         if !requeued.is_empty() {
+            settled.escalated = unbudgeted && !claim.unbudgeted;
             let bytes = payload_bytes(&requeued);
             self.queued_messages += requeued.len();
             self.queued_bytes += bytes;
@@ -445,6 +495,7 @@ impl KeyQueues {
                 class: RequestClass {
                     assignment_epoch: claim.assignment_epoch,
                     replay: true,
+                    unbudgeted,
                 },
                 queued_at: now,
                 bytes,
@@ -459,12 +510,13 @@ impl KeyQueues {
         self.ready_sizes.replace(None, state.ready_size());
         if state.is_idle() {
             self.keys.remove(&**routing_key);
-            return Ok(true);
+            settled.evicted = true;
+            return Ok(settled);
         }
         if state.is_ready() {
             self.ready_keys.push_back(Arc::clone(routing_key));
         }
-        Ok(false)
+        Ok(settled)
     }
 
     pub fn purge(&mut self, revoked: &[(String, i32)]) -> Vec<Arc<str>> {
@@ -546,7 +598,11 @@ impl KeyQueues {
         self.push(Arc::clone(&routing_key), assignment_epoch, messages, now);
         self.ready_keys.retain(|key| *key != routing_key);
         let sent = self.claim(Arc::clone(&routing_key));
-        self.settle(&routing_key, sent.run.messages, None, now)
+        let settlement = Settlement::Failed {
+            messages: sent.run.messages,
+            retry_at: now,
+        };
+        self.settle(&routing_key, settlement, now)
             .expect("a claimed key");
     }
 }
@@ -567,7 +623,17 @@ mod tests {
     const FRESH: RequestClass = RequestClass {
         assignment_epoch: 0,
         replay: false,
+        unbudgeted: false,
     };
+
+    const EVICTED: Settled = Settled {
+        evicted: true,
+        escalated: false,
+    };
+
+    fn failure(messages: Vec<SerializedKafkaMessage>, retry_at: Instant) -> Settlement {
+        Settlement::Failed { messages, retry_at }
+    }
 
     fn take_all(queues: &mut KeyQueues, now: Instant) -> Vec<ReadyRun> {
         queues.promote_due(now);
@@ -611,12 +677,15 @@ mod tests {
             "one run per key is out"
         );
 
-        assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(false));
+        assert_eq!(
+            queues.settle(&key("a"), Settlement::Done, now),
+            Ok(Settled::default())
+        );
         assert_eq!(
             claimed(&take_all(&mut queues, now)),
             vec![("a", vec![2, 3], false)]
         );
-        assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(true));
+        assert_eq!(queues.settle(&key("a"), Settlement::Done, now), Ok(EVICTED));
         assert_eq!(queues.key_count(), 0);
     }
 
@@ -656,8 +725,8 @@ mod tests {
 
         let requeued = vec![message("a", 0, 2)];
         assert_eq!(
-            queues.settle(&key("a"), requeued, Some(retry_at), now),
-            Ok(false)
+            queues.settle(&key("a"), failure(requeued, retry_at), now),
+            Ok(Settled::default())
         );
         assert!(
             take_all(&mut queues, now).is_empty(),
@@ -670,7 +739,7 @@ mod tests {
             vec![("a", vec![2], true)]
         );
         queues
-            .settle(&key("a"), Vec::new(), None, retry_at)
+            .settle(&key("a"), Settlement::Done, retry_at)
             .expect("claimed");
         assert_eq!(
             claimed(&take_all(&mut queues, retry_at)),
@@ -711,7 +780,7 @@ mod tests {
 
         let requeued = vec![message("a", 0, 1), message("a", 1, 7)];
         queues
-            .settle(&key("a"), requeued, None, now)
+            .settle(&key("a"), failure(requeued, now), now)
             .expect("claimed");
         assert_eq!(
             claimed(&take_all(&mut queues, now)),
@@ -729,7 +798,7 @@ mod tests {
         queues.push(key("a"), 0, vec![message("a", 1, 7)], now);
         let retry_at = now + Duration::from_millis(100);
         queues
-            .settle(&key("a"), vec![message("a", 0, 1)], Some(retry_at), now)
+            .settle(&key("a"), failure(vec![message("a", 0, 1)], retry_at), now)
             .expect("claimed");
 
         queues.purge(&[("events".to_string(), 0)]);
@@ -746,7 +815,7 @@ mod tests {
         let mut queues = KeyQueues::default();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         assert!(queues
-            .settle(&key("a"), vec![message("a", 0, 1)], None, now)
+            .settle(&key("a"), failure(vec![message("a", 0, 1)], now), now)
             .is_err());
         assert_eq!(queues.queued_messages(), 1);
     }
@@ -808,7 +877,7 @@ mod tests {
         let requeued = vec![message("a", 0, 1), message("a", 1, 2)];
         let requeued_bytes = payload_bytes(&requeued);
         queues
-            .settle(&key("a"), requeued, None, now)
+            .settle(&key("a"), failure(requeued, now), now)
             .expect("claimed");
         assert_eq!(queues.queued_bytes(), requeued_bytes);
 
@@ -825,7 +894,7 @@ mod tests {
         take_all(&mut queues, now);
         queues.push(key("a"), 0, vec![message("a", 0, 3)], now);
         queues
-            .settle(&key("a"), failed(), None, now)
+            .settle(&key("a"), failure(failed(), now), now)
             .expect("claimed");
         assert_eq!(
             claimed(&take_all(&mut queues, now)),
@@ -834,7 +903,7 @@ mod tests {
 
         queues.push(key("a"), 0, vec![message("a", 0, 4)], now);
         queues
-            .settle(&key("a"), failed(), None, now)
+            .settle(&key("a"), failure(failed(), now), now)
             .expect("claimed");
         assert_eq!(queues.queued_messages(), 4);
         assert_eq!(
@@ -842,15 +911,43 @@ mod tests {
             vec![("a", vec![1, 2], true)]
         );
         queues
-            .settle(&key("a"), Vec::new(), None, now)
+            .settle(&key("a"), Settlement::Done, now)
             .expect("claimed");
         assert_eq!(
             claimed(&take_all(&mut queues, now)),
             vec![("a", vec![3, 4], false)]
         );
-        assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(true));
+        assert_eq!(queues.settle(&key("a"), Settlement::Done, now), Ok(EVICTED));
         assert_eq!(queues.queued_messages(), 0);
         assert_eq!(queues.queued_bytes(), 0);
+    }
+
+    #[test]
+    fn a_key_reports_its_escalation_once_when_it_uses_up_its_budgeted_attempts() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::default().with_budget_attempts(NonZeroU32::new(2));
+        queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
+        let mut settle_a = |settlement| {
+            take_all(&mut queues, now);
+            queues
+                .settle(&key("a"), settlement, now)
+                .expect("claimed")
+                .escalated
+        };
+        let unfinished = || Settlement::Unfinished(vec![message("a", 0, 1)]);
+        let failed = || failure(vec![message("a", 0, 1)], now);
+
+        assert_eq!(
+            [
+                settle_a(unfinished()),
+                settle_a(failed()),
+                settle_a(unfinished()),
+                settle_a(failed()),
+                settle_a(unfinished()),
+            ],
+            [false, false, true, false, false],
+            "a failure neither counts as an attempt nor resets the count"
+        );
     }
 
     #[test]
@@ -902,7 +999,7 @@ mod tests {
         queues.push(key("a"), 0, spanning(), now);
         take_all(&mut queues, now);
         queues
-            .settle(&key("a"), spanning(), Some(retry_at), now)
+            .settle(&key("a"), failure(spanning(), retry_at), now)
             .expect("claimed");
 
         queues.purge(&[("events".to_string(), 0)]);
@@ -920,6 +1017,7 @@ mod tests {
         let epoch = |assignment_epoch| RequestClass {
             assignment_epoch,
             replay: false,
+            unbudgeted: false,
         };
         let mut queues = KeyQueues::default();
         queues.push(key("a"), 1, vec![message("a", 0, 1)], now);
@@ -935,7 +1033,7 @@ mod tests {
         assert!(!queues.has_ready(), "a's epoch-2 run waits for its claim");
 
         queues
-            .settle(&key("a"), Vec::new(), None, now)
+            .settle(&key("a"), Settlement::Done, now)
             .expect("claimed");
         assert_eq!(queues.ready_sizes(), &[(epoch(2), size(1))]);
     }
@@ -951,6 +1049,7 @@ mod tests {
         let older_epoch = RequestClass {
             assignment_epoch: 1,
             replay: false,
+            unbudgeted: false,
         };
         assert_eq!(
             claimed(&queues.take_runs(older_epoch, |_| false)),
@@ -980,7 +1079,7 @@ mod tests {
                 vec![("a", expected, false)]
             );
             queues
-                .settle(&key("a"), Vec::new(), None, now)
+                .settle(&key("a"), Settlement::Done, now)
                 .expect("claimed");
         }
     }

@@ -57,6 +57,7 @@ Under `key_table`:
 - A request is placed on a worker when it is sent, against the load at that moment. Each worker takes at most `INGESTION_WORKER_CONCURRENT_BATCHES` requests at a time.
 - A failed send returns its messages to the front of their keys' queues. They retry through the packer as replay after the retry delay.
 - A partial ack completes the messages the worker finished. Its unfinished messages return to the front of their keys' queues and go out again at once as replay. They need not be the last messages of their key.
+- A key resends without a budget once `INGESTION_REQUEST_BUDGET_ATTEMPTS` settles have left its messages unfinished since it last finished a run, so a message that never fits the budget still finishes. A failed request neither counts nor resets the count. The resend rides in a request that holds only such keys, ahead of budgeted replays.
 - A revoke drops the pending messages of the revoked partitions, because the new owner replays them.
 - Pending work with nothing in flight and nothing accepted for `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` fails the consumer, which restarts and replays.
 
@@ -67,7 +68,8 @@ Under `key_table`:
 | `INGESTION_RUN_CAP_EVENTS` | `0` | The most events one key's run holds, which is the most of its backlog a key sends per round trip. With both run caps at `0`, the pack targets cap runs. When either is set, the run caps replace them, and a `0` cap leaves that dimension uncapped. |
 | `INGESTION_RUN_CAP_BYTES` | `0` | One key's run stops growing once it holds this many key-plus-value bytes. Works with `INGESTION_RUN_CAP_EVENTS`. |
 | `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. Replays never wait, because they already waited out a retry delay or a worker's time budget. |
-| `INGESTION_REQUEST_SOFT_BUDGET_MS` | `0` | How long a worker may spend on one request before it stops starting work and acks what finished as partial. The rest goes out again at once. `0` sends no budget. A request split into several frames goes without one. Startup fails if it is set under `pin_stash`, if it times `INGESTION_WORKER_CONCURRENT_BATCHES` is not below `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`, or if it plus `INGESTION_PACK_LATENCY_BUDGET_MS` is not below `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. |
+| `INGESTION_REQUEST_SOFT_BUDGET_MS` | `0` | How long a worker may spend on one request before it stops starting work and acks what finished as partial. The rest goes out again at once. `0` sends no budget. A request split into several frames goes without one. Startup fails if it is set under `pin_stash`, if it times `INGESTION_WORKER_CONCURRENT_BATCHES` is not below `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`, or if it times `INGESTION_REQUEST_BUDGET_ATTEMPTS`, plus `INGESTION_PACK_LATENCY_BUDGET_MS`, is not below `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. |
+| `INGESTION_REQUEST_BUDGET_ATTEMPTS` | `3` | How many budgeted attempts may leave a key's messages unfinished, since the key last finished a run, before it resends without a budget. At least 1. Only read when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
 
 Metrics:
@@ -76,6 +78,7 @@ Metrics:
 - `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited, including the pack budget.
 - `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|replay|shutdown}` counts why the packer built each request: at the target, at the budget deadline, as a replay, or at shutdown.
 - `ingestion_consumer_request_budget_partials_total` counts partial acks, and `ingestion_consumer_request_budget_unfinished_messages_total` counts the messages they left unfinished.
+- `ingestion_consumer_request_budget_escalations_total` counts keys that used up their budgeted attempts and resent without a budget. A steady rate means the budget is too tight for the lane.
 - The `ingestion_consumer_batcher_*` gauges report keys, queued messages and bytes, claimed and waiting keys, unplaced work, and in-flight requests.
 
 ## Debug API

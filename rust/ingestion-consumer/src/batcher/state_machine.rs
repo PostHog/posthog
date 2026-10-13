@@ -14,6 +14,7 @@
 //! instead of growing lag.
 
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -21,7 +22,7 @@ use common_kafka_consumer::{GroupCompletion, Offset, Partition};
 use metrics::{counter, gauge, histogram};
 
 use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentMessage};
-use super::key_queues::{KeyQueues, KeyRun};
+use super::key_queues::{KeyQueues, KeyRun, Settlement};
 use super::packer::Packer;
 use super::request::{Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
@@ -33,6 +34,15 @@ use crate::worker_registry::WorkerId;
 pub enum FailureCause {
     Fault,
     Busy,
+}
+
+/// The worker's soft time budget for every request. A key resends without it
+/// once `attempts` settles left its messages unfinished since it last finished
+/// a run, so a message that never fits the budget still finishes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RequestBudget {
+    pub soft_budget: Duration,
+    pub attempts: NonZeroU32,
 }
 
 #[derive(Debug)]
@@ -113,11 +123,14 @@ impl BatcherStateMachine {
         }))
     }
 
-    /// The worker's soft time budget for every request. `None` sends none.
-    pub fn with_request_budget(self, soft_budget: Option<Duration>) -> Self {
+    /// `None` sends no budget.
+    pub fn with_request_budget(self, budget: Option<RequestBudget>) -> Self {
         match self {
             BatcherStateMachine::Running(active) => BatcherStateMachine::Running(ActiveState {
-                soft_budget,
+                soft_budget: budget.map(|budget| budget.soft_budget),
+                keys: active
+                    .keys
+                    .with_budget_attempts(budget.map(|budget| budget.attempts)),
                 ..active
             }),
             other => other,
@@ -357,7 +370,7 @@ impl ActiveState {
                 .map(|run| (&run.routing_key, run.messages.as_slice())),
         );
         for run in runs {
-            self.settle_key(&run.routing_key, Vec::new(), None, now, &mut effects)?;
+            self.settle_key(&run.routing_key, Settlement::Done, now, &mut effects)?;
         }
         self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
@@ -399,13 +412,12 @@ impl ActiveState {
                 .map(|split| (&split.routing_key, &split.accepted[..split.accepted_prefix])),
         );
         for split in splits {
-            self.settle_key(
-                &split.routing_key,
-                split.unfinished,
-                None,
-                now,
-                &mut effects,
-            )?;
+            let settlement = if split.unfinished.is_empty() {
+                Settlement::Done
+            } else {
+                Settlement::Unfinished(split.unfinished)
+            };
+            self.settle_key(&split.routing_key, settlement, now, &mut effects)?;
         }
         self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
@@ -435,13 +447,11 @@ impl ActiveState {
             },
         );
         for run in runs {
-            self.settle_key(
-                &run.routing_key,
-                run.messages,
-                Some(retry_at),
-                now,
-                &mut effects,
-            )?;
+            let settlement = Settlement::Failed {
+                messages: run.messages,
+                retry_at,
+            };
+            self.settle_key(&run.routing_key, settlement, now, &mut effects)?;
         }
         self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
@@ -481,16 +491,18 @@ impl ActiveState {
     fn settle_key(
         &mut self,
         routing_key: &Arc<str>,
-        requeued: Vec<SerializedKafkaMessage>,
-        retry_at: Option<Instant>,
+        settlement: Settlement,
         now: Instant,
         effects: &mut Effects,
     ) -> Result<(), String> {
-        let evicted = self
+        let settled = self
             .keys
-            .settle(routing_key, requeued, retry_at, now)
+            .settle(routing_key, settlement, now)
             .map_err(|err| err.to_string())?;
-        if evicted {
+        if settled.escalated {
+            counter!("ingestion_consumer_request_budget_escalations_total").increment(1);
+        }
+        if settled.evicted {
             effects.evicted_keys.push(Arc::clone(routing_key));
         }
         Ok(())
@@ -554,7 +566,7 @@ impl ActiveState {
             request: id,
             worker,
             class: request.class,
-            soft_budget: self.soft_budget,
+            soft_budget: self.soft_budget.filter(|_| !request.class.unbudgeted),
             runs: request.runs,
         });
     }
@@ -658,6 +670,7 @@ mod tests {
     const BUSY_DELAY: Duration = Duration::from_millis(20);
     const NO_WORKER_DELAY: Duration = Duration::from_millis(100);
     const STALL: Duration = Duration::from_secs(60);
+    const BUDGET: Duration = Duration::from_millis(250);
 
     /// Distinct delays, so a wakeup time shows which retry reason applied.
     fn retry_policy() -> RetryPolicy {
@@ -694,6 +707,13 @@ mod tests {
         .expect("valid request cap");
         BatcherStateMachine::new(packer, assigner, retry_policy(), STALL, now)
             .expect("valid stall timeout")
+    }
+
+    fn budgeted_batcher(events: usize, attempts: u32, now: Instant) -> BatcherStateMachine {
+        packing_batcher(events, Duration::ZERO, 4, now).with_request_budget(Some(RequestBudget {
+            soft_budget: BUDGET,
+            attempts: NonZeroU32::new(attempts).expect("nonzero attempts"),
+        }))
     }
 
     fn pool(workers: &[&str]) -> Vec<WorkerId> {
@@ -1643,6 +1663,82 @@ mod tests {
             batcher.on_request_partial(now + STALL, &workers, resend, 0, vec![message("a", 0, 1)]);
         assert!(matches!(batcher, BatcherStateMachine::Failed));
         assert!(effects.fatal.is_some());
+    }
+
+    #[test]
+    fn a_key_that_keeps_running_out_of_budget_resends_alone_without_one() {
+        let now = Instant::now();
+        let retry_at = now + FAULT_DELAY;
+        let workers = pool(&["w"]);
+        let (batcher, effects) =
+            budgeted_batcher(2, 2, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let first = effects.sends[0].request;
+        let (batcher, effects) =
+            batcher.on_request_partial(now, &workers, first, 0, vec![message("a", 0, 1)]);
+        assert_eq!(effects.sends[0].soft_budget, Some(BUDGET));
+        let second = effects.sends[0].request;
+        let (batcher, effects) =
+            batcher.on_request_partial(now, &workers, second, 0, vec![message("a", 0, 1)]);
+        assert_eq!(effects.sends[0].soft_budget, None);
+        assert!(effects.sends[0].class.unbudgeted);
+        let escalated = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("b", &[2])]);
+        let budgeted = effects.sends[0].request;
+        let (batcher, _) = batcher.on_request_failed(
+            now,
+            &workers,
+            escalated,
+            FailureCause::Fault,
+            vec![message("a", 0, 1)],
+        );
+        let (batcher, _) = batcher.on_request_failed(
+            now,
+            &workers,
+            budgeted,
+            FailureCause::Fault,
+            vec![message("b", 0, 2)],
+        );
+
+        let (_, effects) = batcher.on_wakeup(retry_at, &workers);
+        let sends: Vec<_> = effects
+            .sends
+            .iter()
+            .map(|send| (shape(send), send.soft_budget))
+            .collect();
+        assert_eq!(
+            sends,
+            vec![
+                (vec![("a", vec![1])], None),
+                (vec![("b", vec![2])], Some(BUDGET)),
+            ],
+            "a failure keeps the escalation, the escalated replay goes first, and a budgeted \
+             replay never rides along"
+        );
+    }
+
+    #[test]
+    fn a_finished_run_resets_the_escalation_count() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) =
+            budgeted_batcher(1, 2, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let first = effects.sends[0].request;
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[2])]);
+        let (batcher, effects) =
+            batcher.on_request_partial(now, &workers, first, 0, vec![message("a", 0, 1)]);
+        let resend = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, resend, 1);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2])]);
+        let next = effects.sends[0].request;
+
+        let (_, effects) =
+            batcher.on_request_partial(now, &workers, next, 0, vec![message("a", 0, 2)]);
+        assert_eq!(
+            effects.sends[0].soft_budget,
+            Some(BUDGET),
+            "the earlier unfinished attempt no longer counts"
+        );
     }
 
     #[test]

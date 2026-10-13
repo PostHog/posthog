@@ -399,7 +399,7 @@ async fn sleep_until(wakeup: Option<Instant>) {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
+    use std::num::{NonZeroU32, NonZeroUsize};
     use std::time::Duration;
 
     use tokio::sync::oneshot;
@@ -407,6 +407,7 @@ mod tests {
     use super::*;
     use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
+    use crate::batcher::state_machine::RequestBudget;
     use crate::batcher::test_support::{message, offsets};
     use crate::batcher::worker_assigner::WorkerAssigner;
     use crate::routing::{Router, RoutingStrategy};
@@ -505,7 +506,7 @@ mod tests {
         fn budgeted(
             workers: &[&str],
             max_requests_per_worker: usize,
-            soft_budget: Option<Duration>,
+            budget: Option<RequestBudget>,
         ) -> Self {
             let assigner =
                 WorkerAssigner::new(Router::new(RoutingStrategy::P2c), max_requests_per_worker)
@@ -525,7 +526,7 @@ mod tests {
                 tokio::time::Instant::now().into_std(),
             )
             .expect("valid stall timeout")
-            .with_request_budget(soft_budget);
+            .with_request_budget(budget);
             let fake_workers = FakeWorkers::default();
             fake_workers.set_candidates(workers);
             let sender = Arc::new(FakeSender {
@@ -630,7 +631,14 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_partial_response_resends_its_unfinished_messages_at_once_as_replay() {
         let budget = Duration::from_millis(250);
-        let mut h = Harness::budgeted(&["w"], 4, Some(budget));
+        let mut h = Harness::budgeted(
+            &["w"],
+            4,
+            Some(RequestBudget {
+                soft_budget: budget,
+                attempts: NonZeroU32::new(3).expect("nonzero attempts"),
+            }),
+        );
         h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();

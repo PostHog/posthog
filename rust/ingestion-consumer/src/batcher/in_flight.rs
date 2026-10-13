@@ -191,6 +191,7 @@ mod tests {
     const FRESH: RequestClass = RequestClass {
         assignment_epoch: 0,
         replay: false,
+        unbudgeted: false,
     };
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {

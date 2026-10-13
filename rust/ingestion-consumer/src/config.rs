@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -9,7 +9,7 @@ use tracing::info;
 use crate::batcher::key_queues::RunCap;
 use crate::batcher::packer::{PackTargets, Packer};
 use crate::batcher::retry_policy::RetryPolicy;
-use crate::batcher::state_machine::BatcherStateMachine;
+use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
 use crate::routing::{Router, RoutingStrategy};
@@ -219,6 +219,12 @@ pub struct Config {
     /// `request_budget` for the bounds against the ack and stall timeouts.
     #[envconfig(from = "INGESTION_REQUEST_SOFT_BUDGET_MS", default = "0")]
     pub request_soft_budget_ms: u64,
+
+    /// How many budgeted attempts may leave a key's messages unfinished, since
+    /// the key last finished a run, before it resends without a budget. At
+    /// least 1. Only read when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set.
+    #[envconfig(from = "INGESTION_REQUEST_BUDGET_ATTEMPTS", default = "3")]
+    pub request_budget_attempts: u32,
 
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
@@ -484,7 +490,7 @@ impl Config {
         .with_request_budget(self.request_budget()?))
     }
 
-    pub fn request_budget(&self) -> Result<Option<Duration>, String> {
+    pub fn request_budget(&self) -> Result<Option<RequestBudget>, String> {
         let budget_ms = self.request_soft_budget_ms;
         if budget_ms == 0 {
             return Ok(None);
@@ -514,18 +520,27 @@ impl Config {
                     .to_string(),
             );
         }
+        let attempts = NonZeroU32::new(self.request_budget_attempts)
+            .ok_or("INGESTION_REQUEST_BUDGET_ATTEMPTS must be at least 1")?;
         // A partial ack that accepted nothing does not count as progress, so
-        // it must come back before the stall watchdog fires.
-        if budget_ms.saturating_add(self.pack_latency_budget_ms)
+        // a key's budgeted attempts must all come back before the stall
+        // watchdog fires.
+        if budget_ms
+            .saturating_mul(u64::from(attempts.get()))
+            .saturating_add(self.pack_latency_budget_ms)
             >= self.consumer_deferred_flush_timeout_ms
         {
             return Err(
-                "INGESTION_REQUEST_SOFT_BUDGET_MS plus INGESTION_PACK_LATENCY_BUDGET_MS must be \
-                 below CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
+                "INGESTION_REQUEST_SOFT_BUDGET_MS times INGESTION_REQUEST_BUDGET_ATTEMPTS, plus \
+                 INGESTION_PACK_LATENCY_BUDGET_MS, must be below \
+                 CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS"
                     .to_string(),
             );
         }
-        Ok(Some(Duration::from_millis(budget_ms)))
+        Ok(Some(RequestBudget {
+            soft_budget: Duration::from_millis(budget_ms),
+            attempts,
+        }))
     }
 
     pub fn worker_urls(&self) -> Vec<String> {
@@ -624,20 +639,29 @@ mod tests {
     #[case::unset(&[], None)]
     #[case::under_key_table(
         &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250")],
-        Some(250)
+        Some((250, 3))
     )]
     #[case::just_below_the_ack_and_stall_timeouts(
-        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "59999")],
-        Some(59999)
+        &[
+            ("INGESTION_SCHEDULER", "key_table"),
+            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "59999"),
+            ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "1"),
+        ],
+        Some((59999, 1))
+    )]
+    #[case::just_below_the_stall_timeout_across_every_attempt(
+        &[("INGESTION_SCHEDULER", "key_table"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "19999")],
+        Some((19999, 3))
     )]
     fn a_valid_request_budget_is_read(
         #[case] vars: &[(&str, &str)],
-        #[case] budget_ms: Option<u64>,
+        #[case] expected: Option<(u64, u32)>,
     ) {
-        assert_eq!(
-            config(vars).request_budget(),
-            Ok(budget_ms.map(Duration::from_millis))
-        );
+        let expected = expected.map(|(budget_ms, attempts)| RequestBudget {
+            soft_budget: Duration::from_millis(budget_ms),
+            attempts: NonZeroU32::new(attempts).expect("nonzero attempts"),
+        });
+        assert_eq!(config(vars).request_budget(), Ok(expected));
     }
 
     #[rstest]
@@ -662,8 +686,18 @@ mod tests {
     #[case::at_the_stall_timeout_with_the_pack_latency(&[
         ("INGESTION_SCHEDULER", "key_table"),
         ("INGESTION_REQUEST_SOFT_BUDGET_MS", "50000"),
+        ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "1"),
         ("INGESTION_PACK_LATENCY_BUDGET_MS", "10000"),
         ("INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", "120000"),
+    ])]
+    #[case::at_the_stall_timeout_across_every_attempt(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "20000"),
+    ])]
+    #[case::with_no_budgeted_attempt(&[
+        ("INGESTION_SCHEDULER", "key_table"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "250"),
+        ("INGESTION_REQUEST_BUDGET_ATTEMPTS", "0"),
     ])]
     fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
         assert!(config(vars).request_budget().is_err());
