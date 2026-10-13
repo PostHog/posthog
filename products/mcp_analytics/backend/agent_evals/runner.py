@@ -35,10 +35,6 @@ SYSTEM_PROMPT = (
 MAX_TOKENS = 16_000
 TOOL_CALL_TIMEOUT = timedelta(seconds=60)
 CLIENT_INFO = Implementation(name="mcp-eval-agent", version="0.0.0")
-# A breakpoint on the system block caches the tools and system prompt, which every scenario
-# shares. The top-level breakpoint only covers one conversation, because it lands on the latest
-# message and each scenario starts from a different intent.
-SYSTEM_BLOCKS: list[TextBlockParam] = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
 
 
 @frozen
@@ -77,8 +73,14 @@ class AgentRunReport:
 
 async def run_agent_evals(config: RunConfig, client: anthropic.AsyncAnthropic) -> AgentRunReport:
     started_at = _now_iso()
-    async with _mcp_session(config) as catalog:
+    async with _mcp_session(config) as (catalog, server_instructions):
         tools = await _list_all_tools(catalog)
+    # MCP clients pass the server's instructions to the model, so the eval agent gets them too.
+    system_prompt = f"{SYSTEM_PROMPT}\n\n{server_instructions}" if server_instructions else SYSTEM_PROMPT
+    # A breakpoint on the system block caches the tools and system prompt, which every scenario
+    # shares. The top-level breakpoint only covers one conversation, because it lands on the latest
+    # message and each scenario starts from a different intent.
+    system: list[TextBlockParam] = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
     tool_params: list[ToolParam] = [
         {"name": tool.name, "description": tool.description or "", "input_schema": tool.inputSchema} for tool in tools
     ]
@@ -86,7 +88,7 @@ async def run_agent_evals(config: RunConfig, client: anthropic.AsyncAnthropic) -
 
     async def bounded(scenario: Scenario, trial: int) -> AgentTrial:
         async with slots:
-            return await _run_scenario(config, client, tool_params, scenario, trial)
+            return await _run_scenario(config, client, system, tool_params, scenario, trial)
 
     trials: list[AgentTrial] = []
     # Rounds run in sequence and scenarios run concurrently inside a round. Scenarios that
@@ -101,7 +103,7 @@ async def run_agent_evals(config: RunConfig, client: anthropic.AsyncAnthropic) -
         scenarios=config.scenarios,
         model=config.model,
         effort=config.effort,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         trials_per_scenario=config.trials,
         max_turns=config.max_turns,
         max_tokens=MAX_TOKENS,
@@ -114,6 +116,7 @@ async def run_agent_evals(config: RunConfig, client: anthropic.AsyncAnthropic) -
 async def _run_scenario(
     config: RunConfig,
     client: anthropic.AsyncAnthropic,
+    system: list[TextBlockParam],
     tools: list[ToolParam],
     scenario: Scenario,
     trial: int,
@@ -122,7 +125,7 @@ async def _run_scenario(
         return await client.messages.create(
             model=config.model,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_BLOCKS,
+            system=system,
             tools=tools,
             messages=messages,
             output_config={"effort": config.effort},
@@ -132,7 +135,7 @@ async def _run_scenario(
     finished: AgentTrial | None = None
     try:
         # A session per trial, so state a server keeps per session cannot leak between trials.
-        async with _mcp_session(config) as session:
+        async with _mcp_session(config) as (session, _):
 
             async def call_tool(name: str, tool_input: object) -> ToolOutcome:
                 if not isinstance(tool_input, dict):
@@ -153,10 +156,15 @@ async def _run_scenario(
                 turns=0,
                 usage=TrialUsage(),
                 duration_ms=0,
-                error=_describe(error),
+                error=describe_failure(error, config.url),
             )
     assert finished is not None
     return finished
+
+
+def describe_failure(error: Exception, url: str) -> str:
+    # HTTP errors quote the request URL, which can carry a token in its query or userinfo.
+    return _describe(error).replace(url, _without_credentials(url))
 
 
 def _describe(error: Exception) -> str:
@@ -169,11 +177,14 @@ def _describe(error: Exception) -> str:
 
 
 @asynccontextmanager
-async def _mcp_session(config: RunConfig) -> AsyncIterator[ClientSession]:
+async def _mcp_session(config: RunConfig) -> AsyncIterator[tuple[ClientSession, str | None]]:
     async with streamablehttp_client(config.url, headers=config.headers) as (read, write, _):
-        async with ClientSession(read, write, client_info=CLIENT_INFO) as session:
-            await session.initialize()
-            yield session
+        # The timeout bounds a server that keeps the stream open but never answers initialize or list_tools.
+        async with ClientSession(
+            read, write, client_info=CLIENT_INFO, read_timeout_seconds=TOOL_CALL_TIMEOUT
+        ) as session:
+            initialized = await session.initialize()
+            yield session, initialized.instructions
 
 
 async def _list_all_tools(session: ClientSession) -> list[Tool]:

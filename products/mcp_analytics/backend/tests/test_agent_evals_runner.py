@@ -20,7 +20,7 @@ SCENARIO = Scenario(
     id="flags-list-active", intent="List all our active feature flags.", success_criteria="Returns the flags."
 )
 CONFIG = RunConfig(
-    url="http://localhost:8787/mcp",
+    url="http://localhost:8787/mcp?token=secret",
     headers={},
     scenarios=(SCENARIO,),
     trials=1,
@@ -96,10 +96,12 @@ class TestRunnerBoundaries(SimpleTestCase):
 
 def _session(fail_on: str):
     @asynccontextmanager
-    async def session(config: RunConfig) -> AsyncIterator[object]:
+    async def session(config: RunConfig) -> AsyncIterator[tuple[object, None]]:
         if fail_on == "open":
-            raise ExceptionGroup("unhandled errors in a TaskGroup", [ConnectionError("connection refused")])
-        yield object()
+            raise ExceptionGroup(
+                "unhandled errors in a TaskGroup", [ConnectionError(f"connection refused: {config.url}")]
+            )
+        yield object(), None
         if fail_on == "close":
             raise ConnectionError("stream closed")
 
@@ -110,7 +112,11 @@ class TestTrialFailureBoundary(SimpleTestCase):
     @parameterized.expand(
         [
             ("a_teardown_failure_keeps_the_finished_trial", "close", ("answered", None)),
-            ("an_open_failure_is_an_mcp_error_with_the_real_cause", "open", ("mcp_error", "connection refused")),
+            (
+                "an_open_failure_is_an_mcp_error_with_the_real_cause_and_no_token",
+                "open",
+                ("mcp_error", "connection refused: http://localhost:8787/mcp"),
+            ),
         ]
     )
     def test_a_session_failure_stays_inside_its_trial(self, _name: str, fail_on: str, expected: tuple) -> None:
@@ -118,6 +124,6 @@ class TestTrialFailureBoundary(SimpleTestCase):
             return ANSWERED
 
         with patch.object(runner, "_mcp_session", _session(fail_on)), patch.object(runner, "run_trial", fake_run_trial):
-            trial = asyncio.run(runner._run_scenario(CONFIG, None, [], SCENARIO, 1))  # type: ignore[arg-type]
+            trial = asyncio.run(runner._run_scenario(CONFIG, None, [], [], SCENARIO, 1))  # type: ignore[arg-type]
 
         assert (trial.outcome, trial.error) == expected

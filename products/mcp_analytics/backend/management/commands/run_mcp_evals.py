@@ -20,7 +20,13 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 import anthropic
 
-from products.mcp_analytics.backend.agent_evals.runner import Effort, RunConfig, format_run_summary, run_agent_evals
+from products.mcp_analytics.backend.agent_evals.runner import (
+    Effort,
+    RunConfig,
+    describe_failure,
+    format_run_summary,
+    run_agent_evals,
+)
 from products.mcp_analytics.backend.agent_evals.scenarios import load_scenarios
 
 TOKEN_ENV = "MCP_EVAL_SERVER_TOKEN"
@@ -67,7 +73,13 @@ class Command(BaseCommand):
             effort=cast(Effort, options["effort"]),
             max_turns=cast(int, options["max_turns"]),
         )
-        report = asyncio.run(run_agent_evals(config, anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)))
+        try:
+            report = asyncio.run(run_agent_evals(config, anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)))
+        except Exception as unreachable:
+            # Only the catalog session raises here; every trial failure stays inside its trial.
+            raise CommandError(
+                f"could not list the server's tools: {describe_failure(unreachable, config.url)}"
+            ) from unreachable
 
         out = cast(Path, options["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
