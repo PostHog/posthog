@@ -26,7 +26,8 @@ from products.alerts_platform.backend.facade.contracts import (
     OwnedAlertDestination,
 )
 
-from ..logic import alert_email, destination_configs, destinations, insight_alert_destinations
+from ..logic import alert_email, destination_configs, destination_eligibility, destinations, insight_alert_destinations
+from .contracts import DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -216,5 +217,14 @@ def list_delivery_destination_groups(
 ) -> list[AlertDestinationGroup]:
     """Everything the shared platform delivers one alert's events to, including subscriber email."""
     return alert_email.list_delivery_destination_groups(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def classify_alert_destinations(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> tuple[DestinationEligibility, ...]:
+    """Every destination function of one alert, with what native delivery cannot carry for each."""
+    return destination_eligibility.classify_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
