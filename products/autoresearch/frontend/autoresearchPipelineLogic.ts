@@ -315,6 +315,7 @@ export interface autoresearchPipelineLogicValues {
     onlinePerformance: OnlinePerformanceRowApi[]
     onlinePerformanceError: boolean
     onlinePerformanceLoading: boolean
+    personPropertyDisabledReason: string | undefined
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
@@ -333,7 +334,6 @@ export interface autoresearchPipelineLogicValues {
     runsError: boolean
     runsLoaded: boolean
     runsLoading: boolean
-    personPropertyDisabledReason: string | undefined
     savingCohortSegment: PredictionSegmentKey | null
     savingWritePersonProperty: boolean
     scoreResult: AutoresearchRunApi | null
@@ -635,16 +635,6 @@ export interface autoresearchPipelineLogicActions {
     saveSegmentCohortFinished: () => {
         value: true
     }
-    setWritePersonProperty: (
-        enabled: boolean,
-        source: PersonPropertyToggleSource
-    ) => {
-        enabled: boolean
-        source: PersonPropertyToggleSource
-    }
-    setWritePersonPropertyFinished: () => {
-        value: true
-    }
     scoreNow: () => any
     scoreNowFailure: (
         error: string,
@@ -692,6 +682,16 @@ export interface autoresearchPipelineLogicActions {
     }
     setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
         tab: AutoresearchPipelineTab | null
+    }
+    setWritePersonProperty: (
+        enabled: boolean,
+        source: PersonPropertyToggleSource
+    ) => {
+        enabled: boolean
+        source: PersonPropertyToggleSource
+    }
+    setWritePersonPropertyFinished: () => {
+        value: true
     }
     startScorePolling: () => {
         value: true
@@ -812,8 +812,11 @@ export interface autoresearchPipelineLogicMeta {
         ) => ExperimentLogGroup[]
         agentNotes: (trainingRuns: AutoresearchTrainingRunApi[]) => AgentNotes | null
         defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
-        personPropertyDisabledReason: (pipeline: AutoresearchPipelineApi | null) => string | undefined
         latestPropertyCleanupRun: (runs: AutoresearchRunApi[]) => AutoresearchRunApi | null
+        personPropertyDisabledReason: (
+            pipeline: AutoresearchPipelineApi | null,
+            savingWritePersonProperty: boolean
+        ) => string | undefined
         activeTab: (
             selectedTab: AutoresearchPipelineTab | null,
             defaultTab: AutoresearchPipelineTab
