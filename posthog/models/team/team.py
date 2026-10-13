@@ -1235,6 +1235,8 @@ class Team(UUIDTClassicModel):
             )
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 
+        role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+
         # Partition rules by member and role up front so each per-member resolve_membership_level
         # call sees only its own candidates, rather than rescanning every rule for every member.
         rules_by_member_id: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
@@ -1248,8 +1250,30 @@ class Team(UUIDTClassicModel):
             else:
                 default_rules.append(rule)
 
-        # Only roles that a rule on this team names can change an answer.
-        named_role_ids = set(rules_by_role_id)
+        # Only roles that can take effect — the resolver ignores role rules when the org lacks
+        # ROLE_BASED_ACCESS, so loading their memberships would allocate without changing an answer.
+        named_role_ids = set(rules_by_role_id) if role_based_access_supported else set()
+
+        # Fast path: without any rule that discriminates between members (no own-member rules,
+        # no effective role rules), every active member resolves to the same answer and the
+        # per-member loop below just reruns that one decision. Stay in SQL.
+        if not rules_by_member_id and not named_role_ids:
+            default_level = default_rules[0]["access_level"] if default_rules else None
+            if default_level in (None, "member", "admin"):
+                # No default rule falls through to the resolver's admin default; "member"/"admin"
+                # default rules grant access to every active org member.
+                member_user_ids = OrganizationMembership.objects.filter(
+                    organization_id=self.organization_id
+                ).values_list("user_id", flat=True)
+            else:
+                # Default "none" denies every member; only org admins and owners pass the
+                # resolver's admin bypass.
+                member_user_ids = OrganizationMembership.objects.filter(
+                    organization_id=self.organization_id,
+                    level__gte=OrganizationMembership.Level.ADMIN,
+                ).values_list("user_id", flat=True)
+            return User.objects.filter(is_active=True, id__in=member_user_ids)
+
         role_ids_by_user: dict[int, set[UUID]] = defaultdict(set)
         if named_role_ids:
             for user_id, role_id in (
