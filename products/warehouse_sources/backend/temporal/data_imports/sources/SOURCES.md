@@ -871,6 +871,7 @@ the row lists both.
 | typeform                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                          | HTTP                        | requests                                                        | ✅                          |
 | uk_companies_house               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| umami                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | unleash                          | HTTP                        | requests                                                        | ✅                          |
 | unstructured                     | HTTP                        | requests                                                        | ✅                          |
 | upstash                          | HTTP                        | requests                                                        | ✅                          |
@@ -1499,7 +1500,6 @@ doesn't conflict with concurrent PRs.
 - tyntec_sms
 - typesense
 - uk_ons
-- umami
 - un_comtrade
 - uploadcare
 - uppromote
