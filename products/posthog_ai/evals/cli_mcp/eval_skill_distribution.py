@@ -5,6 +5,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
+    ExcludedSkillNotLoaded,
     ExpectedSkillDiscovered,
     ExpectedSkillLoaded,
     NoBundledSkillBypass,
@@ -24,12 +25,17 @@ def _case(
     skill_delivery: SkillDelivery,
     *,
     alternate_skills: list[str] | None = None,
+    excluded_skill: str | None = None,
 ) -> SandboxedEvalCase:
     return SandboxedEvalCase(
         name=name,
         prompt=prompt,
         expected=skill_distribution_expectations(
-            skill, downstream_tools, skill_delivery, alternate_skills=alternate_skills
+            skill,
+            downstream_tools,
+            skill_delivery,
+            alternate_skills=alternate_skills,
+            excluded_skill=excluded_skill,
         ),
         metadata={"expected_skill": skill, "skill_delivery": skill_delivery},
         # The sandbox identifies as the eval consumer, which the MCP serves `learn` to; the default
@@ -102,6 +108,48 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
             downstream_tools=["query-trends"],
             skill_delivery=ctx.skill_delivery,
         ),
+        _case(
+            name="session_errors_to_traces_and_logs",
+            prompt=(
+                "For session 3db8f93b-4c5d-4f1c-aaf1-9c891632eb18, which captured errors have OpenTelemetry "
+                "traces? Find logs with the same trace ID and say which links are missing."
+            ),
+            skill="linking-errors-to-traces",
+            downstream_tools=["execute-sql"],
+            skill_delivery=ctx.skill_delivery,
+        ),
+        _case(
+            name="occurrence_to_trace_and_replay",
+            prompt=(
+                "Find the OpenTelemetry trace, same-trace logs, and replay for error occurrence "
+                "c63f0d39-86ea-4a55-9a5b-c25339875390."
+            ),
+            skill="linking-errors-to-traces",
+            downstream_tools=["execute-sql"],
+            skill_delivery=ctx.skill_delivery,
+        ),
+        _case(
+            name="replay_summary_without_trace_request",
+            prompt=(
+                "Summarize what happened in recording 24d9f620-6d35-4b48-91aa-b634b0f15f64 "
+                "and the main actions on screen."
+            ),
+            skill="investigating-replay",
+            downstream_tools=["session-recording-get"],
+            skill_delivery=ctx.skill_delivery,
+            excluded_skill="linking-errors-to-traces",
+        ),
+        _case(
+            name="issue_diagnosis_without_trace_request",
+            prompt=(
+                "Explain error tracking issue 1ad13555-9f8c-4943-9e06-ef0f801cd3fa: "
+                "who does it affect, and what is the likely cause?"
+            ),
+            skill="investigating-error-issue",
+            downstream_tools=["query-error-tracking-issue"],
+            skill_delivery=ctx.skill_delivery,
+            excluded_skill="linking-errors-to-traces",
+        ),
     ]
 
     await SandboxedPublicEval(
@@ -111,6 +159,7 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
             SkillSearchFirst(),
             ExpectedSkillDiscovered(),
             ExpectedSkillLoaded(),
+            ExcludedSkillNotLoaded(),
             SkillLoadedBeforeTool(),
             NoBundledSkillBypass(),
             NoExecSkillBypass(),
