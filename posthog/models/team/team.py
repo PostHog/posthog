@@ -1226,6 +1226,14 @@ class Team(UUIDTClassicModel):
                 "resource_id", "organization_member_id", "role_id", "access_level"
             )
         )
+        # A project with no rules resolves every active member to admin by default, so the
+        # per-member loop would do the same work the non-ACL fast path does — stay in SQL instead.
+        if not project_rules:
+            member_user_ids = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+            return User.objects.filter(is_active=True, id__in=member_user_ids)
+
         # Partition rules by member and role up front so each per-member resolve_membership_level
         # call sees only its own candidates, rather than rescanning every rule for every member.
         rules_by_member_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
