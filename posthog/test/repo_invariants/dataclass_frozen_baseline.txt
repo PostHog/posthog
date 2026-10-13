@@ -226,7 +226,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/aha.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/aha_ideas.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/airbrake.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aircall/aircall.py
