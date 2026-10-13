@@ -21,8 +21,14 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import Team, User
 
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 
 pytestmark = [pytest.mark.django_db]
 
@@ -120,6 +126,24 @@ def _make_cdc_source_and_schema(
         sync_type_config=sync_type_config,
     )
     return source, schema
+
+
+def _make_table(source: ExternalDataSource, name: str) -> DataWarehouseTable:
+    return DataWarehouseTable.objects.create(
+        team_id=source.team_id,
+        external_data_source=source,
+        name=name,
+        format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        url_pattern=f"https://bucket.example.com/{name}/",
+    )
+
+
+def _make_history_table(source: ExternalDataSource, schema: ExternalDataSchema) -> DataWarehouseTable:
+    history_table = _make_table(source, f"postgres_{companion_resource_name(schema.name)}")
+    if schema.cdc_table_mode == "cdc_only":
+        schema.table = history_table
+        schema.save(update_fields=["table"])
+    return history_table
 
 
 @pytest.mark.parametrize(
@@ -409,7 +433,8 @@ def test_moving_a_cdc_only_table_off_cdc_resyncs_it(
     expected_status: int,
     resynced: bool,
 ) -> None:
-    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=table_mode)
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=table_mode)
+    history_table = _make_history_table(source, schema)
     client.force_login(user)
     with (
         mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
@@ -430,6 +455,11 @@ def test_moving_a_cdc_only_table_off_cdc_resyncs_it(
     schema.refresh_from_db()
     assert bool(schema.sync_type_config.get("reset_pipeline")) is resynced
     assert trigger.called is resynced
+    history_table.refresh_from_db()
+    left_cdc = expected_status == 200
+    assert history_table.deleted is left_cdc
+    # A rejected move keeps the cdc_only link to the history table.
+    assert schema.table_id == (None if left_cdc or table_mode == "both" else history_table.id)
 
 
 def test_a_table_stays_in_the_publication_when_its_move_off_cdc_is_not_saved(
@@ -505,7 +535,11 @@ def test_resync_of_a_streaming_table_keeps_its_buffer(team, user, client: HttpCl
     ],
 )
 def test_patch_cdc_table_mode_dropping_target_skips_resnapshot(team, user, client: HttpClient, old_mode, new_mode):
-    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
+    consolidated_table = _make_table(source, "postgres_orders")
+    schema.table = consolidated_table
+    schema.save(update_fields=["table"])
+    history_table = _make_history_table(source, schema)
     client.force_login(user)
 
     with (
@@ -533,6 +567,28 @@ def test_patch_cdc_table_mode_dropping_target_skips_resnapshot(team, user, clien
     assert schema.initial_sync_complete is True
     mock_cancel.assert_not_called()
     mock_trigger.assert_not_called()
+    # Nothing writes the history table once its target is dropped, so its record must not stay queryable.
+    history_table.refresh_from_db()
+    assert history_table.deleted is (new_mode == "consolidated")
+    assert schema.table_id == consolidated_table.id
+    consolidated_table.refresh_from_db()
+    assert consolidated_table.deleted is False
+
+
+def test_deleting_a_schema_deregisters_its_unlinked_history_table(team, user, client: HttpClient):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    history_table = _make_history_table(source, schema)
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(f"{_VIEW}.purge_buffer_prefix"),
+    ):
+        response = client.delete(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}")
+
+    assert response.status_code == 204, response.content
+    history_table.refresh_from_db()
+    assert history_table.deleted is True
 
 
 def test_patch_cdc_table_mode_idempotent_skips_resnapshot(team, user, client: HttpClient):

@@ -614,6 +614,12 @@ async def register_cdc_companion_table(
 
     @database_sync_to_async_pool
     def _register():
+        # A load that started before the schema dropped its history target must not bring the record back.
+        current_schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).exclude(deleted=True).first()
+        if current_schema is None or not current_schema.keeps_cdc_history:
+            logger.warning("Skipping `register_cdc_companion_table`: the schema no longer keeps CDC history")
+            return
+
         job = ExternalDataJob.objects.prefetch_related("pipeline").get(pk=run_id)
 
         normalized_resource_name = NamingConvention.normalize_identifier(resource_name)

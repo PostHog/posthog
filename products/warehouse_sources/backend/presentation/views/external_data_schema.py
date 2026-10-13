@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceRegistry,
     WebhookSource,
     add_table_failure_message,
+    deregister_companion_table,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
@@ -943,6 +944,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+        kept_cdc_history = instance.keeps_cdc_history
 
         api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
@@ -1551,6 +1553,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             self._run_temporal_side_effect(update_schedule)
 
+        if kept_cdc_history and not updated_instance.keeps_cdc_history:
+            deregister_companion_table(updated_instance)
+
         if trigger_refresh:
             self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
 
@@ -2018,6 +2023,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.table:
             instance.table.soft_delete()
+        # In `both` mode the history table is not the schema's linked table.
+        deregister_companion_table(instance)
         instance.soft_delete()
 
         # CDC teardown, both best-effort: leaving the table in the publication makes the
