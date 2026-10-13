@@ -7309,7 +7309,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         lookup_patch: Any = nullcontext()
         if rpc_error_code is not None:
             rpc_error = grpc.RpcError()
-            rpc_error.code = MagicMock(return_value=rpc_error_code)  # type: ignore[attr-defined]
+            rpc_error.code = MagicMock(return_value=rpc_error_code)
             lookup_patch = patch("posthog.models.group.util.get_groups_by_type_indices", side_effect=rpc_error)
         with lookup_patch:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
