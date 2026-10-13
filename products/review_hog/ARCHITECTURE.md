@@ -343,8 +343,8 @@ inline. An
 optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one sentence that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`, `large_pr_note`). A Standard review adds it to its summary line, and a clean
 Standard turn posts a short review with it next to the 👍. That review has its own hidden `reviewhog:large-pr-note`
-marker, so a head gets at most one, and it does not set the published watermark, so a later turn on the head still
-publishes its findings.
+marker, so a pull request gets it once and re-reviews do not repeat it. It does not set the published watermark, so a
+later turn on the head still publishes its findings.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding

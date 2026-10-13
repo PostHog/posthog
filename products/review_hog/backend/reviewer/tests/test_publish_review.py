@@ -492,10 +492,10 @@ class TestPublishReviewGate:
             return
         mock_post.assert_called_once()
         body, comments = mock_post.call_args.args[3:5]
-        note_marker = mock_post.call_args.kwargs["marker"]
-        assert body == f"{expected_note}\n\n{note_marker}"
+        assert body == f"{expected_note}\n\n<!-- reviewhog:large-pr-note:rep:sha -->"
         assert comments == []
-        assert note_marker.startswith("<!-- reviewhog:large-pr-note:rep:sha")
+        # The skip check matches a note from any earlier head, so re-reviews do not repeat it.
+        assert mock_post.call_args.kwargs["marker"] == "<!-- reviewhog:large-pr-note:rep:"
 
     @parameterized.expand(
         [
