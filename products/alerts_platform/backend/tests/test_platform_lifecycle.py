@@ -211,23 +211,31 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         def copy(snooze_until: datetime | None) -> None:
             self._copy(legacy_id, snooze_until=snooze_until)
 
-        def snooze_seen_by_check() -> tuple[str, datetime | None]:
+        def snooze_seen_by_check() -> tuple[str, datetime | None, bool]:
             (check,) = [
                 c
                 for c in due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff)
                 if c.legacy_configuration_id == legacy_id
             ]
-            return check.state, check.snooze_until
+            return check.state, check.snooze_until, check.snoozed_indefinitely
 
         with time_machine.travel(self.cutoff, tick=False):
             copy(snoozed_until)
-        assert snooze_seen_by_check() == ("not_firing", snoozed_until)
+        assert snooze_seen_by_check() == ("not_firing", snoozed_until, False)
 
         with team_scope(self.team.id):
             PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(state="firing")
         with time_machine.travel(self.cutoff, tick=False):
             copy(snoozed_until)
-        assert snooze_seen_by_check() == ("firing", snoozed_until)
+        assert snooze_seen_by_check() == ("firing", snoozed_until, False)
 
         copy(None)
-        assert snooze_seen_by_check() == ("firing", None)
+        assert snooze_seen_by_check() == ("firing", None, False)
+
+        # Sources have no indefinite snooze to copy, so a later copy keeps the one already set.
+        with team_scope(self.team.id):
+            PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(
+                snoozed_indefinitely=True
+            )
+        copy(None)
+        assert snooze_seen_by_check() == ("firing", None, True)

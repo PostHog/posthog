@@ -14,8 +14,8 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertState
 def state_line(snapshot: PlatformAlertSnapshot | None, *, episode_started_at: datetime, as_of: datetime) -> str | None:
     """The line for the firing that opened this thread, or None when no line is certain.
 
-    None leaves the root as it is. That covers a group with no recorded state, and an errored,
-    broken or snoozed group, which is a different conversation from the firing this root opened.
+    None leaves the root as it is. That covers a group with no recorded state, and an errored or
+    broken group, which is a different conversation from the firing this root opened.
     """
     if snapshot is None:
         return None

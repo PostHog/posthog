@@ -264,6 +264,14 @@ class TestPolicyDecisionTable:
                 NotificationAction.FIRE,
             ),
             (
+                "indefinite_snooze_mutes_a_fire",
+                snapshot(snoozed_indefinitely=True),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.FIRE,
+            ),
+            (
                 "quiet_hours_mutes_a_fire",
                 snapshot(),
                 CheckInput(threshold_breached=True, muted=True),

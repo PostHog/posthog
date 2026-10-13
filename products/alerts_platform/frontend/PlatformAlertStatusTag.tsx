@@ -6,7 +6,6 @@ const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, { label: string; t
     not_firing: { label: 'OK', type: 'success' },
     firing: { label: 'Firing', type: 'danger' },
     errored: { label: 'Errored', type: 'danger' },
-    snoozed: { label: 'Snoozed', type: 'muted' },
     broken: { label: 'Broken', type: 'danger' },
     disabled: { label: 'Disabled', type: 'muted' },
     not_checked: { label: 'Not checked yet', type: 'default' },

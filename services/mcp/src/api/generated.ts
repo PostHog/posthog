@@ -71339,6 +71339,22 @@ export namespace Schemas {
       Insight: 'insight',
     } as const;
 
+    /**
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `broken` - Broken
+     */
+    export type PlatformAlertStateEnum = typeof PlatformAlertStateEnum[keyof typeof PlatformAlertStateEnum];
+
+
+    export const PlatformAlertStateEnum = {
+      NotFiring: 'not_firing',
+      Firing: 'firing',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
     export interface PlatformAlert {
       /** Unique identifier of this alert instance. */
       readonly id: string;
@@ -71349,9 +71365,8 @@ export namespace Schemas {
        * * `not_firing` - Not firing
        * * `firing` - Firing
        * * `errored` - Errored
-       * * `snoozed` - Snoozed
        * * `broken` - Broken */
-      readonly state: BillingAlertConfigurationStateEnum;
+      readonly state: PlatformAlertStateEnum;
       /**
          * When the current firing started. Null when the instance is not firing.
          * @nullable
@@ -71363,10 +71378,12 @@ export namespace Schemas {
          */
       readonly last_notified_at: string | null;
       /**
-         * Time until which notifications are snoozed. Null when not snoozed.
+         * Time until which notifications are snoozed. Null when not snoozed or snoozed indefinitely.
          * @nullable
          */
       readonly snooze_until: string | null;
+      /** Whether notifications are snoozed with no end time, until a user ends the snooze. */
+      readonly snoozed_indefinitely: boolean;
     }
 
     /**

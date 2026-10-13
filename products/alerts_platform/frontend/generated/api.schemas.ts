@@ -48,17 +48,14 @@ export interface AlertScheduleRestrictionApi {
  * * `not_firing` - Not firing
  * * `firing` - Firing
  * * `errored` - Errored
- * * `snoozed` - Snoozed
  * * `broken` - Broken
  */
-export type BillingAlertConfigurationStateEnumApi =
-    (typeof BillingAlertConfigurationStateEnumApi)[keyof typeof BillingAlertConfigurationStateEnumApi]
+export type PlatformAlertStateEnumApi = (typeof PlatformAlertStateEnumApi)[keyof typeof PlatformAlertStateEnumApi]
 
-export const BillingAlertConfigurationStateEnumApi = {
+export const PlatformAlertStateEnumApi = {
     NotFiring: 'not_firing',
     Firing: 'firing',
     Errored: 'errored',
-    Snoozed: 'snoozed',
     Broken: 'broken',
 } as const
 
@@ -72,9 +69,8 @@ export interface PlatformAlertApi {
      * * `not_firing` - Not firing
      * * `firing` - Firing
      * * `errored` - Errored
-     * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state: BillingAlertConfigurationStateEnumApi
+    readonly state: PlatformAlertStateEnumApi
     /**
      * When the current firing started. Null when the instance is not firing.
      * @nullable
@@ -86,10 +82,12 @@ export interface PlatformAlertApi {
      */
     readonly last_notified_at: string | null
     /**
-     * Time until which notifications are snoozed. Null when not snoozed.
+     * Time until which notifications are snoozed. Null when not snoozed or snoozed indefinitely.
      * @nullable
      */
     readonly snooze_until: string | null
+    /** Whether notifications are snoozed with no end time, until a user ends the snooze. */
+    readonly snoozed_indefinitely: boolean
 }
 
 /**

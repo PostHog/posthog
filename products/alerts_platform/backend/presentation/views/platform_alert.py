@@ -45,7 +45,11 @@ class PlatformAlertSerializer(serializers.Serializer):
     snooze_until = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
-        help_text="Time until which notifications are snoozed. Null when not snoozed.",
+        help_text="Time until which notifications are snoozed. Null when not snoozed or snoozed indefinitely.",
+    )
+    snoozed_indefinitely = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether notifications are snoozed with no end time, until a user ends the snooze.",
     )
 
 

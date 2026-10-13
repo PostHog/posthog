@@ -16,12 +16,15 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
 
 
 class PlatformAlertState(LabeledStrEnum):
-    """Where one alert instance stands."""
+    """Where one alert instance stands.
+
+    A snooze is not a state. It mutes announcements while the state keeps tracking the data, so it
+    lives in `PlatformAlert.snooze_until` and `PlatformAlert.snoozed_indefinitely`.
+    """
 
     NOT_FIRING = "not_firing", "Not firing"
     FIRING = "firing", "Firing"
     ERRORED = "errored", "Errored"
-    SNOOZED = "snoozed", "Snoozed"
     BROKEN = "broken", "Broken"
 
 

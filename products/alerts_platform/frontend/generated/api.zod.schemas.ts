@@ -65,14 +65,12 @@ export const AlertScheduleRestrictionApi = zod.object({
 export type AlertScheduleRestrictionApi = zod.input<typeof AlertScheduleRestrictionApi>
 export type AlertScheduleRestrictionApiOutput = zod.output<typeof AlertScheduleRestrictionApi>
 
-export const BillingAlertConfigurationStateEnumApi = zod
-    .enum(['not_firing', 'firing', 'errored', 'snoozed', 'broken'])
-    .describe(
-        '\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `snoozed` - Snoozed\n\* `broken` - Broken'
-    )
+export const PlatformAlertStateEnumApi = zod
+    .enum(['not_firing', 'firing', 'errored', 'broken'])
+    .describe('\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `broken` - Broken')
 
-export type BillingAlertConfigurationStateEnumApi = zod.input<typeof BillingAlertConfigurationStateEnumApi>
-export type BillingAlertConfigurationStateEnumApiOutput = zod.output<typeof BillingAlertConfigurationStateEnumApi>
+export type PlatformAlertStateEnumApi = zod.input<typeof PlatformAlertStateEnumApi>
+export type PlatformAlertStateEnumApiOutput = zod.output<typeof PlatformAlertStateEnumApi>
 
 export const PlatformAlertApi = zod.object({
     id: zod.uuid().describe('Unique identifier of this alert instance.'),
@@ -80,12 +78,10 @@ export const PlatformAlertApi = zod.object({
         .string()
         .describe('Key of the result group this instance tracks. Empty when the source does not group results.'),
     state: zod
-        .enum(['not_firing', 'firing', 'errored', 'snoozed', 'broken'])
+        .enum(['not_firing', 'firing', 'errored', 'broken'])
+        .describe('\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `broken` - Broken')
         .describe(
-            '\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `snoozed` - Snoozed\n\* `broken` - Broken'
-        )
-        .describe(
-            'Current state of this alert instance.\n\n\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `snoozed` - Snoozed\n\* `broken` - Broken'
+            'Current state of this alert instance.\n\n\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `broken` - Broken'
         ),
     firing_started_at: zod.iso
         .datetime({ offset: true })
@@ -98,7 +94,10 @@ export const PlatformAlertApi = zod.object({
     snooze_until: zod.iso
         .datetime({ offset: true })
         .nullable()
-        .describe('Time until which notifications are snoozed. Null when not snoozed.'),
+        .describe('Time until which notifications are snoozed. Null when not snoozed or snoozed indefinitely.'),
+    snoozed_indefinitely: zod
+        .boolean()
+        .describe('Whether notifications are snoozed with no end time, until a user ends the snooze.'),
 })
 
 export type PlatformAlertApi = zod.input<typeof PlatformAlertApi>
@@ -189,12 +188,12 @@ export const PlatformAlertConfigurationApi = zod.object({
                         'Key of the result group this instance tracks. Empty when the source does not group results.'
                     ),
                 state: zod
-                    .enum(['not_firing', 'firing', 'errored', 'snoozed', 'broken'])
+                    .enum(['not_firing', 'firing', 'errored', 'broken'])
                     .describe(
-                        '\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `snoozed` - Snoozed\n\* `broken` - Broken'
+                        '\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `broken` - Broken'
                     )
                     .describe(
-                        'Current state of this alert instance.\n\n\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `snoozed` - Snoozed\n\* `broken` - Broken'
+                        'Current state of this alert instance.\n\n\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `broken` - Broken'
                     ),
                 firing_started_at: zod.iso
                     .datetime({ offset: true })
@@ -207,7 +206,12 @@ export const PlatformAlertConfigurationApi = zod.object({
                 snooze_until: zod.iso
                     .datetime({ offset: true })
                     .nullable()
-                    .describe('Time until which notifications are snoozed. Null when not snoozed.'),
+                    .describe(
+                        'Time until which notifications are snoozed. Null when not snoozed or snoozed indefinitely.'
+                    ),
+                snoozed_indefinitely: zod
+                    .boolean()
+                    .describe('Whether notifications are snoozed with no end time, until a user ends the snooze.'),
             })
         )
         .describe('Runtime state for each result group of this configuration.'),
@@ -306,12 +310,12 @@ export const PaginatedPlatformAlertConfigurationListApi = zod.object({
                                 'Key of the result group this instance tracks. Empty when the source does not group results.'
                             ),
                         state: zod
-                            .enum(['not_firing', 'firing', 'errored', 'snoozed', 'broken'])
+                            .enum(['not_firing', 'firing', 'errored', 'broken'])
                             .describe(
-                                '\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `snoozed` - Snoozed\n\* `broken` - Broken'
+                                '\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `broken` - Broken'
                             )
                             .describe(
-                                'Current state of this alert instance.\n\n\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `snoozed` - Snoozed\n\* `broken` - Broken'
+                                'Current state of this alert instance.\n\n\* `not_firing` - Not firing\n\* `firing` - Firing\n\* `errored` - Errored\n\* `broken` - Broken'
                             ),
                         firing_started_at: zod.iso
                             .datetime({ offset: true })
@@ -324,7 +328,14 @@ export const PaginatedPlatformAlertConfigurationListApi = zod.object({
                         snooze_until: zod.iso
                             .datetime({ offset: true })
                             .nullable()
-                            .describe('Time until which notifications are snoozed. Null when not snoozed.'),
+                            .describe(
+                                'Time until which notifications are snoozed. Null when not snoozed or snoozed indefinitely.'
+                            ),
+                        snoozed_indefinitely: zod
+                            .boolean()
+                            .describe(
+                                'Whether notifications are snoozed with no end time, until a user ends the snooze.'
+                            ),
                     })
                 )
                 .describe('Runtime state for each result group of this configuration.'),

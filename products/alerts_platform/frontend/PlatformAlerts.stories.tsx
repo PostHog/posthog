@@ -38,6 +38,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
             firing_started_at: '2026-10-05T11:42:00Z',
             last_notified_at: '2026-10-05T11:42:05Z',
             snooze_until: null,
+            snoozed_indefinitely: false,
         },
     ],
 }

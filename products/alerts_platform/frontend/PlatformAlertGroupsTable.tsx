@@ -25,7 +25,12 @@ const COLUMNS: LemonTableColumns<PlatformAlertApi> = [
     },
     {
         title: 'Snoozed until',
-        render: (_, alert) => <OptionalTimeLabel time={alert.snooze_until} fallback="Not snoozed" />,
+        render: (_, alert) =>
+            alert.snoozed_indefinitely ? (
+                'Indefinitely'
+            ) : (
+                <OptionalTimeLabel time={alert.snooze_until} fallback="Not snoozed" />
+            ),
     },
 ]
 
