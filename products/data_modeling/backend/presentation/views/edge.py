@@ -8,6 +8,7 @@ from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
 from products.data_modeling.backend.facade.models import Edge, NodeType
 from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
 
@@ -94,6 +95,7 @@ class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         if _connects_a_metric(instance):
             raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
         instance.delete()
+        delete_orphaned_table_nodes(instance.team_id, [instance.source_id])
 
     def safely_get_queryset(self, queryset):
         qs = self._exclude_hidden_edges(queryset.filter(team_id=self.team_id))

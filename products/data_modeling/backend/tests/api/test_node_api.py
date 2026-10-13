@@ -760,6 +760,19 @@ class TestNodeViewSet(APIBaseTest):
             team=self.team, dag=managed_dag, saved_query=sq, type=NodeType.VIEW, description="orig"
         )
 
+    @parameterized.expand(["node", "edge"])
+    def test_deleting_the_last_reader_of_a_table_deletes_the_table_node(self, deleted):
+        if deleted == "node":
+            url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        else:
+            edge = Edge.objects.get(source=self.table_node, target=self.view_node)
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Node.objects.filter(id=self.table_node.id).exists())
+
     def test_cannot_delete_node_in_managed_dag(self):
         node = self._create_managed_node()
 

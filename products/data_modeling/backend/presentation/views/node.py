@@ -27,6 +27,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import (
+    delete_nodes,
     endpoint_link,
     get_declared_target,
     suspension_state,
@@ -368,7 +369,7 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
             raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
         if instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
-        instance.delete()
+        delete_nodes(instance.team_id, Node.objects.filter(pk=instance.pk))
 
     def _require_warehouse_access(self, *, level: AccessControlLevel, message: str) -> None:
         """`scope_object = "INTERNAL"` makes AccessControlPermission skip this viewset entirely, so
