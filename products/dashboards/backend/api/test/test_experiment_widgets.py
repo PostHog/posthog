@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -57,7 +58,7 @@ def _experiment_metric(uuid: str, name: str) -> dict[str, Any]:
     }
 
 
-class TestExperimentWidgetConfigs(APIBaseTest):
+class TestExperimentWidgetConfigs(SimpleTestCase):
     def test_experiments_list_config_defaults(self) -> None:
         validated = validate_widget_config(EXPERIMENTS_LIST_WIDGET_TYPE, {})
         assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
