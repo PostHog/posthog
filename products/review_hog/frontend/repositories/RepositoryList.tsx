@@ -27,16 +27,8 @@ export function RepositoryList({
     const { loadOverview } = useActions(reviewHogRepositoriesLogic)
 
     let rows: React.ReactNode
-    if (overview === null && overviewLoadFailed) {
-        rows = (
-            <div className="px-4 py-3">
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadOverview() }}>
-                    Could not load the repositories.
-                </LemonBanner>
-            </div>
-        )
-    } else if (overview === null) {
-        rows = (
+    if (overview === null) {
+        rows = overviewLoadFailed ? null : (
             <div className="flex flex-col gap-2 px-4 py-3">
                 <LemonSkeleton className="h-8 w-full" repeat={3} />
             </div>
@@ -50,7 +42,15 @@ export function RepositoryList({
     return (
         <div className="flex flex-col gap-2">
             <RepositoryListToolbar hiddenView={hiddenView} />
-            <SettingsList>{rows}</SettingsList>
+            {/* A failed reload keeps the rows of the last good load, so the error shows next to them. */}
+            {overviewLoadFailed && (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadOverview() }}>
+                    {overview === null
+                        ? 'Could not load the repositories.'
+                        : 'Could not refresh the repositories. The rows below may be out of date.'}
+                </LemonBanner>
+            )}
+            {rows && <SettingsList>{rows}</SettingsList>}
             <RepositoryListPager />
         </div>
     )
