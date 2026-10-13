@@ -437,6 +437,7 @@ def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
         train_score=row.train_score,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         model_spec=row.model_spec or {},
         recipe_snapshot=row.recipe_snapshot or {},
     )
@@ -455,6 +456,7 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         best_holdout_score=row.best_holdout_score,
         summary=row.summary or None,
         reader_summary=row.reader_summary,
+        headline=row.headline,
         next_steps=row.next_steps,
         iterations=[_iteration_trail_entry(i) for i in row.iterations.all()],
         error=row.error,
@@ -478,6 +480,7 @@ def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
         status=row.status,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         agent_confidence=row.agent_confidence,
         parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
@@ -1359,6 +1362,7 @@ def record_iteration(
             "status": fields["status"],
             "agent_description": fields.get("agent_description", ""),
             "summary": fields.get("summary") or None,
+            "headline": fields.get("headline") or None,
             "agent_confidence": fields.get("agent_confidence"),
         }
         # A re-send that omits parent_suggestion keeps the attribution it recorded the first
@@ -1419,6 +1423,7 @@ def complete_run(
     distillation: str = "",
     report_notebook_short_id: str = "",
     reader_summary: str | None = None,
+    headline: str | None = None,
     next_steps: list[str] | None = None,
 ) -> TrainingRun:
     """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
@@ -1441,6 +1446,7 @@ def complete_run(
             distillation=distillation or "",
             report_notebook_short_id=report_notebook_short_id or "",
             reader_summary=reader_summary or None,
+            headline=headline or None,
             next_steps=next_steps or None,
         )
     except PromotionError as exc:
