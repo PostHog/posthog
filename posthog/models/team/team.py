@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache, partial
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -1228,9 +1228,9 @@ class Team(UUIDTClassicModel):
         )
         # Partition rules by member and role up front so each per-member resolve_membership_level
         # call sees only its own candidates, rather than rescanning every rule for every member.
-        rules_by_member_id: dict[int, list[dict]] = defaultdict(list)
-        rules_by_role_id: dict[UUID, list[dict]] = defaultdict(list)
-        default_rules: list[dict] = []
+        rules_by_member_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        rules_by_role_id: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+        default_rules: list[dict[str, Any]] = []
         for rule in project_rules:
             if rule["organization_member_id"] is not None:
                 rules_by_member_id[rule["organization_member_id"]].append(rule)
@@ -1250,7 +1250,7 @@ class Team(UUIDTClassicModel):
             ):
                 role_ids_by_user[user_id].add(role_id)
 
-        def rules_for(membership_id: int, user_id: int) -> list[dict]:
+        def rules_for(membership_id: int, user_id: int) -> list[dict[str, Any]]:
             rules = list(rules_by_member_id.get(membership_id, ()))
             for role_id in role_ids_by_user.get(user_id, ()):
                 rules.extend(rules_by_role_id.get(role_id, ()))
