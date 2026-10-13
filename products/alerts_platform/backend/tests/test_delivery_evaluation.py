@@ -10,6 +10,7 @@ from parameterized import parameterized
 from products.alerts_platform.backend.delivery import legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
+from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
@@ -37,6 +38,9 @@ CLOSED_EVENT = "$logs_alert_incident_closed"
 
 SLACK = cast(AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-1"})
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
+SECOND_WEBHOOK = cast(
+    AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/other"}
+)
 TEAMS = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/teams"})
 PAGERDUTY = cast(AlertDestinationData, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "R-1"})
 UNSUPPORTED = cast(AlertDestinationData, {"type": "opsgenie"})
@@ -316,7 +320,10 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_a_webhook_gets_the_body_its_team_still_receives(
         self, _name: str, keeps_legacy: bool | Exception | None, header: str | None, body_version: str | None
     ) -> None:
+        flag_reads: list[str] = []
+
         def flag(key: str, *_args: Any, **_kwargs: Any) -> bool | None:
+            flag_reads.append(key)
             if key == LIVE_DELIVERY_FLAG:
                 return True
             if isinstance(keeps_legacy, Exception):
@@ -329,7 +336,7 @@ class TestDeliverEvaluation(APIBaseTest):
         with (
             patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=flag),
             patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK)]),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK), _group(SECOND_WEBHOOK)]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch.dict(f"{_LEGACY_MODULE}._bodies", {SourceKind.LOGS: legacy_body}),
             patch(f"{_WEBHOOK_URL_MODULE}.post_json") as post,
@@ -338,6 +345,8 @@ class TestDeliverEvaluation(APIBaseTest):
                 with pytest.raises(DeliveryError):
                     deliver_evaluation(_request(self.team.id))
                 post.assert_not_called()
+                # One failed lookup per evaluation, however many webhooks it has.
+                assert flag_reads.count(LEGACY_WEBHOOK_BODY_FLAG) == 1
                 return
             deliver_evaluation(_request(self.team.id))
 

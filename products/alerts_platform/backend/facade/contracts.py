@@ -290,6 +290,8 @@ class AnnouncedTransition:
     error_message: str | None
     # A resolve states this as the time its firing ended.
     occurred_at: datetime
+    # The evaluation this transition came from, so a source can read back what it put in the key.
+    evaluation_key: str = ""
 
 
 @frozen

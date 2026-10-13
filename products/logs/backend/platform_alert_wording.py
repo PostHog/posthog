@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceDescription,
 )
+from products.logs.backend.alert_evaluation_key import window_end_of
 from products.logs.backend.logs_url_params import build_logs_url_params, has_filter_values
 
 # A resolve reports the count that ended the firing, so it is not a breach. A held check, which
@@ -83,8 +84,10 @@ def _in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
 
 
 def _window_params(transition: AnnouncedTransition) -> str:
-    # The window the check counted, so the link opens on the logs that decided it.
-    date_to = _in_utc(transition).occurred_at
+    # The window the check counted, so the link opens on the logs that decided it. The window end
+    # can sit before the record time, because the check clamps it to the ingestion checkpoint.
+    window_end = window_end_of(transition.evaluation_key)
+    date_to = _in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
     return build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
 

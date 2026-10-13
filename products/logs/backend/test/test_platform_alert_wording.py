@@ -162,6 +162,28 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         # The link's window carries the zone too, or a browser outside UTC shifts it.
         assert body["data"]["logs_url"] == aware["data"]["logs_url"]
 
+    @parameterized.expand([("legacy_webhook_body",), ("message_link",)])
+    def test_a_logs_link_opens_the_window_the_check_queried(self, link: str) -> None:
+        # The ingestion checkpoint clamped this check's window end to well before it was recorded.
+        window_end = OCCURRED - timedelta(minutes=7)
+        transition = replace(
+            _transition(filters={"serviceNames": ["api"]}),
+            evaluation_key=f"slot:{OCCURRED.isoformat()}|window:{window_end.isoformat()}",
+        )
+
+        if link == "legacy_webhook_body":
+            url = legacy_logs_webhook_body(
+                project_id=7, alert_id="alert-1", alert_name="API errors", consecutive_failures=0, transition=transition
+            )["data"]["logs_url"]
+        else:
+            data_link = describe_logs_transition(project_id=7, transition=transition).data_link
+            assert data_link is not None
+            url = data_link.url
+
+        query = parse_qs(urlsplit(url).query)
+        date_range = json.loads(query["dateRange"][0])
+        assert date_range["date_to"] == window_end.isoformat()
+
 
 def _render(node: Any, globals_: dict[str, Any]) -> Any:
     if isinstance(node, list) and node and node[0] in ("_H", "_h"):

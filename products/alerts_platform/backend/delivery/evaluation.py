@@ -113,10 +113,19 @@ class _WebhookTransports:
         self._request = request
         self._announced = announced
         self._transport: WebhookTransport | None = None
+        self._failure: DeliveryError | None = None
 
     def get(self) -> WebhookTransport:
+        # A failed read is kept too, so a flags outage costs one lookup per evaluation rather than
+        # one per webhook, inside an activity whose time is shared by every destination.
+        if self._failure is not None:
+            raise self._failure
         if self._transport is None:
-            self._transport = WebhookTransport(legacy_body=self._legacy_body())
+            try:
+                self._transport = WebhookTransport(legacy_body=self._legacy_body())
+            except DeliveryError as error:
+                self._failure = error
+                raise
         return self._transport
 
     def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
