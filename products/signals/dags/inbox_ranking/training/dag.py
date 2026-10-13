@@ -1070,9 +1070,15 @@ def _publish_mirror(
 
     Project vectors are per-team data of this deployment's teams, so they never go to another
     deployment's store. The mirror's manifest names none, and its sweep skips the models that read them.
+    A served model that reads them could not score there, so the mirror keeps its previous manifest.
     """
     if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
         return None
+    if manifest.served.reads_project_vectors:
+        context.log.warning(
+            f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project vectors"
+        )
+        return False
     try:
         mirror = _ServingStore(storage=serving_mirror_storage(), bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET)
         publish_serving_models(

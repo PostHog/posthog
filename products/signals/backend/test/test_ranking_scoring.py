@@ -496,11 +496,15 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
             assert result.status == "scored"
             assert result.scores == pytest.approx(dict(zip(ONNX_OUTPUT_HEADS, probabilities.tolist())), abs=1e-6)
 
-    @parameterized.expand([("manifest_names_none", False), ("object_missing", True)])
+    @parameterized.expand(
+        [("manifest_names_none", False, None), ("object_missing", True, None), ("object_unreadable", True, b"oops")]
+    )
     def test_a_model_without_project_vectors_is_skipped_or_stops_the_served_score(
-        self, _name: str, names_a_key: bool
+        self, _name: str, names_a_key: bool, body: bytes | None
     ) -> None:
         key = serving_project_vectors_key(PREFIX, VERSION) if names_a_key else None
+        if key is not None and body is not None:
+            self.store.objects[key] = body
         report = ReportVector(embedding=_vector(1), inserted_at=LANDED)
         vectors = {EMBEDDING_RENDERING_TITLE_SUMMARY: {"r1": report}}
         served = self._served()

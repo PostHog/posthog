@@ -112,10 +112,19 @@ def served_rendering(serving: ServingSet) -> str:
 
 
 def pass_project_vectors(serving: ServingSet, team_ids: Sequence[int]) -> ProjectVectors | None:
-    """The project vectors of `team_ids`, read once for a pass, or None when no model reads them."""
+    """The project vectors of `team_ids`, read once for a pass, or None when no model reads them.
+
+    A failed read is no vectors at all, so it costs only the models that read them.
+    """
     if not any(model.reads_project_vectors for model in (serving.served, *serving.others)):
         return None
-    return load_project_vectors(serving.manifest, team_ids)
+    try:
+        return load_project_vectors(serving.manifest, team_ids)
+    except Exception:
+        logger.exception(
+            "inbox_ranking_project_vectors_unreadable", project_vectors_key=serving.manifest.project_vectors
+        )
+        return ProjectVectors(available=False, by_team={})
 
 
 def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]) -> pd.DataFrame:

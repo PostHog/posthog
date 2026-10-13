@@ -2939,9 +2939,9 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
     assert store.written[-1] == serving_manifest_key(prefix)
     assert (target in store.written) is not already_published
     if mirror is not None:
-        # Team-level vectors stay in the deployment that owns the teams.
-        assert target not in mirror.objects
-        assert ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)]).project_vectors is None
+        # Team-level vectors stay in the deployment that owns the teams, and a served model that
+        # reads them could not score there, so the mirror keeps its previous manifest.
+        assert mirror.objects == {}
 
 
 def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
