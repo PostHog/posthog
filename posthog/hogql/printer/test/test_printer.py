@@ -1895,7 +1895,7 @@ class TestPrinter(BaseTest):
             ("hogql", "SHA1('abc')"),
             ("clickhouse", "hex(SHA1(%(hogql_val_0)s))"),
             ("duckdb", "upper(sha1(%(hogql_val_0)s))"),
-            ("mysql", "upper(sha1(%(hogql_val_0)s))"),
+            ("mysql", "upper(sha1(CONVERT(%(hogql_val_0)s USING utf8mb4)))"),
             ("snowflake", "upper(sha1(%(hogql_val_0)s))"),
             ("redshift", "upper(sha1(%(hogql_val_0)s))"),
             ("trino", "upper(to_hex(sha1(to_utf8(CAST(%(hogql_val_0)s AS VARCHAR)))))"),
