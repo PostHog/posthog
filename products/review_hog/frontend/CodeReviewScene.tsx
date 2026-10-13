@@ -799,7 +799,8 @@ function ReviewDetailDrawer(): JSX.Element {
                 ) : reviewDetail ? (
                     <div className="text-sm text-secondary">
                         <span className="font-semibold text-default">{reviewDetail.candidate_count}</span> findings
-                        raised, <span className="font-semibold text-default">{reviewDetail.findings.length}</span> kept,{' '}
+                        raised, <span className="font-semibold text-default">{reviewDetail.findings.length}</span> kept
+                        after validation,{' '}
                         <span className="font-semibold text-default">{reviewDetail.dismissed_count}</span> dismissed
                     </div>
                 ) : (
