@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from django.db.models import Count, QuerySet
+from django.utils import timezone
 
 import structlog
 
@@ -10,16 +11,21 @@ from posthog.models import Team, User
 
 from products.dashboards.backend.facade.api import unknown_dashboard_ids
 from products.exports.backend.facade.api import read_export_asset_content
+from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.facade.contracts import (
     DashboardTemplateRound,
     DashboardTemplateSummary,
+    SampledTemplatePanel,
     SuggestedDashboard,
     SuggestedDashboardError,
     SuggestedDashboardNotFound,
+    TemplatePanelLayout,
 )
 from products.metrics.backend.facade.enums import DashboardTemplateSource, DashboardTemplateStatus
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards import review
+from products.metrics.backend.suggested_dashboards.dashboards import build_tiles
+from products.metrics.backend.suggested_dashboards.sample_values import sample_response
 from products.metrics.backend.suggested_dashboards.spec import GenerationRecord, template_panels
 from products.metrics.backend.temporal import schedule
 
@@ -148,6 +154,27 @@ def open_preview(team: Team, user: User, template_id: str) -> int:
         return review.open_preview(template=_get_template(template_id), team=team, user=user)
     except (review.NoPanelsWithData, review.TemplateNotReviewable) as error:
         raise SuggestedDashboardError(str(error)) from error
+
+
+def sample_panels(team: Team, template_id: str) -> list[SampledTemplatePanel]:
+    template = _get_template(template_id)
+    panels = template_panels(template.panels)
+    catalog = MetricCatalog.load(team)
+    catalog.look_up(team, template.metric_names)
+    unfilled = set(build_tiles(panels, catalog, refill=False).dropped_keys)
+    now = timezone.now()
+    return [
+        SampledTemplatePanel(
+            key=panel.key,
+            title=panel.title,
+            description=panel.description,
+            layout=TemplatePanelLayout(x=panel.layout.x, y=panel.layout.y, w=panel.layout.w, h=panel.layout.h),
+            query=panel.query,
+            response=sample_response(panel.query, now=now),
+        )
+        for panel in panels
+        if panel.query is not None and panel.key in unfilled
+    ]
 
 
 def approve(user: User, template_id: str) -> DashboardTemplateSummary:

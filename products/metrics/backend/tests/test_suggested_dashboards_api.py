@@ -188,6 +188,17 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert Dashboard.objects_including_soft_deleted.get(id=preview_id).deleted
         self.start_analysis.assert_called_once_with(self.team.id, force=True)
 
+    def test_sample_panels_fill_only_the_charts_this_project_cannot_show(self) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        template = _template("generated-queue", "pending_review", QUEUE_METRICS[0], "unknown_total", source="generated")
+
+        response = self.client.get(f"{self.base_url}/dashboard_templates/{template.id}/sample_panels/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [panel["key"] for panel in response.json()] == ["p1"]
+        assert response.json()[0]["response"]["results"][0]["points"]
+
     def test_approving_refuses_a_query_that_the_review_broke_on_the_preview(self) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])

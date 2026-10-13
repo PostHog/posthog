@@ -16,10 +16,12 @@ import {
     metricsDashboardTemplatesPreviewCreate,
     metricsDashboardTemplatesRejectCreate,
     metricsDashboardTemplatesRetrieve,
+    metricsDashboardTemplatesSamplePanelsList,
 } from 'products/metrics/frontend/generated/api'
 import type {
     DashboardTemplateStatusEnumApi,
     MetricsDashboardTemplateApi,
+    MetricsSampledTemplatePanelApi,
 } from 'products/metrics/frontend/generated/api.schemas'
 
 export type ReviewStatusFilter = DashboardTemplateStatusEnumApi | 'all'
@@ -40,6 +42,8 @@ export interface metricsDashboardReviewSceneLogicValues {
     previewLoading: boolean
     previewRequestTemplateId: string | null
     reviewable: boolean
+    samplePanels: MetricsSampledTemplatePanelApi[]
+    samplePanelsLoading: boolean
     statusFilter: ReviewStatusFilter
     template: MetricsDashboardTemplateApi | null
     templateId: string | null
@@ -94,6 +98,27 @@ export interface metricsDashboardReviewSceneLogicActions {
     ) => {
         template: MetricsDashboardTemplateApi | null
         payload?: any
+    }
+    loadSamplePanels: ({ templateId }: { templateId: string }) => {
+        templateId: string
+    }
+    loadSamplePanelsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSamplePanelsSuccess: (
+        samplePanels: MetricsSampledTemplatePanelApi[],
+        payload?: {
+            templateId: string
+        }
+    ) => {
+        samplePanels: MetricsSampledTemplatePanelApi[]
+        payload?: {
+            templateId: string
+        }
     }
     loadTemplates: () => any
     loadTemplatesFailure: (
@@ -264,6 +289,19 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
                 },
             },
         ],
+        samplePanels: [
+            [] as MetricsSampledTemplatePanelApi[],
+            {
+                loadSamplePanels: async ({ templateId }: { templateId: string }) => {
+                    const panels = await metricsDashboardTemplatesSamplePanelsList(
+                        String(values.currentTeamId),
+                        templateId
+                    )
+                    // The reviewer may have moved to another template while the panels loaded.
+                    return values.templateId === templateId ? panels : values.samplePanels
+                },
+            },
+        ],
     })),
     reducers({
         statusFilter: [
@@ -286,6 +324,9 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
             // A review deletes the preview, so the page stops showing it. A failed review keeps it.
             approveTemplateSuccess: (state, { template }) => (template?.status === 'approved' ? null : state),
             rejectTemplateSuccess: (state, { template }) => (template?.status === 'rejected' ? null : state),
+        },
+        samplePanels: {
+            setTemplateId: () => [],
         },
         // The template of the preview request in flight. A stale request also ends the loader's own loading state.
         previewRequestTemplateId: [
@@ -348,6 +389,7 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
             // Only a review deletes a preview, so a template that waits for no review gets none.
             if (values.reviewable && values.templateId) {
                 actions.openPreview({ templateId: values.templateId })
+                actions.loadSamplePanels({ templateId: values.templateId })
             }
         },
         openPreviewFailure: ({ error }) => {

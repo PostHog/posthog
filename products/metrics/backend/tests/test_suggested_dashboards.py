@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -6,7 +7,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import MetricsHistogramQuery, MetricsQuery, MetricsQueryPoint, MetricsQuerySeries
+from posthog.schema import (
+    MetricsHistogramQuery,
+    MetricsHistogramQueryResponse,
+    MetricsQuery,
+    MetricsQueryPoint,
+    MetricsQueryResponse,
+    MetricsQuerySeries,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -21,7 +29,10 @@ from products.metrics.backend.suggested_dashboards.discovery import _signed
 from products.metrics.backend.suggested_dashboards.generation import _convert
 from products.metrics.backend.suggested_dashboards.llm import ModelFailed, ask_model
 from products.metrics.backend.suggested_dashboards.matching import match_template
+from products.metrics.backend.suggested_dashboards.sample_values import sample_response
 from products.metrics.backend.suggested_dashboards.spec import DraftPanel, EvaluationAnswer, TemplatePanel
+
+NOW = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
 
 CATALOG = MetricCatalog(
     [
@@ -62,6 +73,19 @@ class TestSuggestedDashboards(SimpleTestCase):
             assert panel.query is not None
             schema = MetricsHistogramQuery if panel.query["kind"] == "MetricsHistogramQuery" else MetricsQuery
             schema.model_validate(panel.query)
+            # A review of a project without the metrics shows the panel with sample values.
+            sample = sample_response(panel.query, now=NOW)
+            if schema is MetricsHistogramQuery:
+                assert sum(map(sum, MetricsHistogramQueryResponse.model_validate(sample).counts)) > 0
+            else:
+                values = [
+                    point.value
+                    for series in MetricsQueryResponse.model_validate(sample).results
+                    for point in series.points
+                ]
+                assert values and all(value is not None and value >= 0 for value in values), panel.key
+                if (panel.query.get("display") or {}).get("unit") == "%":
+                    assert all(value is not None and value <= 100 for value in values), panel.key
             layout = panel.layout
             assert 0 <= layout.x and layout.x + layout.w <= 12
             cells = {(layout.x + dx, layout.y + dy) for dx in range(layout.w) for dy in range(layout.h)}

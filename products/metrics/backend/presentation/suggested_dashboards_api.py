@@ -6,7 +6,7 @@ from typing import Any, cast
 from django.http import HttpResponse
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -29,6 +29,7 @@ from products.metrics.backend.facade.api import (
     list_suggested_dashboards,
     open_dashboard_template_preview,
     reject_dashboard_template,
+    sample_dashboard_template_panels,
 )
 from products.metrics.backend.facade.contracts import (
     METRICS_FEATURE_FLAG,
@@ -96,6 +97,39 @@ class MetricsDashboardTemplateSerializer(serializers.Serializer):
     error = serializers.CharField(allow_null=True, help_text="Why the generation failed.")
     reviewed_by = serializers.CharField(allow_null=True, help_text="Who approved or rejected the template.")
     reviewed_at = serializers.DateTimeField(allow_null=True, help_text="When the template was approved or rejected.")
+
+
+# The query schema types already live in the frontend query schema. Typing them here would copy all of
+# them, down to the HogQL modifiers, into the generated client of this product.
+@extend_schema_field(OpenApiTypes.OBJECT)
+class MetricsSamplePanelQueryField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class MetricsSamplePanelResponseField(serializers.JSONField):
+    pass
+
+
+class MetricsTemplatePanelLayoutSerializer(serializers.Serializer):
+    x = serializers.IntegerField(help_text="Column of the left edge, 0 to 11.")
+    y = serializers.IntegerField(help_text="Row of the top edge.")
+    w = serializers.IntegerField(help_text="Width in columns.")
+    h = serializers.IntegerField(help_text="Height in rows.")
+
+
+class MetricsSampledTemplatePanelSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Key of the panel in the template.")
+    title = serializers.CharField(help_text="Chart title.")
+    description = serializers.CharField(allow_blank=True, help_text="What the chart shows.")
+    layout = MetricsTemplatePanelLayoutSerializer(help_text="Box of the panel on the dashboard grid.")
+    query = MetricsSamplePanelQueryField(
+        help_text="Insight query of the panel: a MetricsQuery or a MetricsHistogramQuery."
+    )
+    response = MetricsSamplePanelResponseField(
+        help_text="Made-up results in the shape that the query returns: a MetricsQueryResponse or a "
+        "MetricsHistogramQueryResponse. They are not data from this project."
+    )
 
 
 class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -215,6 +249,17 @@ class MetricsDashboardTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except SuggestedDashboardError as error:
             raise ValidationError(str(error))
         return Response(MetricsCreatedDashboardSerializer({"dashboard_id": dashboard_id}).data)
+
+    @extend_schema(responses={200: MetricsSampledTemplatePanelSerializer(many=True)})
+    @action(detail=True, methods=["GET"])
+    def sample_panels(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """The charts of the template that this project cannot show, because it does not send their metrics,
+        filled with made-up values. A review can then see how the whole dashboard looks."""
+        try:
+            panels = sample_dashboard_template_panels(team=self.team, template_id=str(pk))
+        except SuggestedDashboardNotFound as error:
+            raise NotFound(str(error))
+        return Response(MetricsSampledTemplatePanelSerializer([asdict(panel) for panel in panels], many=True).data)
 
     @extend_schema(request=None, responses={200: MetricsDashboardTemplateSerializer})
     @action(detail=True, methods=["POST"])
