@@ -80,6 +80,7 @@ import { visionScannersList } from 'products/replay_vision/frontend/generated/ap
 import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
+import { EXPERIMENT_EXPOSURE_EVENT, EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
     type ExperimentSavedMetric,
@@ -196,6 +197,9 @@ export interface ExperimentRecordingsListError {
  * strings, so this only bounds an unexpected one.
  */
 const LIST_ERROR_DETAIL_LIMIT = 200
+
+export const EXPOSURE_UNMATCHABLE_REASON =
+    "This experiment's exposure event is captured server-side without a session ID, so no session can be matched to it."
 
 /** The link an empty "what to watch" state offers, as reported to telemetry. */
 export type ExperimentWatchEmptyAction = 'exposure_docs' | 'replay_settings'
@@ -449,6 +453,7 @@ export interface experimentReplayTabLogicValues {
     sessionBucketError: string | null
     sessionBucketLoading: boolean
     sessionBucketRequest: ExperimentSessionBucketRequest | null
+    sessionBucketUnavailableReason: string | null
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasErrorStatus: number | null
@@ -763,6 +768,11 @@ export interface experimentReplayTabLogicMeta {
             seenTogetherMapLoading: boolean
         ) => boolean
         exposureLinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean | null
+        sessionBucketUnavailableReason: (
+            sessionBucketRequest: ExperimentSessionBucketRequest | null,
+            exposureLinkable: boolean | null,
+            arg: any
+        ) => string | null
         durationFilterActive: (
             playlistFilters: RecordingUniversalFilters | null,
             recordingsFilters: RecordingUniversalFilters
@@ -791,6 +801,7 @@ export interface experimentReplayTabLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             bucketSessionIds: string[] | undefined,
             sessionBucketError: string | null,
+            sessionBucketUnavailableReason: string | null,
             filtersCustomized: boolean,
             recordingsFilters: RecordingUniversalFilters,
             effectiveVariantKey: string | null,
@@ -962,7 +973,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             {
                 loadSessionBucket: async (_: unknown = null, breakpoint) => {
                     const request = values.sessionBucketRequest
-                    if (!request) {
+                    // A known refusal is stated without the request. The empty bucket it leaves
+                    // keeps the list empty, as a failed request would.
+                    if (!request || values.sessionBucketUnavailableReason !== null) {
                         return null
                     }
                     // Debounce the checkbox churn of picking several metrics in a row.
@@ -1432,6 +1445,25 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 return !unlinkableEventNames.has(exposureEventName)
             },
         ],
+        // Why the bucket endpoint will refuse this experiment, known before asking. A custom
+        // exposure event that is never seen with a session id has no stand-in, so no session can
+        // match it. The default events fall back to the stamped flag property and stay answerable.
+        // Mirrors `SessionExposure.is_unmatchable` on the backend, which still refuses API callers.
+        sessionBucketUnavailableReason: [
+            (s) => [s.sessionBucketRequest, s.exposureLinkable, (_, props) => props.experiment],
+            (
+                sessionBucketRequest: ExperimentSessionBucketRequest | null,
+                exposureLinkable: boolean | null,
+                experiment: Experiment
+            ): string | null => {
+                const exposureEventName = getExposureLinkabilityEventName(experiment)
+                const unmatchable =
+                    exposureLinkable === false &&
+                    exposureEventName !== EXPOSURE_DEFAULT_EVENT &&
+                    exposureEventName !== EXPERIMENT_EXPOSURE_EVENT
+                return sessionBucketRequest !== null && unmatchable ? EXPOSURE_UNMATCHABLE_REASON : null
+            },
+        ],
         // Whether the list ran under any duration filter at all. Replay applies a default floor to
         // every list, so this is true on nearly every render and separates almost nothing. A
         // dashboard tile reads it, so it keeps its meaning; `appliedDurationFilter` below is what
@@ -1528,6 +1560,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.currentTeam,
                 s.bucketSessionIds,
                 s.sessionBucketError,
+                s.sessionBucketUnavailableReason,
                 s.filtersCustomized,
                 s.recordingsFilters,
                 s.effectiveVariantKey,
@@ -1539,6 +1572,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 currentTeam: TeamPublicType | TeamType | null,
                 bucketSessionIds: string[] | undefined,
                 sessionBucketError: string | null,
+                sessionBucketUnavailableReason: string | null,
                 filtersCustomized: boolean,
                 recordingsFilters: RecordingUniversalFilters,
                 effectiveVariantKey: string | null,
@@ -1556,7 +1590,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // nothing, because it must never widen the list back out. Told apart here rather
                 // than left to a join against `experiment recordings bucket failed`, so a broken
                 // endpoint can't inflate the count of filters that legitimately match nothing.
-                if (bucketSessionIds?.length === 0 && sessionBucketError !== null) {
+                if (
+                    bucketSessionIds?.length === 0 &&
+                    (sessionBucketError !== null || sessionBucketUnavailableReason !== null)
+                ) {
                     return ExperimentReplayListEmptyReason.MetricFilterFailed
                 }
                 const retention = retentionDays(currentTeam.session_recording_retention_period)
