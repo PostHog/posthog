@@ -91,20 +91,29 @@ class ServingSet:
 
 
 class ModelKindHandler(Protocol):
-    def load(self, entry: ServingManifestEntry, metadata: Mapping[str, Any], files: Mapping[str, bytes]) -> LoadedModel:
-        """`files` holds the body of each name in `entry.files`."""
+    def load(
+        self,
+        entry: ServingManifestEntry,
+        metadata: Mapping[str, Any],
+        feature_set: FeatureSet,
+        files: Mapping[str, bytes],
+    ) -> LoadedModel:
+        """`feature_set` is the set `metadata` declares, and `files` holds the body of each name in `entry.files`."""
         ...
 
 
 class XGBoostHandler:
     """One binary XGBoost booster per head, all fit on the same feature set."""
 
-    def load(self, entry: ServingManifestEntry, metadata: Mapping[str, Any], files: Mapping[str, bytes]) -> LoadedModel:
+    def load(
+        self,
+        entry: ServingManifestEntry,
+        metadata: Mapping[str, Any],
+        feature_set: FeatureSet,
+        files: Mapping[str, bytes],
+    ) -> LoadedModel:
         import xgboost as xgb  # noqa: PLC0415 — keeps xgboost's native OpenMP runtime off the Temporal worker import path
 
-        feature_set = model_feature_set(metadata)
-        if feature_set is None:
-            raise ModelLoadError(f"{entry.key} declares a feature set this build cannot produce")
         boosters: dict[str, xgb.Booster] = {}
         for head in entry.heads:
             booster = xgb.Booster()
@@ -128,12 +137,15 @@ class XGBoostHandler:
 class ONNXHandler:
     """One ONNX graph that scores every head, from the inputs the feature set builds."""
 
-    def load(self, entry: ServingManifestEntry, metadata: Mapping[str, Any], files: Mapping[str, bytes]) -> LoadedModel:
+    def load(
+        self,
+        entry: ServingManifestEntry,
+        metadata: Mapping[str, Any],
+        feature_set: FeatureSet,
+        files: Mapping[str, bytes],
+    ) -> LoadedModel:
         import onnxruntime as ort  # noqa: PLC0415 — keeps onnxruntime's native runtime off the Temporal worker import path
 
-        feature_set = model_feature_set(metadata)
-        if feature_set is None:
-            raise ModelLoadError(f"{entry.key} declares a feature set this build cannot produce")
         options = ort.SessionOptions()
         options.intra_op_num_threads = ONNX_INTRA_OP_THREADS
         options.inter_op_num_threads = 1
@@ -218,8 +230,9 @@ def _read_entry(entry: ServingManifestEntry) -> LoadedModel:
     metadata = json.loads(raw_metadata)
     if (metadata.get("model_name"), metadata.get("model_version")) != (entry.model_name, entry.model_version):
         raise ModelLoadError(f"{entry.key} {METADATA_FILE} describes another model")
+    feature_set = model_feature_set(metadata)
     mismatch = model_mismatch(metadata)
-    if mismatch is not None:
+    if feature_set is None or mismatch is not None:
         raise ModelLoadError(f"{entry.key} {mismatch}")
     untrained = sorted(set(entry.heads) - set(trained_head_files(metadata, entry.heads)))
     if untrained:
@@ -230,7 +243,7 @@ def _read_entry(entry: ServingManifestEntry) -> LoadedModel:
         if body is None:
             raise ModelLoadError(f"{entry.key} has no {name} under {entry.prefix}")
         files[name] = body
-    return handler.load(entry, metadata, files)
+    return handler.load(entry, metadata, feature_set, files)
 
 
 def load_model(entry: ServingManifestEntry) -> LoadedModel:
