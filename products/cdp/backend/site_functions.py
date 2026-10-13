@@ -54,7 +54,8 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     compiler = JavaScriptCompiler()
 
-    all_inputs = hog_function.inputs or {}
+    # move_secret_inputs stores None for a schema key that has no value
+    all_inputs = {key: input for key, input in (hog_function.inputs or {}).items() if input is not None}
     all_inputs = sorted(all_inputs.items(), key=lambda x: x[1].get("order", -1))
     # Without this, CSS and HTML braces in a literal string read as Hog placeholders
     literal_keys = {
