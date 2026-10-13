@@ -246,3 +246,7 @@ Background source refreshes keep the Search performance table mounted.
 Manual source setup opens with the originating project in the URL.
 
 The redesigned dashboard preserves its existing source suggestions and dashboard view when source onboarding is disabled.
+
+After ad data is ready, remaining source suggestions use a compact card without first-sync messages or already-ready connections.
+Connections needing attention remain actionable beside the suggestions.
+Source setup component stories cover panel states; source onboarding stories cover only dashboard integration, independent search sources, and flag rollback.

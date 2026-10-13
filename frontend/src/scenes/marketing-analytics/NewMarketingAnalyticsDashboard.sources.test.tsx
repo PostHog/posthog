@@ -24,7 +24,7 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/Att
     AttributionTab: () => null,
 }))
 
-it('keeps suggestions visible and browses integrations in place', async () => {
+it.each([false, true])('keeps suggestions actionable with synced data %s', async (hasSyncedData) => {
     useMocks({
         get: {
             '/api/projects/:team_id/marketing_analytics/setup_plan': () => [
@@ -59,10 +59,16 @@ it('keeps suggestions visible and browses integrations in place', async () => {
     marketingOnboardingLogic.actions.completeOnboarding()
     localStorage.removeItem('marketing-source-suggestions-expanded')
     const unmountMarketing = marketingAnalyticsLogic.mount()
+    const readiness = jest
+        .spyOn(marketingAnalyticsLogic.selectors, 'hasSyncedMarketingSources')
+        .mockReturnValue(hasSyncedData)
     const unmountSetup = setupPlanLogic.mount()
     const view = render(<NewMarketingAnalyticsDashboard />)
     try {
         await screen.findByText('Connect your ad platforms')
+        expect(screen.queryByText('Your connections are getting ready')).toBeNull()
+        expect(screen.queryByText('You can leave this page. Your import will continue in the background.')).toBeNull()
+        expect(screen.queryByText('Your marketing data in one place') !== null).toBe(!hasSyncedData)
         expect(screen.getByText('Google Ads')).not.toBeNull()
         view.unmount()
         render(<NewMarketingAnalyticsDashboard />)
@@ -78,6 +84,7 @@ it('keeps suggestions visible and browses integrations in place', async () => {
         await waitFor(() => expect(screen.queryByText('Google Ads')).toBeNull())
     } finally {
         cleanup()
+        readiness.mockRestore()
         unmountFeatureFlags()
         setupPlanLogic.actions.restoreAllDismissed()
         localStorage.removeItem('marketing-source-suggestions-expanded')

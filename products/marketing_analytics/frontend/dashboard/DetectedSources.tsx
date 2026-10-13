@@ -56,14 +56,17 @@ export function DetectedSources({ compact = false }: { compact?: boolean }): JSX
             />
         )
     }
-    if (hasSyncedMarketingSources && !sources.length) {
+    const pendingConnections = hasSyncedMarketingSources
+        ? connections.filter((connection) => connection.status === 'Needs attention')
+        : connections
+    if (hasSyncedMarketingSources && !sources.length && !pendingConnections.length) {
         return null
     }
     return (
         <SourceSetupPanel
-            compact={compact}
+            compact={compact || hasSyncedMarketingSources}
             state={
-                connections.length
+                pendingConnections.length
                     ? 'waiting'
                     : setupPlanLoading && !setupPlan
                       ? 'scanning'
@@ -76,7 +79,7 @@ export function DetectedSources({ compact = false }: { compact?: boolean }): JSX
                             : 'empty'
             }
             suggestions={sources}
-            connections={connections}
+            connections={pendingConnections}
             onRetry={rescanSources}
             rescanLoading={setupPlanLoading}
             rescanDisabledReason={sourceScanDisabledReason}

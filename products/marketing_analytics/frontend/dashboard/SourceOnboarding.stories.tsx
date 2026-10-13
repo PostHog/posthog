@@ -9,7 +9,6 @@ import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/
 import { Onboarding } from 'scenes/marketing-analytics/Onboarding/Onboarding'
 import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { MARKETING_INTEGRATION_CONFIGS, NodeKind } from '~/queries/schema/schema-general'
@@ -20,7 +19,7 @@ import type { SuggestionApi } from '../generated/api.schemas'
 import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceCatalog } from './SourceCatalog'
-import { SourceOnboardingScan, SourceOnboardingScanProps } from './SourceOnboardingScan'
+import { SourceOnboardingScan } from './SourceOnboardingScan'
 
 const suggestion = (kind: string, integration: string): SuggestionApi => ({
     id: `connect_source:${integration}`,
@@ -95,44 +94,6 @@ const meta: Meta = {
     ],
 }
 export default meta
-
-const scanProps: SourceOnboardingScanProps = {
-    loading: false,
-    failed: false,
-    suggestions: plan.suggestions as Suggestion[],
-    onManual: () => {},
-    onContinue: () => {},
-    onRescan: () => {},
-}
-
-export function DetectedPlatforms(): JSX.Element {
-    return <SourceOnboardingScan {...scanProps} />
-}
-export function Scanning(): JSX.Element {
-    return <SourceOnboardingScan {...scanProps} loading />
-}
-Scanning.parameters = { testOptions: { waitForLoadersToDisappear: false } }
-export function NoDetectedPlatforms(): JSX.Element {
-    return <SourceOnboardingScan {...scanProps} suggestions={[]} />
-}
-export function ScanFailed(): JSX.Element {
-    return <SourceOnboardingScan {...scanProps} failed suggestions={[]} />
-}
-export function ManualSelection(): JSX.Element {
-    return (
-        <>
-            <SourceCatalog onContinue={() => {}} onBack={() => {}} hasSources={false} />
-            <SearchConsoleSource />
-        </>
-    )
-}
-export function Narrow(): JSX.Element {
-    return (
-        <div className="max-w-lg">
-            <SourceOnboardingScan {...scanProps} />
-        </div>
-    )
-}
 
 export function SkipDuringScan(): JSX.Element {
     useStorybookMocks({
@@ -441,20 +402,6 @@ AdPerformanceWithDetectedSources.play = async ({ canvasElement }: { canvasElemen
     expect(canvas.queryByText('Visitors over time')).not.toBeInTheDocument()
 }
 
-export function AdPerformanceScanFailed(): JSX.Element {
-    useDashboardWithoutSourcesMocks([], true)
-    const { completeOnboarding } = useActions(marketingOnboardingLogic)
-    useEffect(() => completeOnboarding(), [completeOnboarding])
-    return <MarketingAnalyticsScene />
-}
-AdPerformanceScanFailed.parameters = AdPerformanceWithoutSources.parameters
-AdPerformanceScanFailed.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Could not check your events')).resolves.toBeVisible()
-    expect(canvas.getByText('Browse integrations')).toBeVisible()
-    expect(canvas.getByText('Try again')).toBeVisible()
-}
-
 export function AdPerformanceDataAvailable(): JSX.Element {
     useDashboardWithoutSourcesMocks([plan.suggestions[1]], false, true)
     return <MarketingAnalyticsScene />
@@ -466,10 +413,20 @@ AdPerformanceDataAvailable.play = async ({ canvasElement }: { canvasElement: HTM
     expect(canvas.getByRole('link', { name: 'Connect' })).toBeVisible()
     expect((await canvas.findAllByText('Total Clicks'))[0]).toBeVisible()
     expect(canvas.queryByText('Checking your connections')).not.toBeInTheDocument()
+    expect(canvas.queryByText('Your connections are getting ready')).not.toBeInTheDocument()
+    expect(canvas.queryByText('Spend data is ready.')).not.toBeInTheDocument()
+    expect(
+        canvas.queryByText('You can leave this page. Your import will continue in the background.')
+    ).not.toBeInTheDocument()
 }
 
 export function ManualSelectionWithSearchConsole(): JSX.Element {
-    return <ManualSelection />
+    return (
+        <>
+            <SourceCatalog onContinue={() => {}} onBack={() => {}} hasSources={false} />
+            <SearchConsoleSource />
+        </>
+    )
 }
 ManualSelectionWithSearchConsole.parameters = {
     featureFlags: [
@@ -511,9 +468,6 @@ DashboardWithSearchConsoleOnly.play = async ({ canvasElement }: { canvasElement:
     await expect(canvas.findByText('Search performance')).resolves.toBeVisible()
     expect(canvas.queryByRole('button', { name: 'Continue to dashboard' })).not.toBeInTheDocument()
 }
-
-export const DashboardWithSearchConsoleSyncing = dashboardStory([], false, false, 'syncing')
-DashboardWithSearchConsoleSyncing.parameters = DashboardWithSearchConsoleOnly.parameters
 
 export const DashboardWithAdsOnly = dashboardStory([], false, true, undefined, 'ready')
 DashboardWithAdsOnly.parameters = { ...DashboardWithSearchConsoleOnly.parameters, mockDate: '2026-09-16' }
@@ -629,14 +583,12 @@ SourceOnboardingAndSearchDisabled.play = async ({ canvasElement }: { canvasEleme
     expect(canvas.queryByText('Scan again')).not.toBeInTheDocument()
 }
 
-export function InitialOnboardingDisabledWithSearch(): JSX.Element {
+function InitialOnboardingDisabledWithSearch(): JSX.Element {
     useDashboardWithoutSourcesMocks()
     const { resetOnboarding } = useActions(marketingOnboardingLogic)
     useEffect(() => resetOnboarding(), [resetOnboarding])
     return <MarketingAnalyticsScene />
 }
-InitialOnboardingDisabledWithSearch.parameters = SourceOnboardingDisabledWithSearch.parameters
-InitialOnboardingDisabledWithSearch.play = SourceOnboardingDisabledWithSearch.play
 
 export function NewDashboardOnboardingDisabledWithSearch(): JSX.Element {
     useDashboardWithoutSourcesMocks()
