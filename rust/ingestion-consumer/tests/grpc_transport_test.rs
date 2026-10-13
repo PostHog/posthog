@@ -352,13 +352,13 @@ async fn wait_for_received(mock: &MockHandle, count: usize) {
 
 const BUDGET: Duration = Duration::from_millis(250);
 
-fn partial_ack(seq: u64, accepted: u32, timed_out: &[i64]) -> SubBatchAck {
+fn partial_ack(seq: u64, accepted: u32, unfinished: &[i64]) -> SubBatchAck {
     SubBatchAck {
         seq,
         status: SubBatchStatus::Partial as i32,
         accepted,
         error: String::new(),
-        timed_out: timed_out
+        unfinished: unfinished
             .iter()
             .map(|&offset| MessageRef {
                 partition: 0,
@@ -390,7 +390,7 @@ async fn a_partial_ack_resolves_the_send_without_fencing_the_stream() {
         budgeted,
     );
     wait_for_received(&mock, 1).await;
-    // The worker lists its timed-out messages in its own order.
+    // The worker lists its unfinished messages in its own order.
     ack_tx
         .send(ManualAck::Ack(partial_ack(1, 1, &[3, 1])))
         .unwrap();
@@ -401,14 +401,14 @@ async fn a_partial_ack_resolves_the_send_without_fencing_the_stream() {
     {
         SendOutcome::Partial {
             accepted,
-            timed_out,
+            unfinished,
         } => {
             assert_eq!(accepted, 1);
-            let offsets: Vec<i64> = timed_out.iter().map(|message| message.offset).collect();
+            let offsets: Vec<i64> = unfinished.iter().map(|message| message.offset).collect();
             assert_eq!(
                 offsets,
                 vec![1, 3],
-                "timed-out messages come back in send order"
+                "unfinished messages come back in send order"
             );
         }
         other => panic!("expected a partial outcome, got {other:?}"),
@@ -431,15 +431,15 @@ async fn a_partial_ack_resolves_the_send_without_fencing_the_stream() {
 
 #[rstest]
 #[case::partial_without_a_budget(None, partial_ack(1, 1, &[1]))]
-#[case::partial_with_no_timed_out_messages(Some(BUDGET), partial_ack(1, 2, &[]))]
+#[case::partial_with_no_unfinished_messages(Some(BUDGET), partial_ack(1, 2, &[]))]
 #[case::partial_listing_a_message_not_sent(Some(BUDGET), partial_ack(1, 1, &[9]))]
 #[case::partial_listing_the_offset_on_another_partition(
     Some(BUDGET),
-    SubBatchAck { timed_out: vec![MessageRef { partition: 1, offset: 1 }], ..partial_ack(1, 1, &[]) }
+    SubBatchAck { unfinished: vec![MessageRef { partition: 1, offset: 1 }], ..partial_ack(1, 1, &[]) }
 )]
 #[case::partial_listing_a_message_twice(Some(BUDGET), partial_ack(1, 0, &[1, 1]))]
 #[case::partial_missing_a_message(Some(BUDGET), partial_ack(1, 0, &[1]))]
-#[case::timed_out_messages_on_an_ok_ack(
+#[case::unfinished_messages_on_an_ok_ack(
     Some(BUDGET),
     SubBatchAck { status: SubBatchStatus::Ok as i32, ..partial_ack(1, 2, &[1]) }
 )]

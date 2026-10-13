@@ -65,7 +65,7 @@ use crate::types::SerializedKafkaMessage;
 /// split send can reassemble the whole sub-batch on failure.
 struct Accepted {
     accepted: u32,
-    timed_out: Vec<MessageRef>,
+    unfinished: Vec<MessageRef>,
     messages: Vec<SerializedKafkaMessage>,
 }
 
@@ -87,7 +87,7 @@ impl PendingWorkerStreamSend {
     pub async fn wait(self) -> Result<SendOutcome, SendError> {
         let mut accepted_total = 0u32;
         let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
-        let mut timed_out: HashSet<(i32, i64)> = HashSet::new();
+        let mut unfinished: HashSet<(i32, i64)> = HashSet::new();
         let mut failure: Option<SendError> = None;
         for rx in self.chunks {
             let reply = match rx.await {
@@ -105,9 +105,9 @@ impl PendingWorkerStreamSend {
             match reply {
                 Ok(accepted) => {
                     accepted_total += accepted.accepted;
-                    timed_out.extend(
+                    unfinished.extend(
                         accepted
-                            .timed_out
+                            .unfinished
                             .iter()
                             .map(|message| (message.partition, message.offset)),
                     );
@@ -129,14 +129,14 @@ impl PendingWorkerStreamSend {
             }
         }
         match failure {
-            None if timed_out.is_empty() => Ok(SendOutcome::Accepted(accepted_total)),
-            // Callers match timed-out messages to what they sent in send
+            None if unfinished.is_empty() => Ok(SendOutcome::Accepted(accepted_total)),
+            // Callers match unfinished messages to what they sent in send
             // order, so walk the sent messages, not the worker's list.
             None => Ok(SendOutcome::Partial {
                 accepted: accepted_total,
-                timed_out: messages
+                unfinished: messages
                     .into_iter()
-                    .filter(|message| timed_out.contains(&(message.partition, message.offset)))
+                    .filter(|message| unfinished.contains(&(message.partition, message.offset)))
                     .collect(),
             }),
             Some(mut err) => {
@@ -283,7 +283,8 @@ impl GrpcTransport {
             .increment((chunks.len() - 1) as u64);
         }
         // The worker runs each frame as its own batch, so in a split send a
-        // key's later message could finish while an earlier one times out.
+        // key's later message could finish while an earlier one is left
+        // unfinished.
         let soft_budget_ms = match options.soft_budget {
             Some(budget) if chunks.len() == 1 && !budget.is_zero() => {
                 u64::try_from(budget.as_millis()).unwrap_or(u64::MAX).max(1)
@@ -385,7 +386,7 @@ struct LedgerEntry {
 
 struct Ack {
     accepted: u32,
-    timed_out: Vec<MessageRef>,
+    unfinished: Vec<MessageRef>,
 }
 
 /// An open stream: the request sender and the worker's ack stream.
@@ -765,7 +766,7 @@ impl WorkerStreamRunner {
         let entry = &mut ledger[index];
         entry.acked = Some(Ack {
             accepted: response.accepted,
-            timed_out: response.timed_out,
+            unfinished: response.unfinished,
         });
         self.record_send_duration(entry);
         counter!(
@@ -781,14 +782,14 @@ impl WorkerStreamRunner {
             let entry = ledger.pop_front().expect("front is present");
             let Ack {
                 accepted,
-                timed_out,
+                unfinished,
             } = entry.acked.expect("front is acked");
             let WorkerStreamItem {
                 reply, messages, ..
             } = entry.item;
             let _ = reply.send(Ok(Accepted {
                 accepted,
-                timed_out,
+                unfinished,
                 messages,
             }));
         }
@@ -940,15 +941,15 @@ enum StreamEnd {
 /// stream as a fault.
 fn ack_shape_error(item: &WorkerStreamItem, ack: &SubBatchAck) -> Option<&'static str> {
     if ack.status != SubBatchStatus::Partial as i32 {
-        return (!ack.timed_out.is_empty()).then_some("timed_out on a non-partial ack");
+        return (!ack.unfinished.is_empty()).then_some("unfinished on a non-partial ack");
     }
     if item.soft_budget_ms == 0 {
         return Some("partial ack for an unbudgeted sub-batch");
     }
-    if ack.timed_out.is_empty() {
-        return Some("partial ack with no timed_out entries");
+    if ack.unfinished.is_empty() {
+        return Some("partial ack with no unfinished entries");
     }
-    if ack.accepted as usize + ack.timed_out.len() != item.messages.len() {
+    if ack.accepted as usize + ack.unfinished.len() != item.messages.len() {
         return Some("partial ack does not account for every message");
     }
     let sent: HashSet<(i32, i64)> = item
@@ -956,8 +957,8 @@ fn ack_shape_error(item: &WorkerStreamItem, ack: &SubBatchAck) -> Option<&'stati
         .iter()
         .map(|message| (message.partition, message.offset))
         .collect();
-    let mut listed = HashSet::with_capacity(ack.timed_out.len());
-    for message in &ack.timed_out {
+    let mut listed = HashSet::with_capacity(ack.unfinished.len());
+    for message in &ack.unfinished {
         let id = (message.partition, message.offset);
         if !sent.contains(&id) {
             return Some("partial ack lists a message the sub-batch did not carry");
