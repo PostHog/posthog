@@ -40,6 +40,7 @@ from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
     DUPLICATE_INPUT_KEYS_ERROR,
     SYSTEM_EMAIL_TEMPLATE_ID,
+    SYSTEM_EMAIL_TRIGGER_EVENTS,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -562,6 +563,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if attrs.get("type", instance.type if instance else None) != HogFunctionType.INTERNAL_DESTINATION:
             raise serializers.ValidationError(
                 {"type": "This template only works as a notification for a PostHog alert, not as a destination."}
+            )
+
+        filters = attrs.get("filters", instance.filters if instance else None) or {}
+        event_ids = {event.get("id") for event in filters.get("events") or [] if isinstance(event, dict)}
+        if not event_ids or not event_ids <= SYSTEM_EMAIL_TRIGGER_EVENTS:
+            raise serializers.ValidationError(
+                {"filters": "This template can only send email for the data warehouse sync failure digest."}
             )
 
         template = HogFunctionTemplate.get_template(template_id)

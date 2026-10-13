@@ -254,6 +254,10 @@ RESERVED_ASYNC_FUNCTIONS = {
 # The worker checks the same id again when it sends.
 SYSTEM_EMAIL_TEMPLATE_ID = "template-posthog-email"
 
+# Must match SYSTEM_EMAIL_TRIGGER_EVENTS in the same Node file. Add an event only when its producer
+# sets $notify_user_ids and bounds its own send volume.
+SYSTEM_EMAIL_TRIGGER_EVENTS = frozenset({"$data_warehouse_sync_failure_digest"})
+
 
 # Globals that the realtime transformer actually populates at runtime.
 # Keep in sync with HogTransformerService.createInvocationGlobals

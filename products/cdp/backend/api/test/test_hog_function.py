@@ -670,6 +670,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("retyped_input_blocked", {"inputs_schema": "retyped"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
             ("removed_input_blocked", {"inputs_schema": "removed"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
             (
+                "other_trigger_event_blocked",
+                {"filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]}},
+                status.HTTP_400_BAD_REQUEST,
+                "filters",
+            ),
+            ("no_trigger_event_blocked", {"filters": {"events": []}}, status.HTTP_400_BAD_REQUEST, "filters__events"),
+            (
                 "custom_code_blocked",
                 {"hog": "return sendSystemEmail({'subject': 'Hi', 'body': 'Hello'})"},
                 status.HTTP_400_BAD_REQUEST,
@@ -694,7 +701,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "name": "Sync alert",
             "template_id": "template-posthog-email",
             "inputs": {"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
-            "filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            "filters": {"events": [{"id": "$data_warehouse_sync_failure_digest", "type": "events"}]},
             **overrides,
         }
         if "inputs_schema" in overrides:
@@ -724,7 +731,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "hog": custom_hog,
                 "deleted": True,
                 "inputs": {"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
-                "filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+                "filters": {"events": [{"id": "$data_warehouse_sync_failure_digest", "type": "events"}]},
             },
         )
         assert create_response.status_code == status.HTTP_400_BAD_REQUEST, create_response.json()
@@ -739,7 +746,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             deleted=True,
             inputs_schema=[subject, body],
             inputs={"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
-            filters={"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            filters={"events": [{"id": "$data_warehouse_sync_failure_digest", "type": "events"}]},
             hog=custom_hog,
         )
         restore_response = self.client.patch(
