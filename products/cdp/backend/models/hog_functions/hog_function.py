@@ -290,7 +290,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         return absolute_uri(f"/project/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
 
     def _compile_filters(self) -> dict:
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         compiled = compile_filters_bytecode(self.filters, self.team)
         if not compiled.get("bytecode_error"):
