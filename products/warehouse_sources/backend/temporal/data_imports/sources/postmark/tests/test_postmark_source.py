@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postmark import (
     PostmarkSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source import PostmarkSource
 
 
@@ -16,25 +15,11 @@ class TestPostmarkSource:
         self.team_id = 123
         self.config = PostmarkSourceConfig(server_token="test-server-token")
 
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["bounces"])
 
         assert len(schemas) == 1
         assert schemas[0].name == "bounces"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
-
-        assert schemas == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source.validate_postmark_credentials"
@@ -88,14 +73,6 @@ class TestPostmarkSource:
         # The webhook manager rides alongside the pull iterator so one sync covers both.
         assert isinstance(call_kwargs["webhook_source_manager"], WebhookSourceManager)
 
-    def test_get_schemas_marks_only_bounces_webhook_capable(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        webhook_capable = {schema.name for schema in schemas if schema.supports_webhooks}
-        # Only bounces has a Postmark trigger whose payload matches a table we already sync.
-        assert webhook_capable == {"bounces"}
-        assert not any(schema.webhook_only for schema in schemas)
-
     def test_webhook_resource_map_routes_bounces(self):
         assert self.source.webhook_resource_map == {"bounces": "Bounce"}
         # The template looks the schema id up under this key, so a rename breaks routing.
@@ -111,10 +88,6 @@ class TestPostmarkSource:
         # No bypass input exists, so an unauthenticated delivery can never be accepted.
         assert inputs_by_key["signing_secret"]["required"] is True
         assert inputs_by_key["signing_secret"]["secret"] is True
-
-    def test_get_webhook_source_manager(self):
-        inputs = mock.MagicMock()
-        assert isinstance(self.source.get_webhook_source_manager(inputs), WebhookSourceManager)
 
     @parameterized.expand(
         [

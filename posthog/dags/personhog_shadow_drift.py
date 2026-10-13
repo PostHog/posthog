@@ -19,6 +19,7 @@ from typing import Literal
 import dagster
 import psycopg2
 from prometheus_client import CollectorRegistry, Gauge
+from pydantic import Field
 
 from posthog.dags.common import JobOwners
 from posthog.dags.personhog_shadow_lane import (
@@ -323,18 +324,20 @@ def _run_category(
     return DriftCategoryReport(category=category, field_mismatches=field_mismatches, samples=samples, **totals)
 
 
-def _configure_session(cursor: psycopg2.extensions.cursor) -> None:
+def _configure_session(cursor: psycopg2.extensions.cursor, statement_timeout_minutes: int) -> None:
     cursor.execute("SET application_name = 'dagster_personhog_shadow_drift'")
-    cursor.execute("SET statement_timeout = '30min'")
+    cursor.execute("SET statement_timeout = %s", (f"{statement_timeout_minutes}min",))
     # work_mem applies per hash node and per parallel worker, and hash joins
     # get hash_mem_multiplier times it, so a three-join query can reserve
     # many times this value at once.
     cursor.execute("SET work_mem = '256MB'")
 
 
-def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size: int) -> list[DriftCategoryReport]:
+def compute_shadow_drift(
+    connection: psycopg2.extensions.connection, sample_size: int, statement_timeout_minutes: int = 30
+) -> list[DriftCategoryReport]:
     with connection.cursor() as cursor:
-        _configure_session(cursor)
+        _configure_session(cursor, statement_timeout_minutes)
         return [
             _run_category(cursor, "persons", _PERSON_DRIFT_SQL, _PERSON_SAMPLE_SQL, _person_samples, sample_size),
             _run_category(
@@ -375,11 +378,14 @@ def _format_person_property_detail(team_id: object, person_uuid: object, rows: l
 
 
 def sample_property_drift(
-    connection: psycopg2.extensions.connection, persons_limit: int, detail_limit: int
+    connection: psycopg2.extensions.connection,
+    persons_limit: int,
+    detail_limit: int,
+    statement_timeout_minutes: int = 30,
 ) -> PropertyDriftSample:
     detail_rows: list[Mapping[str, object]] = []
     with connection.cursor() as cursor:
-        _configure_session(cursor)
+        _configure_session(cursor, statement_timeout_minutes)
         cursor.execute(_PROPERTY_KEY_DRIFT_SQL, {"limit": persons_limit})
         key_rows = cursor.fetchall()
         if detail_limit > 0:
@@ -478,6 +484,7 @@ class ShadowDriftConfig(dagster.Config):
     shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
     sample_size: int = 10
     property_diff_sample_size: int = 500
+    statement_timeout_minutes: int = Field(default=30, gt=0)
 
 
 @dagster.op
@@ -545,12 +552,15 @@ def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSe
 @dagster.op(ins={"settled": dagster.In(dagster.Nothing)})
 def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDriftConfig) -> None:
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
-        reports = compute_shadow_drift(connection, config.sample_size)
+        reports = compute_shadow_drift(connection, config.sample_size, config.statement_timeout_minutes)
         persons_report = next(report for report in reports if report.category == "persons")
         property_drift: PropertyDriftSample | None = None
         if config.property_diff_sample_size > 0 and persons_report.field_mismatches.get("properties", 0) > 0:
             property_drift = sample_property_drift(
-                connection, persons_limit=config.property_diff_sample_size, detail_limit=config.sample_size
+                connection,
+                persons_limit=config.property_diff_sample_size,
+                detail_limit=config.sample_size,
+                statement_timeout_minutes=config.statement_timeout_minutes,
             )
 
     with pushed_metrics_registry(f"{DRIFT_METRICS_JOB}_{config.shadow_db_env_var}") as registry:

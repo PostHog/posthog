@@ -8,6 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
+
 import type { SignalPreviewApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodaySignalDestination, previewOpen, shownPreview, signalDestination } from './todayEvidence'
@@ -51,8 +53,16 @@ function rowElement(action: TodaySignalDestination, hint: RowHint | null, expand
     return <button type="button" aria-expanded={action.kind === 'read' ? expanded : undefined} />
 }
 
-function RowTrailer({ signal, hint }: { signal: SignalViewApi; hint: RowHint | null }): JSX.Element {
+function RowDate({ signal }: { signal: SignalViewApi }): JSX.Element {
     const time = dayjs(signal.timestamp)
+    return (
+        <time dateTime={signal.timestamp} title={time.format('LLL')} className="tabular-nums">
+            {time.isSame(dayjs(), 'day') ? 'Today' : shortDate(time)}
+        </time>
+    )
+}
+
+function RowTrailer({ signal, hint }: { signal: SignalViewApi; hint: RowHint | null }): JSX.Element {
     return (
         <Text size="xs" variant="muted" render={<span />} className="flex items-center gap-2 whitespace-nowrap">
             <span aria-hidden className="flex size-3.5 items-center justify-center [&_svg]:size-3.5">
@@ -65,9 +75,22 @@ function RowTrailer({ signal, hint }: { signal: SignalViewApi; hint: RowHint | n
                     </span>
                 )}
             </span>
-            <time dateTime={signal.timestamp} title={time.format('LLL')} className="w-12 text-right tabular-nums">
-                {time.isSame(dayjs(), 'day') ? 'Today' : shortDate(time)}
-            </time>
+            <span className="w-12 text-right">
+                <RowDate signal={signal} />
+            </span>
+        </Text>
+    )
+}
+
+function PhoneRowMeta({ signal, sourceLabel }: { signal: SignalViewApi; sourceLabel: string }): JSX.Element {
+    return (
+        <Text size="xs" variant="muted" render={<span />} className="flex items-center gap-1.5 whitespace-nowrap">
+            <span aria-hidden className="flex [&_svg]:size-3.5">
+                <TodayIcon icon={signal.cited ?? sourceStyle(signal.source_product).icon} />
+            </span>
+            <span className="min-w-0 truncate">{sourceLabel}</span>
+            <span aria-hidden>·</span>
+            <RowDate signal={signal} />
         </Text>
     )
 }
@@ -75,6 +98,7 @@ function RowTrailer({ signal, hint }: { signal: SignalViewApi; hint: RowHint | n
 export function TodayReportSignalRow({ reportId, signal }: { reportId: string; signal: SignalViewApi }): JSX.Element {
     const logic = todayReportLogic({ reportId })
     const { expandedEvidence } = useValues(logic)
+    const { phoneLayout } = useValues(todayShellLogic)
     const { evidenceOpened, readCode, expandEvidence, collapseEvidence } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const expanded = !!expandedEvidence[signal.signal_id]
@@ -124,10 +148,13 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
                     <ItemTitle className={cn('font-normal text-foreground', !expanded && 'line-clamp-2')}>
                         {expanded ? signal.lead : signal.headline}
                     </ItemTitle>
+                    {phoneLayout && !expanded && <PhoneRowMeta signal={signal} sourceLabel={sourceLabel} />}
                 </ItemContent>
-                <ItemActions className="shrink-0 self-start pt-0.5">
-                    <RowTrailer signal={signal} hint={hint} />
-                </ItemActions>
+                {!phoneLayout && (
+                    <ItemActions className="shrink-0 self-start pt-0.5">
+                        <RowTrailer signal={signal} hint={hint} />
+                    </ItemActions>
+                )}
             </Item>
             {expanded && preview && (
                 <TodayEvidenceDetail id={detailId} reportId={reportId} signal={signal} preview={preview} open={open} />

@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
 
@@ -104,11 +104,12 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(other_team_response.json()["detail"].endswith("- object does not exist."))
         self.assertTrue(missing_folder_response.json()["detail"].endswith("- object does not exist."))
 
-    def test_create(self):
+    @parameterized.expand([("bare", "event_view"), ("namespaced", "models.event_view")])
+    def test_create(self, _case: str, name: str):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
-                "name": "event_view",
+                "name": name,
                 "query": {
                     "kind": "HogQLQuery",
                     "query": "select event as event from events LIMIT 100",
@@ -117,7 +118,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query = response.json()
-        self.assertEqual(saved_query["name"], "event_view")
+        self.assertEqual(saved_query["name"], name)
         self.assertEqual(
             saved_query["columns"],
             [
@@ -549,11 +550,21 @@ class TestSavedQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(id=view_id)
         assert saved_query.column_order == select_order
 
-    def test_create_rejects_reserved_system_namespace(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "system",
+                "system.accounts",
+                "The system namespace is reserved for built-in tables. Choose a different view name.",
+            ),
+            ("models_root", "models", "The models namespace needs a model name, for example models.revenue."),
+        ]
+    )
+    def test_create_rejects_reserved_system_namespace(self, _case: str, name: str, message: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
-                "name": "system.accounts",
+                "name": name,
                 "query": {
                     "kind": "HogQLQuery",
                     "query": "select event as event from events LIMIT 100",
@@ -564,7 +575,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(
             response.json()["detail"],
-            "The system namespace is reserved for built-in tables. Choose a different view name.",
+            message,
         )
 
     def test_create_name_overlap_error(self):
@@ -2229,6 +2240,35 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json()["detail"], "Cannot update a query from a managed viewset")
 
+    @parameterized.expand(
+        [
+            (
+                "endpoint",
+                DataWarehouseSavedQuery.Origin.ENDPOINT,
+                400,
+                "The models namespace is reserved for data models. Choose a different name.",
+            ),
+            ("authored", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, 200, None),
+        ]
+    )
+    def test_rename_into_models_namespace(
+        self, _case: str, origin: str, expected_status: int, expected_detail: str | None
+    ) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue",
+            origin=origin,
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+            {"name": "models.revenue"},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(response.json().get("detail"), expected_detail)
+
     def test_delete_saved_query_with_managed_viewset_fails(self):
         """Test that deleting a saved query with managed viewset fails with correct error message"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
@@ -2543,7 +2583,8 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
 
-    def test_retrieve_exposes_earliest_suspension_across_nodes(self):
+    @parameterized.expand([("retrieve",), ("list",)])
+    def test_exposes_earliest_suspension_across_nodes(self, route: str):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="suspended_view_read",
@@ -2566,10 +2607,12 @@ class TestSavedQuery(APIBaseTest):
         for node in nodes:
             node.save()
 
-        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/")
+        base_url = f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+        response = self.client.get(f"{base_url}{saved_query.id}/" if route == "retrieve" else base_url)
 
         self.assertEqual(response.status_code, 200)
-        suspended = response.json()["suspended"]
+        rows = [response.json()] if route == "retrieve" else response.json()["results"]
+        suspended = next(row["suspended"] for row in rows if row["id"] == str(saved_query.id))
         self.assertEqual(list(suspended), ["clickhouse"])
         self.assertEqual(suspended["clickhouse"]["reason"], "first failure")
         self.assertEqual(suspended["clickhouse"]["job_id"], "job-1")
@@ -2713,6 +2756,36 @@ class TestSavedQuery(APIBaseTest):
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):
+    def test_unchanged_legacy_root_name_is_allowed_by_serializer(self) -> None:
+        instance = DataWarehouseSavedQuery(name="models", origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE)
+        serializer = DataWarehouseSavedQuerySerializer(instance=instance, partial=True)
+        assert serializer.to_internal_value({"name": "models"}) == {"name": "models"}
+
+    @parameterized.expand(
+        [
+            ("authored", "models.revenue", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("legacy", "models.revenue", None),
+            ("managed_bare", "revenue", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+            ("managed_prefix", "models_v2", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+        ]
+    )
+    def test_models_namespace_allows_valid_names(self, _case: str, name: str, origin: str | None) -> None:
+        instance = DataWarehouseSavedQuery(name=name, origin=origin)
+        instance.clean()
+        DataWarehouseSavedQuery._meta.get_field("name").run_validators(name)
+
+    @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
+    def test_managed_models_namespace_reservation(self, _case: str, name: str) -> None:
+        instance = DataWarehouseSavedQuery(name=name, origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
+        with self.assertRaises(ValidationError):
+            instance.clean()
+        with self.assertRaises(ValidationError):
+            instance.save()
+
+    def test_models_root_is_not_a_model_name(self) -> None:
+        with self.assertRaises(ValidationError):
+            DataWarehouseSavedQuery._meta.get_field("name").run_validators("models")
+
     @parameterized.expand([("namespace", "system"), ("nested_name", "system.accounts")])
     def test_reserves_system_namespace(self, _name: str, saved_query_name: str) -> None:
         name_field = DataWarehouseSavedQuery._meta.get_field("name")
@@ -2723,6 +2796,34 @@ class TestSavedQueryNameValidation(SimpleTestCase):
         assert error.exception.messages == [
             "The system namespace is reserved for built-in tables. Choose a different view name."
         ]
+
+
+class TestSavedQueryModelsNamespaceGuard(BaseTest):
+    @parameterized.expand(
+        [
+            ("endpoint_nested", "models.revenue", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("authored_root", "models", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+        ]
+    )
+    def test_legacy_query_with_reserved_name_can_be_updated(self, _case: str, name: str, origin: str) -> None:
+        [saved_query] = DataWarehouseSavedQuery.objects.bulk_create(
+            [DataWarehouseSavedQuery(team=self.team, name=name, origin=origin, query={"kind": "HogQLQuery"})]
+        )
+
+        saved_query.latest_error = "Materialization failed"
+        saved_query.save(update_fields=["latest_error"])
+
+        saved_query.refresh_from_db()
+        assert saved_query.latest_error == "Materialization failed"
+
+    def test_existing_endpoint_query_cannot_be_renamed_into_reserved_namespace(self) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="revenue", origin=DataWarehouseSavedQuery.Origin.ENDPOINT
+        )
+
+        saved_query.name = "models.revenue"
+        with self.assertRaises(ValidationError):
+            saved_query.save()
 
 
 class TestMaterializeRequestBody(SimpleTestCase):

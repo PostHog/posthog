@@ -83,7 +83,7 @@ OLD_DENY_PATTERN_DEFS = {
             "k8s",
             "dockerfile",
             "docker-compose",
-            "\\.github/workflows",
+            "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -92,6 +92,12 @@ OLD_DENY_PATTERN_DEFS = {
             "(?:^|/)bin/deploy",
             "deploy\\.sh",
         ],
+    },
+    "ci_workflows": {
+        "paths": [
+            "\\.github/workflows",
+            "\\.depot/workflows",
+        ]
     },
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
@@ -136,7 +142,15 @@ OLD_DENY_PATTERN_DEFS = {
             "^docs/published/handbook/engineering/type-system\\.md$",
             "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
             "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
-            "^tools/hogli-commands/hogli_commands/product/(baseline|checks|crossings|isolation|reverse_accessors)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product/",
+        ]
+    },
+    "workflows_delivery": {
+        "paths": [
+            "^products/cdp/backend/(api|models)/",
+            "^products/workflows/backend/(facade|presentation|models)/",
+            "^products/messaging/backend/(api|models)/",
+            "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
         ]
     },
 }
@@ -242,6 +256,14 @@ def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
 
 
+def _self_governance_exempts_a_team(d: dict) -> None:
+    d["deny"]["stamphog_policy"]["exempt_author_teams"] = ["team-devex"]
+
+
+def _exempt_author_team_with_org_prefix(d: dict) -> None:
+    d["deny"]["auth"]["exempt_author_teams"] = ["@PostHog/team-security"]
+
+
 def _ownership_unknown_format(d: dict) -> None:
     d["ownership"]["sources"][0]["format"] = "svn-blame"
 
@@ -276,6 +298,8 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
         _out_of_contract_delegation,
         _ceiling_under_global_default,
         _rename_deps_toolchain,
+        _self_governance_exempts_a_team,
+        _exempt_author_team_with_org_prefix,
         _ownership_unknown_format,
         _ownership_both_locators,
         _ownership_no_locator,
@@ -671,10 +695,10 @@ def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     # Wording changes are governed by human review (stamphog_policy deny), not a
     # frozen snapshot; this only guards the composition seam itself.
     guidance = reviewer._load_review_guidance()
-    assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert reviewer.REVIEWER_SYSTEM == reviewer._AUDIT_HEAD + guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
     assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
-    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "Facts to report:" in reviewer._AUDIT_HEAD
 
 
 # ── 6. Folder prose is sanitized and capped ──

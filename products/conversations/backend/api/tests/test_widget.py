@@ -1,6 +1,7 @@
 import time
 import uuid
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -276,6 +277,42 @@ class TestWidgetAPI(BaseTest):
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.anonymous_traits["name"], "John")
         self.assertEqual(ticket.anonymous_traits["email"], "john@example.com")
+
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_deleted_ticket_is_hidden_from_the_widget(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        ticket.deleted_at = timezone.now()
+        ticket.save(update_fields=["deleted_at"])
+
+        messages = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(messages.status_code, status.HTTP_404_NOT_FOUND)
+
+        reply = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Are you there?",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(reply.status_code, status.HTTP_404_NOT_FOUND)
+
+        listing = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual(listing.json()["results"], [])
 
     def test_get_messages(self):
         ticket = Ticket.objects.create_with_number(

@@ -17,7 +17,7 @@ use crate::prometheus::report_dropped_events;
 pub struct ProduceRecord {
     pub topic: Arc<str>,
     pub key: Option<String>,
-    pub payload: Vec<u8>,
+    pub payload: bytes::Bytes,
     pub headers: CapturedEventHeaders,
 }
 
@@ -138,7 +138,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
 
         match self.producer.send_result(FutureRecord {
             topic: &record.topic,
-            payload: Some(record.payload.as_slice()),
+            payload: Some(record.payload.as_ref()),
             partition: None,
             key: record.key.as_deref(),
             timestamp: None,

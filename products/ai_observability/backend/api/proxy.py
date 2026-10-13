@@ -18,6 +18,7 @@ from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -49,11 +50,13 @@ from products.ai_observability.backend.llm import (
     ModelInfo,
     get_playground_models,
 )
+from products.ai_observability.backend.llm.decisions import decision_evaluations_enabled
 from products.ai_observability.backend.llm.errors import (
     ProviderConfigurationError,
     ProviderHostUnresolvedError,
     UnsupportedProviderError,
 )
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_BASE_URL, decision_model_ids
 from products.ai_observability.backend.models.provider_keys import (
     LLMProvider,
     LLMProviderKey,
@@ -100,6 +103,17 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
         choices=["minimal", "low", "medium", "high"], required=False, allow_null=True
     )
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
+
+
+class LLMProxyModelInfoSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Provider-specific model identifier.")
+    name = serializers.CharField(help_text="Model display name.")
+    provider = serializers.CharField(help_text="Provider display name.")
+    description = serializers.CharField(allow_blank=True, help_text="Description of the model.")
+    is_recommended = serializers.BooleanField(help_text="Whether the provider recommends this model.")
+    supports_decisions = serializers.BooleanField(
+        default=False, help_text="Whether this model supports decision questions instead of chat completions."
+    )
 
 
 class PlaygroundAccessPermission(BasePermission):
@@ -445,6 +459,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
         return properties
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "provider_key_id", type=uuid.UUID, description="Team provider key whose models should be listed."
+            )
+        ],
+        responses=LLMProxyModelInfoSerializer(many=True),
+    )
     @action(detail=False, methods=["GET"])
     @llma_track_latency("llma_proxy_models")
     @monitor(feature=None, endpoint="llma_proxy_models", method="GET")
@@ -477,6 +499,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                         cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
+                decision_models: frozenset[str] = frozenset()
+                if provider_key.provider == LLMProvider.OPENROUTER and decision_evaluations_enabled(
+                    provider_key.team_id, base_url=OPENROUTER_BASE_URL
+                ):
+                    decision_models = decision_model_ids() or frozenset()
+                    models = list(dict.fromkeys([*models, *sorted(decision_models)]))
                 return Response(
                     [
                         ModelInfo(
@@ -485,6 +513,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             provider=provider_display,
                             description="",
                             is_recommended=m in recommended,
+                            supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
                         )
                         for m in models
                     ]

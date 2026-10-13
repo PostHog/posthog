@@ -13,7 +13,12 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import exceptions, serializers
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import (
+    MODELS_NAMESPACE_QUERY_ERROR,
+    Database,
+    is_reserved_models_name,
+    models_namespace_chain,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
@@ -38,6 +43,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
     Node,
+    validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.column_annotation_base import upsert_annotation
@@ -111,6 +117,19 @@ _MOVE_REFUSALS = {
     ),
     "moved": "Something else moved this view while we were moving it. Try again.",
 }
+
+
+def _authored_model_answering_to(
+    team_id: int, name: str, exclude: DataWarehouseSavedQuery | None
+) -> DataWarehouseSavedQuery | None:
+    if not name.startswith("models."):
+        return None
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=name.removeprefix("models.")).exclude(
+        deleted=True
+    )
+    if exclude is not None:
+        candidates = candidates.exclude(pk=exclude.pk)
+    return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
 
 
 def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
@@ -280,6 +299,7 @@ class DataWarehouseSavedQuerySerializer(
         extra_kwargs = {
             "soft_update": {"write_only": True},
             "name": {
+                "validators": [],
                 "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
             },
         }
@@ -303,21 +323,6 @@ class DataWarehouseSavedQuerySerializer(
     @extend_schema_field(serializers.BooleanField())
     def get_has_incremental_history(self, view: DataWarehouseSavedQuery) -> bool:
         return has_incremental_history(view)
-
-    @extend_schema_field(
-        serializers.DictField(
-            child=view_state.SavedQuerySuspensionSerializer(),
-            help_text="Engines this query's materialization is suspended for after repeated failures. "
-            "Suspended engines are skipped by scheduled runs until the query is resumed.",
-        )
-    )
-    def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
-        from products.data_modeling.backend.facade.api import suspension_state_for_saved_query
-
-        return {
-            engine: view_state.SavedQuerySuspensionSerializer(entry).data
-            for engine, entry in suspension_state_for_saved_query(view).items()
-        }
 
     def _report_view_action(
         self, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
@@ -761,16 +766,40 @@ class DataWarehouseSavedQuerySerializer(
         return folder
 
     def validate_name(self, name):
+        own_models_name: str | None = None
         # if it's an upsert, we don't want to validate the name
         if self.instance is not None and isinstance(self.instance, DataWarehouseSavedQuery):
             if self.instance.name == name:
                 return name
+            # The model's save() also rejects this name, but a Django ValidationError from save() becomes a 500.
+            if is_reserved_models_name(name) and self.instance.origin in {
+                DataWarehouseSavedQuery.Origin.ENDPOINT,
+                DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+            }:
+                raise serializers.ValidationError(MODELS_NAMESPACE_QUERY_ERROR)
+            own_chain = models_namespace_chain(self.instance)
+            own_models_name = ".".join(own_chain) if own_chain is not None else None
+
+        validate_saved_query_name(name)
+
+        # An authored model answers to `models.<its name>` for the whole team, and has_table hides models the
+        # caller is denied, so a denied caller could otherwise take that name over for everyone.
+        instance = self.instance if isinstance(self.instance, DataWarehouseSavedQuery) else None
+        owner = _authored_model_answering_to(self.context["team_id"], name, instance)
+        if owner is not None:
+            if self.context["database"].has_table(owner.name):
+                raise serializers.ValidationError(
+                    f"This name already refers to the model {owner.name}. Choose a different name."
+                )
+            raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
         # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
         # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
         # Otherwise a user with denied table could create another one with colliding name.
+        # An authored model already resolves under `models.<stored name>`, so a rename to that name
+        # collides with nothing. The two lookups below still reject it if a stored view or table holds it.
         if (
-            self.context["database"].has_table(name)
+            (name != own_models_name and self.context["database"].has_table(name))
             or get_view_or_table_by_name(self.context["team_id"], name)
             or DataWarehouseSavedQuery.objects.filter(team_id=self.context["team_id"], name=name, deleted=True).exists()
         ):

@@ -626,16 +626,36 @@ class JobsTable:
         lane: str,
         group_keys: list[str],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None:
-        """Hand groups back when their work finishes (drop this owner's leases)."""
+        """Hand groups back when their work finishes (drop this owner's leases).
+
+        ``skip_locked`` leaves a lease row that another statement holds in place
+        (it expires after its TTL) instead of waiting on it.
+        """
         if not group_keys:
+            return
+        params = {"lane": lane, "group_keys": group_keys, "owner": owner_token}
+        if skip_locked:
+            await conn.execute(
+                f"""
+                DELETE FROM {JOB_LEASE_TABLE}
+                WHERE id IN (
+                    SELECT id FROM {JOB_LEASE_TABLE}
+                    WHERE lane = %(lane)s AND group_key = ANY(%(group_keys)s) AND owner_token = %(owner)s
+                    ORDER BY group_key
+                    FOR UPDATE SKIP LOCKED
+                )
+                """,
+                params,
+            )
             return
         await conn.execute(
             f"""
             DELETE FROM {JOB_LEASE_TABLE}
             WHERE lane = %(lane)s AND group_key = ANY(%(group_keys)s) AND owner_token = %(owner)s
             """,
-            {"lane": lane, "group_keys": group_keys, "owner": owner_token},
+            params,
         )
 
     @staticmethod

@@ -28,6 +28,16 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 
+# Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
+# ES256 JWT this app signs per token request with the private key whose public half was registered
+# in Apple Ads (see posthog/models/integration/apple_ads.py). Empty defaults keep the app importable
+# and the OAuth auth method dormant until the service provider registration is provisioned.
+APPLE_ADS_APP_CLIENT_ID = get_from_env("APPLE_ADS_APP_CLIENT_ID", "")
+APPLE_ADS_APP_TEAM_ID = get_from_env("APPLE_ADS_APP_TEAM_ID", "")
+APPLE_ADS_APP_KEY_ID = get_from_env("APPLE_ADS_APP_KEY_ID", "")
+# PEM body of the EC P-256 private key. Newlines may be escaped as literal \n.
+APPLE_ADS_APP_PRIVATE_KEY = get_from_env("APPLE_ADS_APP_PRIVATE_KEY", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 

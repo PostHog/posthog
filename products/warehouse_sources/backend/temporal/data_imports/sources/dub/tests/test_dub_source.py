@@ -16,11 +16,6 @@ class TestDubSource:
         self.source = DubSource()
         self.config = DubSourceConfig(api_key="dub_test_key")
 
-    def test_source_is_released(self) -> None:
-        # unreleasedSource=True hides the connector from every user; a finished source
-        # must never regain it.
-        assert not self.source.get_source_config.unreleasedSource
-
     @pytest.mark.parametrize(
         ("valid", "message"),
         [

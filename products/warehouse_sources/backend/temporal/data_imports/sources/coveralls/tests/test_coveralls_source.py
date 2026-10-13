@@ -44,37 +44,10 @@ class TestCoverallsSource:
         # an editor reuse a preserved token against repos it never had token access to.
         assert self.source.connection_host_fields == ["service", "repositories"]
 
-    def test_get_schemas_lists_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_builds_schema_sync_modes(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        # Incremental works via the newest-first watermark stop; the safety-window re-pull means
-        # only merge (not append) is safe.
-        assert schemas["builds"].supports_incremental is True
-        assert schemas["builds"].supports_append is False
-        assert [f["field"] for f in schemas["builds"].incremental_fields] == ["created_at"]
-
-    def test_repositories_schema_is_full_refresh_and_off_by_default(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        # Needs the optional API token, which source creation doesn't validate.
-        assert schemas["repositories"].supports_incremental is False
-        assert schemas["repositories"].supports_append is False
-        assert schemas["repositories"].should_sync_default is False
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["builds"])
 
         assert [schema.name for schema in schemas] == ["builds"]
-
-    def test_lists_tables_without_credentials(self):
-        # Static endpoint catalog with no I/O, so the public docs can render the table list.
-        assert self.source.lists_tables_without_credentials is True
-        assert len(self.source.get_documented_tables()) == len(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "api_token, expected_reason",

@@ -11,7 +11,7 @@ import { uuid } from 'lib/utils/dom'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ModelOption } from '../modelPickerLogic'
-import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
@@ -437,10 +437,23 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             return
                         }
 
+                        // Model options carry the provider's display name ("Azure OpenAI"), but the
+                        // completion endpoint validates against enum values ("azure_openai").
+                        const normalizedProvider = normalizeLLMProvider(selectedModel.provider)
+                        if (!normalizedProvider) {
+                            const describeUnknownProvider = (model: string): string =>
+                                `Model '${model}' has a provider PostHog does not recognize. Pick a different model and try again.`
+                            lemonToast.error(describeUnknownProvider(prompt.model))
+                            responseText = `**Error:** ${describeUnknownProvider(escapeMarkdownInline(prompt.model))}`
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+
                         providerKeyId =
                             resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
                                 ?.id ?? values.activeProviderKeyId
-                        selectedModelProvider = selectedModel.provider.toLowerCase()
+                        selectedModelProvider = normalizedProvider
 
                         const requestData: Record<string, unknown> = {
                             system: resolvedSystemPrompt,

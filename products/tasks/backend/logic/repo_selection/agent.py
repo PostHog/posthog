@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Q, Value, When
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
@@ -587,6 +588,7 @@ async def select_repository(
     context: str,
     *,
     origin_product: Task.OriginProduct,
+    priority: Priority,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
@@ -649,7 +651,7 @@ async def select_repository(
     # concurrent calls for the same team wait on the leader and then read the warm cache.
     if output_fn:
         output_fn("Refreshing repository cache...")
-    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id)
+    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id, priority=priority)
     await repo_cache.sync_full_cache()
     # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
     # (the prompt treats SQL as primary evidence — a missing row reads as a false-negative).

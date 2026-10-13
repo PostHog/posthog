@@ -109,6 +109,38 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
+    it('normalizes a display-name provider to its enum value in the completion payload', async () => {
+        useMocks({
+            get: {
+                '/api/llm_proxy/models/': [
+                    {
+                        id: 'my-gpt4-deployment',
+                        name: 'my-gpt4-deployment',
+                        provider: 'Azure OpenAI',
+                        description: '',
+                    },
+                ],
+            },
+        })
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('my-gpt4-deployment')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({ provider: 'azure_openai' })
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
     it('sends variable-substituted content while the editor keeps the raw template', async () => {
         const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
 

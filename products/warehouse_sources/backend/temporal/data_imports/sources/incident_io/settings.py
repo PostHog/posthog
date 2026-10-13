@@ -1,11 +1,22 @@
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# incident.io versions each resource's path on its own track (/v1, /v2, /v3), so the source-level
+# label is opaque: "v1" is the original endpoint set; "v3" moves follow_ups from GET /v2/follow_ups,
+# which incident.io removes on 2026-12-31, to its GET /v3/follow_ups successor. Every other
+# resource reads the same path under both labels.
+INCIDENT_IO_API_VERSION_V1 = UNVERSIONED_API_VERSION
+INCIDENT_IO_API_VERSION_V3 = "v3"
+INCIDENT_IO_SUPPORTED_VERSIONS = (INCIDENT_IO_API_VERSION_V1, INCIDENT_IO_API_VERSION_V3)
+INCIDENT_IO_DEFAULT_API_VERSION = INCIDENT_IO_API_VERSION_V3
 
 
 @dataclass(frozen=True)
@@ -293,6 +304,29 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
     ),
 }
 
+INCIDENT_IO_ENDPOINTS_V3: dict[str, IncidentIoEndpointConfig] = {
+    **INCIDENT_IO_ENDPOINTS,
+    # Same rows as v2 plus a `category` object, now paged by `pagination_meta.after` with a 250 cap.
+    "follow_ups": dataclasses.replace(INCIDENT_IO_ENDPOINTS["follow_ups"], path="/v3/follow_ups"),
+}
+
+INCIDENT_IO_ENDPOINTS_BY_VERSION: dict[str, dict[str, IncidentIoEndpointConfig]] = {
+    INCIDENT_IO_API_VERSION_V1: INCIDENT_IO_ENDPOINTS,
+    INCIDENT_IO_API_VERSION_V3: INCIDENT_IO_ENDPOINTS_V3,
+}
+
+
+def endpoints_for_version(api_version: str) -> dict[str, IncidentIoEndpointConfig]:
+    # An undeclared pin raises rather than falling back, so a sync never drifts onto another version's paths.
+    try:
+        return INCIDENT_IO_ENDPOINTS_BY_VERSION[api_version]
+    except KeyError as e:
+        raise ValueError(
+            f"Unsupported incident.io API version {api_version!r}; supported: {INCIDENT_IO_SUPPORTED_VERSIONS}"
+        ) from e
+
+
+# The table set is identical across versions, so discovery never orphans a table on repin.
 ENDPOINTS = tuple(INCIDENT_IO_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {

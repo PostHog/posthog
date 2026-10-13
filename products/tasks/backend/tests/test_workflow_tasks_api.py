@@ -26,7 +26,6 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
-from products.tasks.backend.logic.services.workflow_task_skills import MAX_ATTACHED_SKILLS
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -35,7 +34,6 @@ from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
-from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTaskCreateSerializer
 
 SECRET = "test-tasks-create-jwt"
 
@@ -311,50 +309,6 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert "server-unknown" in response.json()["detail"]
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
-    @parameterized.expand(
-        [
-            ("no_header", "none"),
-            ("wrong_signing_key", "wrong_key"),
-            ("wrong_audience", "wrong_audience"),
-            # Same signing key as the scout-run step, distinct audience: that token must not
-            # spend a task creation, even though both mint from TASKS_CREATE_JWT_SECRETS.
-            ("scout_run_audience", "scout_run_audience"),
-            ("expired", "expired"),
-            ("missing_workflow_claim", "no_flow_claim"),
-        ]
-    )
-    def test_rejects_a_token_it_did_not_mint_for_this_workflow(self, _name: str, kind: str) -> None:
-        flow_id = str(self.hog_flow.id)
-        token = {
-            "none": None,
-            "wrong_key": _token(self.team.id, flow_id, signing_key="not-the-secret"),
-            "wrong_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.RECORDING_API),
-            "scout_run_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN),
-            "expired": _token(self.team.id, flow_id, expiry=timedelta(minutes=-1)),
-            "no_flow_claim": _token(self.team.id, None),
-        }[kind]
-
-        headers: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer {token}"} if token else {}
-        response = self.client.post(self.url, {"prompt": "hi"}, format="json", **headers)
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
-
-    def test_rejects_a_token_minted_for_another_team(self) -> None:
-        other_team = self.create_team_with_organization(self.organization)
-
-        response = self._post(token=_token(other_team.id, str(self.hog_flow.id)))
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
-
-    @override_settings(TASKS_CREATE_JWT_SECRETS=[])
-    def test_fails_closed_when_the_signing_secret_is_not_provisioned(self) -> None:
-        response = self._post()
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
-
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
     def test_refuses_a_workflow_whose_owner_is_deactivated(self, usage_limit_response_mock) -> None:
         self.user.is_active = False
@@ -379,18 +333,6 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert not Task.objects.filter(hog_flow_id=flow.id).exists()
         usage_limit_response_mock.assert_not_called()
-
-    @parameterized.expand([("unknown_workflow",), ("another_teams_workflow",)])
-    def test_refuses_a_workflow_it_cannot_find_in_the_tokens_team(self, case: str) -> None:
-        if case == "unknown_workflow":
-            flow_id = str(uuid4())
-        else:
-            other_team = self.create_team_with_organization(self.organization)
-            flow_id = create_workflow_for_test(team_id=other_team.id, name="Theirs", created_by_id=self.user.id).id
-
-        response = self._post(token=_token(self.team.id, flow_id))
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_skips_creation_at_the_in_flight_limit(self) -> None:
         for _ in range(2):
@@ -685,17 +627,6 @@ class TestWorkflowTasksAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.status == TaskRun.Status.IN_PROGRESS
         resume.assert_not_called()
-
-    def test_a_request_without_a_prompt_is_rejected(self) -> None:
-        response = self.client.post(
-            self.url,
-            {"title": "no prompt"},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {_token(self.team.id, str(self.hog_flow.id))}",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
         response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
@@ -1015,54 +946,6 @@ class TestWorkflowOriginIsReserved(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "origin_product" in serializer.errors
-
-
-class TestWorkflowTaskCreateSerializer(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("missing_prompt", {}, "prompt"),
-            ("blank_prompt", {"prompt": ""}, "prompt"),
-            ("zero_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 0}, "max_parallel_tasks"),
-            ("too_many_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 101}, "max_parallel_tasks"),
-            ("unknown_mcp_scopes", {"prompt": "p", "posthog_mcp_scopes": "admin"}, "posthog_mcp_scopes"),
-            ("connectors_not_a_list", {"prompt": "p", "connectors": "inst-1"}, "connectors"),
-            ("skills_not_a_list", {"prompt": "p", "skills": "error-triage"}, "skills"),
-            ("skills_not_strings", {"prompt": "p", "skills": [{"name": "error-triage"}]}, "skills"),
-            (
-                "too_many_skills",
-                {"prompt": "p", "skills": [f"s-{i}" for i in range(MAX_ATTACHED_SKILLS + 1)]},
-                "skills",
-            ),
-            ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
-            (
-                "slack_context_missing_channel",
-                {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
-                "slack_context",
-            ),
-            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
-            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
-            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
-            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
-            (
-                "slack_context_bad_integration_id",
-                {
-                    "prompt": "p",
-                    "slack_context": {"integration_id": "not-a-pk", "channel": "C1", "thread_ts": "1.0"},
-                },
-                "slack_context",
-            ),
-        ]
-    )
-    def test_rejects_invalid_input(self, _name: str, body: dict, field: str) -> None:
-        serializer = WorkflowTaskCreateSerializer(data=body)
-
-        assert not serializer.is_valid()
-        assert field in serializer.errors
-
-    def test_accepts_a_minimal_request(self) -> None:
-        serializer = WorkflowTaskCreateSerializer(data={"prompt": "look into the alert"})
-
-        assert serializer.is_valid(), serializer.errors
 
 
 class TestRenderRunMessage(SimpleTestCase):

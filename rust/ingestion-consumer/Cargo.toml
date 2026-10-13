@@ -40,4 +40,5 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
 rstest = "0.26"
+tokio = { workspace = true, features = ["test-util"] }
 uuid = { workspace = true }

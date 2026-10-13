@@ -55,6 +55,9 @@ TASK_ANALYSIS_ACTIVITIES_STATE_KEY = "task_analysis_activities"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
+# error_message so a normal completion never reads as a failure.
+TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
 AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"

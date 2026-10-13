@@ -119,6 +119,20 @@ const SUCCESS_BODY = {
   usage: { input_tokens: 12, output_tokens: 7 },
 };
 
+const CHAT_SUCCESS_BODY = {
+  id: "chatcmpl_1",
+  object: "chat.completion",
+  model: "zai-org/glm-5.2",
+  choices: [
+    {
+      index: 0,
+      message: { role: "assistant", content: "glm says hi" },
+      finish_reason: "stop",
+    },
+  ],
+  usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
+};
+
 const MODEL_GATE_BODY = {
   error: {
     message:
@@ -583,12 +597,14 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
   });
 
   it("picks the free-tier model from the pin without a round trip", async () => {
-    const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const goFetch = vi
+      .fn()
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
     const { service } = createService(vi.fn(), {
       route: {
         ...GO_ROUTE,
         plan: "free",
-        allowedModels: ["zai-org/glm-5.3", "@cf/zai-org/glm-5.2"],
+        allowedModels: ["zai-org/glm-5.3", "zai-org/glm-5.2"],
       },
       fetch: goFetch,
     });
@@ -599,12 +615,123 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
 
     expect(goFetch).toHaveBeenCalledTimes(1);
     expect(JSON.parse(goFetch.mock.calls[0][1].body).model).toBe(
-      "@cf/zai-org/glm-5.2",
+      "zai-org/glm-5.2",
     );
   });
 
-  it("falls back to the first allowed model when the free model is not pinned", async () => {
+  it("sends a chat prompt with no system message when the caller passes none, and tolerates null content and no usage", async () => {
+    const goFetch = vi.fn().mockResolvedValue(
+      createJsonResponse({
+        model: "zai-org/glm-5.2",
+        choices: [{ message: { content: null }, finish_reason: "length" }],
+      }),
+    );
+    const { service } = createService(vi.fn(), {
+      route: { ...GO_ROUTE, plan: "free", allowedModels: ["zai-org/glm-5.2"] },
+      fetch: goFetch,
+    });
+
+    const result = await service.prompt([{ role: "user", content: "hi" }]);
+
+    expect(JSON.parse(goFetch.mock.calls[0][1].body).messages).toEqual([
+      { role: "user", content: "hi" },
+    ]);
+    expect(result).toEqual({
+      content: "",
+      model: "zai-org/glm-5.2",
+      stopReason: "length",
+      usage: { inputTokens: 0, outputTokens: 0 },
+    });
+  });
+
+  it("keeps a re-minted retry on chat completions", async () => {
+    const goFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({ error: { message: "bad token" } }, 401),
+      )
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
+    const freeRoute = {
+      ...GO_ROUTE,
+      plan: "free" as const,
+      allowedModels: ["zai-org/glm-5.2"],
+    };
+    const remint = vi
+      .fn()
+      .mockResolvedValue({ ...freeRoute, token: "phe_two" });
+    const { service } = createService(vi.fn(), {
+      route: freeRoute,
+      fetch: goFetch,
+      remint,
+    });
+
+    const result = await service.prompt([{ role: "user", content: "hi" }]);
+
+    expect(result.content).toBe("glm says hi");
+    expect(remint).toHaveBeenCalledWith("unauthorized", "phe_one", 42);
+    const [retryUrl, retryInit] = goFetch.mock.calls[1];
+    expect(retryUrl).toBe(
+      "https://ai-gateway.us.posthog.com/v1/chat/completions",
+    );
+    expect(retryInit.headers.Authorization).toBe("Bearer phe_two");
+  });
+
+  it("sends an open-weight helper prompt as chat completions with the system prompt first", async () => {
+    const goFetch = vi
+      .fn()
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: { ...GO_ROUTE, plan: "free", allowedModels: ["zai-org/glm-5.2"] },
+      fetch: goFetch,
+    });
+
+    const result = await service.prompt([{ role: "user", content: "hi" }], {
+      system: "be brief",
+      maxTokens: 64,
+    });
+
+    const [url, init] = goFetch.mock.calls[0];
+    expect(url).toBe("https://ai-gateway.us.posthog.com/v1/chat/completions");
+    expect(init.headers.Authorization).toBe("Bearer phe_one");
+    expect(JSON.parse(init.body)).toEqual({
+      model: "zai-org/glm-5.2",
+      messages: [
+        { role: "system", content: "be brief" },
+        { role: "user", content: "hi" },
+      ],
+      stream: false,
+      // The chat floor, above the caller's 64.
+      max_tokens: 1024,
+    });
+    expect(result).toEqual({
+      content: "glm says hi",
+      model: "zai-org/glm-5.2",
+      stopReason: "stop",
+      usage: { inputTokens: 9, outputTokens: 4 },
+    });
+  });
+
+  it("keeps a Claude helper prompt on the Messages API", async () => {
     const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: GO_ROUTE,
+      fetch: goFetch,
+    });
+
+    await service.prompt([{ role: "user", content: "hi" }], {
+      model: "claude-haiku-4-5",
+      system: "be brief",
+    });
+
+    const [url, init] = goFetch.mock.calls[0];
+    expect(url).toBe("https://ai-gateway.us.posthog.com/v1/messages");
+    expect(JSON.parse(init.body).system).toBe("be brief");
+  });
+
+  it("falls back to the first allowed model when the free model is not pinned", async () => {
+    const goFetch = vi
+      .fn()
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
     const { service } = createService(vi.fn(), {
       route: { ...GO_ROUTE, plan: "free", allowedModels: ["zai-org/glm-5.3"] },
       fetch: goFetch,

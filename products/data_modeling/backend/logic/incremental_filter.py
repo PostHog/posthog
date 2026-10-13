@@ -36,7 +36,11 @@ class IncrementalFilterError(ValueError):
 
 def inject_incremental_filter(query: str, *, incremental_key: str, since: Any) -> SelectLike:
     """Parse ``query`` and return it filtered to rows at or after ``since``."""
-    node = parse_select(query)
+    return apply_incremental_filter(parse_select(query), incremental_key=incremental_key, since=since)
+
+
+def apply_incremental_filter(node: SelectLike, *, incremental_key: str, since: Any) -> SelectLike:
+    """Filter an already-parsed query, for callers that replace placeholders before filtering."""
     filtered = _push_predicate(node, incremental_key=incremental_key, since=since)
     return _wrap_with_guard(filtered, incremental_key=incremental_key, since=since)
 

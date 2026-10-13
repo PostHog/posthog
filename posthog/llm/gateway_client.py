@@ -383,6 +383,16 @@ def team_trace_id(team_id: int | None) -> str | None:
     return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, f"team-{team_id}"))
 
 
+def trace_id_from_seed(seed: str) -> str:
+    """Deterministic ``$ai_trace_id`` for a caller with no run id to borrow.
+
+    Absent a trace id the gateway stamps a fresh one per request, so every call in one
+    logical operation lands in a trace of its own. The seed must be unique to the
+    operation, because a coarser one merges unrelated calls into a single trace.
+    """
+    return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, seed))
+
+
 def anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``

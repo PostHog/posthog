@@ -5,6 +5,7 @@ build object shape confirmed via a live response shared in
 https://github.com/orgs/codemagic-ci-cd/discussions/1941 (GET /builds is not itself documented —
 see the comment on `ENDPOINTS["Builds"]` in `settings.py`). Keyed by the resource names in
 `settings.py` `ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced Codemagic table.
+The snake_case columns are the v3 API's field names, from https://codemagic.io/api/v3/schema.
 Columns absent here fall back to LLM enrichment.
 """
 
@@ -22,6 +23,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "branches": "Branches available on the application's repository.",
             "workflowIds": "Identifiers of the Workflow Editor workflows configured for this application.",
             "workflows": "Workflow Editor workflows configured for this application, keyed by workflow id.",
+            "id": "Unique identifier for the application.",
+            "name": "Name of the application.",
+            "icon_url": "URL of the application's icon, or null if none is set.",
+            "last_build_id": "Identifier of the application's most recent build, or null if it has never been built.",
+            "archived": "Whether the application is archived.",
         },
     },
     "Builds": {
@@ -45,6 +51,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "config": "Workflow configuration snapshot used for the build.",
             "artefacts": "Build artifacts produced by the build (e.g. app binaries), if any.",
             "labels": "Labels attached to the build.",
+            "id": "Unique identifier for the build.",
+            "app_id": "Identifier of the application this build ran for.",
+            "workflow": "Workflow the build ran, with its id, name, and source (codemagic.yaml file or Workflow Editor).",
+            "artifacts": "Build artifacts produced by the build (e.g. app binaries), if any.",
+            "release_notes": "Release notes attached to the build, one entry per language.",
+            "created_at": "Time the build was created (queued).",
+            "tag": "Git tag the build ran against, if any.",
+            "pull_request": "Pull request the build ran for, if any.",
+            "app_store_connect_status": "App Store Connect processing status for the build, if it was published there.",
+            "started_at": "Time the build started running, or null if it never started.",
+            "finished_at": "Time the build finished, or null while still running.",
         },
     },
 }

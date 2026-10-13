@@ -1,10 +1,23 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { addCrossProjectTileLogic } from './addCrossProjectTileLogic'
+import { InsightOption, addCrossProjectTileLogic } from './addCrossProjectTileLogic'
+
+function InsightOptionLabel({ insight }: { insight: InsightOption }): JSX.Element {
+    const detail = [insight.createdBy, insight.lastModifiedAt && `edited ${dayjs(insight.lastModifiedAt).fromNow()}`]
+        .filter(Boolean)
+        .join(' · ')
+    return (
+        <span className="flex items-center gap-2 w-full min-w-0">
+            <span className="flex-1 truncate">{insight.name}</span>
+            {detail ? <span className="shrink-0 text-xs text-secondary">{detail}</span> : null}
+        </span>
+    )
+}
 
 export interface AddCrossProjectTileModalProps {
     dashboardId: string
@@ -24,6 +37,17 @@ export function AddCrossProjectTileModal({ dashboardId }: AddCrossProjectTileMod
         isAdding,
     } = useValues(logic)
     const { closeModal, setProjectId, setInsight, setInsightSearch, loadMoreInsights, addTile } = useActions(logic)
+
+    const insightsByKey = new Map(
+        [...insightPage.insights, ...(selectedInsight ? [selectedInsight] : [])].map((insight) => [
+            String(insight.id),
+            insight,
+        ])
+    )
+    const loadMoreLabel =
+        insightPage.total !== undefined
+            ? `Load more insights (${insightPage.insights.length} of ${insightPage.total})`
+            : 'Load more insights'
 
     return (
         <LemonModal
@@ -50,11 +74,14 @@ export function AddCrossProjectTileModal({ dashboardId }: AddCrossProjectTileMod
         >
             <div className="flex flex-col gap-4 min-w-100">
                 <LemonField.Pure label="Project">
-                    <LemonSelect
-                        value={projectId}
-                        onChange={setProjectId}
+                    <LemonInputSelect
+                        mode="single"
+                        value={projectId ? [String(projectId)] : []}
+                        onChange={(keys) => setProjectId(keys[0] ? Number(keys[0]) : null)}
                         options={projectOptions}
-                        placeholder="Select a project"
+                        // An organization can pass the 100 options the plain list stops at.
+                        virtualized
+                        placeholder="Search projects"
                         data-attr="cross-project-add-tile-project"
                         fullWidth
                     />
@@ -67,7 +94,12 @@ export function AddCrossProjectTileModal({ dashboardId }: AddCrossProjectTileMod
                             setInsight(insightPage.insights.find((insight) => String(insight.id) === keys[0]) ?? null)
                         }
                         onInputChange={setInsightSearch}
-                        options={insightOptions}
+                        options={insightOptions.map((option) => {
+                            const insight = insightsByKey.get(option.key)
+                            return insight
+                                ? { ...option, labelComponent: <InsightOptionLabel insight={insight} /> }
+                                : option
+                        })}
                         // The search runs on the server, so the list is already the answer to it.
                         disableFiltering
                         // Loaded pages can pass the 100 options the plain list stops at.
@@ -78,7 +110,7 @@ export function AddCrossProjectTileModal({ dashboardId }: AddCrossProjectTileMod
                         action={
                             insightPage.hasMore
                                 ? {
-                                      children: 'Load more insights',
+                                      children: loadMoreLabel,
                                       onClick: loadMoreInsights,
                                       disabledReason: insightPageLoading ? 'Loading insights' : undefined,
                                   }

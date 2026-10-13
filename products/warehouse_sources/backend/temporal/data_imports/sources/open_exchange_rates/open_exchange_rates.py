@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -87,16 +89,38 @@ def _error_description(response: requests.Response) -> str:
     return ""
 
 
-def validate_credentials(app_id: str) -> bool:
+INVALID_APP_ID_ERROR = (
+    "Your Open Exchange Rates App ID is invalid or has been revoked. Create a new App ID in your Open "
+    "Exchange Rates dashboard, then reconnect."
+)
+RESTRICTED_ACCOUNT_ERROR = (
+    "Your Open Exchange Rates account is restricted. Check your account status in your Open Exchange "
+    "Rates dashboard, then reconnect."
+)
+VALIDATION_UNAVAILABLE_ERROR = (
+    "PostHog couldn't reach Open Exchange Rates to check your App ID. Wait a few minutes, then try again."
+)
+
+
+def validate_credentials(app_id: str) -> tuple[bool, str | None]:
     """Confirm the App ID is genuine with the cheapest authenticated call (/usage.json). It requires
     a valid App ID (an invalid one returns 401) but is free and does not count toward the request
     quota. A valid App ID returns 200."""
     try:
         session = make_tracked_session(headers=_auth_headers(app_id), redact_values=(app_id,) if app_id else ())
         response = session.get(_build_url("usage.json"), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    except Exception as e:
+        capture_exception(e)
+        return False, VALIDATION_UNAVAILABLE_ERROR
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, INVALID_APP_ID_ERROR
+    # Open Exchange Rates answers 403 for a suspended account and 429 for one blocked after over-use.
+    if response.status_code in (403, 429):
+        return False, RESTRICTED_ACCOUNT_ERROR
+    return False, VALIDATION_UNAVAILABLE_ERROR
 
 
 def _iter_currencies(data: dict[str, Any]) -> list[dict[str, Any]]:

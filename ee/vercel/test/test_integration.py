@@ -1,6 +1,7 @@
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from unittest import mock
 from unittest.mock import Mock, patch
 
@@ -8,17 +9,21 @@ from django.contrib.auth import SESSION_KEY
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import IntegrityError
 from django.http import HttpResponse
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
+from django.utils import timezone
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -359,6 +364,7 @@ class TestVercelIntegration(TestCase):
         assert "new_vercel_id" not in new_installation.config.get("user_mappings", {})
         mock_report.assert_not_called()
 
+        claims.user_email_verified = False
         with self.assertRaises(RequiresExistingUserLogin):
             VercelIntegration._find_sso_user(claims)
 
@@ -410,8 +416,7 @@ class TestVercelIntegration(TestCase):
         )
 
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_requires_login_for_external_user(self, mock_report):
-        """Security test: External users (no Vercel mapping) must prove ownership via login."""
+    def test_sso_requires_login_for_unverified_existing_email(self, mock_report):
         from ee.vercel.integration import RequiresExistingUserLogin
 
         # Create an existing PostHog user (not through Vercel)
@@ -445,10 +450,10 @@ class TestVercelIntegration(TestCase):
         membership = OrganizationMembership.objects.get(user=existing_user, organization=installation.organization)
         assert membership.level == OrganizationMembership.Level.OWNER
 
-        # SSO should require login for external user (no mapping yet)
         sso_claims = self._create_user_claims("vercel_external_user")
         sso_claims.installation_id = installation_id
         sso_claims.user_email = "external@example.com"
+        sso_claims.user_email_verified = False
 
         with self.assertRaises(RequiresExistingUserLogin):
             VercelIntegration._find_sso_user(sso_claims)
@@ -536,6 +541,79 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
+            (f"{policy}_{mapped}", policy, mapped)
+            for policy in ("totp", "passkey", "sso", "inactive", "domain")
+            for mapped in (False, True)
+        ]
+    )
+    @override_settings(
+        CLOUD_DEPLOYMENT="US",
+        SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="synthetic-client",
+        SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="synthetic-secret",
+    )
+    def test_sso_preserves_account_login_requirements(self, _name: str, policy: str, mapped: bool) -> None:
+        claims = self._create_user_claims("protected_user")
+        claims.user_email = self.user.email
+        if mapped:
+            self.installation.config["user_mappings"] = {claims.user_id: self.user.pk}
+            self.installation.save()
+        if policy == "totp":
+            TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+        elif policy == "passkey":
+            self.user.passkeys_enabled_for_2fa = True
+            self.user.save()
+            WebauthnCredential.objects.create(
+                user=self.user,
+                credential_id=b"synthetic-credential",
+                public_key=b"synthetic-public-key",
+                algorithm=-7,
+                verified=True,
+            )
+        elif policy == "sso":
+            self.organization.available_product_features = [{"key": "sso_enforcement"}]
+            self.organization.save()
+            OrganizationDomain.objects.create(
+                organization=self.organization,
+                domain="example.com",
+                verified_at=timezone.now(),
+                sso_enforcement="google-oauth2",
+            )
+        elif policy == "inactive":
+            self.user.is_active = False
+            self.user.save()
+        elif policy == "domain":
+            self.organization.enforce_verified_domains = True
+            self.organization.save()
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
+
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._authenticate_and_login_user(request, claims, None)
+
+        assert SESSION_KEY not in request.session
+        self.installation.refresh_from_db()
+        assert self.installation.config.get("user_mappings", {}).get(claims.user_id) == (
+            self.user.pk if mapped else None
+        )
+
+    def test_sso_does_not_replace_an_inactive_users_mapping(self) -> None:
+        inactive_user = User.objects.create_user(
+            email="inactive-mapping@example.com", password=None, first_name="Inactive", is_active=False
+        )
+        claims = self._create_user_claims("inactive_mapping")
+        claims.user_email = self.user.email
+        self.installation.config["user_mappings"] = {claims.user_id: inactive_user.pk}
+        self.installation.save()
+
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._find_sso_user(claims)
+
+        self.installation.refresh_from_db()
+        assert self.installation.config["user_mappings"][claims.user_id] == inactive_user.pk
+
+    @parameterized.expand(
+        [
             ("mapped_user_with_a_different_email", "self", "vercel-login@example.com", True, True, True),
             ("unmapped_user_with_a_different_email", None, "vercel-login@example.com", True, True, False),
             ("mapping_to_another_user", "other", "vercel-login@example.com", True, True, False),
@@ -585,8 +663,6 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
-        from ee.vercel.integration import RequiresExistingUserLogin, SSOParams
-
         # First installation - creates user with mapping
         first_installation_id = self.NEW_INSTALLATION_ID
         first_user_claims = self._create_user_claims("vercel_user_abc")
@@ -612,23 +688,17 @@ class TestVercelIntegration(TestCase):
         sso_claims = self._create_user_claims("vercel_user_xyz")
         sso_claims.installation_id = second_installation_id
 
-        with self.assertRaises(RequiresExistingUserLogin):
-            VercelIntegration._find_sso_user(sso_claims)
-
-        # After logging in and completing SSO, the mapping is created
-        code = "test_sso_code_second_install"
-        VercelIntegration.set_cached_claims(code, sso_claims, timeout=300)
-
         request = RequestFactory().get("/")
         SessionMiddleware(lambda request: HttpResponse()).process_request(request)
-        request.user = user
 
-        VercelIntegration.complete_sso_for_logged_in_user(
-            request, SSOParams(mode="login", code=code, state="test_state")
-        )
+        authenticated_user = VercelIntegration._authenticate_and_login_user(request, sso_claims, None)
 
         second_installation.refresh_from_db()
+        assert authenticated_user.pk == user.pk
+        assert request.session[SESSION_KEY] == str(user.pk)
         assert second_installation.config["user_mappings"]["vercel_user_xyz"] == user.pk
+        user.refresh_from_db()
+        assert user.current_organization == second_installation.organization
 
     @patch("ee.vercel.integration.report_user_signed_up")
     @patch("ee.billing.billing_manager.BillingManager")
@@ -708,6 +778,19 @@ class TestVercelIntegration(TestCase):
 
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
+
+    @patch("ee.vercel.integration.signup_refused", return_value=True)
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_upsert_installation_refused_by_an_access_rule_creates_no_user(self, mock_report, _refused):
+        new_user_claims = self._create_user_claims("refused_user_789")
+        new_user_claims.installation_id = self.NEW_INSTALLATION_ID
+        new_user_claims.sub = "account:test:user:refused"
+
+        with pytest.raises(exceptions.PermissionDenied) as raised:
+            VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload, new_user_claims)
+
+        assert raised.value.get_codes() == "access_blocked"
+        assert not User.objects.filter(email=self.payload["account"]["contact"]["email"]).exists()
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_does_not_reactivate_inactive_user(self, mock_report):

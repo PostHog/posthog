@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { PayGateIcon } from 'lib/components/PayGateMini/PayGateButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
@@ -98,9 +99,13 @@ export function SurveyWidgetCustomization(): JSX.Element {
                                     />
                                 </LemonField.Pure>
                                 <LemonField.Pure
-                                    label="Button position"
+                                    label={
+                                        <>
+                                            Button position
+                                            <PayGateIcon feature={AvailableFeature.SURVEYS_STYLING} />
+                                        </>
+                                    }
                                     className="gap-1 col-span-2"
-                                    premiumFeature={AvailableFeature.SURVEYS_STYLING}
                                     info="Requires at least version 1.294.0 of posthog-js"
                                 >
                                     <div className="flex items-center gap-2">

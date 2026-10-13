@@ -3565,4 +3565,79 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.upstreamLoadFailed).toBe(true)
         })
     })
+
+    // Hosts that embed the editor (batch exports) pass preview values, query modifiers and the single-statement
+    // option. They must reach the query that runs, and must stay out of `sourceQuery`, which hosts read back and save.
+    describe('embedded host options', () => {
+        let performQuerySpy: jest.SpyInstance
+
+        const mountEmbedded = (singleStatement?: boolean): void => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+                singleStatement,
+            })
+            logic.mount()
+        }
+
+        const executedHogQLQueries = (): HogQLQuery[] =>
+            performQuerySpy.mock.calls
+                .map(([query]) => query)
+                .filter((query): query is HogQLQuery => query?.kind === NodeKind.HogQLQuery)
+
+        const runAndSettle = async (): Promise<void> => {
+            logic.actions.runQuery()
+            await expectLogic(logic).toFinishAllListeners()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+
+        beforeEach(() => {
+            performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ results: [], columns: [], types: [] } as never)
+        })
+
+        afterEach(() => {
+            performQuerySpy.mockRestore()
+        })
+
+        it('runs with the host preview values and modifiers without saving them in the source query', async () => {
+            mountEmbedded()
+            logic.actions.setQueryInput('SELECT event FROM events WHERE timestamp >= {data_interval_start}')
+            logic.actions.setPlaceholders([
+                { name: 'data_interval_start', description: 'Start', previewValue: '2024-01-14 23:00:00' },
+            ])
+            logic.actions.setQueryModifiers({ convertToProjectTimezone: false })
+
+            await runAndSettle()
+
+            expect(executedHogQLQueries().at(-1)).toMatchObject({
+                values: { data_interval_start: '2024-01-14 23:00:00' },
+                modifiers: { convertToProjectTimezone: false },
+            })
+            expect(logic.values.sourceQuery.source).not.toHaveProperty('values')
+            expect(logic.values.sourceQuery.source).not.toHaveProperty('modifiers')
+        })
+
+        it.each([
+            ['runs a single statement', true, 'SELECT 1', ['SELECT 1']],
+            ['does not run more than one statement', true, 'SELECT 1; SELECT 2', []],
+            [
+                'still runs several statements without the option',
+                undefined,
+                'SELECT 1; SELECT 2',
+                ['SELECT 1; SELECT 2'],
+            ],
+        ])('singleStatement %s', async (_, singleStatement, queryInput, expectedQueries) => {
+            mountEmbedded(singleStatement)
+            logic.actions.setQueryInput(queryInput)
+
+            await runAndSettle()
+
+            // The data layer can call performQuery more than once per run, so compare the distinct queries
+            expect([...new Set(executedHogQLQueries().map((query) => query.query))]).toEqual(expectedQueries)
+        })
+    })
 })

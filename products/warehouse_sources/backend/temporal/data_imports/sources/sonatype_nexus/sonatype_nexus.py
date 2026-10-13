@@ -270,6 +270,8 @@ def _get_repository_fanout_rows(
                 # slow-drips each one's single terminal page to just under the per-response budget
                 # would bypass the check and hold the worker for repositories × MAX_RESPONSE_SECONDS.
                 if time.monotonic() > pagination_deadline:
+                    # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+                    resumable_source_manager.safe_point()
                     raise SonatypeNexusPaginationError(
                         f"Nexus pagination exceeded the {MAX_PAGINATION_SECONDS:g}s time budget for repository={repository}"
                     )
@@ -294,6 +296,8 @@ def _get_repository_fanout_rows(
                         f"Nexus returned a non-advancing continuation token for repository={repository}"
                     )
                 if page_count >= MAX_PAGES_PER_ENDPOINT:
+                    # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+                    resumable_source_manager.safe_point()
                     raise SonatypeNexusPaginationError(
                         f"Nexus pagination exceeded {MAX_PAGES_PER_ENDPOINT} pages for repository={repository}"
                     )

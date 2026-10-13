@@ -16,6 +16,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_reads import SavedScoutReads
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStateError, ScoutTrialStore
+from products.tasks.backend.facade.access import is_sandbox_run_request
 
 
 def trial_run_for_request(request: Request, team_id: int) -> SignalScoutRun | None:
@@ -26,6 +27,13 @@ def trial_run_for_request(request: Request, team_id: int) -> SignalScoutRun | No
     run = bound_trial_run(team_id, token.sandbox_task_id)
     carries_scope = "scout_experiment_internal:read" in (token.scope or "").split()
     if carries_scope != (run is not None):
+        raise exceptions.PermissionDenied("The scout credential does not match its run.")
+    if run is not None and not is_sandbox_run_request(
+        team_id=team_id,
+        task_id=str(token.sandbox_task_id),
+        run_id=str(run.task_run_id),
+        token_id=token.pk,
+    ):
         raise exceptions.PermissionDenied("The scout credential does not match its run.")
     return run
 

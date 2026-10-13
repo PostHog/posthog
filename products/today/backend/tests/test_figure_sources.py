@@ -6,7 +6,6 @@ from products.today.backend.facade.enums import FigureText
 from products.today.backend.logic.figure_sources import (
     KIND_LABELS,
     KIND_QUESTION,
-    NAMED_LABELS,
     NAMED_QUESTION,
     RELATION_QUESTION,
     SOURCE_QUESTION,
@@ -71,11 +70,11 @@ class TestFigureSources(SimpleTestCase):
                 ALL_QUESTIONS,
             ),
             (
-                "drops the mark when Jev is unsure the source says what the number counts",
+                "keeps the mark when Jev is unsure whether the source says what the number counts",
                 "The export failed for 212 users.",
                 ["On Monday the export failed for 212 users."],
-                {NAMED_QUESTION: JevPick(label=NAMED_LABELS[0], probability=0.6)},
-                [],
+                {NAMED_QUESTION: JevPick(label=UNNAMED, probability=0.6)},
+                [("212", "On Monday the export failed for 212 users.")],
                 ALL_QUESTIONS,
             ),
         ]

@@ -116,10 +116,10 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), expected_mode)
         self.assertIn(expected_output, output)
 
-    def test_allow_downgrade_lowers_the_stored_mode_while_the_usage_tab_is_forced_to_events(self) -> None:
+    def test_allow_downgrade_lowers_the_stored_mode_while_reads_are_forced_to_events(self) -> None:
         self._store_mode(self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
-        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", True):
             self._run("--mode", "0", "--organization-id", str(self.organization.id), "--allow-downgrade")
 
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.EVENTS)

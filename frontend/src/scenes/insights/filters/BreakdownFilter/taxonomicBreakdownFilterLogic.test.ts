@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, InsightLogicProps } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyType } from '~/types'
 
 import * as breakdownLogic from './taxonomicBreakdownFilterLogic'
 
@@ -65,6 +67,31 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     },
                 ],
             })
+        })
+
+        it.each([true, false])('sets breakdown for autocapture elements with isTrends=%s', async (isTrends) => {
+            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {}, isTrends, isFunnels: !isTrends }))
+            logic.mount()
+            propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                'event/text': {
+                    id: 'text',
+                    name: 'text',
+                    property_type: PropertyType.Numeric,
+                    is_numerical: true,
+                    is_seen_on_filtered_events: false,
+                },
+            })
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.Elements, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown('text', group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith(
+                isTrends
+                    ? { breakdowns: [{ property: 'text', type: 'element' }] }
+                    : { breakdown: 'text', breakdown_type: 'element' }
+            )
         })
 
         it('sets breakdown for cohorts', async () => {
@@ -194,8 +221,10 @@ describe('taxonomicBreakdownFilterLogic', () => {
         it('rejects a taxonomic group that maps to a non-breakdown type', async () => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
             logic.mount()
+            const errorToast = jest.spyOn(lemonToast, 'error')
             // Error tracking issues map to the `error_tracking_issue` property filter type, which is
-            // not a valid `BreakdownType`. It must not reach the query as a breakdown.
+            // not a valid `BreakdownType`. It must not reach the query as a breakdown, and the user
+            // must hear about the rejection instead of the picker closing without a word.
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
                 TaxonomicFilterGroupType.ErrorTrackingIssues,
                 undefined
@@ -206,6 +235,10 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).not.toHaveBeenCalled()
+            expect(errorToast).toHaveBeenCalledWith(
+                'Breakdowns by unused in these tests are not supported here. Pick an event or person property instead.'
+            )
+            errorToast.mockRestore()
         })
 
         it('sets a hide other aggregation', async () => {
@@ -571,8 +604,17 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 })
             )
             logic.mount()
+            propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                'event/text': {
+                    id: 'text',
+                    name: 'text',
+                    property_type: PropertyType.Numeric,
+                    is_numerical: true,
+                    is_seen_on_filtered_events: false,
+                },
+            })
             const changedBreakdown = 'c'
-            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.Elements, undefined)
 
             await expectLogic(logic, () => {
                 logic.actions.replaceBreakdown(
@@ -582,7 +624,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     },
                     {
                         group: group,
-                        value: 'a',
+                        value: 'text',
                     }
                 )
             }).toFinishListeners()
@@ -591,8 +633,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_type: undefined,
                 breakdowns: [
                     {
-                        type: 'event',
-                        property: 'a',
+                        type: 'element',
+                        property: 'text',
                     },
                 ],
                 breakdown_group_type_index: undefined,

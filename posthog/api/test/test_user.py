@@ -116,6 +116,10 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
+        self.assertEqual(
+            response_data["organization"]["membership_joined_at"],
+            self.organization_membership.joined_at.isoformat(),
+        )
         self.assertEqual(response_data["organization"]["teams"][0]["id"], self.team.id)
         self.assertEqual(response_data["organization"]["teams"][0]["name"], self.team.name)
         self.assertNotIn(

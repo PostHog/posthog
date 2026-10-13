@@ -31,24 +31,63 @@ const tables = {
 }
 
 describe('BI connections', () => {
-    it('drags nested dimensions and measures using paths from the original source', () => {
-        const [person] = buildBIConnections(source, tables, ['["person"]', '["person","company"]'], {}, true)
-        const [company] = person.connections
+    it.each([
+        ['events', 'person'],
+        ['stripe_charges', 'customer'],
+    ])('drags related dimensions and measures from %s through %s', (rootTable, relation) => {
+        const rootSource = { ...source, table: rootTable }
+        const warehouse = rootTable === 'stripe_charges'
+        const relatedTable = warehouse ? 'stripe_customers' : 'persons'
+        const catalog: Record<string, DatabaseSchemaTable> = {
+            ...tables,
+            [rootTable]: {
+                ...table(rootTable, [
+                    field(relation, 'lazy_table', {
+                        table: `\`${relatedTable}\``,
+                        fields: ['email', 'lifetime_value', 'company'],
+                    }),
+                ]),
+                type: warehouse ? 'data_warehouse' : 'posthog',
+            },
+            [relatedTable]: {
+                ...tables.persons,
+                name: relatedTable,
+                id: warehouse ? 'warehouse-customer-id' : 'persons',
+                type: warehouse ? 'data_warehouse' : 'posthog',
+            },
+        }
+        const [related] = buildBIConnections(
+            rootSource,
+            catalog,
+            [JSON.stringify([relation]), JSON.stringify([relation, 'company'])],
+            {},
+            true
+        )
+        const [company] = related.connections
+        expect(related.tableName).toBe(relatedTable)
         expect(company.connections).toEqual([])
         const dimension = company.fields.dimensions[0]
         const measure = company.fields.measures[0]
-        expect(dimension).toMatchObject({ name: 'person.company.name', expression: 'person.company.name', source })
-        expect(measure).toMatchObject({ name: 'person.company.annual_revenue', type: 'decimal', source })
+        expect(dimension).toMatchObject({
+            name: `${relation}.company.name`,
+            expression: `${relation}.company.name`,
+            source: rootSource,
+        })
+        expect(measure).toMatchObject({
+            name: `${relation}.company.annual_revenue`,
+            type: 'decimal',
+            source: rootSource,
+        })
         const value = getBIDropTarget(measure, 'rows').field as BIField
         const query = buildBIQuery({
             ...DEFAULT_BI_CONFIG,
-            source,
+            source: rootSource,
             rows: [dimension],
             values: [{ field: value, aggregation: 'sum' }],
         })
-        expect(query?.query).toContain('person.company.name')
-        expect(query?.query).toContain('sum(person.company.annual_revenue)')
-        expect(query?.query).toContain('FROM events')
+        expect(query?.query).toContain(`${relation}.company.name`)
+        expect(query?.query).toContain(`sum(${relation}.company.annual_revenue)`)
+        expect(query?.query).toContain(`FROM ${rootTable}`)
     })
 
     it.each(['lazy_table', 'view', 'materialized_view', 'virtual_table'] as const)(
@@ -64,6 +103,20 @@ describe('BI connections', () => {
             expect(person.connections).toEqual([])
         }
     )
+
+    it('keeps native property groups searchable without treating warehouse JSON as PostHog properties', () => {
+        const catalog = {
+            ...tables,
+            persons: table('persons', [field('properties', 'json'), field('email', 'string')]),
+        }
+        for (const rootSource of [{ table: 'events' }, source]) {
+            const connections = buildBIConnections(rootSource, catalog, ['["person"]'], {}, true)
+            const filtered = filterBIConnections(connections, '$browser')
+            expect(filtered.flatMap((connection) => connection.fields.dimensions.map((field) => field.name))).toEqual(
+                rootSource.connectionId ? [] : ['person.properties']
+            )
+        }
+    })
 
     it('uses the PostHog table ID for hydration and status', () => {
         const catalog = { ...tables, persons: { ...table('persons', []), id: 'person-table-id' } }

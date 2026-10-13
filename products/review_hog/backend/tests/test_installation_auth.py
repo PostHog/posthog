@@ -56,16 +56,13 @@ class TestInstallationAuth(BaseTest):
 class TestRemoveTriggerLabel:
     @patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", "inst"))
     @patch("products.review_hog.backend.temporal.activities.github_api_request")
-    def test_deletes_the_reviewhog_label(self, request: MagicMock, _auth: MagicMock) -> None:
+    def test_deletes_every_review_label(self, request: MagicMock, _auth: MagicMock) -> None:
         _remove_trigger_label(RemoveTriggerLabelInput(team_id=1, owner="PostHog", repo="posthog", pr_number=7))
 
-        request.assert_called_once_with(
-            "DELETE",
-            "/repos/PostHog/posthog/issues/7/labels/reviewhog",
-            token="tok",
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-            installation_id="inst",
-        )
+        assert [call.args for call in request.call_args_list] == [
+            ("DELETE", "/repos/PostHog/posthog/issues/7/labels/posthog-review"),
+            ("DELETE", "/repos/PostHog/posthog/issues/7/labels/reviewhog"),
+        ]
 
     @patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", "inst"))
     @patch(

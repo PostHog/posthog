@@ -1816,7 +1816,7 @@ function generateCategoryFile(
         if (!resolved) {
             console.error(
                 `Enabled tool "${name}": operationId "${config.operation}" not found in OpenAPI. ` +
-                    `The operationId no longer exists. Fix "operation:" in the tool's YAML, or set "enabled: false" / remove the tool.`
+                    `The operationId no longer exists. Fix "operation:" in the tool's YAML, or remove the tool.`
             )
             process.exit(1)
         }

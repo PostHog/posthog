@@ -12,6 +12,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
@@ -21,6 +22,8 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.scopes import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
+
+from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import (
@@ -233,6 +236,10 @@ def handle_new_user(
 
     label = partner_label(partner)
     org_name = configuration.get("organization_name") or f"{label} ({email})"
+
+    if signup_refused(email, call_site="agentic_provisioning"):
+        capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
+        raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
     try:
         organization, team, user = User.objects.bootstrap(

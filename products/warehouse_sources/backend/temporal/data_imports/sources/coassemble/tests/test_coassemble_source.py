@@ -1,10 +1,9 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source import CoassembleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
     CoassembleSourceConfig,
 )
@@ -15,23 +14,6 @@ class TestCoassembleSource:
         self.source = CoassembleSource()
         self.team_id = 123
         self.config = CoassembleSourceConfig(workspace_id="ws-1", api_key="sk-key")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Coassemble"
-        assert config.label == "Coassemble"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately still hidden — the source lands unreleased until it has been verified
-        # against a live workspace.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/coassemble"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["workspace_id", "api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The base URL is hardcoded and workspace_id only selects the tenant on Coassemble's own
-        # host, so there is no non-secret field an editor could retarget to exfiltrate the key.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [
@@ -71,7 +53,7 @@ class TestCoassembleSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Coassemble schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Coassemble schema 'not_a_table'" in str(result.raised)

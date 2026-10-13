@@ -49,6 +49,7 @@ import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { MaterializationStatusIcon } from 'products/data_modeling/frontend/MaterializationStatusIcon'
 import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
@@ -491,28 +492,37 @@ export const QueryDatabase = ({
                     >
                         <div className="flex flex-row gap-1 justify-between">
                             <div className="shrink-0 flex min-w-0 items-center gap-2">
-                                {hasMatches && searchTerm ? (
-                                    <SearchHighlightMultiple
-                                        string={itemLabel}
-                                        substring={searchTerm}
-                                        className={cn(isColumn && 'font-mono text-xs')}
-                                    />
-                                ) : (
-                                    <span
-                                        className={cn(
-                                            ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
-                                                item.record?.type
-                                            ) && 'font-semibold',
-                                            item.record?.type === 'folder' &&
-                                                item.record?.folderType === 'view-folder' &&
-                                                'font-semibold',
-                                            isColumn && 'font-mono text-xs',
-                                            'truncate shrink-0'
-                                        )}
-                                    >
-                                        {item.displayName ?? item.name}
-                                    </span>
-                                )}
+                                <span className="shrink-0 flex items-center gap-1">
+                                    {item.record?.type === 'view' && item.record.isSavedQuery ? (
+                                        <MaterializationStatusIcon view={item.record.view} />
+                                    ) : null}
+                                    {hasMatches && searchTerm ? (
+                                        <SearchHighlightMultiple
+                                            string={itemLabel}
+                                            substring={searchTerm}
+                                            className={cn(isColumn && 'font-mono text-xs')}
+                                        />
+                                    ) : (
+                                        <span
+                                            className={cn(
+                                                [
+                                                    'managed-views',
+                                                    'views',
+                                                    'sources',
+                                                    'drafts',
+                                                    'unsaved-folder',
+                                                ].includes(item.record?.type) && 'font-semibold',
+                                                item.record?.type === 'folder' &&
+                                                    item.record?.folderType === 'view-folder' &&
+                                                    'font-semibold',
+                                                isColumn && 'font-mono text-xs',
+                                                'truncate shrink-0'
+                                            )}
+                                        >
+                                            {item.displayName ?? item.name}
+                                        </span>
+                                    )}
+                                </span>
                                 <TableCertificationIcon certification={certification} />
                                 {isColumn && columnType && savedExpression ? (
                                     <Tooltip title={<code className="text-xs">{savedExpression.expression}</code>}>
