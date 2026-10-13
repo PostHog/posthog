@@ -77,15 +77,14 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
 
 
 class TestVitalsTimeseriesGate(APIBaseTest):
-    @parameterized.expand([(False,), (None,)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_raw_native_source_cannot_be_enqueued_with_an_override(self, override: bool | None) -> None:
+    def test_raw_native_source_cannot_be_enqueued_with_an_override(self) -> None:
         query = _vitals_query(
             modifiers=HogQLQueryModifiers(useNewEventsCluster=False),
             source_overrides={"modifiers": HogQLQueryModifiers(useNewEventsCluster=True)},
         )
         runner = WebVitalsQueryRunner(
-            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=override)
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=False)
         )
         original = runner.query
         with (

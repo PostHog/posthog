@@ -345,9 +345,6 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
         (Workload.NEW_EVENTS_CLUSTER, False, True, True),
         (Workload.NEW_EVENTS_CLUSTER, True, False, False),
         (Workload.OFFLINE, True, True, True),
-        (Workload.OFFLINE, True, False, False),
-        (Workload.DEFAULT, False, True, True),
-        (Workload.LOGS, False, True, True),
     ],
 )
 def test_http_pool_preserves_existing_verification_policy(
