@@ -28,7 +28,10 @@ import pyarrow as pa
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
+    fetch_row_batches,
+    page_rows_after_worker_deaths,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     SafeSQL,
@@ -212,6 +215,7 @@ def iter_keyset_pages(
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
+    worker_deaths: int = 0,
 ) -> Iterator[pa.Table]:
     """Yield a table as successive Arrow batches, read by keyset pages that seek on `keyset_column`.
 
@@ -279,7 +283,10 @@ def iter_keyset_pages(
     # A page is one query and one round trip, so the page ceiling is the chunk size and not the lower
     # default that suits a driver reading from an open result stream.
     for rows in fetch_row_batches(
-        fetch_page, max_rows=chunk_size, max_page_rows=chunk_size, size_pages_by_average=True
+        fetch_page,
+        max_rows=chunk_size,
+        max_page_rows=page_rows_after_worker_deaths(chunk_size, worker_deaths),
+        size_pages_by_average=True,
     ):
         table = to_table(columns, rows)
 

@@ -4361,6 +4361,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
         text_ids: list[str] | None = None,
+        worker_deaths: int = 0,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4426,6 +4427,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
+                worker_deaths=worker_deaths,
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
@@ -4714,6 +4716,25 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert max(self.last_scan.limits) == 4
         # Once a page shows what a row weighs, a page holds no more than one batch budget.
         assert self.last_scan.limits[-1] == 2
+
+    @parameterized.expand(
+        [
+            ("seek_walk_halves_its_pages", False, 2),
+            # A LIMIT/OFFSET walk starts again from the first row and scans its offset on every page.
+            ("offset_walk_keeps_its_pages", True, 4),
+        ]
+    )
+    def test_page_size_after_a_worker_death(self, _name, should_use_incremental_field, expected_limit):
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+            worker_deaths=1,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
+        assert max(self.last_scan.limits) == expected_limit
 
     def test_one_wide_row_does_not_shrink_the_seek_pages(self):
         text_ids = ["a", "b", "c" + "x" * 200, "d", "e", "f"]

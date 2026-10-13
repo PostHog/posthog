@@ -451,3 +451,24 @@ def test_an_occasional_wide_row_does_not_shrink_the_pages():
 
     assert [v.as_py() for table in tables for v in table.column("id")] == list(range(1, 41))
     assert set(pages.limits) == {10}
+
+
+def test_each_worker_death_halves_the_pages():
+    pages = _FakePages(all_ids=list(range(1, 9)), chunk_size=8)
+
+    tables = list(
+        iter_keyset_pages(
+            builder=_BUILDER,
+            schema="db",
+            table_name="t",
+            keyset_column="id",
+            chunk_size=8,
+            run_page=pages.run_page,
+            to_table=_to_table,
+            initial_last_value=None,
+            worker_deaths=2,
+        )
+    )
+
+    assert [v.as_py() for table in tables for v in table.column("id")] == list(range(1, 9))
+    assert set(pages.limits) == {2}

@@ -128,6 +128,15 @@ def _page_rows(largest_row_bytes: int, *, max_rows: int, max_bytes: int, max_pag
     return max(1, min(ceiling, max_bytes // largest_row_bytes))
 
 
+def page_rows_after_worker_deaths(page_rows: int, worker_deaths: int) -> int:
+    """The page ceiling for a run whose worker has died `worker_deaths` times.
+
+    A page that is too large does not raise. The kernel kills the worker, and the next attempt
+    reads the same rows again at the same size. Each death halves the page for the rest of the run.
+    """
+    return max(1, page_rows >> min(worker_deaths, 30))
+
+
 def fetch_row_batches(
     fetch: Callable[[int], Sequence[RowT] | None],
     *,
