@@ -1,3 +1,4 @@
+import re
 import json
 from typing import Any
 
@@ -222,7 +223,7 @@ def _run_orders(
         )
         batches = list(source.items())
         sent = [call.kwargs["json"]["query"] for call in session_cls.return_value.post.call_args_list]
-    return batches, [graphql.parse(query).definitions[0].name.value for query in sent]  # type: ignore[union-attr]
+    return batches, [re.findall(r"(?:query|mutation) (\w+)", query)[0] for query in sent]
 
 
 def _manager(resume_state: ShopifyResumeConfig | None = None) -> MagicMock:
