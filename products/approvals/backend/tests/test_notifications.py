@@ -291,12 +291,13 @@ class TestRealtimeDispatchOnRequested(TestApprovalNotifications):
 
         mock_create_notification.assert_not_called()
 
+    @parameterized.expand(
+        [("email_send", "_send_approval_email"), ("preference_lookup", "notification_locks_for_users")]
+    )
     @patch("products.approvals.backend.notifications.create_notification")
-    @patch("products.approvals.backend.notifications._send_approval_email")
-    def test_email_failure_does_not_block_realtime(self, mock_email, mock_create_notification):
-        mock_email.side_effect = RuntimeError("smtp down")
-
-        send_approval_requested_notification(self.change_request)
+    def test_email_failure_does_not_block_realtime(self, _name, failing_call, mock_create_notification):
+        with patch(f"products.approvals.backend.notifications.{failing_call}", side_effect=RuntimeError("boom")):
+            send_approval_requested_notification(self.change_request)
 
         self.assertEqual(mock_create_notification.call_count, 2)
 
@@ -601,12 +602,13 @@ class TestRealtimeDispatchOnResolve(TestApprovalNotifications):
 
         mock_create_notification.assert_not_called()
 
+    @parameterized.expand(
+        [("email_send", "_send_approval_email"), ("preference_lookup", "notification_locks_for_users")]
+    )
     @patch("products.approvals.backend.notifications.create_notification")
-    @patch("products.approvals.backend.notifications._send_approval_email")
-    def test_email_failure_does_not_block_realtime(self, mock_email, mock_create_notification):
-        mock_email.side_effect = RuntimeError("smtp down")
-
-        send_approval_applied_notification(self.change_request)
+    def test_email_failure_does_not_block_realtime(self, _name, failing_call, mock_create_notification):
+        with patch(f"products.approvals.backend.notifications.{failing_call}", side_effect=RuntimeError("boom")):
+            send_approval_applied_notification(self.change_request)
 
         mock_create_notification.assert_called_once()
 
