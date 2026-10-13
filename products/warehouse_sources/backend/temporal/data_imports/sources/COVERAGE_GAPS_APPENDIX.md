@@ -8813,8 +8813,8 @@ Today (1): `items`
 
 Diffed against: <https://api.opinionstage.com/api-docs/api/v2/openapi.yaml>
 
-- [ ] `/api/v2/items/{itemId}/responses` — the actual respondent-level answer data — the entire point of the Public Result API; today only the widget list is synced (high)
-- [ ] `/api/v2/items/{itemId}/questions` — lookup table resolving the question IDs carried on response rows (high)
+- [x] `/api/v2/items/{itemId}/responses` — the actual respondent-level answer data — the entire point of the Public Result API; today only the widget list is synced (high)
+- [x] `/api/v2/items/{itemId}/questions` — lookup table resolving the question IDs carried on response rows (high)
 
 Note: The vendor OpenAPI spec (title 'Public Result API') defines exactly 5 operations: list items, get item, list responses, get response, list questions. PostHog implements only list items. products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py explicitly defers responses and questions as 'fan-out (they require an item id) and are intentionally excluded from v1' — so the gap is known and deliberate, but it is the whole analytical payload.
 
