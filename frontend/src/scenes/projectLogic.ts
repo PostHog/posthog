@@ -19,6 +19,8 @@ import { organizationLogic } from './organizationLogic'
 import { urls } from './urls'
 import { userLogic } from './userLogic'
 
+const CREATE_PROJECT_TIMEOUT_MS = 60_000
+
 export function isPathOpenWhileProjectPendingDeletion(pathname: string): boolean {
     // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.
     // Tickets load from PostHog's support project, not this one, and reply emails link to them.
@@ -274,8 +276,19 @@ export const projectLogic = kea<projectLogicType>([
                     // Let failures (e.g. a 403 for non-admins) propagate: kea-loaders surfaces the API
                     // error toast and clears the loading state, and createProjectSuccess never fires — so we
                     // don't switch into a project that wasn't created or leave the modal stuck open.
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create('api/projects/', { name })
+                    const signal = AbortSignal.timeout(CREATE_PROJECT_TIMEOUT_MS)
+                    try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                        return await api.create('api/projects/', { name }, { signal })
+                    } catch (error) {
+                        if (signal.aborted) {
+                            actions.loadCurrentOrganization()
+                            lemonToast.error(
+                                'Creating the project is taking longer than expected. Refresh the page to see if it was created before you try again.'
+                            )
+                        }
+                        throw error
+                    }
                 },
                 cancelProjectDeletion: async () => {
                     if (!values.currentProject) {
@@ -363,7 +376,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, urls.projectHomepage())
+                actions.switchTeam(currentProject.id)
             }
         },
 

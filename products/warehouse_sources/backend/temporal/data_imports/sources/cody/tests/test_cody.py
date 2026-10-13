@@ -25,7 +25,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody 
     normalize_instance_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cody.source import CodySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
 
 CSV_BODY = "User Email,Chats,Completion Acceptance Rate (CAR%)\na@b.com,12,0.5\nc@d.com,3,0.25\n"
 
@@ -73,11 +80,11 @@ def _batches(source: SourceResponse) -> Iterator[list[dict[str, Any]]]:
     return iter(cast(Iterable[list[dict[str, Any]]], source.items()))
 
 
-def _requested_urls(session: mock.Mock) -> list[str]:
-    return [call.args[0] for call in session.get.call_args_list]
-
-
 class TestCodyTransport:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(CodySource(), CodySourceConfig(instance_url="example.com", access_token="token"))
+
     @parameterized.expand(
         [
             # (start, today, expected inclusive windows)
@@ -163,22 +170,20 @@ class TestCodyTransport:
 
     @parameterized.expand([(401,), (403,), (404,), (400,)])
     def test_validate_credentials_raises_user_facing_error(self, status_code):
-        session = mock.Mock()
-        session.get.return_value = _response(status_code)
-
-        with mock.patch.object(cody, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             with pytest.raises(CodyCredentialsError):
                 validate_credentials("token", "example.com")
+
+        assert network.requests_log[0].param("instanceURL") == "example.com"
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_validate_credentials_raises_retryable_on_transient_status(self, status_code):
         # A rate limit or 5xx must not be conflated with a bad credential.
-        session = mock.Mock()
-        session.get.return_value = _response(status_code)
-
-        with mock.patch.object(cody, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             with pytest.raises(CodyRetryableError):
                 validate_credentials("token", "example.com")
+
+        assert network.requests_log[0].param("instanceURL") == "example.com"
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_retries_transient_errors(self, status_code):
@@ -200,15 +205,20 @@ class TestCodyTransport:
         assert session.get.call_count == 1
 
     def test_unknown_endpoint_raises(self):
-        with pytest.raises(ValueError, match="Unknown Cody endpoint"):
-            cody_source("token", "example.com", "audit_logs", mock.Mock(), _manager())
+        result = self._driver().run("audit_logs", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Cody endpoint" in str(result.raised)
 
     @parameterized.expand([(endpoint,) for endpoint in cody.CODY_ENDPOINTS])
     def test_source_response_shape(self, endpoint):
-        response = cody_source("token", "example.com", endpoint, mock.Mock(), _manager())
+        with time_machine.travel("2023-01-01", tick=False):
+            result = self._driver().run(endpoint, [ScriptedResponse(json=[])])
 
-        assert response.name == endpoint
-        assert response.sort_mode == "asc"
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.sort_mode == "asc"
 
     @parameterized.expand(
         [
@@ -219,17 +229,12 @@ class TestCodyTransport:
     def test_aggregate_reports_fetch_all_time_in_one_request(self, endpoint, granularity):
         # Windowing an aggregate report would change per-user totals to per-window totals,
         # so these must go out as a single request with no date bounds.
-        manager = _manager()
-        session = mock.Mock()
-        session.get.return_value = _response(200, text=CSV_BODY)
+        result = self._driver().run(endpoint, [ScriptedResponse(json=[{"id": "b1"}, {"id": "b2"}])])
 
-        with mock.patch.object(cody, "make_tracked_session", return_value=session):
-            batches = list(_batches(cody_source("token", "example.com", endpoint, mock.Mock(), manager)))
-
-        assert [len(batch) for batch in batches] == [2]
-        params = parse_qs(urlparse(session.get.call_args.args[0]).query)
-        assert params == {"instanceURL": ["example.com"], "granularity": [granularity]}
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [2]
+        assert result.queries == [{"instanceURL": ("example.com",), "granularity": (granularity,)}]
+        assert result.saved_states == []
 
     @parameterized.expand(
         [
@@ -260,45 +265,35 @@ class TestCodyTransport:
         assert session.get.call_args.kwargs["stream"] is True
 
     def test_windowed_endpoint_walks_months_from_origin_and_checkpoints(self):
-        manager = _manager()
-        session = mock.Mock()
-        # A fresh response per window — each one's raw stream is consumed exactly once.
-        session.get.side_effect = lambda *args, **kwargs: _response(200, text=CSV_BODY)
+        with time_machine.travel("2023-03-15", tick=False):
+            result = self._driver().run("usage_by_user_day", [ScriptedResponse(json=[{"id": "a"}, {"id": "b"}])] * 3)
 
-        with (
-            time_machine.travel("2023-03-15", tick=False),
-            mock.patch.object(cody, "make_tracked_session", return_value=session),
-        ):
-            batches = list(_batches(cody_source("token", "example.com", "usage_by_user_day", mock.Mock(), manager)))
-
-        urls = _requested_urls(session)
-        assert len(urls) == 3  # Jan, Feb, and the clipped March window
-        assert "startDate=2023-01-01" in urls[0] and "endDate=2023-01-31" in urls[0]
-        assert "startDate=2023-02-01" in urls[1] and "endDate=2023-02-28" in urls[1]
-        assert "startDate=2023-03-01" in urls[2] and "endDate=2023-03-15" in urls[2]
-        assert all("granularity=by_user_day" in url for url in urls)
-        assert len(batches) == 3
+        assert result.raised is None
+        assert len(result.requests) == 3  # Jan, Feb, and the clipped March window
+        assert result.params("startDate") == ["2023-01-01", "2023-02-01", "2023-03-01"]
+        assert result.params("endDate") == ["2023-01-31", "2023-02-28", "2023-03-15"]
+        assert result.params("granularity") == ["by_user_day"] * 3
+        assert [len(batch) for batch in result.items] == [2, 2, 2]
 
         # A checkpoint lands after each fully-yielded window except the final one, and the
         # completed walk clears state so a same-job retry restarts from the origin.
-        saved = [call.args[0].window_start for call in manager.save_state.call_args_list]
-        assert saved == ["2023-02-01", "2023-03-01"]
-        manager.clear_state.assert_called_once()
+        assert result.saved_states == [
+            CodyResumeConfig(window_start="2023-02-01"),
+            CodyResumeConfig(window_start="2023-03-01"),
+        ]
+        assert result.final_state is None
 
     def test_windowed_endpoint_resumes_from_saved_window(self):
-        manager = _manager(CodyResumeConfig(window_start="2023-03-01"))
-        session = mock.Mock()
-        session.get.return_value = _response(200, text=CSV_BODY)
+        with time_machine.travel("2023-03-15", tick=False):
+            result = self._driver().run(
+                "usage_by_user_day",
+                [ScriptedResponse(json=[{"id": "a"}, {"id": "b"}])],
+                resume_state=CodyResumeConfig(window_start="2023-03-01"),
+            )
 
-        with (
-            time_machine.travel("2023-03-15", tick=False),
-            mock.patch.object(cody, "make_tracked_session", return_value=session),
-        ):
-            list(_batches(cody_source("token", "example.com", "usage_by_user_day", mock.Mock(), manager)))
-
-        urls = _requested_urls(session)
-        assert len(urls) == 1  # earlier windows are not re-fetched
-        assert "startDate=2023-03-01" in urls[0] and "endDate=2023-03-15" in urls[0]
+        assert result.raised is None
+        assert result.params("startDate") == ["2023-03-01"]  # earlier windows are not re-fetched
+        assert result.params("endDate") == ["2023-03-15"]
 
     def test_windowed_endpoint_checkpoints_only_after_rows_are_consumed(self):
         manager = _manager()

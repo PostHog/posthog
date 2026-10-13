@@ -3,6 +3,8 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -62,36 +64,61 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
+        '/visual-review': ['VisualReviewIndex', 'visualReviewIndex'],
+        '/visual-review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
+        '/visual-review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
+        '/visual-review/repos/:repoOwner/:repoName/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+        '/visual-review/repos/:repoOwner/:repoName/snapshots': [
+            'VisualReviewSnapshotOverview',
+            'visualReviewSnapshotOverview',
+        ],
+        '/visual-review/repos/:repoOwner/:repoName/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
+        '/visual-review/repos/:repoOwner/:repoName/:runType/snapshots/:identifier': [
             'VisualReviewSnapshotHistory',
             'visualReviewSnapshotHistory',
         ],
+        // URLs that name a repo or run by UUID. PR comments and bookmarks still carry them, so the index
+        // scene looks the repo up and forwards to its owner/name URL.
+        '/visual-review/runs/:runId': ['VisualReviewIndex', 'visualReviewLegacyRun'],
+        '/visual-review/repos/:repoId/runs': ['VisualReviewIndex', 'visualReviewLegacyRepoRuns'],
+        '/visual-review/repos/:repoId/snapshots': ['VisualReviewIndex', 'visualReviewLegacySnapshotOverview'],
+        '/visual-review/repos/:repoId/flakiness': ['VisualReviewIndex', 'visualReviewLegacyFlakiness'],
+        '/visual-review/repos/:repoId/:runType/snapshots/:identifier': [
+            'VisualReviewIndex',
+            'visualReviewLegacySnapshotHistory',
+        ],
     },
-    redirects: {},
+    // The product shipped under /visual_review. PR comments, commit statuses, digests and older
+    // CLI builds link there, so every old path forwards and keeps its search and hash params.
+    // The rest of the path passes through still URL-encoded, so nothing is encoded twice.
+    redirects: {
+        '/visual_review': (_params, searchParams, hashParams): string =>
+            combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
+        '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
+            combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    },
     urls: {
         // Entry URL — the index scene resolves a repo and forwards into the
         // workspace. Sidebar/nav callers stay zero-arg as before.
-        visualReviewRuns: (): string => '/visual_review',
-        visualReviewSettings: (): string => '/visual_review/settings',
-        visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
-        visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
-        visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
-        visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
-        visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
-            `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
+        visualReviewRuns: (): string => '/visual-review',
+        visualReviewSettings: (): string => '/visual-review/settings',
+        // The run path that names no repository. It forwards once the run says which repository it belongs to.
+        visualReviewRun: (runId: string): string => `/visual-review/runs/${runId}`,
+        visualReviewRepoRun: (repoOwner: string, repoName: string, runId: string): string =>
+            `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs/${runId}`,
+        visualReviewRepoRuns: (repoOwner: string, repoName: string): string =>
+            `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs`,
+        visualReviewSnapshotOverview: (repoOwner: string, repoName: string): string =>
+            `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/snapshots`,
+        visualReviewFlakiness: (repoOwner: string, repoName: string): string =>
+            `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/flakiness`,
+        visualReviewSnapshotHistory: (
+            repoOwner: string,
+            repoName: string,
+            runType: string,
+            identifier: string
+        ): string =>
+            `/visual-review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

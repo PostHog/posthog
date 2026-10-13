@@ -5,8 +5,9 @@ from typing import Any, Literal
 import requests
 import structlog
 
-from posthog.cdp.internal_events import WORKFLOW_STEP_RESUME_EVENT, InternalEventEvent, produce_internal_event
 from posthog.plugins.plugin_server_api import WORKFLOWS_STEP_RESUME_JWT_PURPOSE, resume_workflow_step
+
+from products.cdp.backend.internal_events import WORKFLOW_STEP_RESUME_EVENT, InternalEventEvent, produce_internal_event
 
 logger = structlog.get_logger(__name__)
 

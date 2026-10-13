@@ -141,7 +141,7 @@ class TestFetchDecidesTheTier(BaseTest):
         single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
             "review_tests_and_text": single_agent,
-            "with_merge_base": single_agent,
+            "with_merge_base": True,
         }
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.merge_base_sha == merge_base_sha

@@ -244,6 +244,8 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.notifications",
+    # Batch export runs emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -329,7 +331,13 @@ layer = "modules"
 
 [[modules]]
 path = "products.groups"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.event_definitions",
+    "products.notebooks",
+    "products.warehouse_sources",
+]
 layer = "modules"
 
 [[modules]]
@@ -429,6 +437,8 @@ depends_on = [
     "posthog",
     "ee",
     "products.feature_flags", "products.access_control",
+    # Enrollment changes emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -925,6 +935,8 @@ depends_on = [
     "products.product_analytics",
     "products.signals",
     "products.tasks", "products.access_control",
+    # Slack triggers emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -1107,7 +1119,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # TODO: Experiments-specific temporary interface

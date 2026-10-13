@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # Featurebase signs webhooks with HMAC-SHA256 over "{timestamp}.{raw body}" using the
 # whsec_ signing secret, sent as X-Webhook-Signature with X-Webhook-Timestamp (5 minute

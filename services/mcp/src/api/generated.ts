@@ -28347,6 +28347,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `generating` - Generating
+     * * `pending_review` - Pending Review
+     * * `approved` - Approved
+     * * `rejected` - Rejected
+     * * `failed` - Failed
+     */
+    export type DashboardTemplateStatusEnum = typeof DashboardTemplateStatusEnum[keyof typeof DashboardTemplateStatusEnum];
+
+
+    export const DashboardTemplateStatusEnum = {
+      Generating: 'generating',
+      PendingReview: 'pending_review',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Failed: 'failed',
+    } as const;
+
+    /**
      * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
      */
     export interface InsightResult {
@@ -32188,6 +32206,7 @@ export namespace Schemas {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
+     * * `Northbeam` - Northbeam
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33574,6 +33593,7 @@ export namespace Schemas {
       RainforestPay: 'RainforestPay',
       Wise: 'Wise',
       LaravelCloud: 'LaravelCloud',
+      Northbeam: 'Northbeam',
     } as const;
 
     /**
@@ -34973,7 +34993,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37617,7 +37638,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -44469,7 +44491,7 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -46934,7 +46956,7 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -49334,7 +49356,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -50754,7 +50777,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -53903,6 +53927,35 @@ export namespace Schemas {
       default_columns?: string[] | null;
       /** @nullable */
       created_at?: string | null;
+    }
+
+    export interface GroupTypeCreateDetailDashboard {
+      /** Index of the group type that gets the detail dashboard. */
+      group_type_index: number;
+    }
+
+    export interface GroupTypeMetadataUpdate {
+      /** Index of the group type to update. */
+      group_type_index: number;
+      /**
+         * Singular display name of the group type.
+         * @maxLength 400
+         * @nullable
+         */
+      name_singular?: string | null;
+      /**
+         * Plural display name of the group type.
+         * @maxLength 400
+         * @nullable
+         */
+      name_plural?: string | null;
+    }
+
+    export interface GroupTypeSetDefaultColumns {
+      /** Index of the group type to update. */
+      group_type_index: number;
+      /** Columns that the groups list of this group type shows by default. */
+      default_columns: string[];
     }
 
     /**
@@ -66452,6 +66505,129 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    export interface MetricsCreatedDashboard {
+      /** The id of the dashboard. */
+      dashboard_id: number;
+    }
+
+    /**
+     * * `curated` - Curated
+     * * `generated` - Generated
+     */
+    export type MetricsDashboardTemplateSourceEnum = typeof MetricsDashboardTemplateSourceEnum[keyof typeof MetricsDashboardTemplateSourceEnum];
+
+
+    export const MetricsDashboardTemplateSourceEnum = {
+      Curated: 'curated',
+      Generated: 'generated',
+    } as const;
+
+    export interface MetricsDashboardTemplateRound {
+      /** Check round, from 1. */
+      round: number;
+      /** True when the round rendered a picture of the dashboard. */
+      has_picture: boolean;
+      /**
+         * The verdict of the model on the picture.
+         * @nullable
+         */
+      looks_good: boolean | null;
+      /** The problems that the model saw. */
+      problems: string[];
+      /** True when the model corrected the panels after this round. */
+      revised: boolean;
+    }
+
+    export interface MetricsDashboardTemplate {
+      /** Template id. */
+      id: string;
+      /** Stable key: the bank file name, or a digest of the metric names. */
+      key: string;
+      /** Dashboard name. */
+      name: string;
+      /** What the dashboard shows. */
+      description: string;
+      /** Curated in code, or generated.
+       *
+       * * `curated` - Curated
+       * * `generated` - Generated */
+      source: MetricsDashboardTemplateSourceEnum;
+      /** Review status.
+       *
+       * * `generating` - Generating
+       * * `pending_review` - Pending Review
+       * * `approved` - Approved
+       * * `rejected` - Rejected
+       * * `failed` - Failed */
+      status: DashboardTemplateStatusEnum;
+      /** Metric names that the charts read. */
+      metric_names: string[];
+      /** Chart titles, top to bottom. */
+      panel_titles: string[];
+      /** When the template entered the bank. */
+      created_at: string;
+      /** Number of projects that have the template suggested. */
+      suggestion_count: number;
+      /**
+         * Project whose metrics generated it.
+         * @nullable
+         */
+      source_team_id: number | null;
+      /**
+         * Project of the preview dashboard.
+         * @nullable
+         */
+      preview_team_id: number | null;
+      /**
+         * Unlisted dashboard that shows the template with live data.
+         * @nullable
+         */
+      preview_dashboard_id: number | null;
+      /** The picture check rounds of the generation. */
+      rounds: MetricsDashboardTemplateRound[];
+      /** Drafted charts whose queries failed the checks. */
+      dropped_panels: string[];
+      /**
+         * Why the generation failed.
+         * @nullable
+         */
+      error: string | null;
+      /**
+         * Who approved or rejected the template.
+         * @nullable
+         */
+      reviewed_by: string | null;
+      /**
+         * When the template was approved or rejected.
+         * @nullable
+         */
+      reviewed_at: string | null;
+    }
+
+    export interface MetricsSuggestedDashboard {
+      /** Suggestion id. */
+      id: string;
+      /** The bank dashboard that the suggestion is for. */
+      template_id: string;
+      /** Dashboard name. */
+      name: string;
+      /** What the dashboard shows. */
+      description: string;
+      /** Why the dashboard suits this project. Can be empty. */
+      reason: string;
+      /** Number of charts on the dashboard. */
+      panel_count: number;
+      /** Number of the project's metrics that the dashboard uses. */
+      matched_metric_count: number;
+      /** Share of the dashboard's charts that have data in this project. */
+      coverage: number;
+      /**
+         * The dashboard that someone in the project created from this suggestion.
+         * @nullable
+         */
+      dashboard_id: number | null;
+    }
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -73909,7 +74085,7 @@ export namespace Schemas {
       readonly installation_id: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
-      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
        *
        * * `all` - All pull requests
        * * `label` - Labeled pull requests */
@@ -74968,6 +75144,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     */
+    export type TaskClientProvenanceEnum = typeof TaskClientProvenanceEnum[keyof typeof TaskClientProvenanceEnum];
+
+
+    export const TaskClientProvenanceEnum = {
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -75027,6 +75217,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
     }
 
     /**
@@ -75091,6 +75287,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -80227,7 +80429,7 @@ export namespace Schemas {
       readonly can_freeze_exposure?: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
-      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health?: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
@@ -80800,27 +81002,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    export interface PatchedGroupType {
-      readonly group_type?: string;
-      readonly group_type_index?: number;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name_singular?: string | null;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name_plural?: string | null;
-      /** @nullable */
-      detail_dashboard?: number | null;
-      /** @nullable */
-      default_columns?: string[] | null;
-      /** @nullable */
-      created_at?: string | null;
     }
 
     /**
@@ -84737,7 +84918,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
-      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
        *
        * * `all` - All pull requests
        * * `label` - Labeled pull requests */
@@ -86811,6 +86992,38 @@ export namespace Schemas {
     export interface PauseUntilRequest {
       /** Pause the grouping pipeline until this timestamp (ISO 8601). */
       timestamp: string;
+    }
+
+    export interface PeopleImport {
+      /** The static cohort that fills with the imported people. */
+      cohort_id: number;
+      /** People created or updated. */
+      row_count: number;
+      /** Rows that create a person who isn't in PostHog yet. */
+      new_people: number;
+      /** Person properties the rows set. */
+      columns: string[];
+      /** Rows dropped for a missing or invalid email. */
+      dropped_invalid_email: number;
+      /** Rows dropped because an earlier row had the email or distinct ID. */
+      dropped_duplicate_email: number;
+      /** Rows dropped for holding more than 4KB of data. */
+      dropped_too_large: number;
+    }
+
+    export type PeopleImportCreateRowsItem = {[key: string]: string};
+
+    export interface PeopleImportCreate {
+      /**
+         * Name of the static cohort that holds the imported people.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
+         * @maxItems 50000
+         */
+      rows: PeopleImportCreateRowsItem[];
     }
 
     export interface PersonBulkDeleteRequest {
@@ -90160,6 +90373,22 @@ export namespace Schemas {
       source_version: string;
       /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
       payload?: ProjectProfilePayload;
+    }
+
+    export interface ProjectUsageItem {
+      /** The usage counter, as the usage series names it. */
+      usage_key: string;
+      /** The counter's display name. */
+      name: string;
+      /** The project's usage of the counter so far this billing period. */
+      usage: number;
+    }
+
+    export interface ProjectUsageSummary {
+      /** The period the usage covers. Null when the organization has no billing period yet, and the usage then covers the current calendar month in UTC. */
+      billing_period: BillingPeriod | null;
+      /** One entry per usage counter the project reported. */
+      results: ProjectUsageItem[];
     }
 
     export interface Property {
@@ -103717,7 +103946,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -105168,7 +105398,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -106586,7 +106817,8 @@ export namespace Schemas {
        * * `CheckHQ` - CheckHQ
        * * `RainforestPay` - RainforestPay
        * * `Wise` - Wise
-       * * `LaravelCloud` - LaravelCloud */
+       * * `LaravelCloud` - LaravelCloud
+       * * `Northbeam` - Northbeam */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -107135,7 +107367,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
-      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+      /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
        *
        * * `all` - All pull requests
        * * `label` - Labeled pull requests */
@@ -108792,6 +109024,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -109984,6 +110222,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the run could not start. */
       run_error?: string;
       /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -119357,6 +119601,114 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type BillingProjectSpendExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingProjectSpendTimeseriesRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingProjectUsageExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingProjectUsageTimeseriesRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
     export type BusinessKnowledgeDocumentsWindowListParams = {
     /**
      * Zero-based chunk ordinal to center the window on (from a search result).
@@ -127047,6 +127399,31 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type MetricsDashboardTemplatesListParams = {
+    /**
+     * Only templates with this status.
+     */
+    status?: MetricsDashboardTemplatesListStatus;
+    };
+
+    export type MetricsDashboardTemplatesListStatus = typeof MetricsDashboardTemplatesListStatus[keyof typeof MetricsDashboardTemplatesListStatus];
+
+
+    export const MetricsDashboardTemplatesListStatus = {
+      Approved: 'approved',
+      Failed: 'failed',
+      Generating: 'generating',
+      PendingReview: 'pending_review',
+      Rejected: 'rejected',
+    } as const;
+
+    export type MetricsDashboardTemplatesPictureRetrieveParams = {
+    /**
+     * Check round, from 1.
+     */
+    round: number;
+    };
+
     export type MetricsErrorSpikesRetrieveParams = {
     /**
      * Lower bound (inclusive) for the spike window. ISO 8601.
@@ -129290,6 +129667,8 @@ export namespace Schemas {
      * Filter by the client that created the task
      *
      * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance;
@@ -129444,6 +129823,8 @@ export namespace Schemas {
 
     export const TasksListClientProvenance = {
       PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
