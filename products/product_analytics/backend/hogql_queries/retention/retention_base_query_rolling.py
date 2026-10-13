@@ -81,7 +81,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ast.Alias(alias="t_0", expr=t0_expr),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=self.global_event_filters),
+            where=ast.And(exprs=[*self.global_event_filters, *self._cohort_breakdown_filters()]),
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["t_0"]), right=ast.Constant(value=None)
@@ -148,7 +148,11 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     ),
                 ),
             ),
-            where=ast.And(exprs=[*self.global_event_filters, parse_expr("timestamp >= t_0")]),
+            # With group aggregation the join above is on the group, so return events need the cohort
+            # filter too, the same as calendar mode.
+            where=ast.And(
+                exprs=[*self.global_event_filters, *self._cohort_breakdown_filters(), parse_expr("timestamp >= t_0")]
+            ),
             group_by=[ast.Field(chain=["actors_with_t0", "actor_id"]), ast.Field(chain=["actors_with_t0", "t_0"])],
             having=self._cell_selection_having(start_interval_index_filter, selected_breakdown_value),
         )
