@@ -80,19 +80,24 @@ describe('insightDataChecksLogic', () => {
         expect(logic.values.status).toBe('passed')
     })
 
-    it('runs one check at a time, then checks the latest query', async () => {
-        let markFirstSent: () => void = () => {}
-        let releaseFirst: () => void = () => {}
-        const firstSent = new Promise<void>((resolve) => {
-            markFirstSent = resolve
+    const holdTheFirstAnswer = (): { sent: Promise<void>; release: () => void } => {
+        let markSent: () => void = () => {}
+        let release: () => void = () => {}
+        const sent = new Promise<void>((resolve) => {
+            markSent = resolve
         })
-        const firstHeld = new Promise<void>((resolve) => {
-            releaseFirst = resolve
+        const held = new Promise<void>((resolve) => {
+            release = resolve
         })
-        dataChecks.mockImplementationOnce(answer([200, checksOf('passed')], firstHeld, markFirstSent))
+        dataChecks.mockImplementationOnce(answer([200, checksOf('passed')], held, markSent))
         dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        return { sent, release: () => release() }
+    }
+
+    it('runs one check at a time, then checks the latest query', async () => {
+        const first = holdTheFirstAnswer()
         turnTheFlagOn()
-        await firstSent
+        await first.sent
 
         const firstQuery = logic.values.requestedQuery
 
@@ -104,7 +109,7 @@ describe('insightDataChecksLogic', () => {
         expect(logic.values.requestedQuery).toBe(firstQuery)
         expect(logic.values.status).toBe('checking')
 
-        await expectLogic(logic, releaseFirst).toFinishAllListeners()
+        await expectLogic(logic, first.release).toFinishAllListeners()
 
         expect(sentSources).toEqual([
             expect.not.objectContaining({ filterTestAccounts: true }),
@@ -148,6 +153,20 @@ describe('insightDataChecksLogic', () => {
             funnelsFilter: { funnelAggregateByHogQL: 'properties.$session_id' },
             modifiers,
         })
+    })
+
+    it('checks again after a refresh of the chart that ends during a check', async () => {
+        const first = holdTheFirstAnswer()
+        turnTheFlagOn()
+        await first.sent
+        vizData.actions.loadDataSuccess(
+            {},
+            { refresh: 'force_blocking', queryId: 'chart', pollOnly: false, overrideQuery: undefined }
+        )
+
+        await expectLogic(logic, first.release).toFinishAllListeners()
+
+        expect(dataChecks).toHaveBeenCalledTimes(2)
     })
 
     it.each([

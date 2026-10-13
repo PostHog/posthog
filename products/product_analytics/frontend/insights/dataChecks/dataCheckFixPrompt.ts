@@ -56,7 +56,7 @@ export function dataCheckFixPrompt(check: InsightDataCheckApi, context: DataChec
     return [
         'A data check on a PostHog insight found something that makes its numbers less reliable. Please fix it.',
         '',
-        `Insight: ${context.insightUrl ?? 'it has changes that are not saved, so it has no link'}`,
+        `Insight: ${context.insightUrl ?? 'no link, because the chart is not saved as it was checked'}`,
         `Events the insight reads: ${eventsLine(context.events)}`,
         ...(context.events === 'all'
             ? []

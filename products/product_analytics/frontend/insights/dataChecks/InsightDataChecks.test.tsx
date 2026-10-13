@@ -1,9 +1,8 @@
-import { render, waitFor } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -12,11 +11,12 @@ import type { InsightShortId } from '~/types'
 
 import { InsightDataChecks } from './InsightDataChecks'
 import { insightDataChecksLogic } from './insightDataChecksLogic'
+import { InsightDataChecksState } from './InsightDataChecksState'
 
 const props = { dashboardItemId: '123' as InsightShortId }
 
 describe('InsightDataChecks', () => {
-    it('keeps its result while the page hides it during a chart reload', async () => {
+    it('keeps its result while the page hides it, and lets go of it when the page goes', async () => {
         const dataChecks = jest.fn(() => [200, { status: 'passed', checks: [], events_checked: 10, sample_rate: 1 }])
         useMocks({
             get: {
@@ -33,15 +33,19 @@ describe('InsightDataChecks', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INSIGHT_DATA_CHECKS], {
             [FEATURE_FLAGS.INSIGHT_DATA_CHECKS]: true,
         })
-        insightDataLogic(props).mount()
-        insightVizDataLogic(props).mount()
 
-        const shown = render(<InsightDataChecks insightProps={props} />)
+        render(<InsightDataChecksState insightProps={props} />)
+        const mark = render(<InsightDataChecks insightProps={props} />)
         await waitFor(() => expect(dataChecks).toHaveBeenCalledTimes(1))
-        shown.unmount()
+        mark.unmount()
         render(<InsightDataChecks insightProps={props} />)
         await expectLogic(insightDataChecksLogic(props)).toFinishAllListeners()
 
         expect(dataChecks).toHaveBeenCalledTimes(1)
+
+        cleanup()
+
+        expect(insightDataChecksLogic.findMounted(props)).toBeNull()
+        expect(insightVizDataLogic.findMounted(props)).toBeNull()
     })
 })

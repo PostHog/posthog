@@ -73,8 +73,10 @@ export interface insightDataChecksLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     query: Node | null // insightDataLogic
     queryChanged: boolean // insightDataLogic
+    hasOverrides: boolean // insightLogic
     insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     insightDataLoading: boolean // insightVizDataLogic
+    checkAgainRequested: boolean
     checkedQuery: DataChecksQuery | null
     checks: InsightDataCheckApi[]
     dataChecksRun: DataChecksRun | null
@@ -199,7 +201,8 @@ export interface insightDataChecksLogicMeta {
         promptContext: (
             checkedQuery: DataChecksQuery | null,
             insight: Partial<InsightModel<Node<Record<string, any>>>>,
-            queryChanged: any,
+            queryChanged: boolean,
+            hasOverrides: boolean,
             result: InsightDataChecksApi | null
         ) => DataCheckPromptContext | null
     }
@@ -225,7 +228,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             insightVizDataLogic(props),
             ['insightDataLoading'],
             insightLogic(props),
-            ['insight'],
+            ['insight', 'hasOverrides'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -264,6 +267,14 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             null as DataChecksQuery | null,
             {
                 loadDataChecks: (_, query) => query,
+            },
+        ],
+        // A person can refresh the chart during a run. That run is for the events as they were before.
+        checkAgainRequested: [
+            false,
+            {
+                checkData: (requested, { again }) => requested || again,
+                loadDataChecks: () => false,
             },
         ],
     }),
@@ -351,11 +362,12 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 checks.filter((check) => check.level === 'warning' || check.level === 'problem'),
         ],
         promptContext: [
-            (s) => [s.checkedQuery, s.insight, s.queryChanged, s.result],
+            (s) => [s.checkedQuery, s.insight, s.queryChanged, s.hasOverrides, s.result],
             (
                 checkedQuery: DataChecksQuery | null,
                 insight: Partial<InsightModel>,
                 queryChanged: boolean,
+                hasOverrides: boolean,
                 result: InsightDataChecksApi | null
             ): DataCheckPromptContext | null => {
                 if (!result || !checkedQuery) {
@@ -364,7 +376,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 const names = checkedQuery.source.series.map((series) => series.event)
                 return {
                     insightUrl:
-                        insight.short_id && !queryChanged
+                        insight.short_id && !queryChanged && !hasOverrides
                             ? urls.absolute(urls.currentProject(urls.insightView(insight.short_id)))
                             : null,
                     events: names.every((name): name is string => !!name) ? [...new Set(names)] : 'all',
@@ -377,9 +389,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     listeners(({ actions, values }) => ({
         // The chart can load more than once for one query, and the answer for that query is already on its way.
         // One run at a time: a run for an older query keeps its queries on the server until it ends.
-        checkData: ({ again }) => {
+        checkData: () => {
             const query = values.checkedQuery
-            if (query && (again || query !== values.requestedQuery) && !values.dataChecksRunLoading) {
+            const isWanted = values.checkAgainRequested || query !== values.requestedQuery
+            if (query && isWanted && !values.dataChecksRunLoading) {
                 actions.loadDataChecks(query)
             }
         },
