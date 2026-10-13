@@ -200,9 +200,9 @@ def _fetch_due_scope(schema_ids: list[str]) -> dict[str, dict | None]:
 
 async def _fetch_group_job_states(
     conn: psycopg.AsyncConnection[Any], due: list[DueSchedule]
-) -> dict[tuple[str, str], GroupJobState]:
-    """Live queue-job state per due row, keyed by (kind, schedule_key). One query per kind."""
-    states: dict[tuple[str, str], GroupJobState] = {}
+) -> dict[DueSchedule, GroupJobState]:
+    """Live queue-job state per due row. One query per kind."""
+    states: dict[DueSchedule, GroupJobState] = {}
     for kind in sorted({row.kind for row in due}):
         rows = [row for row in due if row.kind == kind]
         by_group = await JobsTable.get_group_job_states(
@@ -212,7 +212,7 @@ async def _fetch_group_job_states(
             group_keys=[queue_group_key(row.team_id, row.schedule_key) for row in rows],
         )
         for row in rows:
-            states[(kind, row.schedule_key)] = by_group[queue_group_key(row.team_id, row.schedule_key)]
+            states[row] = by_group[queue_group_key(row.team_id, row.schedule_key)]
     return states
 
 
@@ -240,9 +240,7 @@ async def evaluate_due(conn: psycopg.AsyncConnection[Any], due: list[DueSchedule
         stored_due_epoch = int(row.next_due_at.timestamp())
         missed_windows += max(0, (fire - stored_due_epoch) // cadence.interval_seconds)
 
-        overlap_allowed = overlap_allows(
-            SCHEDULED_KINDS[row.kind].overlap_policy, group_states[(row.kind, row.schedule_key)]
-        )
+        overlap_allowed = overlap_allows(SCHEDULED_KINDS[row.kind].overlap_policy, group_states[row])
 
         if row.schedule_key not in scope_config:
             decision = DECISION_SKIP_OUT_OF_SCOPE
