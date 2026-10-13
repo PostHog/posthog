@@ -13,7 +13,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { safeFetch } from '~/toolbar/utils'
 
 import {
-    getActiveTabUrl,
+    getActiveTab,
     getStoredUiHost,
     hasHostPermission,
     openTab,
@@ -25,6 +25,9 @@ import { ExtensionPopupState, SessionResult, ToolbarAccessResult, getExtensionPo
 
 export const DEFAULT_UI_HOST = 'https://us.posthog.com'
 
+// The project setting's default, used until the project loads.
+const DEFAULT_DATA_ATTRIBUTES = ['data-attr']
+
 // Matches the toolbar's entitlements request timeout.
 const REQUEST_TIMEOUT_MS = 5000
 
@@ -33,7 +36,7 @@ const ENTITLEMENTS_PATH = '/api/user/toolbar_entitlements/'
 export type SessionUserResult = { status: 'signed-in'; user: UserApi } | { status: 'signed-out' } | { status: 'error' }
 
 /** Sends the PostHog session cookie, like the toolbar's own entitlements request. */
-async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
+export async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
     try {
         const response = await safeFetch(`${uiHost}${path}`, {
             credentials: 'include',
@@ -51,12 +54,14 @@ async function fetchWithSession(uiHost: string, path: string): Promise<{ status:
 export interface extensionPopupLogicValues {
     authorizedUrls: string[] | 'error' | null
     authorizedUrlsLoading: boolean
+    dataAttributes: string[]
     entitlements: ToolbarEntitlementsApiEntitlements | null
     hostPermission: boolean | null
     popupState: ExtensionPopupState
     session: SessionResult | null
     sessionUser: SessionUserResult | null
     sessionUserLoading: boolean
+    tabId: number | null
     tabUrl: string | null | undefined
     toolbarAccess: ToolbarAccessResult | null
     toolbarAccessLoading: boolean
@@ -136,10 +141,17 @@ export interface extensionPopupLogicActions {
     retry: () => {
         value: true
     }
+    setDataAttributes: (dataAttributes: string[]) => {
+        dataAttributes: string[]
+    }
     setHostPermission: (granted: boolean) => {
         granted: boolean
     }
-    setTabUrl: (tabUrl: string | null) => {
+    setTab: (
+        tabId: number | null,
+        tabUrl: string | null
+    ) => {
+        tabId: number | null
         tabUrl: string | null
     }
     setUiHost: (uiHost: string) => {
@@ -177,7 +189,8 @@ export type extensionPopupLogicType = MakeLogicType<
 export const extensionPopupLogic = kea<extensionPopupLogicType>([
     path(['toolbar', 'extension', 'extensionPopupLogic']),
     actions({
-        setTabUrl: (tabUrl: string | null) => ({ tabUrl }),
+        setTab: (tabId: number | null, tabUrl: string | null) => ({ tabId, tabUrl }),
+        setDataAttributes: (dataAttributes: string[]) => ({ dataAttributes }),
         setUiHost: (uiHost: string) => ({ uiHost }),
         setHostPermission: (granted: boolean) => ({ granted }),
         requestHostPermission: true,
@@ -187,14 +200,16 @@ export const extensionPopupLogic = kea<extensionPopupLogicType>([
         retry: true,
     }),
     reducers({
-        tabUrl: [undefined as string | null | undefined, { setTabUrl: (_, { tabUrl }) => tabUrl }],
+        tabId: [null as number | null, { setTab: (_, { tabId }) => tabId }],
+        tabUrl: [undefined as string | null | undefined, { setTab: (_, { tabUrl }) => tabUrl }],
+        dataAttributes: [DEFAULT_DATA_ATTRIBUTES, { setDataAttributes: (_, { dataAttributes }) => dataAttributes }],
         uiHost: [DEFAULT_UI_HOST as string, { setUiHost: (_, { uiHost }) => uiHost }],
         hostPermission: [
             null as boolean | null,
             { setUiHost: () => null, setHostPermission: (_, { granted }) => granted },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         sessionUser: [
             null as SessionUserResult | null,
             {
@@ -245,7 +260,15 @@ export const extensionPopupLogic = kea<extensionPopupLogicType>([
                     if (status !== 200 || !data) {
                         return 'error'
                     }
-                    return ((data as ProjectBackwardCompatApi).app_urls ?? []).filter(
+                    const project = data as ProjectBackwardCompatApi
+                    if (Array.isArray(project.data_attributes)) {
+                        actions.setDataAttributes(
+                            project.data_attributes.filter(
+                                (attribute): attribute is string => typeof attribute === 'string'
+                            )
+                        )
+                    }
+                    return (project.app_urls ?? []).filter(
                         (url): url is string => typeof url === 'string' && url.length > 0
                     )
                 },
@@ -349,9 +372,9 @@ export const extensionPopupLogic = kea<extensionPopupLogicType>([
     afterMount(({ actions }) => {
         toolbarPosthogJS.opt_in_capturing()
         void getStoredUiHost().then((stored) => actions.setUiHost(canonicalizeUiHost(stored) ?? DEFAULT_UI_HOST))
-        void getActiveTabUrl().then(
-            (tabUrl) => actions.setTabUrl(tabUrl),
-            () => actions.setTabUrl(null)
+        void getActiveTab().then(
+            (tab) => actions.setTab(tab?.id ?? null, tab?.url ?? null),
+            () => actions.setTab(null, null)
         )
     }),
 ])

@@ -8,6 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from '~/toolbar/urls'
 
 import { ExtensionFeatureList } from './ExtensionFeatureList'
+import { ExtensionPageTools } from './ExtensionPageTools'
 import { extensionPopupLogic } from './extensionPopupLogic'
 import { ExtensionPopupSettings } from './ExtensionPopupSettings'
 import type { ExtensionPopupState, UnsupportedPageReason } from './extensionPopupState'
@@ -94,7 +95,12 @@ function ExtensionPopupBody({ popupState }: { popupState: ExtensionPopupState })
                 </LemonBanner>
             )
         case 'ready':
-            return <ExtensionFeatureList origin={popupState.origin} />
+            return (
+                <>
+                    <ExtensionPageTools />
+                    <ExtensionFeatureList origin={popupState.origin} />
+                </>
+            )
     }
 }
 
