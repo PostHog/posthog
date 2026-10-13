@@ -50,7 +50,11 @@ export interface engineeringAnalyticsSceneLogicValues {
 export interface engineeringAnalyticsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeView: (sceneKey: string | null) => EngineeringAnalyticsView
-        breadcrumbs: (scopeRepo: string | null, sourceId: any, searchParams: Record<string, any>) => Breadcrumb[]
+        breadcrumbs: (
+            scopeRepo: string | null,
+            sourceId: string | null,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
