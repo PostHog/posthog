@@ -14,6 +14,8 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.presentation.views.table import (
     CreateTableFromUploadSerializer,
@@ -332,6 +334,18 @@ class TestTable(APIBaseTest):
         assert columns is not None
         assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
+        log = ActivityLog.objects.get(scope="DataWarehouseTable", item_id=str(table.id))
+        assert (log.activity, log.user) == ("updated", self.user)
+        assert log.detail["changes"] == [
+            {
+                "type": "DataWarehouseTable",
+                "field": "columns",
+                "action": "changed",
+                "before": {"id": "Nullable(Int64)"},
+                "after": {"id": "Nullable(Float64)"},
+            }
+        ]
+
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
         table = DataWarehouseTable.objects.create(
@@ -479,6 +493,9 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert table.deleted is True
+        assert ActivityLog.objects.filter(
+            scope="DataWarehouseTable", item_id=str(table.id), activity="deleted", user=self.user
+        ).exists()
 
     def test_delete_table_with_source(self):
         source = ExternalDataSource.objects.create(team=self.team, team_id=self.team.pk)
