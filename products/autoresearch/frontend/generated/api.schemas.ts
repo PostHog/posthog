@@ -1653,28 +1653,27 @@ export interface OnlinePerformanceRowApi {
 }
 
 /**
- * * `realized` - realized
- * * `training` - training
- * * `fixed` - fixed
+ * * `realized` - Realized
+ * * `training` - Training
+ * * `fixed` - Fixed
  */
-export type PredictionSegmentThresholdsSourceEnumApi =
-    (typeof PredictionSegmentThresholdsSourceEnumApi)[keyof typeof PredictionSegmentThresholdsSourceEnumApi]
+export type BaseRateSourceEnumApi = (typeof BaseRateSourceEnumApi)[keyof typeof BaseRateSourceEnumApi]
 
-export const PredictionSegmentThresholdsSourceEnumApi = {
+export const BaseRateSourceEnumApi = {
     Realized: 'realized',
     Training: 'training',
     Fixed: 'fixed',
 } as const
 
 export interface PredictionSegmentThresholdsApi {
-    /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when source is fixed. */
+    /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed. */
     likely_threshold: number
-    /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when source is fixed. */
+    /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed. */
     possible_threshold: number
     /** How many times the base rate a score must reach to be in the Likely segment. */
     likely_lift: number
     /**
-     * The base rate the cut points use. When source is realized, the fraction of the champion's scored users who did the target event, pooled over the newest checked dates. When source is training, the fraction of the champion's training population that did it. Null when source is fixed.
+     * The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the fraction of the champion's training population that did it. Null when base_rate_source is fixed.
      * @nullable
      */
     base_rate: number | null
@@ -1682,10 +1681,10 @@ export interface PredictionSegmentThresholdsApi {
     base_rate_dates: number
     /** Where the cut points come from. realized: the checked dates hold enough positives. training: no realized base rate yet, so the champion's training population sets it. fixed: neither is available, so fixed cut points apply.
      *
-     * * `realized` - realized
-     * * `training` - training
-     * * `fixed` - fixed */
-    source: PredictionSegmentThresholdsSourceEnumApi
+     * * `realized` - Realized
+     * * `training` - Training
+     * * `fixed` - Fixed */
+    base_rate_source: BaseRateSourceEnumApi
     /**
      * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
      * @nullable

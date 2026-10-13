@@ -93,9 +93,9 @@ function SegmentCutPoints(): JSX.Element | null {
     return (
         <>
             <p className="text-sm text-secondary mb-0">
-                {thresholds.source === 'realized' && thresholds.base_rate != null
+                {thresholds.base_rate_source === 'realized' && thresholds.base_rate != null
                     ? `Segments compare each score with the average: ${formatProbability(thresholds.base_rate)} of scored people did ${target} over the last ${thresholds.base_rate_dates} checked dates.`
-                    : thresholds.source === 'training' && thresholds.base_rate != null
+                    : thresholds.base_rate_source === 'training' && thresholds.base_rate != null
                       ? `Segments compare each score with the average in the training data: ${formatProbability(thresholds.base_rate)} of people did ${target}. They switch to measured outcomes once enough predictions are checked against what people did.`
                       : 'Segments use fixed cut points until enough predictions are checked against what people did.'}
             </p>

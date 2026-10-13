@@ -45,6 +45,7 @@ from ..evaluation.segment_thresholds import (
     BASE_RATE_DATES,
     FIXED_LIKELY_THRESHOLD,
     LIKELY_LIFT,
+    BaseRateSource,
     champion_score_calibration,
     segment_thresholds,
     training_base_rate,
@@ -1202,7 +1203,7 @@ def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> Predict
         likely_lift=LIKELY_LIFT,
         base_rate=thresholds.base_rate,
         base_rate_dates=thresholds.dates,
-        source=thresholds.source,
+        base_rate_source=thresholds.source,
         champion_mean_p_y=calibration.mean_p_y if calibration else None,
         champion_base_rate=calibration.base_rate if calibration else None,
         scores_miscalibrated=calibration.miscalibrated if calibration else False,
@@ -1920,6 +1921,7 @@ SUGGESTION_PRIORITY_CHOICES = AutoresearchSuggestion.Priority.choices
 SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
 SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
+BASE_RATE_SOURCE_CHOICES = BaseRateSource.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices
 FEATURE_DIRECTION_CHOICES = _FeatureDirection.choices
 MAX_TOP_FEATURES = _MAX_TOP_FEATURES

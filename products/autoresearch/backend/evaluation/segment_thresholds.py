@@ -11,7 +11,9 @@ the Accuracy tab and online validation cannot disagree.
 
 from collections.abc import Iterable
 from dataclasses import replace
-from typing import Any, Literal
+from typing import Any
+
+from django.db import models
 
 from posthog.dataclasses import frozen
 
@@ -32,7 +34,11 @@ MISCALIBRATION_FACTOR = 2.0
 TRAINING_POPULATION_KEY = "training_population"
 TRAINING_POSITIVES_KEY = "training_positives"
 
-SegmentThresholdsSource = Literal["realized", "training", "fixed"]
+
+class BaseRateSource(models.TextChoices):
+    REALIZED = "realized"
+    TRAINING = "training"
+    FIXED = "fixed"
 
 
 @frozen
@@ -43,7 +49,7 @@ class SegmentThresholds:
     base_rate: float | None
     # Checked dates the base rate pools.
     dates: int
-    source: SegmentThresholdsSource
+    source: BaseRateSource
 
 
 @frozen
@@ -75,7 +81,9 @@ def thresholds_for_base_rate(base_rate: float) -> SegmentThresholds:
     rate = _significant(base_rate)
     # The cap keeps Likely reachable when LIKELY_LIFT times a high base rate is near or above 100%.
     likely = min(LIKELY_LIFT * rate, rate + (1 - rate) / 2)
-    return SegmentThresholds(likely=_significant(likely), possible=rate, base_rate=rate, dates=0, source="realized")
+    return SegmentThresholds(
+        likely=_significant(likely), possible=rate, base_rate=rate, dates=0, source=BaseRateSource.REALIZED
+    )
 
 
 def _stable_rate(positives: int, population: int) -> float | None:
@@ -119,9 +127,13 @@ def segment_thresholds(runs: Iterable[AutoresearchRun], *, training_rate: float 
     if realized_rate is not None:
         return replace(thresholds_for_base_rate(realized_rate), dates=dates)
     if training_rate is not None:
-        return replace(thresholds_for_base_rate(training_rate), dates=dates, source="training")
+        return replace(thresholds_for_base_rate(training_rate), dates=dates, source=BaseRateSource.TRAINING)
     return SegmentThresholds(
-        likely=FIXED_LIKELY_THRESHOLD, possible=FIXED_POSSIBLE_THRESHOLD, base_rate=None, dates=dates, source="fixed"
+        likely=FIXED_LIKELY_THRESHOLD,
+        possible=FIXED_POSSIBLE_THRESHOLD,
+        base_rate=None,
+        dates=dates,
+        source=BaseRateSource.FIXED,
     )
 
 
