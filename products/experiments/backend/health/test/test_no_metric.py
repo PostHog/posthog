@@ -21,6 +21,8 @@ def _context(**changes: Any) -> HealthContext:
         "primary_metric_count": 0,
         "secondary_metric_count": 0,
         "exposures": None,
+        "excluded_variant_keys": (),
+        "split_history": None,
     }
     return HealthContext(**{**values, **changes})
 

@@ -700,8 +700,9 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * Health check findings for this experiment: problems in its configuration and its feature flag
  * that keep it from producing trustworthy results, each with a fix.
  *
- * The checks here read the experiment, its flag and its linked metrics. The checks that read
- * exposures come with the exposure query.
+ * The checks here read the experiment, its flag, its linked metrics, and the changes of the
+ * flag's variant split since launch. The checks that read exposure counts come with the
+ * exposure query.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
