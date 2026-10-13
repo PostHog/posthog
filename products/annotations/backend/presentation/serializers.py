@@ -5,6 +5,8 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
+from posthog.api.fields import JSONTolerantListField
+
 from products.annotations.backend.facade.change_feed import ChangeKind
 
 DEFAULT_WINDOW = timedelta(hours=24)
@@ -27,6 +29,15 @@ class ChangeFeedQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=MAX_LIMIT,
         help_text=f"Maximum number of changes to return, newest first. Defaults to {DEFAULT_LIMIT}, at most {MAX_LIMIT}.",
+    )
+    kinds = JSONTolerantListField(
+        child=serializers.ChoiceField(choices=ChangeKind.choices),
+        required=False,
+        default=[],
+        help_text=(
+            "Return only these kinds of change. Omit to return every kind. "
+            "Use `feature_flag` and `experiment` to see configuration edits without releases and annotations."
+        ),
     )
 
     def validate(self, attrs: dict) -> dict:
