@@ -202,7 +202,7 @@ describe("App", () => {
     try {
       await vi.waitFor(() => {
         const screen = stripTerminalSequences(output());
-        expect(screen).toContain("☼ Today");
+        expect(screen).toMatch(/Today [☾☼☀☽]/);
         expect(screen).toContain(", Harley.");
       });
       // Its composer starts a chat like an empty pane's, so the same lines say where that chat would run.

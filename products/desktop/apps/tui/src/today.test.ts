@@ -7,6 +7,7 @@ import {
   greeting,
   TodayClient,
   type TodayState,
+  todayGlyph,
   todayHitAt,
   todayLines,
 } from "./today";
@@ -44,12 +45,13 @@ const plain = (lines: string[]): string[] =>
 
 describe("greeting", () => {
   it.each([
-    [3, "You're up late, Harley."],
-    [9, "Morning, Harley."],
-    [14, "Afternoon, Harley."],
-    [20, "Evening, Harley."],
-  ])("greets at %i o'clock", (hour, text) => {
+    [3, "You're up late, Harley.", "☾"],
+    [9, "Morning, Harley.", "☼"],
+    [14, "Afternoon, Harley.", "☀"],
+    [20, "Evening, Harley.", "☽"],
+  ])("greets at %i o'clock, with the sky to match", (hour, text, glyph) => {
     expect(greeting(hour, "Harley")).toBe(text);
+    expect(todayGlyph(hour)).toBe(glyph);
   });
 });
 

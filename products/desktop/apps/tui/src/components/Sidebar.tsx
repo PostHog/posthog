@@ -2,6 +2,7 @@ import { Box, type DOMElement, Text } from "ink";
 import type { ReactElement, RefObject } from "react";
 import type { Indicator, SidebarRow } from "../sidebar";
 import { posthogOrange, selectionBackground } from "../theme";
+import { todayGlyph } from "../today";
 import { Spinner } from "./Spinner";
 
 // PostHog orange, which reads on light and dark terminals alike.
@@ -61,9 +62,11 @@ export function IndicatorGlyph({
 function Row({
   row,
   selected,
+  hour,
 }: {
   row: SidebarRow;
   selected: boolean;
+  hour: number;
 }): ReactElement {
   switch (row.kind) {
     case "heading":
@@ -82,13 +85,13 @@ function Row({
     case "today":
       return (
         <Text wrap="truncate-end">
-          <Text color={ORANGE}>☼ </Text>
           <Text
             bold
             backgroundColor={selected ? selectionBackground() : undefined}
           >
             Today
           </Text>
+          <Text color={ORANGE}> {todayGlyph(hour)}</Text>
         </Text>
       );
     case "gap":
@@ -151,9 +154,11 @@ function Row({
 function NarrowRow({
   row,
   selected,
+  hour,
 }: {
   row: SidebarRow;
   selected: boolean;
+  hour: number;
 }): ReactElement {
   switch (row.kind) {
     case "heading":
@@ -174,7 +179,7 @@ function NarrowRow({
           color={ORANGE}
           backgroundColor={selected ? selectionBackground() : undefined}
         >
-          ☼
+          {todayGlyph(hour)}
         </Text>
       );
     case "gap":
@@ -234,6 +239,8 @@ export function Sidebar({
   selectedIndex,
   activePaneId,
   narrow = false,
+  // The hour the Today row's sky follows; the clock's, unless a test pins it.
+  hour = new Date().getHours(),
 }: {
   boxRef?: RefObject<DOMElement | null>;
   notice: string | null;
@@ -242,6 +249,7 @@ export function Sidebar({
   selectedIndex: number;
   activePaneId: string | null;
   narrow?: boolean;
+  hour?: number;
 }): ReactElement {
   // With focus the bar follows the cursor; without it, it marks the focused pane's task.
   // Unfocused, the open chat's row is marked; a folded workspace's title stands in for the chat it hides.
@@ -270,9 +278,13 @@ export function Sidebar({
         >
           <Text wrap="truncate-end">
             {narrow ? (
-              <NarrowRow row={row} selected={highlighted(row, index)} />
+              <NarrowRow
+                row={row}
+                selected={highlighted(row, index)}
+                hour={hour}
+              />
             ) : (
-              <Row row={row} selected={highlighted(row, index)} />
+              <Row row={row} selected={highlighted(row, index)} hour={hour} />
             )}
           </Text>
         </Box>
