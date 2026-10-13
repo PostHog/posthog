@@ -89,6 +89,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
+    fold_column_name,
+    get_masking_key,
+    mask_value,
+    resolve_masked_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
@@ -199,6 +205,9 @@ class CDCExtractActivity:
         self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        # Folded names of the columns to mask. Missing entry = mask nothing.
+        self.masked_columns_by_table: dict[str, set[str]] = {}
+        self._masking_key: bytes | None = None
         self.adapter: typing.Any = None
         self.reader: typing.Any = None
         self.batcher: ChangeEventBatcher | None = None
@@ -611,6 +620,13 @@ class CDCExtractActivity:
                     retained.add(inc)
                 self.enabled_columns_by_table[schema.name] = retained
 
+            if isinstance(schema.masked_columns, list) and schema.masked_columns:
+                self.masked_columns_by_table[schema.name] = resolve_masked_columns(
+                    schema.masked_columns,
+                    self.pk_columns_by_table.get(schema.name, []),
+                    schema.incremental_field,
+                )
+
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
         """Look up primary keys in the source catalog, keyed back on `ExternalDataSchema.name`.
 
@@ -668,6 +684,27 @@ class CDCExtractActivity:
             column_types=event.column_types,
             omitted_columns=filtered_omitted,
         )
+
+    def _mask_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        masked = self.masked_columns_by_table.get(event.table_name)
+        if not masked:
+            return event
+        if self._masking_key is None:
+            self._masking_key = get_masking_key()
+        key = self._masking_key
+        columns = {
+            name: mask_value(self.inputs.team_id, value, key=key) if fold_column_name(name) in masked else value
+            for name, value in event.columns.items()
+        }
+        # A digest is text. Left on the source type, a flush where the column is all null would
+        # write that type and no longer merge with the flushes that hold digests.
+        column_types = event.column_types
+        if column_types is not None:
+            column_types = {
+                name: pa.string() if fold_column_name(name) in masked else column_type
+                for name, column_type in column_types.items()
+            }
+        return dataclasses.replace(event, columns=columns, column_types=column_types)
 
     def _split_key_change(self, event: ChangeEvent) -> tuple[ChangeEvent, ...]:
         """Turn an update that changes the merge key into a delete of the old key and an insert of the new one.
@@ -775,7 +812,7 @@ class CDCExtractActivity:
                     event = dataclasses.replace(event, table_name=canonical_name)
 
                 for change in self._split_key_change(event):
-                    self.batcher.add(self._project_event_columns(change))
+                    self.batcher.add(self._mask_event_columns(self._project_event_columns(change)))
 
                 # A change in position_serialized proves the previous transaction fully
                 # yielded — all of its events are now buffered or flushed. Record its end LSN

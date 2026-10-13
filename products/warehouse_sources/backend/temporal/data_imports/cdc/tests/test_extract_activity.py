@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -43,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_queued_batches
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import mask_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
@@ -310,6 +312,27 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     activity_obj.source = source
     activity_obj.log = log or MagicMock()
     return activity_obj
+
+
+class TestMaskEventColumns:
+    def test_masks_configured_columns_and_types_them_as_text(self):
+        activity_obj = _make_extract_activity(_make_source())
+        activity_obj.masked_columns_by_table = {"users": {"email", "visits"}}
+        event = dataclasses.replace(
+            _make_event(columns={"id": 1, "Email": "a@example.com", "visits": None}),
+            column_types={"id": pa.int64(), "Email": pa.string(), "visits": pa.int64()},
+        )
+
+        out = activity_obj._mask_event_columns(event)
+
+        assert out.columns == {"id": 1, "Email": mask_value(1, "a@example.com"), "visits": None}
+        assert out.column_types == {"id": pa.int64(), "Email": pa.string(), "visits": pa.string()}
+
+    def test_a_table_without_masks_is_untouched(self):
+        activity_obj = _make_extract_activity(_make_source())
+        event = _make_event(columns={"id": 1, "email": "a@example.com"})
+
+        assert activity_obj._mask_event_columns(event) is event
 
 
 class TestSetupSelfCleansUnrunnableSchedules:

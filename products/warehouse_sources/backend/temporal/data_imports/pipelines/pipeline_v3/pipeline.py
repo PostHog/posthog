@@ -76,6 +76,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import mask_table_if_configured
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_cursor_partition_keys,
 )
@@ -961,6 +962,8 @@ class PipelineV3(Generic[ResumableData]):
                 self._logger,
                 "V3 Pipeline: Dropped non-enabled columns before write",
             )
+
+        pa_table = await mask_table_if_configured(pa_table, self._schema, self._resource)
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)

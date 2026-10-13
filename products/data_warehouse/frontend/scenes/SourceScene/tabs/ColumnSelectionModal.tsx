@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { ExternalDataSourceSchema } from '~/types'
@@ -10,6 +11,7 @@ export interface ColumnSelectionTarget {
     id: string
     name?: string
     enabled_columns?: string[] | null
+    masked_columns?: string[] | null
     primary_key_columns?: string[] | null
     incremental_field?: string | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
@@ -22,6 +24,9 @@ interface ColumnSelectionPickerProps {
     hideActions?: boolean
     /** Fires on every edit, so a parent can drive saving with its own button. */
     onChange?: (enabledColumns: string[] | null) => void
+    /** Show a mask toggle on each column. */
+    enableMasking?: boolean
+    onMaskedChange?: (maskedColumns: string[]) => void
 }
 
 interface ColumnSelectionModalProps {
@@ -39,6 +44,9 @@ interface UseColumnSelectionResult {
     toggleColumn: (name: string, checked: boolean) => void
     isAlwaysRetained: (name: string) => boolean
     isChecked: (name: string) => boolean
+    isMasked: (name: string) => boolean
+    isMaskable: (name: string) => boolean
+    toggleMask: (name: string) => void
     persistedSelection: () => string[] | null
     available: { name: string; data_type?: string; is_nullable?: boolean }[]
     primaryKeys: Set<string>
@@ -48,23 +56,26 @@ interface UseColumnSelectionResult {
 
 function useColumnSelection(
     schema: ColumnSelectionTarget | null,
-    onChange?: (enabledColumns: string[] | null) => void
+    onChange?: (enabledColumns: string[] | null) => void,
+    onMaskedChange?: (maskedColumns: string[]) => void
 ): UseColumnSelectionResult {
     const available = schema?.available_columns ?? []
     const primaryKeys = useMemo(() => new Set(schema?.primary_key_columns ?? []), [schema?.primary_key_columns])
     const incrementalField = schema?.incremental_field
 
     const [selected, setSelected] = useState<Set<string> | null>(null)
+    const [masked, setMasked] = useState<Set<string>>(new Set())
     const [filter, setFilter] = useState('')
 
     useEffect(() => {
         const current = schema?.enabled_columns
         setSelected(Array.isArray(current) ? new Set(current) : null)
+        setMasked(new Set(schema?.masked_columns ?? []))
         setFilter('')
         // Stable serialized key: the array ref changes on every poll even with identical contents,
         // which would otherwise wipe out in-progress edits.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [schema?.id, schema?.enabled_columns?.join('\0') ?? null])
+    }, [schema?.id, schema?.enabled_columns?.join('\0') ?? null, schema?.masked_columns?.join('\0') ?? null])
 
     const isAlwaysRetained = (name: string): boolean => primaryKeys.has(name) || name === incrementalField
 
@@ -109,6 +120,32 @@ function useColumnSelection(
             next.delete(name)
         }
         commit(next)
+        // A column that no longer syncs has nothing to mask.
+        if (!checked && masked.has(name)) {
+            commitMasked(name, false)
+        }
+    }
+
+    const commitMasked = (name: string, shouldMask: boolean): void => {
+        const next = new Set(masked)
+        if (shouldMask) {
+            next.add(name)
+        } else {
+            next.delete(name)
+        }
+        setMasked(next)
+        onMaskedChange?.(Array.from(next))
+    }
+
+    const isMasked = (name: string): boolean => masked.has(name)
+
+    // A hashed primary key breaks merges and a hashed incremental field cannot order rows.
+    const isMaskable = (name: string): boolean => isChecked(name) && !isAlwaysRetained(name)
+
+    const toggleMask = (name: string): void => {
+        if (isMaskable(name)) {
+            commitMasked(name, !masked.has(name))
+        }
     }
 
     const setSyncAll = (): void => commit(null)
@@ -131,6 +168,9 @@ function useColumnSelection(
         toggleColumn,
         isAlwaysRetained,
         isChecked,
+        isMasked,
+        isMaskable,
+        toggleMask,
         persistedSelection,
         available,
         primaryKeys,
@@ -145,6 +185,8 @@ export function ColumnSelectionPicker({
     onCancel,
     hideActions,
     onChange,
+    enableMasking,
+    onMaskedChange,
 }: ColumnSelectionPickerProps): JSX.Element {
     const {
         filter,
@@ -153,11 +195,14 @@ export function ColumnSelectionPicker({
         toggleColumn,
         isAlwaysRetained,
         isChecked,
+        isMasked,
+        isMaskable,
+        toggleMask,
         persistedSelection,
         available,
         primaryKeys,
         filteredColumns,
-    } = useColumnSelection(schema, onChange)
+    } = useColumnSelection(schema, onChange, onMaskedChange)
 
     return (
         <div className="flex flex-col gap-2">
@@ -191,13 +236,32 @@ export function ColumnSelectionPicker({
                         />
                     )
                     return (
-                        <div key={column.name} className="px-3 py-1">
+                        <div key={column.name} className="flex items-center justify-between gap-2 px-3 py-1">
                             {retained ? (
                                 <Tooltip title="Always synced — required for merges or incremental tracking.">
                                     <div>{checkbox}</div>
                                 </Tooltip>
                             ) : (
                                 checkbox
+                            )}
+                            {enableMasking && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type={isMasked(column.name) ? 'primary' : 'tertiary'}
+                                    icon={<IconLock />}
+                                    aria-pressed={isMasked(column.name)}
+                                    onClick={() => toggleMask(column.name)}
+                                    tooltip="Replace this column's values with a one-way hash when syncing. Use it for passwords and personal data. A masked column no longer matches the same values in tables where it isn't masked."
+                                    disabledReason={
+                                        isMaskable(column.name)
+                                            ? undefined
+                                            : retained
+                                              ? "Primary key and incremental columns can't be masked"
+                                              : 'Only synced columns can be masked'
+                                    }
+                                >
+                                    {isMasked(column.name) ? 'Masked' : 'Mask'}
+                                </LemonButton>
                             )}
                         </div>
                     )
