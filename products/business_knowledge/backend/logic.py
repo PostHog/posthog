@@ -1641,7 +1641,8 @@ def release_failed_source(*, source_id: UUID, team_id: int, discard_documents: b
             return
         if discard_documents:
             _delete_crawl_documents(source=source, team_id=team_id)
-        source.status = SourceStatus.READY if source.documents.exists() else SourceStatus.ERROR
+        has_live_documents = source.documents.filter(tombstoned_at__isnull=True).exists()
+        source.status = SourceStatus.READY if has_live_documents else SourceStatus.ERROR
         source.last_refresh_at = timezone.now()
         source.last_refresh_status = RefreshStatus.ERROR
         source.last_refresh_error = _FAILED_PROCESSING_MESSAGE

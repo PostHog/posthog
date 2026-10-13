@@ -701,6 +701,19 @@ class TestRefreshCrawlSource(APIBaseTest):
         assert source.last_refresh_status == expected_refresh_status
         assert KnowledgeDocument.objects.unscoped().filter(source=source).exists() == expect_documents_left
 
+    def test_release_failed_source_with_only_tombstoned_documents_becomes_error(self) -> None:
+        from django.utils import timezone
+
+        source = self._seed(["https://example.com/a"])
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=SourceStatus.PROCESSING)
+        KnowledgeDocument.objects.unscoped().filter(source=source).update(tombstoned_at=timezone.now())
+
+        logic.release_failed_source(source_id=source.id, team_id=self.team.id, discard_documents=False)
+
+        source.refresh_from_db()
+        assert source.status == SourceStatus.ERROR
+        assert source.last_refresh_status == RefreshStatus.ERROR
+
     def test_vanished_url_is_tombstoned(self) -> None:
         source = self._seed(["https://example.com/a", "https://example.com/b"])
         doc_b = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/b")
