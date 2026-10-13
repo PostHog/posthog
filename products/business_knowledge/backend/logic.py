@@ -1996,9 +1996,10 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     - Existing URL that vanished from discovery → mark tombstoned_at,
       delete chunks (keep the doc row so a later re-appearance can reuse
       the id).
-    - No stored page confirmed and none written → `last_refresh_status=error`.
-      Live documents stay. A source with none left is `status=error`, because
-      `not_modified` would clear the failure and look ready with no chunks.
+    - No live page confirmed and none left → `last_refresh_status=error`.
+      Live documents stay when the fetches fail. A source with none left is
+      `status=error`, including when a vanished page was tombstoned and its
+      replacement failed to fetch.
     """
 
     try:
@@ -2063,14 +2064,11 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             discovered_set.add(url_fetch.normalize_url(u))
         except url_fetch.UrlFetchError:
             pass
-    # An empty discovery is a failed read, not proof that every stored page is gone.
-    # Tombstone only URLs missing from a result that listed something.
+    # An empty discovery is a failed read, not proof every stored page is gone.
     vanished_ids = [d.id for url, d in existing_by_url.items() if url not in discovered_set] if discovered else []
 
     any_changes = False
     first_error = ""
-    # A 304 or an unchanged hash confirms a document we already stored. An
-    # error does not, so a refresh of only errors must not report not_modified.
     retained_page = False
     # Tombstone docs whose URL vanished from discovery before any batch, so the
     # chunk cap check below does not count their chunks. Chunks go away now; the
@@ -2135,18 +2133,17 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
                 raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
 
-    # Confirmed pages take the not_modified path below. Anything else wrote
-    # nothing and proved nothing, so it must not clear the failure.
-    if not any_changes and not retained_page:
+    has_live_document = KnowledgeDocument.objects.filter(
+        team_id=team_id, source_id=source.id, tombstoned_at__isnull=True
+    ).exists()
+    # A tombstone sets any_changes, so it must not count as a stored page.
+    if not retained_page and (not any_changes or not has_live_document):
         if not discovered:
             error_msg = "Crawl discovered no URLs. Check the entry URL and globs."
         elif not safe_urls:
             error_msg = "Crawl discovered no safe URLs to fetch."
         else:
             error_msg = first_error or "All pages failed to fetch."
-        has_live_document = KnowledgeDocument.objects.filter(
-            team_id=team_id, source_id=source.id, tombstoned_at__isnull=True
-        ).exists()
         with transaction.atomic():
             fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
             now = timezone.now()

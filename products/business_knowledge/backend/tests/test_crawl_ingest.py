@@ -743,6 +743,27 @@ class TestRefreshCrawlSource(APIBaseTest):
         assert doc.tombstoned_at is None
         assert KnowledgeChunk.objects.unscoped().filter(document_id=doc.id).count() == chunks_before
 
+    def test_failed_replacement_does_not_leave_an_empty_ready_source(self) -> None:
+        source = self._seed(["https://example.com/a"])
+        doc_a = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
+
+        sitemap = _sitemap_xml(["https://example.com/b"])
+        behaviours = {"https://example.com/b": url_fetch.UrlFetchError("Remote responded with status 403.")}
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            refreshed = refresh_source(source_id=source.id, team_id=self.team.id)
+
+        assert refreshed is not None
+        assert refreshed.status == SourceStatus.ERROR
+        assert refreshed.last_refresh_status == "error"
+        assert refreshed.error_message == "Remote responded with status 403."
+        doc_a.refresh_from_db()
+        assert doc_a.tombstoned_at is not None
+        assert KnowledgeChunk.objects.unscoped().filter(document_id=doc_a.id).count() == 0
+        assert not KnowledgeDocument.objects.unscoped().filter(source=source, tombstoned_at__isnull=True).exists()
+
     def test_empty_discovery_keeps_existing_documents(self) -> None:
         source = self._seed(["https://example.com/a"])
         doc = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/a")
