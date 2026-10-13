@@ -576,6 +576,7 @@ describe('WorkerIngestServer', () => {
     })
 
     it('acks PARTIAL with the dispositions of a batch whose elements did not all finish, once it settles', async () => {
+        const baselineMessages = await metricValue('ingestion_api_messages_processed_total')
         const source = new FrameSource()
         const collected = collect(server, source)
 
@@ -602,6 +603,9 @@ describe('WorkerIngestServer', () => {
         expect(ack.status).toBe(SubBatchStatus.PARTIAL)
         expect(ack.unfinished).toMatchObject([{ partition: 0, offset: 11n }])
         expect(ack.accepted + ack.unfinished.length).toBe(4)
+        expect(await metricValue('ingestion_api_messages_processed_total')).toBe(
+            baselineMessages + collected.acks.reduce((sum, { accepted }) => sum + accepted, 0)
+        )
     })
 
     it('acks a parked sub-batch PARTIAL when its soft budget runs out before a slot frees', async () => {

@@ -605,7 +605,7 @@ export class WorkerIngestServer {
         }
         this.acceptedBatches.delete(key)
         if (outcome === 'ok') {
-            batchProcessed(accepted)
+            batchProcessed(accepted.acceptedAt, completed.accepted)
         } else {
             batchFailed()
         }
