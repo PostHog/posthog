@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     RAW_MAX_LOOKBACK_DAYS,
     RAW_MAX_REQUEST_DAYS,
     AppsFlyerCredentialsError,
+    AppsFlyerQuotaError,
     AppsFlyerRetryableError,
     _normalize_header,
     _parse_csv_rows,
@@ -154,6 +155,16 @@ class TestValidateCredentials:
             assert message.endswith(expected_reason)
         assert "secret-token" not in message
 
+    @pytest.mark.parametrize("status_code", [400, 403])
+    def test_validate_credentials_reports_a_used_up_quota_instead_of_denied_access(self, status_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code, body=b"Limit reached for daily-report")]):
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("token", "id123")
+        message = str(exc.value)
+        assert message.startswith("Your AppsFlyer daily report limit is reached.")
+        assert "denied access" not in message
+        assert message.endswith("AppsFlyer said: Limit reached for daily-report")
+
     @pytest.mark.parametrize("api_token", [" token ", "Bearer token", "bearer  token"])
     def test_validate_credentials_sends_a_clean_token_and_ios_app_id(self, api_token: str) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
@@ -241,6 +252,13 @@ class TestGetRows:
 
         assert result.raised is None
         assert [len(batch) for batch in result.items] == [CHUNK_SIZE, 1]
+
+    @pytest.mark.parametrize("endpoint", ["daily_report", "installs"])
+    def test_used_up_quota_fails_the_sync_with_a_quota_error(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=403, body=b"Limit reached for daily-report")))
+
+        assert isinstance(result.raised, AppsFlyerQuotaError)
+        assert len(result.requests) == 1
 
     def test_requests_csv_explicitly(self) -> None:
         result = _driver().run("daily_report", [_csv_response()])
