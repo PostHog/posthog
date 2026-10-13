@@ -14,7 +14,7 @@ tools:
             - ticket:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Start a support ticket by email
         description: >

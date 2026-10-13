@@ -2825,7 +2825,7 @@
         "title": "Start a support ticket by email",
         "required_scopes": ["ticket:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
