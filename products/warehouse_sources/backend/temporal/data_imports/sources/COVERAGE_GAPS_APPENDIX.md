@@ -272,10 +272,10 @@ Today (7): `idea_comments`, `idea_endorsements`, `idea_organizations`, `idea_por
 
 Diffed against: <https://www.aha.io/openapi.json>
 
-- [ ] `Products (GET /api/v1/products)` — resolves product IDs on ideas for reports by workspace (high)
-- [ ] `Workflows (GET /api/v1/products/{product_id}/workflows)` — provides status names, order, and completion categories for idea workflows (high)
-- [ ] `Users (GET /api/v1/users)` — provides staff identities for idea assignment and ownership reports (high)
-- [ ] `Workflow status times (GET /api/v1/ideas/{idea_id}/workflow_status_times)` — measures time spent in each status and delays in idea delivery (high)
+- [x] `Products (GET /api/v1/products)` — resolves product IDs on ideas for reports by workspace (high)
+- [x] `Workflows (GET /api/v1/products/{product_id}/workflows)` — provides status names, order, and completion categories for idea workflows (high)
+- [x] `Users (GET /api/v1/users)` — provides staff identities for idea assignment and ownership reports (high)
+- [x] `Workflow status times (GET /api/v1/ideas/{idea_id}/workflow_status_times)` — measures time spent in each status and delays in idea delivery (high)
 - [ ] `Idea categories (GET /api/v1/products/{product_id}/idea_categories)` — provides the category hierarchy for grouping customer demand (medium)
 - [ ] `Ideas portal users (GET /api/v1/portal_users)` — links portal membership to idea users and portal engagement (medium)
 - [ ] `Idea subscriptions (GET /api/v1/ideas/{idea_id}/subscriptions)` — identifies followers of each idea for customer interest reports (medium)
