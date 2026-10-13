@@ -23,7 +23,7 @@ variable "name" {
 }
 
 variable "node" {
-  description = "The server the object lives on: { name, host, port, leader }. Null puts it on the provider's host."
+  description = "The server the object lives on: { name, host, port }. Null puts it on the provider's host."
   type        = any
   default     = null
 }

@@ -1,5 +1,5 @@
 variable "node" {
-  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  description = "The server these objects live on: { name, host, port }. Null puts them on the provider's host."
   type        = any
   default     = null
 }
@@ -264,7 +264,7 @@ module "sharded_query_log_archive_family" {
     settings     = "index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets'"
   }
   routing = {
-    read         = true
+    read         = false
     read_columns = local.sharded_query_log_archive_columns
   }
   deployment = merge({ cluster = "ops" }, local.deployment)

@@ -37,7 +37,7 @@ variable "name" {
 #   ignore_drop_dependencies = true
 #     allow dropping or replacing the table while a dictionary or view reads from it
 variable "node" {
-  description = "The server the object lives on: { name, host, port, leader }. Null puts it on the provider's host."
+  description = "The server the object lives on: { name, host, port }. Null puts it on the provider's host."
   type        = any
   default     = null
 }
@@ -205,8 +205,6 @@ resource "clickhousedbops_table" "this" {
   unmanaged_indexes = try(local.o.unmanaged_indexes, var.unmanaged_indexes)
 
   node = var.node == null ? null : { name = var.node.name, host = var.node.host, port = try(var.node.port, null) }
-  # The shard's leader runs the ALTERs that Keeper replicates; the other replicas wait for them.
-  replica_role = var.node != null && startswith(lower(local.engine), "replicated") ? (try(var.node.leader, true) ? "leader" : "follower") : null
 
   force_destroy            = try(local.o.force_destroy, false)
   ignore_drop_dependencies = try(local.o.ignore_drop_dependencies, false)

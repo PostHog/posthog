@@ -1,5 +1,5 @@
 variable "node" {
-  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  description = "The server these objects live on: { name, host, port }. Null puts them on the provider's host."
   type        = any
   default     = null
 }
@@ -551,7 +551,11 @@ module "metrics4_names_family" {
   name     = "metrics4_names"
   database = var.database
   layout   = "global"
-  columns  = concat(local.metric_names3_columns, [{ name = "service_name", type = "LowCardinality(String)" }])
+  columns = concat(local.metric_names3_columns, [
+    { name = "service_name", type = "LowCardinality(String)" },
+    { name = "metric_types", type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))" },
+    { name = "metric_type", type = "String", alias_expression = "metric_types[1]" },
+  ])
   storage = {
     engine       = "AggregatingMergeTree"
     partition_by = "toDate(original_expiry_time_bucket)"
@@ -794,7 +798,8 @@ module "metrics4_input_to_metrics4_names" {
         toStartOfHour(timestamp) AS time_bucket,
         toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
         maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-        service_name
+        service_name,
+        groupUniqArrayArraySimpleState([toString(metric_type)]) AS metric_types
     FROM ${var.database}.metrics4_input AS input
     WHERE has_labels
     GROUP BY

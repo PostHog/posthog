@@ -1,5 +1,5 @@
 variable "node" {
-  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  description = "The server these objects live on: { name, host, port }. Null puts them on the provider's host."
   type        = any
   default     = null
 }

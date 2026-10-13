@@ -1,5 +1,5 @@
 variable "node" {
-  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  description = "The server these objects live on: { name, host, port }. Null puts them on the provider's host."
   type        = any
   default     = null
 }
@@ -49,7 +49,10 @@ module "sharded_flag_evaluations_family" {
     { name = "distinct_id", type = "String" },
     { name = "created_at", type = "DateTime64(6, 'UTC')" },
     { name = "person_id", type = "UUID" },
+    { name = "person_properties", type = "String", default_expression = "'{}'" },
+    { name = "person_created_at", type = "DateTime64(3)" },
     { name = "inserted_at", type = "DateTime64(6, 'UTC')", default_expression = "timestamp" },
+    { name = "person_mode", type = "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)" },
     { name = "$group_0", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')", comment = "column_materializer::$group_0" },
     { name = "$group_1", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')", comment = "column_materializer::$group_1" },
     { name = "$group_2", type = "String", default_expression = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')", comment = "column_materializer::$group_2" },
@@ -86,7 +89,10 @@ module "sharded_flag_evaluations_family" {
       { name = "distinct_id", type = "String" },
       { name = "created_at", type = "DateTime64(6, 'UTC')" },
       { name = "person_id", type = "UUID" },
+      { name = "person_properties", type = "String", default_expression = "'{}'" },
+      { name = "person_created_at", type = "DateTime64(3)" },
       { name = "inserted_at", type = "DateTime64(6, 'UTC')", default_expression = "timestamp" },
+      { name = "person_mode", type = "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)" },
       { name = "$group_0", type = "String", comment = "column_materializer::$group_0" },
       { name = "$group_1", type = "String", comment = "column_materializer::$group_1" },
       { name = "$group_2", type = "String", comment = "column_materializer::$group_2" },
@@ -109,7 +115,10 @@ module "sharded_flag_evaluations_family" {
       { name = "distinct_id", type = "String" },
       { name = "created_at", type = "DateTime64(6, 'UTC')" },
       { name = "person_id", type = "UUID" },
+      { name = "person_properties", type = "String", default_expression = "'{}'" },
+      { name = "person_created_at", type = "DateTime64(3)" },
       { name = "inserted_at", type = "DateTime64(6, 'UTC')", default_expression = "timestamp" },
+      { name = "person_mode", type = "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)" },
       { name = "_timestamp", type = "DateTime" },
       { name = "_offset", type = "UInt64" },
       { name = "_partition", type = "UInt64" },
@@ -128,7 +137,10 @@ module "sharded_flag_evaluations_family" {
       { name = "distinct_id", type = "String" },
       { name = "created_at", type = "DateTime64(6, 'UTC')" },
       { name = "person_id", type = "UUID" },
+      { name = "person_properties", type = "String" },
+      { name = "person_created_at", type = "DateTime64(3)" },
       { name = "inserted_at", type = "DateTime64(6, 'UTC')" },
+      { name = "person_mode", type = "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)" },
     ]
     settings = { kafka_flush_interval_ms = "7500", kafka_max_block_size = "10000", kafka_num_consumers = "1", kafka_poll_max_batch_size = "10000", kafka_poll_timeout_ms = "10000", kafka_skip_broken_messages = "100" }
   }
@@ -141,7 +153,10 @@ uuid,
     distinct_id,
     created_at,
     person_id,
-    if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+    person_properties,
+    person_created_at,
+    now64() AS inserted_at,
+    person_mode,
     _timestamp,
     _offset,
     _partition

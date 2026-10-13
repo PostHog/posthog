@@ -1,5 +1,5 @@
 variable "node" {
-  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  description = "The server these objects live on: { name, host, port }. Null puts them on the provider's host."
   type        = any
   default     = null
 }
@@ -60,7 +60,7 @@ module "log_entries_data_family" {
   node    = var.node
   objects = var.objects
 
-  name     = "log_entries_distributed"
+  name     = "log_entries"
   database = var.database
   columns  = local.log_entries_data_columns
   storage = {
@@ -84,7 +84,7 @@ module "sharded_log_entries_family" {
   node    = var.node
   objects = var.objects
 
-  name     = "log_entries"
+  name     = "log_entries_distributed"
   database = var.database
   columns  = local.log_entries_data_columns
   storage = {
@@ -95,6 +95,7 @@ module "sharded_log_entries_family" {
     ttl          = var.ttl ? "toDate(timestamp) + toIntervalDay(90)" : null
     settings     = "index_granularity = 1024, ttl_only_drop_parts = 1"
   }
+  names        = { storage = "sharded_log_entries", write = "writable_log_entries" }
   sharding_key = "rand()"
   routing = {
     read = !var.test
