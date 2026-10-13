@@ -558,6 +558,7 @@ export interface supportTicketSceneLogicMeta {
             assignee: TicketAssignee,
             tags: string[],
             snoozedUntil: string | null,
+            ccParticipants: string[],
             ticket: Ticket | null,
             resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
         ) => string[]
