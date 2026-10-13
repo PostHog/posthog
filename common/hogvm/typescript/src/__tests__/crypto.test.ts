@@ -1,11 +1,32 @@
 import crypto from 'crypto'
 
+import { execSync } from '../execute'
+import { Operation as op } from '../operation'
 import { sha1, sha1HmacChain } from '../stl/crypto'
 import { STL } from '../stl/stl'
 import { ExecOptions } from '../types'
 
 describe('sha1 and sha1HmacChain', () => {
     const options: ExecOptions = { external: { crypto } }
+
+    describe('SHA1', () => {
+        test.each([
+            ['abc', 'A9993E364706816ABA3E25717850C26C9CD0D89D'],
+            ['', 'DA39A3EE5E6B4B0D3255BFEF95601890AFD80709'],
+            ['🦔', 'B1495135295AC36752F6579E93BA02140604590F'],
+            [null, null],
+        ])('SHA1(%p) returns uppercase hex', (value, expected) => {
+            const argument = value === null ? [op.NULL] : [op.STRING, value]
+            expect(execSync(['_H', 1, ...argument, op.CALL_GLOBAL, 'SHA1', 1], options)).toBe(expected)
+        })
+
+        test.each([[[]], [['abc', 'def']]])('rejects argument list %p', (values) => {
+            const args = values.flatMap((value) => [op.STRING, value])
+            expect(() => execSync(['_H', 1, ...args, op.CALL_GLOBAL, 'SHA1', values.length], options)).toThrow(
+                'Function SHA1 requires'
+            )
+        })
+    })
 
     describe('sha1', () => {
         test.each([

@@ -1890,6 +1890,37 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, 0)")
 
+    @parameterized.expand(
+        [
+            ("hogql", "SHA1('abc')"),
+            ("clickhouse", "hex(SHA1(%(hogql_val_0)s))"),
+            ("duckdb", "upper(sha1(%(hogql_val_0)s))"),
+            ("mysql", "upper(sha1(%(hogql_val_0)s))"),
+            ("snowflake", "upper(sha1(%(hogql_val_0)s))"),
+            ("redshift", "upper(sha1(%(hogql_val_0)s))"),
+            ("trino", "upper(to_hex(sha1(to_utf8(CAST(%(hogql_val_0)s AS VARCHAR)))))"),
+        ]
+    )
+    def test_sha1_dialects(self, dialect: HogQLDialect, expected: str) -> None:
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=Database(),
+            restricted_properties=set(),
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        )
+        query = parse_select("SELECT SHA1('abc')")
+        prepared = prepare_ast_for_printing(query, context=context, dialect=dialect)
+        assert prepared is not None
+        assert print_prepared_ast(prepared.select[0], context=context, dialect=dialect, stack=[prepared]) == expected
+
+    def test_sha1_postgres_requires_optional_extension(self) -> None:
+        context = HogQLContext(database=Database(), restricted_properties=set(), enable_select_queries=True)
+        with pytest.raises(QueryError, match="SHA1.*Postgres.*pgcrypto"):
+            prepare_and_print_ast(parse_select("SELECT SHA1('abc')"), context, "postgres")
+
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
 

@@ -1175,6 +1175,13 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 1,
         maxArgs: 2,
     },
+    SHA1: {
+        fn: ([str], _, options) => sha1(str, 'hex', options)?.toUpperCase() ?? null,
+        description: 'Computes SHA-1 as uppercase hexadecimal text',
+        example: 'SHA1($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
     sha1Hex: {
         fn: ([str], _, options) => sha1(str, 'hex', options),
         description: 'Computes SHA-1 hash of a string. Only for compatibility with vendors that use SHA-1',

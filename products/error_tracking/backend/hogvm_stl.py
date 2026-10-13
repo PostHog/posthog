@@ -90,6 +90,7 @@ RUST_HOGVM_STL = [
     "md5",
     "sha256Hex",
     "sha256",
+    "SHA1",
     "sha1Hex",
     "sha1",
     "sha256HmacChainHex",

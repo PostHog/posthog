@@ -1014,9 +1014,10 @@ class TrinoPrinter(PostgresPrinter):
                 return f"CASE WHEN {maximum} = 0 THEN {split} ELSE slice({split}, 1, {maximum}) END"
             binary_args = self._visit_binary_args(node)
             return f"split({binary_args.right}, {binary_args.left})"
-        if name == "md5":
+        if name in {"md5", "sha1"}:
             rendered_value = self._visit_unary_arg(node)
-            return f"to_hex(md5(to_utf8(CAST({rendered_value} AS VARCHAR))))"
+            digest = f"to_hex({name}(to_utf8(CAST({rendered_value} AS VARCHAR))))"
+            return f"upper({digest})" if name == "sha1" else digest
         if name == "extract":
             return self._visit_extract(node)
         if name in {"quantile", "quantileif"}:

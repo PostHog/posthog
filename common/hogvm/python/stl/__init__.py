@@ -22,7 +22,7 @@ from ..utils import (
     like,
     regex_extract,
 )
-from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacChain
+from .crypto import md5, sha1, sha1_upper, sha1HmacChain, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
     fromUnixTimestamp,
@@ -1086,6 +1086,7 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=2,
     ),
+    "SHA1": STLFunction(fn=lambda args, team, stdout, timeout: sha1_upper(args[0]), minArgs=1, maxArgs=1),
     "sha1Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha1(args[0]), minArgs=1, maxArgs=1),
     "sha1": STLFunction(
         fn=lambda args, team, stdout, timeout: sha1(args[0], args[1] if len(args) > 1 else "hex"),

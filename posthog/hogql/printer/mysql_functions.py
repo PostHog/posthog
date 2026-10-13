@@ -218,6 +218,7 @@ def _handle_json_extract_bool(args: list[str]) -> str:
 # MySQLPrinter._visit_to_start_of_call() / visit_call(), which intercept before this dict
 # is consulted (dateDiff needs the unparameterized unit constant).
 MYSQL_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
+    "sha1": lambda args: f"upper(sha1({args[0]}))",
     # Type conversions — MySQL CAST never raises; invalid input becomes 0/NULL, which also
     # covers the *OrZero variants faithfully.
     "toDate": _make_cast_handler("DATE"),

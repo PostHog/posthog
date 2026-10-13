@@ -212,6 +212,10 @@ class PostgresPrinter(BasePrinter):
             # Use the validated name — never the raw node.name
             return f"{func_name}({args_str})"
 
+        if func_name == "sha1":
+            raise QueryError(
+                "SHA1 is not supported in the Postgres dialect because it requires the optional pgcrypto extension."
+            )
         raise QueryError(f"Function '{node.name}' is not supported in the {self.DIALECT_LABEL} dialect.")
 
     def _get_function_renames(self) -> dict[str, str]:

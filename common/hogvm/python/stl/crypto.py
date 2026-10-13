@@ -35,11 +35,16 @@ def sha256(data: str | None, encoding: Literal["hex", "base64", "base64url", "bi
 def sha1(data: str | None, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str | None:
     if data is None:
         return None
-    # SHA-1 is only here because vendors sign webhooks with it. Never pick it for new work.
+    # SHA-1 supports existing hashes and signatures. Do not use it for new security designs.
     # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     digest = hashlib.sha1(data.encode()).digest()
 
     return encode_digest(encoding, digest)
+
+
+def sha1_upper(data: str | None) -> str | None:
+    digest = sha1(data)
+    return digest.upper() if digest is not None else None
 
 
 def _hmac_chain(data: list, digestmod: str, encoding: Literal["hex", "base64", "base64url", "binary"]) -> str:
