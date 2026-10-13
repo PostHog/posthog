@@ -65,6 +65,18 @@ class AgentTaskRunDTO:
     workflow_id: str
 
 
+@dataclass(frozen=True, kw_only=True)
+class SessionFile:
+    """A text file a custom-prompt session puts in the sandbox before its first turn.
+
+    The agent server writes it under the run's attachments directory and lists its path in the
+    first prompt, so the agent and any sub-agent it starts can read it from disk.
+    """
+
+    name: str
+    content: str
+
+
 @dataclass(frozen=True)
 class StreamNotificationDelivery:
     """Where a server-originated stream notification landed.
@@ -243,6 +255,7 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+    client_provenance: str | None = None
 
 
 @dataclass(frozen=True)

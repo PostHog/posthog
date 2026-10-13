@@ -28,6 +28,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { teamLogic } from '../teamLogic'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
@@ -202,6 +203,10 @@ function DashboardScene({
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
+            {/* Outside the tile-count branches: a dashboard can keep subscriptions and delivery history after its tiles are removed. */}
+            {placement === DashboardPlacement.Dashboard && !!dashboard?.id && (
+                <SubscriptionSummaries dashboardId={dashboard.id} className="mt-2 mb-2" />
+            )}
 
             {dashboardFailedToLoad && !tiles?.length ? (
                 <InsightErrorState

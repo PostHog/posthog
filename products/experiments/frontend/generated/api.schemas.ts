@@ -2270,6 +2270,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `no_metric` - No Metric
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
+ * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2283,6 +2285,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     NoMetric: 'no_metric',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
+    ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
 } as const
 
 /**
@@ -2306,6 +2310,7 @@ export const ExperimentHealthFindingSeverityEnumApi = {
  * * `add_primary_metric` - Add Primary Metric
  * * `add_secondary_metric` - Add Secondary Metric
  * * `edit_exposure_criteria` - Edit Exposure Criteria
+ * * `edit_release_conditions` - Edit Release Conditions
  */
 export type ExperimentHealthFindingActionKindEnumApi =
     (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
@@ -2317,6 +2322,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
     AddPrimaryMetric: 'add_primary_metric',
     AddSecondaryMetric: 'add_secondary_metric',
     EditExposureCriteria: 'edit_exposure_criteria',
+    EditReleaseConditions: 'edit_release_conditions',
 } as const
 
 /**
@@ -2334,7 +2340,9 @@ export interface ExperimentHealthFindingApi {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
-     * * `zero_exposures` - Zero Exposures */
+     * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2495,7 +2503,7 @@ export interface ExperimentWriteApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
-    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
@@ -2648,7 +2656,7 @@ export interface ExperimentApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
-    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
@@ -2797,7 +2805,7 @@ export interface PatchedExperimentWriteApi {
     readonly can_freeze_exposure?: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event?: string
-    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health?: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object

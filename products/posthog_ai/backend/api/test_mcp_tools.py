@@ -438,6 +438,33 @@ class TestMCPToolsAPI(APIBaseTest):
                 "You may retry with adjusted inputs.",
                 expected_error_code="s3_error",
             ),
+            param(
+                "deferred_compatibility_rejection",
+                None,
+                "Function 'greatest' expects 2 arguments, found 3",
+                None,
+                "Tool failed: MaxToolRetryableError: Function 'greatest' expects 2 arguments, found 3\n\n"
+                "<hogql_compatibility_hint>\n"
+                "`greatest` takes exactly 2 arguments in HogQL, unlike ClickHouse. Nest two-argument calls "
+                "instead: greatest(x1, greatest(x2, x3)).\n"
+                "</hogql_compatibility_hint>. You may retry with adjusted inputs.",
+                query_args={"query": "SELECT greatest(1, 2, 3)", "connectionId": "example-connection"},
+            ),
+            param(
+                "memory_limit",
+                None,
+                "Query memory limit exceeded",
+                "clickhouse_memory_limit_exceeded",
+                "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
+                expected_error_type="memory_limit",
+            ),
+            param(
+                "legacy_memory_message",
+                None,
+                "Query memory limit exceeded",
+                None,
+                "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
+            ),
             (
                 "polling_error",
                 ConnectionError("Query status unavailable"),
@@ -462,6 +489,8 @@ class TestMCPToolsAPI(APIBaseTest):
         _mock_sleep: AsyncMock,
         *,
         expected_error_code: str | None = None,
+        query_args: dict[str, str] | None = None,
+        expected_error_type: str = "internal",
     ) -> None:
         mock_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_status.side_effect = polling_error
@@ -475,12 +504,12 @@ class TestMCPToolsAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
-            {"args": {"query": "SELECT 1"}},
+            {"args": query_args or {"query": "SELECT 1"}},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
-        expected = {"success": False, "content": content, "error_type": "internal"}
+        expected = {"success": False, "content": content, "error_type": expected_error_type}
         if expected_error_code:
             expected["error_code"] = expected_error_code
         self.assertEqual(response.json(), expected)

@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
@@ -22,8 +22,10 @@ import {
 } from './results'
 
 export type PipelineConfig<R extends string = never> = {
-    outputs: IngestionOutputs<DlqOutput | IngestionWarningsOutput | R>
+    outputs: IngestionOutputs<DlqOutput | R>
     promiseScheduler: PromiseScheduler
+    /** Reject the side effect when the DLQ produce fails. Set it only when the consumer stores no offsets after a rejected side effect. */
+    rejectOnDlqFailure?: boolean
 }
 
 /**
@@ -92,12 +94,10 @@ export class ResultHandlingPipeline<
         const sideEffects: Promise<unknown>[] = []
 
         if (isDlqResult(result)) {
-            const dlqPromise = produceMessageToDLQ(
-                this.config.outputs,
-                originalMessage,
-                result.error || new Error(result.reason),
-                stepName
-            )
+            const error = result.error || new Error(result.reason)
+            const dlqPromise = this.config.rejectOnDlqFailure
+                ? produceMessageToDLQ(this.config.outputs, originalMessage, error, stepName, { rethrowOnFailure: true })
+                : produceMessageToDLQ(this.config.outputs, originalMessage, error, stepName)
             sideEffects.push(dlqPromise)
         } else if (isDropResult(result)) {
             logDroppedMessage(originalMessage, result.reason, stepName)

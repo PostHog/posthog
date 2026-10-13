@@ -13,6 +13,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -47,7 +48,9 @@ import {
     isDataTableNode,
     isEventsNode,
     isGroupNode,
+    isHogQLQuery,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -904,13 +907,27 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
 }
 
 export const getOverrideWarningPropsForButton = (
+    query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
     variablesOverride: Record<string, HogQLVariable> | null | undefined
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
+    // The backend applies dashboard filters to a SQL query only through a {filters} placeholder, and
+    // dashboard variables only to the variables the query declares. Other overrides do not change
+    // the result, so editing discards nothing.
+    const hogQLSource = isHogQLQuery(query)
+        ? query
+        : isNodeWithSource(query) && isHogQLQuery(query.source)
+          ? query.source
+          : null
     const filterOverridesExist =
         isObject(filtersOverride) &&
-        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
-    const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
+        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0)) &&
+        (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
+    const variableOverridesExist =
+        isObject(variablesOverride) &&
+        (hogQLSource
+            ? Object.keys(variablesOverride).some((variableId) => !!hogQLSource.variables?.[variableId])
+            : !isEmptyObject(variablesOverride))
 
     const overrideType =
         filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'

@@ -259,6 +259,28 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(byTopic[KAFKA_CDP_INTERNAL_EVENTS]).toMatchObject({ 'metadata.broker.list': 'cyclotron:9092' })
             expect(byTopic[KAFKA_EVENTS_JSON]?.['metadata.broker.list']).toBeUndefined()
         })
+
+        it.each(['', 'realtime_only_events_json'])(
+            'creates the realtime-only events consumer only when its topic is configured (%j)',
+            (topic) => {
+                const createConsumer = jest.mocked(createKafkaConsumer)
+                createConsumer.mockClear()
+                new CdpHogflowSubscriptionMatcherConsumer(
+                    {
+                        CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
+                        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: topic,
+                    } as any,
+                    {} as any
+                )
+                const realtimeOnlyTopics = createConsumer.mock.calls
+                    .filter(
+                        ([config]) =>
+                            config.groupId === 'cdp-hogflow-subscription-matcher-realtime-only-events-consumer'
+                    )
+                    .map(([config]) => config.topic)
+                expect(realtimeOnlyTopics).toEqual(topic ? [topic] : [])
+            }
+        )
     })
 
     describe('wakeMatchingWorkflows', () => {

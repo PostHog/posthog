@@ -89,6 +89,8 @@ refer to the complete rule instead. Requiring an action in one situation does no
 other situations. A correct reference does not undo an incorrect statement elsewhere in the check.
 If a rule allows a manual handoff, for example, requiring an electronic receipt would wrongly
 reject it. Leave unspecified choices open. An exception to a general rule is not a conflict.
+If scope, an exception or explicit precedence does not resolve genuinely conflicting requirements,
+name the conflict in the summary for the owner. Do not silently choose a side or invent a stricter rule.
 
 Use concrete words for things people can identify: the report, the number of users, the last time
 checked, or the notes needed next time. Do not replace a technical term with an equally unclear
@@ -101,9 +103,10 @@ conditions to at most three short sentences. Missing evidence means unknown;
 known unmet work fails.
 
 Return only the requested JSON. Keep the summary under 40 words: tell the owner what these checks
-cover and any important evidence limit. Do not inventory inputs, claim to have seen unavailable
-logs or reports, invent observed behavior, include customer names or literal messages, or ask a
-question. Do not change project memory or create or edit reports. The required task_summary_update
+cover, any important evidence limit and any unresolved conflict in the source requirements.
+Do not inventory inputs, claim to have seen unavailable logs or reports, invent observed behavior,
+include customer names or literal messages, or ask a question. Do not change project memory or create
+or edit reports. The required task_summary_update
 may describe this generation's own progress before the final JSON. Do not append a note afterward.
 """
 
@@ -152,7 +155,8 @@ Deliberately disabled judgments stay excluded. Use the saved definitions as writ
 narrower or broader meanings to justify a selection.
 
 Return only the selection JSON matching the supplied schema. The summary is shown to the scout's
-owner. In under 40 words, say what the suggested checks cover and any important evidence limit.
+owner. In under 40 words, say what the suggested checks cover, any important evidence limit and any
+unresolved source conflict identified during drafting. Preserve that warning even when no checks are added.
 If nothing is added, explain why in plain words. Use normal spoken English;
 do not describe your selection process, refer to "draft judgments" or inventory the inputs.
 Do not claim to have inspected unprovided transcripts or reports. Do not include customer names or
@@ -211,7 +215,8 @@ def build_selection_prompt(
         + "\nSelection schema:\n"
         + json.dumps(RubricSelection.model_json_schema())
         + "\nWrite the summary for the scout's owner in one or two short sentences, under 40 words. "
-        "Say what the suggested checks cover and any important evidence limit in everyday words. "
+        "Say what the suggested checks cover, any important evidence limit and any unresolved source conflict "
+        "in everyday words. "
         "If there are no additions, explain why in plain words. "
         "Do not describe the selection process or use internal shorthand. "
         "Keep the selected criteria unchanged. Return only the selection JSON."
@@ -375,8 +380,8 @@ implementation. Use everyday words throughout, including any reference to the sc
   The owner must understand the check without opening those instructions.
 - Applicability: say when the check is needed. "Every run" is enough when that is correct. Missing
   a required report must not make the check inapplicable.
-- Summary: say what the checks cover and any important evidence limit in under 40 words. Do not
-  describe your drafting process or inventory the inputs.
+- Summary: say what the checks cover, any important evidence limit and any unresolved source conflict
+  in under 40 words. Do not describe your drafting process or inventory the inputs.
 
 The first check must name both the scout's investigation and the required report, update or action
 in its pass condition. Putting the required result only in another check is not enough. Preserve

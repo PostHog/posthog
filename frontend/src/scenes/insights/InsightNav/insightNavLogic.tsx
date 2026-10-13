@@ -5,6 +5,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
+import { FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+import {
+    FLAG_EVALUATIONS_SERIES_FIELDS,
+    withFlagCallsAggregationTarget,
+} from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -192,14 +197,19 @@ const cleanDataWarehouseNode = (
         created_at_field,
         ...baseEntity
     } = entity as EntityNode & DataWarehouseNodeSharedFields
+    // A flag calls series has a known column for each field. It does not copy one field into another.
+    const knownFields: DataWarehouseNodeSharedFields =
+        entity.table_name === FLAG_EVALUATIONS_TABLE ? FLAG_EVALUATIONS_SERIES_FIELDS : {}
+    const idField = id_field ?? knownFields.id_field
 
     if (dataWarehouseNodeKind === NodeKind.DataWarehouseNode) {
         return {
             ...baseEntity,
             kind: NodeKind.DataWarehouseNode,
-            ...(id_field ? { id_field } : {}),
+            ...(idField ? { id_field: idField } : {}),
             distinct_id_field:
                 distinct_id_field ??
+                knownFields.distinct_id_field ??
                 (isFunnelsDataWarehouseNode(entity) || isLifecycleDataWarehouseNode(entity)
                     ? entity.aggregation_target_field
                     : undefined),
@@ -210,9 +220,11 @@ const cleanDataWarehouseNode = (
         return {
             ...baseEntity,
             kind: NodeKind.FunnelsDataWarehouseNode,
-            ...(id_field ? { id_field } : {}),
+            ...(idField ? { id_field: idField } : {}),
             aggregation_target_field:
-                aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+                aggregation_target_field ??
+                knownFields.aggregation_target_field ??
+                (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
         } as FunnelsDataWarehouseNode | GroupNode
     }
 
@@ -220,8 +232,10 @@ const cleanDataWarehouseNode = (
         ...baseEntity,
         kind: NodeKind.LifecycleDataWarehouseNode,
         aggregation_target_field:
-            aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
-        created_at_field: created_at_field ?? entity.timestamp_field,
+            aggregation_target_field ??
+            knownFields.aggregation_target_field ??
+            (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+        created_at_field: created_at_field ?? knownFields.created_at_field ?? entity.timestamp_field,
     } as LifecycleDataWarehouseNode | GroupNode
 }
 
@@ -327,10 +341,25 @@ const seriesEntityToRetentionEntity = (
             ...(entity.properties?.length ? { properties: entity.properties } : {}),
         }
     }
+    // A flag calls series has a known column for each field, so it maps to a warehouse retention entity.
+    if (isAnyDataWarehouseNode(entity) && entity.table_name === FLAG_EVALUATIONS_TABLE) {
+        return {
+            type: EntityTypes.DATA_WAREHOUSE,
+            id: FLAG_EVALUATIONS_TABLE,
+            table_name: FLAG_EVALUATIONS_TABLE,
+            timestamp_field: FLAG_EVALUATIONS_SERIES_FIELDS.timestamp_field,
+            aggregation_target_field: FLAG_EVALUATIONS_SERIES_FIELDS.aggregation_target_field,
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
     return undefined
 }
 
-const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): EventsNode | ActionsNode | undefined => {
+const retentionEntityToSeriesEntity = (
+    entity: RetentionEntity | undefined
+): EventsNode | ActionsNode | DataWarehouseNode | undefined => {
     if (!entity) {
         return undefined
     }
@@ -338,6 +367,19 @@ const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): Eve
         return {
             kind: NodeKind.ActionsNode,
             id: typeof entity.id === 'string' ? parseInt(entity.id, 10) : (entity.id ?? 0),
+            ...(entity.name ? { name: entity.name } : {}),
+            ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
+            ...(entity.properties?.length ? { properties: entity.properties } : {}),
+        }
+    }
+    if (entity.type === EntityTypes.DATA_WAREHOUSE && entity.table_name === FLAG_EVALUATIONS_TABLE) {
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: FLAG_EVALUATIONS_TABLE,
+            table_name: FLAG_EVALUATIONS_TABLE,
+            id_field: FLAG_EVALUATIONS_SERIES_FIELDS.id_field,
+            timestamp_field: FLAG_EVALUATIONS_SERIES_FIELDS.timestamp_field,
+            distinct_id_field: FLAG_EVALUATIONS_SERIES_FIELDS.distinct_id_field,
             ...(entity.name ? { name: entity.name } : {}),
             ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
             ...(entity.properties?.length ? { properties: entity.properties } : {}),
@@ -850,10 +892,14 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
             // A target that still points at the cached entity keeps it whole, math included; a target
             // edited on retention replaces it.
             const targetIsCachedEntity =
-                firstCached?.kind === seriesEntity.kind &&
-                (seriesEntity.kind === NodeKind.ActionsNode
-                    ? (firstCached as ActionsNode).id === seriesEntity.id
-                    : (firstCached as EventsNode).event === seriesEntity.event)
+                seriesEntity.kind === NodeKind.DataWarehouseNode
+                    ? !!firstCached &&
+                      isAnyDataWarehouseNode(firstCached) &&
+                      firstCached.table_name === seriesEntity.table_name
+                    : firstCached?.kind === seriesEntity.kind &&
+                      (seriesEntity.kind === NodeKind.ActionsNode
+                          ? (firstCached as ActionsNode).id === seriesEntity.id
+                          : (firstCached as EventsNode).event === seriesEntity.event)
             newCache.series = [targetIsCachedEntity ? firstCached : seriesEntity, ...restCached]
         }
     }
@@ -902,11 +948,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     }
 
     // Insight-specific filter merge (web analytics already returned above)
-    return {
+    return withFlagCallsAggregationTarget({
         ...mergedQuery,
         ...buildCachedFields(query, cache),
         ...buildInsightFilter(query, cache),
-    } as InsightQueryNode
+    } as InsightQueryNode)
 }
 
 const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): Partial<QueryPropertyCache> => {

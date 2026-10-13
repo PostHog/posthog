@@ -382,11 +382,13 @@ async fn sleep_until(wakeup: Option<Instant>) {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::time::Duration;
 
     use tokio::sync::oneshot;
 
     use super::*;
+    use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
     use crate::batcher::test_support::{message, offsets};
     use crate::batcher::worker_assigner::WorkerAssigner;
@@ -485,7 +487,13 @@ mod tests {
             .expect("valid request cap");
             let retry = RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY)
                 .expect("valid retry policy");
+            let packer = Packer::new(PackTargets {
+                events: NonZeroUsize::new(1),
+                bytes: None,
+                latency_budget: Duration::ZERO,
+            });
             let state = BatcherStateMachine::new(
+                packer,
                 assigner,
                 retry,
                 STALL,
@@ -576,19 +584,19 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn an_accepted_send_completes_its_offsets_and_idles_the_worker() {
         let mut h = Harness::new(&["w"], 4);
-        h.submit(vec![run("a", &[1, 2])]);
+        h.submit(vec![run("a", &[1])]);
         settle().await;
 
         let sent = h.take_sent();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].worker, WorkerId::from("w"));
-        assert_eq!(sent[0].offsets, vec![1, 2]);
+        assert_eq!(sent[0].offsets, vec![1]);
         assert!(!sent[0].replay);
 
         let send = sent.into_iter().next().unwrap();
-        send.reply.send(Ok(2)).unwrap();
+        send.reply.send(Ok(1)).unwrap();
         settle().await;
-        assert_eq!(h.completed_offsets(), vec![1, 2]);
+        assert_eq!(h.completed_offsets(), vec![1]);
         assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
         assert_eq!(h.workers.idle(), vec![WorkerId::from("w")]);
     }
@@ -695,16 +703,16 @@ mod tests {
     async fn the_load_tracks_pending_in_flight_and_busy_workers() {
         let h = Harness::new(&[], 2);
         let load = h.driver.load();
-        h.submit(vec![run("a", &[1]), run("b", &[2, 3])]);
+        h.submit(vec![run("a", &[1]), run("b", &[2])]);
         settle().await;
-        assert_eq!(load.pending_messages.load(Ordering::Relaxed), 3);
+        assert_eq!(load.pending_messages.load(Ordering::Relaxed), 2);
         assert!(load.busy_workers.lock().unwrap().is_empty());
 
         h.workers.set_candidates(&["w"]);
         tokio::time::advance(NO_WORKER_DELAY).await;
         settle().await;
         assert_eq!(load.pending_messages.load(Ordering::Relaxed), 0);
-        assert_eq!(load.in_flight_messages.load(Ordering::Relaxed), 3);
+        assert_eq!(load.in_flight_messages.load(Ordering::Relaxed), 2);
         assert_eq!(
             *load.busy_workers.lock().unwrap(),
             HashSet::from([WorkerId::from("w")])
@@ -729,10 +737,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_state_machine_failure_reaches_the_error_channel() {
         let mut h = Harness::new(&["w"], 4);
-        h.submit(vec![run("a", &[1, 2])]);
+        h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();
-        send.reply.send(Ok(1)).unwrap();
+        send.reply.send(Ok(2)).unwrap();
         settle().await;
         assert!(h.outputs.errors.try_recv().is_ok());
     }

@@ -119,6 +119,11 @@ def _synthetic_repo_id(full_name: str) -> int:
     return zlib.crc32(full_name.encode())
 
 
+def _synthetic_event(head_branch: str) -> str:
+    pushed = head_branch in ("master", "main") or head_branch.startswith("trunk-merge/")
+    return "push" if pushed else "pull_request"
+
+
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
@@ -135,6 +140,10 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     return {
         # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
+        # The fixture snapshot and the synthetic rows carry no workflow id or trigger event. A real run of
+        # a branch push is a 'push', and a merge queue pushes its gate branches too.
+        "workflow_id": run.get("workflow_id") or zlib.crc32(str(run.get("name") or "").encode()),
+        "event": run.get("event") or _synthetic_event(str(run.get("head_branch") or "")),
         "repository": json.dumps(repository),
         "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
@@ -158,6 +167,132 @@ _RUNNER_LABELS = (
 
 _TS_FMT = "%Y-%m-%d %H:%M:%S"
 
+_DEMO_BRANCH = "demo/multi-push-progression"
+
+# The demo pull request's workflows get job shapes like the real ones: jobs that start in waves,
+# and matrix jobs with many shards. Each entry is (job name, wave, shard count).
+_DEMO_JOB_SHAPES: dict[str, tuple[tuple[str, int, int], ...]] = {
+    "Backend CI": (
+        ("Detect changes", 0, 1),
+        ("Django tests – Core", 1, 12),
+        ("Django tests – Temporal", 1, 4),
+        ("Product tests", 1, 6),
+        ("Check migrations", 1, 1),
+        ("Async migrations", 1, 1),
+        ("Django Tests Pass", 2, 1),
+    ),
+    "Frontend CI": (
+        ("Detect changes", 0, 1),
+        ("Jest tests", 1, 8),
+        ("Typecheck", 1, 1),
+        ("Lint", 1, 1),
+        ("Frontend Tests Pass", 2, 1),
+    ),
+    "E2E Tests": (
+        ("Build image", 0, 1),
+        ("Playwright", 1, 6),
+        ("Upload report", 2, 1),
+    ),
+    "Rust CI": (
+        ("Build", 0, 1),
+        ("Test", 1, 4),
+        ("Clippy", 1, 1),
+    ),
+    "Storybook": (
+        ("Build Storybook", 0, 1),
+        ("Visual regression", 1, 10),
+        ("Upload snapshots", 2, 1),
+    ),
+}
+
+
+_STEP_TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
+_MAIN_STEP = "Run"
+# Step name and its share of the job's wall-clock. The shares sum to 1.
+_STEP_SHAPE: tuple[tuple[str, float], ...] = (
+    ("Set up job", 0.04),
+    ("Checkout", 0.06),
+    ("Restore cache", 0.1),
+    (_MAIN_STEP, 0.7),
+    ("Post Restore cache", 0.05),
+    ("Post Checkout", 0.03),
+    ("Complete job", 0.02),
+)
+
+
+def _shaped_steps(job_name: str, job_start: datetime, job_end: datetime, conclusion: str | None) -> str:
+    """A job's steps as GitHub's JSON. A failed job fails on its main step; an unfinished job is still on it."""
+    seconds = (job_end - job_start).total_seconds()
+    steps: list[dict[str, Any]] = []
+    step_start = job_start
+    main_reached = False
+    for number, (name, share) in enumerate(_STEP_SHAPE, start=1):
+        is_main = name == _MAIN_STEP
+        step_end = step_start + timedelta(seconds=seconds * share)
+        step: dict[str, Any] = {
+            "number": number,
+            "name": f"Run {job_name}" if is_main else name,
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": step_start.strftime(_STEP_TS_FMT),
+            "completed_at": step_end.strftime(_STEP_TS_FMT),
+        }
+        if conclusion is None and is_main:
+            step.update(status="in_progress", conclusion=None, completed_at=None)
+        elif conclusion is None and main_reached:
+            step.update(status="queued", conclusion=None, started_at=None, completed_at=None)
+        elif conclusion in _FAILING_CONCLUSIONS and is_main:
+            step["conclusion"] = "failure"
+        steps.append(step)
+        main_reached = main_reached or is_main
+        step_start = step_end
+    return json.dumps(steps)
+
+
+def _shaped_jobs(
+    run: dict[str, Any], shape: tuple[tuple[str, int, int], ...], run_start: datetime, window: float
+) -> list[dict[str, Any]]:
+    completed = run.get("status") == "completed"
+    failing = run.get("conclusion") in _FAILING_CONCLUSIONS
+    waves = max(wave for _name, wave, _shards in shape) + 1
+    segment = window / waves
+    widest_name, _wave, widest_shards = max(shape, key=lambda entry: entry[2])
+
+    jobs: list[dict[str, Any]] = []
+    for name, wave, shards in shape:
+        for shard in range(shards):
+            index = len(jobs)
+            # An unfinished run is still on its last wave.
+            finished = completed or wave < waves - 1
+            conclusion = "success" if finished else None
+            if failing and (name, shard) == (widest_name, widest_shards // 2):
+                conclusion = run["conclusion"]
+            job_start = run_start + timedelta(seconds=wave * segment)
+            # Shards end at different times, so their durations differ.
+            job_end = job_start + timedelta(seconds=segment * (0.55 + ((index * 37) % 10) / 22))
+            started_at = job_start.strftime(_TS_FMT)
+            jobs.append(
+                {
+                    "id": run["id"] * 100 + index,
+                    "run_id": run["id"],
+                    "run_attempt": run.get("run_attempt", 1),
+                    "name": f"{name} ({shard + 1}/{shards})" if shards > 1 else name,
+                    "workflow_name": run.get("name"),
+                    "status": "completed" if finished else "in_progress",
+                    "conclusion": conclusion,
+                    "head_sha": run.get("head_sha"),
+                    "head_branch": run.get("head_branch"),
+                    "labels": _RUNNER_LABELS[index % len(_RUNNER_LABELS)],
+                    "runner_name": f"runner-{index + 1}",
+                    "runner_group_name": "depot",
+                    "created_at": started_at,
+                    "started_at": started_at,
+                    "completed_at": job_end.strftime(_TS_FMT) if finished else None,
+                    "steps": _shaped_steps(name, job_start, job_end, conclusion),
+                }
+            )
+    return jobs
+
 
 def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
@@ -177,6 +312,11 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             pass
         window = (run_end - run_start).total_seconds() if run_start and run_end and run_end > run_start else 0.0
         segment = window / count if window else 0.0
+
+        shape = _DEMO_JOB_SHAPES.get(run.get("name") or "") if run.get("head_branch") == _DEMO_BRANCH else None
+        if shape and run_start and window:
+            jobs.extend(_shaped_jobs(run, shape, run_start, window))
+            continue
 
         for idx in range(count):
             is_last = idx == count - 1
@@ -207,7 +347,14 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "created_at": started_at,
                     "started_at": started_at,
                     "completed_at": completed_at,
-                    "steps": "[]",
+                    # Only an unfinished job gets steps, which show the in-progress and queued states.
+                    "steps": (
+                        _shaped_steps(
+                            _JOB_NAMES[idx % len(_JOB_NAMES)], job_start, job_start + timedelta(seconds=segment), None
+                        )
+                        if job_start and segment and not completed
+                        else "[]"
+                    ),
                 }
             )
     return jobs
@@ -316,7 +463,8 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
                     "conclusion": conclusion,
                     "created_at": iso(start),
                     "run_started_at": iso(start),
-                    "updated_at": iso(start) if running else iso(start + duration),
+                    # A running run was last updated part of the way through, which gives its jobs a time span.
+                    "updated_at": iso(start + duration / 2) if running else iso(start + duration),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
                     "pull_requests": [{"number": _FORK_PR_NUMBER, "base": {"repo": {"id": _FORK_REPO_ID}}}],
@@ -478,6 +626,7 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
                 "event": event,
                 "actor": json.dumps({"login": (pr.get("user") or {}).get("login") or "", "avatar_url": ""}),
                 "issue": json.dumps({"number": pr["number"]}),
+                "requested_team": None,
                 "created_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         )
@@ -579,12 +728,12 @@ def _demo_multi_push(
                     "id": 9_900_000_000 + push_index * 100 + wf_index,
                     "name": workflow,
                     "head_sha": push_shas[push_index],
-                    "head_branch": "demo/multi-push-progression",
+                    "head_branch": _DEMO_BRANCH,
                     "status": "in_progress" if running else "completed",
                     "conclusion": None if running else conclusion,
                     "created_at": iso(start),
                     "run_started_at": iso(start),
-                    "updated_at": iso(start) if running else iso(end),
+                    "updated_at": iso(start + (end - start) / 2) if running else iso(end),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
                     "pull_requests": [{"number": _DEMO_PR_NUMBER}],

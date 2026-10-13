@@ -14,10 +14,10 @@ When a change disagrees with this file, change this file in the same PR or don't
 
 ## Building blocks
 
-- Styled only with quill tokens (`bg-card`, `bg-background`, `text-muted-foreground`, `border-input`, `ring-ring`, `fill-selected`) under a `data-quill` root, never LemonUI tokens such as `bg-surface-primary` or `text-tertiary`.
+- Styled only with quill tokens (`bg-card`, `bg-background`, `text-muted-foreground`, `border-input`, `ring-ring`, `fill-selected`) under a `data-quill` root, never LemonUI tokens such as `bg-surface-primary` or `text-tertiary`. One exception: chips selected with ⌘A use the `Highlight` system color, so they match the input's native text selection.
 - Built from quill primitives: `InputGroup` (with `InputGroupInput`, `InputGroupAddon`, `InputGroupButton`) for the field, `Button` rows, `MenuLabel` section headers, `Skeleton`, `Kbd`, `ScrollArea`. One combobox input, one listbox, grouped options, wired with `aria-activedescendant`.
 - Not on quill's `Autocomplete`: Base UI tracks the highlight by index and cannot hold it by item identity (stability rule 5), so the logic owns the highlight.
-- Committed filters render inline as text, not as boxed chips: the key in the muted color at normal weight, the value in the brand color on a light tint (`is:` **Dashboard**). They still behave as chips (select, remove, edit). There is no × on a chip; ⌫ removes it.
+- Committed filters render inline as text, not as boxed chips: the key in the foreground color at normal weight, the value in the brand color on a light tint (`is:` **Dashboard**). They still behave as chips (select, remove, edit). There is no × on a chip; ⌫ removes it.
 - The field has a fixed height. Committing a chip never resizes it; chips that overflow scroll sideways.
 - One kea logic (`commandKSearchLogic`) owns state, highlight, and orchestration. Components only render and translate events. The rules live in pure modules with unit tests:
   - `commandKQuery.ts`: tokenizing, cursor context, `resolveQuery` (filters, free text, and the backend search string in one pass), and which edits commit a chip.
@@ -170,6 +170,7 @@ These are the rules reviewers check. Breaking one is a bug.
 | `↵` on a selected chip  | Turns the chip back into editable text (`is:dashboard`) with the cursor after it.                                           |
 | `←` / `→` at text edges | Move between chips.                                                                                                         |
 | `Esc`                   | Text in the input: clear it. Empty input: close the palette.                                                                |
+| `⌘A`                    | Selects the chips and the text together. `⌫`, typing, or cut then replaces all of it. Copy includes the chips as text.      |
 
 ## Edge cases
 

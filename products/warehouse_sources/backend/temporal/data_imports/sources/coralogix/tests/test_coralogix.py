@@ -10,6 +10,14 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix import coralogix as coralogix_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix import (
     CoralogixResumeConfig,
@@ -18,9 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
     _make_session,
     _parse_timestamp,
     _run_query,
-    coralogix_source,
-    get_rows,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source import CoralogixSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
+    CoralogixSourceConfig,
 )
 
 NOW = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
@@ -35,16 +45,20 @@ def _result_item(ts: str, logid: str) -> dict:
     }
 
 
-def _ndjson_response(results: list[dict], status: int = 200, extra_lines: list[dict] | None = None) -> Response:
+def _ndjson_body(results: list[dict], extra_lines: list[dict] | None = None) -> bytes:
     lines = [json.dumps({"queryId": {"queryId": "q-1"}})]
     if results:
         lines.append(json.dumps({"result": {"results": results}}))
     for extra in extra_lines or []:
         lines.append(json.dumps(extra))
     lines.append(json.dumps({"statistics": {"status": "COMPLETED"}}))
+    return "\n".join(lines).encode()
+
+
+def _ndjson_response(results: list[dict], status: int = 200, extra_lines: list[dict] | None = None) -> Response:
     resp = Response()
     resp.status_code = status
-    resp._content = "\n".join(lines).encode()
+    resp._content = _ndjson_body(results, extra_lines)
     # Make iter_lines() serve the canned body instead of reading a (nonexistent) raw socket.
     resp._content_consumed = True  # type: ignore[attr-defined]
     resp.url = QUERY_URL
@@ -57,58 +71,36 @@ class _FakeServer:
     # is what must prevent adjacent windows from double-counting boundary rows.
     def __init__(self, rows: list[tuple[datetime, str]]):
         self.rows = rows
-        self.calls: list[dict[str, Any]] = []
 
-    def post(self, url: str, json: dict | None = None, stream: bool = False, timeout: Any = None) -> Response:
-        assert json is not None
-        meta = json["metadata"]
+    def __call__(self, request: RecordedRequest) -> ScriptedResponse:
+        body = request.json()
+        meta = body["metadata"]
         start = datetime.strptime(meta["startDate"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
         end = datetime.strptime(meta["endDate"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
-        self.calls.append(
-            {"start": start, "end": end, "limit": meta["limit"], "query": json["query"], "tier": meta["tier"]}
-        )
         matching = [(ts, logid) for ts, logid in self.rows if start <= ts <= end]
         items = [_result_item(_format_datetime(ts), logid) for ts, logid in matching[: meta["limit"]]]
-        return _ndjson_response(items)
+        return ScriptedResponse(body=_ndjson_body(items))
 
 
 def _run_walker(
     server: _FakeServer,
-    manager: MagicMock | None = None,
+    resume_state: CoralogixResumeConfig | None = None,
     endpoint: str = "logs",
     tier: str = "frequent_search",
     should_use_incremental_field: bool = False,
     last_value: Any = None,
-) -> tuple[list[str], MagicMock, MagicMock]:
-    manager = manager or _manager()
-    logger = MagicMock()
-    session = MagicMock()
-    session.post.side_effect = server.post
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix.make_tracked_session",
-        return_value=session,
-    ):
-        batches = list(
-            get_rows(
-                api_key="k",
-                domain="eu2.coralogix.com",
-                tier=tier,
-                endpoint=endpoint,
-                logger=logger,
-                resumable_source_manager=manager,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=last_value,
-            )
-        )
-    logids = [row["logid"] for batch in batches for row in batch]
-    return logids, manager, logger
-
-
-def _manager(resume: CoralogixResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
+    logger: MagicMock | None = None,
+) -> DriveResult:
+    config = CoralogixSourceConfig.from_dict({"api_key": "k", "domain": "eu2.coralogix.com", "tier": tier})
+    driver = SourceDriver(CoralogixSource(), config)
+    return driver.run(
+        endpoint,
+        server,
+        resume_state=resume_state,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=last_value,
+        logger=logger,
+    )
 
 
 class TestParseTimestamp:
@@ -140,13 +132,11 @@ class TestMakeSession:
         # Log/span bodies are free-form user telemetry that can carry secrets the name-based
         # scrubbers can't recognise, so response capture must stay off; redirects stay pinned off
         # so a credentialed request can't be replayed against another host.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix.make_tracked_session"
-        ) as make_session:
+        with scripted_network([]) as network:
             _make_session("secret-key")
-        assert make_session.call_args.kwargs["capture"] is False
-        assert make_session.call_args.kwargs["allow_redirects"] is False
-        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
+        assert network.session_options[0]["capture"] is False
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.session_options[0]["redact_values"] == ("secret-key",)
 
 
 class TestRunQuery:
@@ -188,25 +178,14 @@ class TestGetRows:
         # The generated config's Literal type is not validated when job inputs are parsed, so
         # the transport allowlist is what stops a crafted domain from redirecting the
         # credentialed request (SSRF / API-key exfiltration). It must fail before any HTTP.
-        session = MagicMock()
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix.make_tracked_session",
-                return_value=session,
-            ),
-            pytest.raises(ValueError, match="Unknown Coralogix domain"),
-        ):
-            list(
-                get_rows(
-                    api_key="k",
-                    domain="coralogix.us@attacker.example",
-                    tier="frequent_search",
-                    endpoint="logs",
-                    logger=MagicMock(),
-                    resumable_source_manager=_manager(),
-                )
-            )
-        session.post.assert_not_called()
+        config = CoralogixSourceConfig.from_dict(
+            {"api_key": "k", "domain": "coralogix.us@attacker.example", "tier": "frequent_search"}
+        )
+        result = SourceDriver(CoralogixSource(), config).run("logs", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Coralogix domain" in str(result.raised)
+        assert result.requests == []
 
     @time_machine.travel(NOW, tick=False)
     def test_walks_windows_without_double_counting_boundaries(self) -> None:
@@ -225,19 +204,29 @@ class TestGetRows:
             ]
         )
 
-        logids, manager, _logger = _run_walker(server, should_use_incremental_field=True, last_value=watermark)
+        result = _run_walker(server, should_use_incremental_field=True, last_value=watermark)
 
-        assert logids == ["in-first-window", "on-boundary", "in-second-window"]
+        assert result.raised is None
+        assert [row["logid"] for row in result.rows] == ["in-first-window", "on-boundary", "in-second-window"]
         # First window is [watermark, watermark+1h); the second grows (sparse) and clamps to now.
-        assert (server.calls[0]["start"], server.calls[0]["end"]) == (watermark, boundary)
-        assert (server.calls[1]["start"], server.calls[1]["end"]) == (boundary, NOW)
-        assert server.calls[0]["query"] == "source logs"
-        assert server.calls[0]["tier"] == "TIER_FREQUENT_SEARCH"
+        first, second = (request.json() for request in result.requests)
+        assert (first["metadata"]["startDate"], first["metadata"]["endDate"]) == (
+            _format_datetime(watermark),
+            _format_datetime(boundary),
+        )
+        assert (second["metadata"]["startDate"], second["metadata"]["endDate"]) == (
+            _format_datetime(boundary),
+            _format_datetime(NOW),
+        )
+        assert first["query"] == "source logs"
+        assert first["metadata"]["tier"] == "TIER_FREQUENT_SEARCH"
         # State is saved at each completed window boundary and cleared once fully walked, so a
         # retry starts fresh from the new watermark instead of resuming mid-stream.
-        saved = [call.args[0].synced_until for call in manager.save_state.call_args_list]
-        assert saved == [_format_datetime(boundary), _format_datetime(NOW)]
-        manager.clear_state.assert_called_once()
+        assert result.saved_states == [
+            CoralogixResumeConfig(synced_until=_format_datetime(boundary)),
+            CoralogixResumeConfig(synced_until=_format_datetime(NOW)),
+        ]
+        assert result.final_state is None
 
     @time_machine.travel(NOW, tick=False)
     def test_bisects_windows_that_hit_the_row_cap(self) -> None:
@@ -251,15 +240,15 @@ class TestGetRows:
         )
 
         with patch.object(coralogix_module, "QUERY_LIMIT", 2):
-            logids, _unused_manager, _unused_logger = _run_walker(
-                server, should_use_incremental_field=True, last_value=start
-            )
+            result = _run_walker(server, should_use_incremental_field=True, last_value=start)
 
         # Capped windows are re-queried with a smaller span rather than silently dropping the
         # rows beyond the cap: every fixture row arrives exactly once, in timestamp order.
-        assert logids == ["r1", "r2", "r3"]
-        assert server.calls[0]["start"] == server.calls[1]["start"]  # first bisection retried the cursor
-        assert server.calls[1]["end"] - server.calls[1]["start"] < server.calls[0]["end"] - server.calls[0]["start"]
+        assert result.raised is None
+        assert [row["logid"] for row in result.rows] == ["r1", "r2", "r3"]
+        first, second = (request.json()["metadata"] for request in result.requests[:2])
+        assert first["startDate"] == second["startDate"]  # first bisection retried the cursor
+        assert second["endDate"] < first["endDate"]
 
     @time_machine.travel(NOW, tick=False)
     def test_min_window_cap_warns_and_advances(self) -> None:
@@ -267,11 +256,13 @@ class TestGetRows:
         # and advance — not bisect forever.
         start = NOW - timedelta(seconds=10)
         server = _FakeServer([(NOW - timedelta(seconds=8), "r1"), (NOW - timedelta(seconds=6), "r2")])
+        logger = MagicMock()
 
         with patch.object(coralogix_module, "QUERY_LIMIT", 1):
-            logids, _unused_manager, logger = _run_walker(server, should_use_incremental_field=True, last_value=start)
+            result = _run_walker(server, should_use_incremental_field=True, last_value=start, logger=logger)
 
-        assert logids == ["r1"]
+        assert result.raised is None
+        assert [row["logid"] for row in result.rows] == ["r1"]
         assert logger.warning.call_count == 1
         assert "cap" in logger.warning.call_args.args[0]
 
@@ -288,28 +279,25 @@ class TestGetRows:
             ]
         )
 
-        logids, _unused_manager, _unused_logger = _run_walker(
+        result = _run_walker(
             server,
-            manager=_manager(CoralogixResumeConfig(synced_until=_format_datetime(synced_until))),
+            resume_state=CoralogixResumeConfig(synced_until=_format_datetime(synced_until)),
             should_use_incremental_field=True,
             last_value=watermark,
         )
 
-        assert server.calls[0]["start"] == synced_until
-        assert logids == ["at-resume-point"]
+        assert result.raised is None
+        assert result.requests[0].json()["metadata"]["startDate"] == _format_datetime(synced_until)
+        assert [row["logid"] for row in result.rows] == ["at-resume-point"]
 
 
 class TestCoralogixSource:
     @parameterized.expand([("logs", ["logid"]), ("spans", None)])
     def test_source_response_shape(self, endpoint: str, expected_primary_keys: list[str] | None) -> None:
-        response = coralogix_source(
-            api_key="k",
-            domain="eu2.coralogix.com",
-            tier="archive",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _run_walker(_FakeServer([]), endpoint=endpoint, tier="archive")
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         # Rows are sorted per window and windows advance chronologically, so per-batch watermark
@@ -321,20 +309,10 @@ class TestCoralogixSource:
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("forbidden", 403, False)])
     def test_maps_status_to_validity(self, _name: str, status: int, expected: bool) -> None:
-        session = MagicMock()
-        session.post.return_value = _ndjson_response([], status=status)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix.make_tracked_session",
-            return_value=session,
-        ):
+        with scripted_network([ScriptedResponse(status=status, body=_ndjson_body([]))]) as network:
             assert validate_credentials("k", "coralogix.us") is expected
-        assert session.post.call_args.args[0] == "https://api.coralogix.us/api/v1/dataprime/query"
+        assert network.requests_log[0].url == "https://api.coralogix.us/api/v1/dataprime/query"
 
     def test_network_error_is_invalid(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = requests.ConnectionError("boom")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix.make_tracked_session",
-            return_value=session,
-        ):
+        with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("k", "coralogix.us") is False

@@ -1,9 +1,5 @@
 from typing import Any
 
-from django.db.models import F
-from django.db.models.functions import Coalesce, Now
-from django.utils import timezone
-
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -16,7 +12,13 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.facade.suppression import (
+    SUPPRESSION_SOURCE_CHOICES,
+    Suppression,
+    add_manual_suppression,
+    list_active_suppressions,
+    remove_suppression,
+)
 
 
 class SuppressionPagination(PageNumberPagination):
@@ -25,48 +27,45 @@ class SuppressionPagination(PageNumberPagination):
     max_page_size = 100
 
 
-class MessageSuppressionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MessageSuppression
-        fields = [
-            "id",
-            "identifier",
-            "source",
-            "reason",
-            "transient_bounce_count",
-            "last_bounce_at",
-            "last_bounce_diagnostic",
-            "suppressed",
-            "suppressed_at",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Server-assigned UUID for this suppression entry."},
-            "identifier": {
-                "help_text": "Normalized recipient email address. Suppression is keyed on this value, per team."
-            },
-            "source": {
-                "help_text": "How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API."
-            },
-            "reason": {
-                "help_text": "Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces')."
-            },
-            "transient_bounce_count": {
-                "help_text": "Rolling count of consecutive soft bounces with no successful delivery in between. Reset to 0 on any successful delivery. Ignored for MANUAL entries."
-            },
-            "last_bounce_at": {"help_text": "Timestamp of the most recent bounce, if any."},
-            "last_bounce_diagnostic": {
-                "help_text": "SMTP diagnostic string from the most recent bounce (e.g. '550 5.1.1 user unknown'), kept for visibility."
-            },
-            "suppressed": {
-                "help_text": "Whether the address is actively suppressed. A BOUNCE row can exist while still only counting bounces (suppressed=false) before it crosses the threshold."
-            },
-            "suppressed_at": {"help_text": "Timestamp when the address was first suppressed."},
-            "created_at": {"help_text": "When the row was first created (first bounce or manual add)."},
-            "updated_at": {"help_text": "When the row was last touched by any write."},
-        }
+class MessageSuppressionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Server-assigned UUID for this suppression entry.")
+    identifier = serializers.CharField(
+        read_only=True,
+        help_text="Normalized recipient email address. Suppression is keyed on this value, per team.",
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=SUPPRESSION_SOURCE_CHOICES,
+        read_only=True,
+        help_text="How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.",
+    )
+    reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').",
+    )
+    transient_bounce_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Rolling count of consecutive soft bounces with no successful delivery in between. Reset to 0 on any successful delivery. Ignored for MANUAL entries.",
+    )
+    last_bounce_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Timestamp of the most recent bounce, if any."
+    )
+    last_bounce_diagnostic = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="SMTP diagnostic string from the most recent bounce (e.g. '550 5.1.1 user unknown'), kept for visibility.",
+    )
+    suppressed = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the address is actively suppressed. A BOUNCE row can exist while still only counting bounces (suppressed=false) before it crosses the threshold.",
+    )
+    suppressed_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Timestamp when the address was first suppressed."
+    )
+    created_at = serializers.DateTimeField(
+        read_only=True, help_text="When the row was first created (first bounce or manual add)."
+    )
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the row was last touched by any write.")
 
 
 class PaginatedMessageSuppressionSerializer(serializers.Serializer):
@@ -136,16 +135,11 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
             raise PermissionDenied("You need hog_flow viewer access to view the suppression list.")
 
-        suppressions = MessageSuppression.objects.for_team(self.team_id).filter(suppressed=True, deleted=False)
-
-        search = request.validated_query_data.get("search")
-        if search:
-            suppressions = suppressions.filter(identifier__icontains=search)
-
-        suppressions = suppressions.order_by("-updated_at")
+        suppressions = list_active_suppressions(self.team_id, request.validated_query_data.get("search"))
 
         paginator = SuppressionPagination()
-        page = paginator.paginate_queryset(suppressions, request)
+        # The paginator only needs len() and slicing, which the facade's sequence provides.
+        page: list[Suppression] | None = paginator.paginate_queryset(suppressions, request)  # type: ignore[arg-type]
         if page is not None:
             serializer = MessageSuppressionSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
@@ -172,35 +166,10 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         identifier = serializer.validated_data["identifier"].strip().lower()
 
-        suppression, created = MessageSuppression.objects.for_team(self.team_id).get_or_create(
-            team_id=self.team_id,
-            identifier=identifier,
-            defaults={
-                "created_by": request.user,
-                "source": SuppressionSource.MANUAL,
-                "suppressed": True,
-                "suppressed_at": timezone.now(),
-                "reason": "Manually added",
-            },
-        )
+        added = add_manual_suppression(self.team_id, identifier, request.user.id)
 
-        if not created:
-            # Re-suppress (and un-delete) an existing row, e.g. one that had only been counting
-            # bounces or was previously removed. Coalesce lets Postgres preserve an existing
-            # suppressed_at atomically, so two concurrent add_suppression calls can't both compute
-            # their own now() and overwrite each other.
-            MessageSuppression.objects.for_team(self.team_id).filter(pk=suppression.pk).update(
-                suppressed=True,
-                suppressed_at=Coalesce(F("suppressed_at"), Now()),
-                source=SuppressionSource.MANUAL,
-                reason="Manually added",
-                deleted=False,
-                updated_at=Now(),
-            )
-            suppression.refresh_from_db()
-
-        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(MessageSuppressionSerializer(suppression).data, status=response_status)
+        response_status = status.HTTP_201_CREATED if added.created else status.HTTP_200_OK
+        return Response(MessageSuppressionSerializer(added.suppression).data, status=response_status)
 
     @extend_schema(
         request=AddSuppressionRequestSerializer,
@@ -219,24 +188,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         identifier = serializer.validated_data["identifier"].strip().lower()
 
-        # Soft-delete and un-suppress. Reset the bounce counter so a previously-dead address that
-        # a user deliberately re-enables starts from a clean slate. `source` is reset to BOUNCE so
-        # a future auto-suppression can re-suppress this row — the node upserts skip rows with
-        # source='MANUAL' (to protect user-managed entries), so a removed MANUAL row would otherwise
-        # be permanently invisible to the bounce-driven write path.
-        updated = (
-            MessageSuppression.objects.for_team(self.team_id)
-            .filter(identifier=identifier)
-            .update(
-                suppressed=False,
-                deleted=True,
-                transient_bounce_count=0,
-                source=SuppressionSource.BOUNCE,
-                updated_at=timezone.now(),
-            )
-        )
-
-        if not updated:
+        if not remove_suppression(self.team_id, identifier):
             return Response({"error": "Suppression not found"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(status=status.HTTP_204_NO_CONTENT)

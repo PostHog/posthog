@@ -226,7 +226,7 @@ class TaskProcessingContext:
         Independent of ``repositories``: a run that pins repos still clones them, with a token
         that carries ``contents: read`` and nothing else.
         """
-        return not (self.state or {}).get("scout_trial_judge") and (self.state or {}).get("github_read_access") is True
+        return (self.state or {}).get("github_read_access") is True
 
     @property
     def sandbox_environment_id(self) -> str | None:
@@ -1109,8 +1109,7 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
 
 def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
     """Loop runs opt into the CI/review-comment follow-up loop when the loop's
-    snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
-    `watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
+    snapshotted behaviors ask for it (`watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
     the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
     already-queued run.
     """
@@ -1245,41 +1244,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     state = task_run.state or {}
     trial_origin = task.is_scout_experiment
-    trial_marker = state.get("scout_trial")
-    judge_marker = state.get("scout_trial_judge")
-    if task.is_scout_trial_judge or judge_marker is not None:
-        from products.signals.backend.facade.api import (  # noqa: PLC0415 -- private judges validate frozen evaluation membership
-            is_scout_trial_judge_context,
-        )
-
-        if (
-            not task.is_scout_trial_judge
-            or not isinstance(judge_marker, dict)
-            or task.origin_key
-            != f"scout-trial-judge:{judge_marker.get('evaluation_id')}:{judge_marker.get('launch_id')}"
-            or not is_scout_trial_judge_context(team_id=team.id, user_id=task.created_by.pk, marker=judge_marker)
-        ):
-            raise TaskInvalidStateError(
-                "The scout trial judge has inconsistent private context",
-                {"task_id": str(task.id), "run_id": run_id},
-                cause=RuntimeError("The task identity and saved evaluation do not match"),
-            )
-    elif trial_origin or trial_marker is not None:
-        from products.signals.backend.facade.api import (
-            is_scout_trial_task,  # noqa: PLC0415 -- avoids loading the scout worker graph for ordinary tasks
-        )
-
-        if (
-            not trial_origin
-            or not isinstance(trial_marker, dict)
-            or trial_marker.get("version") != 1
-            or not is_scout_trial_task(team_id=team.id, task_id=task.id)
-        ):
-            raise TaskInvalidStateError(
-                "The scout run has inconsistent private context",
-                {"task_id": str(task.id), "run_id": run_id},
-                cause=RuntimeError("The task identity and private scout context do not match"),
-            )
     actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
@@ -1399,11 +1363,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             store_skills: list[dict[str, Any]] | None = []
             state[STORE_SKILLS_STATE_KEY] = []
         else:
-            store_skills = (
-                None
-                if task.is_scout_trial_judge
-                else resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
-            )
+            store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
         store_skills = None
@@ -1413,9 +1373,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []
     try:
-        if not task.is_scout_trial_judge:
-            instruction_updates, state_remove_keys = agent_instructions_state_update(task, actor_user)
-            state_updates.update(instruction_updates)
+        instruction_updates, state_remove_keys = agent_instructions_state_update(task, actor_user)
+        state_updates.update(instruction_updates)
     except Exception as e:
         log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))
     try:
@@ -1701,9 +1660,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
-    if not task.is_scout_trial_judge and not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
+    if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
         user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
-    if not task.is_scout_trial_judge and user_github_integration_id is None and pr_authorship_mode.value == "user":
+    if user_github_integration_id is None and pr_authorship_mode.value == "user":
         user_github_integration = resolve_user_github_integration_for_task(
             task,
             actor_user=actor_user,
@@ -1718,7 +1677,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
-        github_integration_id=None if task.is_scout_trial_judge else task.github_integration_id,
+        github_integration_id=task.github_integration_id,
         github_user_integration_id=user_github_integration_id,
         repository=run_repository,
         distinct_id=distinct_id,
@@ -1730,7 +1689,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_babysit_enabled,
         context_layer_enabled=context_layer_enabled,
-        state={key: value for key, value in state.items() if key != "scout_trial_private"},
+        state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,

@@ -12,11 +12,18 @@ export function BatchExportQueryTimezoneSelector(): JSX.Element {
     const formLogic = useMountedLogic(batchExportConfigFormLogic)
     const { configurationErrors } = useValues(formLogic)
     const logic = batchExportHogQLQueryLogic(formLogic.props)
-    const { projectTimezone, defaultTimezone, teamConvertToProjectTimezone, queryTimezoneChoice } = useValues(logic)
+    const { projectTimezone, followsProjectModifier, queryTimezoneChoice } = useValues(logic)
     const { setQueryTimezone } = useActions(logic)
 
     let help: React.ReactNode = null
-    if (queryTimezoneChoice === 'project_timezone') {
+    if (followsProjectModifier) {
+        help = (
+            <>
+                This export follows the project's <code>convertToProjectTimezone</code> modifier, which is set through
+                the API. Choose an option to set the timezone for this export only.
+            </>
+        )
+    } else if (queryTimezoneChoice === 'project_timezone') {
         help = (
             <>
                 If the project timezone changes in{' '}
@@ -24,18 +31,6 @@ export function BatchExportQueryTimezoneSelector(): JSX.Element {
                     project settings
                 </Link>
                 , this export uses the new timezone from its next run.
-            </>
-        )
-    } else if (queryTimezoneChoice === 'default' && teamConvertToProjectTimezone === null) {
-        help =
-            'The default is the project timezone. If the default or the project timezone changes, this export uses the new one from its next run.'
-    } else if (queryTimezoneChoice === 'default') {
-        help = (
-            <>
-                This project's <code>convertToProjectTimezone</code> modifier was set to{' '}
-                <code>{String(teamConvertToProjectTimezone)}</code> through the API, so the default is{' '}
-                <span>{teamConvertToProjectTimezone ? 'the project timezone' : 'UTC'}</span>. If it changes, this export
-                uses the new default from its next run.
             </>
         )
     }
@@ -55,11 +50,10 @@ export function BatchExportQueryTimezoneSelector(): JSX.Element {
             <LemonSelect<QueryTimezoneChoice>
                 fullWidth
                 value={queryTimezoneChoice}
-                onChange={setQueryTimezone}
+                onSelect={setQueryTimezone}
                 options={[
-                    { value: 'default', label: `Use default (${defaultTimezone})` },
-                    { value: 'utc', label: 'Always use UTC' },
-                    { value: 'project_timezone', label: `Always use project timezone (${projectTimezone})` },
+                    { value: 'utc', label: 'UTC' },
+                    { value: 'project_timezone', label: `Project timezone (${projectTimezone})` },
                 ]}
                 data-attr="batch-export-hogql-query-timezone"
             />

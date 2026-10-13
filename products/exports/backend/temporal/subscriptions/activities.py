@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
@@ -573,6 +574,10 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
             )
 
         content_snapshot = build_initial_content_snapshot(subscription)
+        context_refs = sorted(
+            context.ref
+            for context in SubscriptionContext.objects.for_team(subscription.team_id).filter(subscription=subscription)
+        )
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
             idempotency_key=inputs.idempotency_key,
@@ -585,6 +590,7 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
                 "target_type": subscription.target_type,
                 "target_value": subscription.recipient_label,
                 "content_snapshot": content_snapshot,
+                "context_refs": context_refs,
                 "status": SubscriptionDelivery.Status.STARTING,
             },
         )

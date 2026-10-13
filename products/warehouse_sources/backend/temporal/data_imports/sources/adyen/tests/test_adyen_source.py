@@ -39,15 +39,24 @@ class TestAdyenSource:
 
     @parameterized.expand(
         [
-            ("both_identifiers", "BP123", "ACME", set(ENDPOINTS)),
+            ("both_identifiers", "BP123", "ACME", set(ENDPOINTS) - {"LegalEntities"}),
             (
                 "platform_only",
                 "BP123",
                 None,
-                {"Transactions", "Transfers", "AccountHolders", "BalanceAccounts", "Companies", "MerchantAccounts"},
+                {
+                    "Transactions",
+                    "Transfers",
+                    "AccountHolders",
+                    "BalanceAccounts",
+                    "PaymentInstruments",
+                    "Companies",
+                    "MerchantAccounts",
+                    "Stores",
+                },
             ),
-            ("merchant_only", None, "ACME", {"SettlementDetailReports", "Companies", "MerchantAccounts"}),
-            ("neither", None, "  ", {"Companies", "MerchantAccounts"}),
+            ("merchant_only", None, "ACME", {"SettlementDetailReports", "Companies", "MerchantAccounts", "Stores"}),
+            ("neither", None, "  ", {"Companies", "MerchantAccounts", "Stores"}),
         ]
     )
     def test_tables_needing_a_missing_identifier_start_unselected(
