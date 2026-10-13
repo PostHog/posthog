@@ -4360,7 +4360,6 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
-        failed_attempts: int = 0,
         text_ids: list[str] | None = None,
     ) -> list[int | str]:
         @contextmanager
@@ -4427,7 +4426,6 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
-                failed_attempts=failed_attempts,
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
@@ -4716,25 +4714,6 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert max(self.last_scan.limits) == 4
         # Once a page shows what a row weighs, a page holds no more than one batch budget.
         assert self.last_scan.limits[-1] == 2
-
-    @parameterized.expand(
-        [
-            ("seek_walk_halves_its_pages", False, 2),
-            # A LIMIT/OFFSET walk starts again from the first row and scans its offset on every page.
-            ("offset_walk_keeps_its_pages", True, 4),
-        ]
-    )
-    def test_page_size_of_an_attempt_after_a_failure(self, _name, should_use_incremental_field, expected_limit):
-        ids = self._read_ids(
-            should_use_incremental_field=should_use_incremental_field,
-            rows_before_conflict=0,
-            primary_keys=["id"],
-            chunking=_TableChunking(batch_rows=6, fetch_rows=4),
-            failed_attempts=1,
-        )
-
-        assert ids == [row[0] for row in self._ROWS]
-        assert max(self.last_scan.limits) == expected_limit
 
     def test_one_wide_row_does_not_shrink_the_seek_pages(self):
         text_ids = ["a", "b", "c" + "x" * 200, "d", "e", "f"]

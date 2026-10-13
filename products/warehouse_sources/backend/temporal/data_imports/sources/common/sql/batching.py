@@ -128,40 +128,6 @@ def _page_rows(largest_row_bytes: int, *, max_rows: int, max_bytes: int, max_pag
     return max(1, min(ceiling, max_bytes // largest_row_bytes))
 
 
-def limit_pages_after_failures(
-    fetch: Callable[[int], Sequence[RowT] | None],
-    *,
-    page_rows: int,
-    failed_attempts: int,
-    for_rows: int | None,
-) -> Callable[[int], Sequence[RowT] | None]:
-    """Wrap `fetch` so an attempt that follows failed attempts starts with smaller pages.
-
-    A page that is too large does not raise. The kernel kills the worker, and the next attempt
-    reads the same rows again at the same size. Each failed attempt halves the page.
-
-    `for_rows` is how many rows keep the smaller page. A read that resumes passes the distance the
-    failed attempt can have read past its checkpoint, so the rest of the table reads at full size.
-    A read that starts again from the first row passes None, because the rows that killed the
-    worker can be anywhere.
-    """
-    if failed_attempts <= 0:
-        return fetch
-
-    limit = max(1, page_rows >> min(failed_attempts, 30))
-    rows_read = 0
-
-    def limited_fetch(requested_rows: int) -> Sequence[RowT] | None:
-        nonlocal rows_read
-        if for_rows is not None and rows_read >= for_rows:
-            return fetch(requested_rows)
-        page = fetch(min(requested_rows, limit))
-        rows_read += len(page or ())
-        return page
-
-    return limited_fetch
-
-
 def fetch_row_batches(
     fetch: Callable[[int], Sequence[RowT] | None],
     *,
