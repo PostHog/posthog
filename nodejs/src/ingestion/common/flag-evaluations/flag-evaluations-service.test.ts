@@ -14,6 +14,7 @@ describe('FlagEvaluationsService', () => {
         INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: excludedTeams,
         INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: false,
         INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: topic,
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: '',
     })
 
     describe('createFlagEvaluationsService', () => {
@@ -63,5 +64,19 @@ describe('FlagEvaluationsService', () => {
                 ).toBe(expected)
             }
         )
+    })
+
+    describe('routesToRealtimeOnlyEvents', () => {
+        it.each([
+            ['realtime_only_events_json', true],
+            ['', false],
+        ])('INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC=%j -> %s', (topic, expected) => {
+            const service = createFlagEvaluationsService({
+                ...envConfig('dual_write'),
+                INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: topic,
+            })
+
+            expect(service?.routesToRealtimeOnlyEvents).toBe(expected)
+        })
     })
 })

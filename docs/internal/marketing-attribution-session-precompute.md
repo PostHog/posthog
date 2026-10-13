@@ -6,12 +6,17 @@ The sessions-precomputation reader is retired.
 Marketing attribution no longer reads `web_sessions_dimensional_preaggregated` or queues session-cache refreshes.
 The independent writer, Dagster job and schedule definitions, table, and schema remain in place.
 
+The Marketing analytics table keeps column headers visible while its rows scroll in a viewport capped at 28 rem.
+Reload and Export stay outside the row viewport.
+
 ## Query behavior
 
 A materialized CTE selects pageview session IDs and current person IDs once per query.
 The raw-session lookup filters to those IDs before merging entry properties and classifying channels.
 Reach and credit share the resolved session rows and conversion aggregation within the query.
 Table and paths reports execute separate queries.
+Search performance landing-page goals use this route too, with normalized full entry URLs, source and referrer, and Google/Bing click-ID presence.
+Each goal and comparison period runs its own query; raw click IDs are not part of the resolved dimensions.
 
 Clickable conversion metrics use the same spacing, typography, and comparison backgrounds as other Marketing analytics table cells.
 The cell accepts an optional click handler and uses a native button for keyboard activation.

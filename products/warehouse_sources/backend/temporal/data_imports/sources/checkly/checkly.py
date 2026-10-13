@@ -7,13 +7,13 @@ from requests import HTTPError
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.settings import (
-    API_VERSION,
     AUTH_ERRORS,
     BASE_URL,
     ENDPOINTS,
     PAGE_SIZE,
     RESULT_FIELDS,
     RESULT_HISTORY_SECONDS,
+    SUPPORTED_API_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -45,8 +45,8 @@ class ChecklyResumeConfig:
 
 
 def endpoint_path(name: str, api_version: str) -> str:
-    if api_version != API_VERSION:
-        raise ValueError("This Checkly API version is not supported. Reconnect the source with v2.")
+    if api_version not in SUPPORTED_API_VERSIONS:
+        raise ValueError("This Checkly API version is not supported. Reconnect the source.")
     if name not in ENDPOINTS:
         raise ValueError(f"Unknown Checkly table: {name}")
     return ENDPOINTS[name].path.replace("{api_version}", api_version)
@@ -119,9 +119,9 @@ def checkly_source(
     config: ChecklySourceConfig,
     manager: ResumableSourceManager[ChecklyResumeConfig],
     inputs: SourceInputs,
+    api_version: str,
 ) -> SourceResponse:
     name = inputs.schema_name
-    api_version = inputs.api_version or API_VERSION
     path = endpoint_path(name, api_version)
     saved = manager.load_state() if manager.can_resume() else None
     from_timestamp: int | None = None

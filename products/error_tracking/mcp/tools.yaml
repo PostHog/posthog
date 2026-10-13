@@ -504,3 +504,14 @@ tools:
                 - source
                 - assignee
                 - aggregations
+            text_include:
+                - id
+                - name
+                - status
+                - severity
+                - first_seen
+                - last_seen
+                - aggregations.occurrences
+                - aggregations.users
+                - aggregations.sessions
+                - _posthogUrl

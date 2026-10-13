@@ -8,12 +8,15 @@ import { BIFilterPill } from 'products/business_intelligence/frontend/components
 import { BIShelfCard } from 'products/business_intelligence/frontend/components/BIShelfCard'
 import { BIShelfDropTarget } from 'products/business_intelligence/frontend/components/BIShelfDropTarget'
 
+import { getBIFieldPillLabel, getBIFilterSummary } from '../biEditorTypes'
+import { BIConditionGroups } from './BIConditionGroups'
+
 export function BIFiltersCard(): JSX.Element {
     const { config } = useValues(biEditorLogic)
-    const { addBlankFieldToShelf } = useActions(biEditorLogic)
+    const { addBlankFieldToShelf, setFilterGroup } = useActions(biEditorLogic)
 
     return (
-        <BIShelfCard title="Filters">
+        <BIShelfCard title="Row filters">
             <BIShelfDropTarget shelf="filters" className="flex min-h-6 flex-col gap-0.5">
                 {config.filters.length > 0 ? (
                     config.filters.map((filter, index) => <BIFilterPill key={filter.field.id} index={index} />)
@@ -31,6 +34,15 @@ export function BIFiltersCard(): JSX.Element {
             >
                 Add filter
             </LemonButton>
+            <BIConditionGroups
+                title="Row filter groups"
+                group={config.rowFilterGroup}
+                options={config.filters.map((filter) => ({
+                    value: filter.field.id,
+                    label: `${getBIFieldPillLabel(filter.field)}: ${getBIFilterSummary(filter)}`,
+                }))}
+                onChange={(group) => setFilterGroup('row', group)}
+            />
         </BIShelfCard>
     )
 }

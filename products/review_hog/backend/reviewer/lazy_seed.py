@@ -241,7 +241,7 @@ def discover_canonical_blind_spots(skills_dir: Path | None = None) -> tuple[Cano
 
 
 def discover_canonical_resolution(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
-    """Every parsed `review-hog-resolution-*` skill on disk (the single criteria skill today)."""
+    """Every parsed `review-hog-resolution-*` skill on disk (the default criteria and its fix profiles)."""
     return _discover_canonical(REVIEW_HOG_RESOLUTION_PREFIX, skills_dir)
 
 
@@ -551,7 +551,7 @@ def sync_canonical_blind_spots(team: Team, *, prune: bool = False) -> SyncResult
 
 
 def sync_canonical_resolution(team: Team, *, prune: bool = False) -> SyncResult:
-    """Reconcile a team's rows with the canonical `review-hog-resolution-*` criteria skill on disk."""
+    """Reconcile a team's rows with the canonical `review-hog-resolution-*` criteria skills on disk."""
     return _sync_canonicals(
         team,
         canonicals=discover_canonical_resolution(),

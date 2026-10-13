@@ -14,9 +14,11 @@ import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import {
     Breakdown,
     BreakdownFilter,
+    DataWarehouseNode,
     EventsQuery,
     FunnelsQuery,
     InsightVizNode,
+    MetricsQuery,
     NodeKind,
     Node,
     ProductKey,
@@ -230,6 +232,50 @@ describe('insightNavLogic', () => {
                         },
                     },
                 })
+            })
+        })
+
+        describe('metrics tab visibility', () => {
+            const enableMetricsBuilder = (): void => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.METRICS]: true,
+                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+                })
+            }
+
+            it('hides the metrics tab without both flags', () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true })
+                expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
+            })
+
+            it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
+                enableMetricsBuilder()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.METRICS)
+                }).toFinishAllListeners()
+                expect(logic.values.activeView).toEqual(InsightType.METRICS)
+                expect(builtInsightDataLogic.values.query).toMatchObject({ kind: NodeKind.MetricsQuery, clauses: [] })
+
+                const editedQuery: MetricsQuery = {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [{ name: 'a', metricName: 'requests_total', aggregation: 'rate' }],
+                    dateRange: { date_from: '-6h' },
+                }
+                await expectLogic(builtInsightDataLogic, () => {
+                    builtInsightDataLogic.actions.setQuery(editedQuery)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+                expect(logic.values.tabs.map((tab) => tab.type)).toContain(InsightType.METRICS)
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.METRICS)
+                }).toFinishAllListeners()
+                expect(logic.values.activeView).toEqual(InsightType.METRICS)
+                expect(builtInsightDataLogic.values.query).toEqual(editedQuery)
             })
         })
 
@@ -1471,6 +1517,15 @@ describe('insightNavLogic', () => {
                 expect(stickinessSource.stickinessFilter?.display).toEqual(ChartDisplayType.ActionsBar)
             })
 
+            const flagCallsTrendsNode: DataWarehouseNode = {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                name: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                id_field: 'uuid',
+                timestamp_field: 'timestamp',
+                distinct_id_field: 'distinct_id',
+            }
             const dataWarehouseTestCases: {
                 label: string
                 source: InsightVizNode['source']
@@ -1669,6 +1724,159 @@ describe('insightNavLogic', () => {
                             },
                         ],
                         funnelsFilter: { funnelVizType: 'steps' },
+                    },
+                },
+                {
+                    label: 'trends flag calls to funnels',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [flagCallsTrendsNode],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'trends flag calls by group to funnels',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        aggregation_group_type_index: 0,
+                        series: [flagCallsTrendsNode],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        aggregation_group_type_index: 0,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                aggregation_target_field: '$group_0',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'trends flag calls to retention',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'Feature flag called',
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.RETENTION,
+                    expectedSource: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                type: 'data_warehouse',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                            returningEntity: {
+                                type: 'data_warehouse',
+                                table_name: 'posthog.flag_evaluations',
+                                aggregation_target_field: 'person_id',
+                            },
+                        },
+                    },
+                },
+                {
+                    label: 'retention flag calls to funnels',
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                type: 'data_warehouse',
+                                id: 'posthog.flag_evaluations',
+                                name: 'Feature flag called',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        },
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'trends flag calls to lifecycle',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [flagCallsTrendsNode],
+                    },
+                    targetView: InsightType.LIFECYCLE,
+                    expectedSource: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                                created_at_field: 'timestamp',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'lifecycle flag calls to trends',
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'posthog.flag_evaluations',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                                created_at_field: 'timestamp',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
                     },
                 },
             ]

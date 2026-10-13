@@ -597,6 +597,28 @@ const TEAM_PROPERTIES_MAPPING: Record<
             ],
         }
     },
+    home_tab_dashboard: (change) => {
+        if (!change.after) {
+            return {
+                description: [
+                    <>
+                        reset the <em>Home tab dashboard</em> to the generic view
+                    </>,
+                ],
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the <em>Home tab dashboard</em> to{' '}
+                    <Link to={urls.dashboard(change.after as number)}>
+                        <em>{String(change.after)}</em>
+                    </Link>
+                </>,
+            ],
+        }
+    },
     flags_persistence_default: (change) => {
         return {
             description: [

@@ -109,6 +109,11 @@ class ClickHouseUser(StrEnum):
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
     DELETION_EXECUTOR = "deletion_executor"
+    # The alerts platform's parallel evaluation has one user per source. A source's checks then
+    # never take from the concurrency budget of the user that its production alerting queries as.
+    ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
+    # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
+    ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -224,6 +229,13 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
     return user_dict
 
 
+def _registered_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
+    global __user_dict
+    if not __user_dict:
+        __user_dict = init_clickhouse_users()
+    return __user_dict
+
+
 def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     """
     Retrieve ClickHouse credentials for the specified user.
@@ -241,10 +253,8 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
         user (ClickHouseUser): The user whose ClickHouse credentials need
                                to be retrieved.
     """
-    global __user_dict
-    if not __user_dict:
-        __user_dict = init_clickhouse_users()
-    if creds := __user_dict.get(user):
+    users = _registered_users()
+    if creds := users.get(user):
         return creds
     if user == ClickHouseUser.BUSINESS_KNOWLEDGE:
         raise RuntimeError(
@@ -258,7 +268,7 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
             "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD or "
             "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD_FILE"
         )
-    return __user_dict[ClickHouseUser.DEFAULT]
+    return users[ClickHouseUser.DEFAULT]
 
 
 @frozen
@@ -377,6 +387,25 @@ def get_http_client(**overrides):
     yield ProxyClient(get_client(**kwargs))
 
 
+# Named users that exist on the logs cluster. Every other named user exists on the main cluster
+# only, and sync_execute assigns some of them (APP, API) from tags without checking the workload.
+LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_LOGS})
+
+
+def connection_creds(workload: Workload, ch_user: ClickHouseUser) -> ClickHouseCredentials | None:
+    """The credentials a connection authenticates with, or None when it uses the logs cluster's own user.
+
+    A logs connection uses a named user only when the user exists on the logs cluster and is
+    registered. get_clickhouse_creds falls back to the default user, whose credentials belong to
+    the main cluster.
+    """
+    if workload != Workload.LOGS:
+        return get_clickhouse_creds(ch_user)
+    if ch_user not in LOGS_CLUSTER_USERS:
+        return None
+    return _registered_users().get(ch_user)
+
+
 def get_kwargs_for_client(
     workload: Workload = Workload.DEFAULT,
     team_id=None,
@@ -384,13 +413,18 @@ def get_kwargs_for_client(
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     if workload == Workload.LOGS:
-        return {
+        logs_kwargs = {
             "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
             "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
             "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
+        }
+        if named := connection_creds(workload, ch_user):
+            return {**logs_kwargs, "user": named.user, "password": named.password}
+        return {
+            **logs_kwargs,
             "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
             "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
-            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
         }
 
     creds = get_clickhouse_creds(ch_user)
@@ -418,11 +452,11 @@ def get_kwargs_for_client(
     return base_kwargs
 
 
-def is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
+def is_file_backed_user(creds: ClickHouseCredentials, user: str | None) -> bool:
     # True when the resolved connection authenticates as a user whose credential comes from a
-    # rotating token file. The LOGS and readonly paths resolve to their own static credentials, so
-    # they are excluded and keep the static password.
-    return bool(creds.password_file) and workload != Workload.LOGS and user == creds.user
+    # rotating token file. The readonly path resolves to its own static credentials, so it keeps
+    # the static password. connection_creds returns None for the logs cluster's own user.
+    return bool(creds.password_file) and user == creds.user
 
 
 def get_http_kwargs(
@@ -438,8 +472,8 @@ def get_http_kwargs(
     on every checkout, which means a read here would only duplicate it on the hot query path.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
-    creds = get_clickhouse_creds(ch_user)
-    if is_file_backed_user(creds, workload, kwargs.get("user")):
+    creds = connection_creds(workload, ch_user)
+    if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs["password"] = creds.read_password()
     return kwargs
 
@@ -476,10 +510,10 @@ def get_pool(
     Note that the same pool should be returned every call.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
-    creds = get_clickhouse_creds(ch_user)
+    creds = connection_creds(workload, ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
-    if is_file_backed_user(creds, workload, kwargs.get("user")):
+    if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
         return make_ch_pool(credential_provider=creds.read_password, **kwargs)
     return make_ch_pool(**kwargs)

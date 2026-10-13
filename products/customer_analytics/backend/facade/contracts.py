@@ -1236,6 +1236,7 @@ class CreateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -1253,11 +1254,13 @@ class UpdateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
     churned_at_provided: bool = False
+    ignored_at_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -1394,6 +1397,10 @@ class CustomerTaskAssigneeCannotViewAccount(Exception):
     pass
 
 
+class CustomerTaskRoleNotFound(Exception):
+    pass
+
+
 class CustomerTaskInvalidTransition(Exception):
     def __init__(self, current: str, requested: str) -> None:
         self.current = current
@@ -1463,6 +1470,7 @@ class CustomerTaskListFilters:
     search: str | None = None
     account_id: UUID | None = None
     assigned_to: str | None = None
+    assigned_role_id: UUID | None = None
     statuses: tuple[str, ...] = ()
     archive_state: str = "active"
     due_after: datetime | None = None

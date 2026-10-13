@@ -61,7 +61,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.deletion import reset_deleted_person_distinct_ids
+from posthog.models.person.divergence import repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -100,6 +100,8 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
+# A reset request waits this long for Kafka to confirm the republished rows; a rerun of the reset is safe.
+RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS = 10
 
 # The id reaches the ClickHouse query id and every query_log row for the request, so bound it.
 # Cancelling matches on `query_id LIKE '<team_id>_<client_query_id>%'`, which makes an id holding
@@ -1726,7 +1728,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_id or not isinstance(distinct_id, str):
             raise ValidationError(detail="distinct_id is required")
 
-        reset_deleted_person_distinct_ids(self.team_id, distinct_id)
+        summary = repair_distinct_id(
+            self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
+        )
+        if summary is not None:
+            logger.info(
+                "person_reset_distinct_id",
+                team_id=self.team_id,
+                person_outcomes=summary.person_outcomes,
+                mapping_outcomes=summary.mapping_outcomes,
+                undelivered=summary.undelivered,
+            )
 
         return response.Response(status=202)
 

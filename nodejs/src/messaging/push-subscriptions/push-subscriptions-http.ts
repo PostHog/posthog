@@ -4,6 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 import { logger } from '~/common/utils/logger'
 
 import { MAX_BODY_BYTES, PushSubscriptionsService } from './push-subscriptions.service'
+import { REGION_BLOCKED_MESSAGE, RegionBlockCheck } from './region-block'
 
 /** Names match what Django exposes, so its dashboards and alerts survive a cutover. prometheus_client
  * appends `_total` in the exposition format and prom-client does not, hence the explicit suffix. */
@@ -45,7 +46,10 @@ let discardedTeamsThisWindow = new Set<number>()
  * device. Verified against ultimate-express 2.0.9 — content-length arrives, the stream never emits,
  * and POST, PUT and PATCH are all unaffected, so it is specific to the verb this endpoint needs.
  */
-export function createPushSubscriptionsHandler(service: PushSubscriptionsService) {
+export function createPushSubscriptionsHandler(
+    service: PushSubscriptionsService,
+    isRegionBlocked: RegionBlockCheck = () => false
+) {
     return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const rawUrl = req.url ?? '/'
         const queryStart = rawUrl.indexOf('?')
@@ -61,6 +65,20 @@ export function createPushSubscriptionsHandler(service: PushSubscriptionsService
             query = new URLSearchParams(queryStart === -1 ? '' : rawUrl.slice(queryStart + 1))
         } catch {
             query = new URLSearchParams()
+        }
+
+        const regionBlocked = isRegionBlocked(req)
+        if (regionBlocked) {
+            rejectionCounter.inc({
+                code: 'region_blocked',
+                method: req.method === 'POST' || req.method === 'DELETE' ? req.method : 'other',
+            })
+            // A logout still removes the device, as it does in Django, so a person's pushes stop reaching
+            // a device that left. Anything else is rejected before the body is read.
+            if (req.method !== 'DELETE') {
+                res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }).end(REGION_BLOCKED_MESSAGE)
+                return
+            }
         }
 
         applyCors(req, res)
@@ -83,6 +101,7 @@ export function createPushSubscriptionsHandler(service: PushSubscriptionsService
                 contentType: header(req, 'content-type'),
                 contentEncoding: header(req, 'content-encoding'),
                 query,
+                mirrored: header(req, 'host')?.endsWith('-shadow') ?? false,
             })
         } catch (error) {
             // The server answers a throw with a 500, and the error-rate alert reads this histogram.
@@ -133,6 +152,10 @@ export function createPushSubscriptionsHandler(service: PushSubscriptionsService
             Number(process.hrtime.bigint() - startedAt) / 1e9
         )
 
+        if (regionBlocked) {
+            res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }).end(REGION_BLOCKED_MESSAGE)
+            return
+        }
         res.writeHead(result.status, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result.body))
     }

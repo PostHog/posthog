@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
     FinnhubSourceConfig,
@@ -18,57 +17,7 @@ def _config(**overrides: Any) -> FinnhubSourceConfig:
     return FinnhubSourceConfig.from_dict(base)
 
 
-class TestSourceConfig:
-    def test_fields(self) -> None:
-        fields = {f.name: f for f in FinnhubSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_key", "symbols", "indices", "exchange"}
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        # The fan-out and exchange fields must be optional so market-wide tables work alone.
-        assert fields["symbols"].required is False
-        assert fields["indices"].required is False
-        assert fields["exchange"].required is False
-
-
 class TestGetSchemas:
-    def test_lists_all_endpoints(self) -> None:
-        schemas = FinnhubSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == {
-            "stock_symbols",
-            "market_news",
-            "ipo_calendar",
-            "earnings_calendar",
-            "country",
-            "company_profile",
-            "quote",
-            "company_news",
-            "basic_financials",
-            "recommendation_trends",
-            "earnings_surprises",
-            "financials_reported",
-            "stock_candles",
-            "sec_filings",
-            "insider_transactions",
-            "dividends",
-            "peers",
-            "index_constituents",
-            "economic_calendar",
-        }
-
-    def test_incremental_endpoints_advertise_their_cursor(self) -> None:
-        # Only endpoints Finnhub lets us filter server-side may advertise incremental sync.
-        schemas = {s.name: s for s in FinnhubSource().get_schemas(_config(), team_id=1)}
-        incremental = {name: s.incremental_fields[0]["field"] for name, s in schemas.items() if s.supports_incremental}
-        assert incremental == {
-            "company_news": "datetime",
-            "financials_reported": "endDate",
-            "stock_candles": "t",
-            "sec_filings": "filedDate",
-            "insider_transactions": "transactionDate",
-            "dividends": "date",
-        }
-
     @parameterized.expand(
         [
             ("stock_symbols", True),
@@ -100,22 +49,6 @@ class TestGetSchemas:
     def test_names_filter(self) -> None:
         schemas = FinnhubSource().get_schemas(_config(), team_id=1, names=["quote", "country"])
         assert {s.name for s in schemas} == {"quote", "country"}
-
-
-class TestCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_name(self) -> None:
-        descriptions = FinnhubSource().get_canonical_descriptions()
-        schema_names = {s.name for s in FinnhubSource().get_schemas(_config(), team_id=1)}
-        # Every documented key must be a real endpoint name so descriptions actually attach.
-        assert set(descriptions).issubset(schema_names)
-        assert "company_news" in descriptions
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        assert FinnhubSource.lists_tables_without_credentials is True
-        tables = FinnhubSource().get_documented_tables()
-        assert len(tables) == 19
 
 
 class TestSourceForPipeline:

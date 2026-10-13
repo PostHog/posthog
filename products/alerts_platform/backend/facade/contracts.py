@@ -89,6 +89,18 @@ class SourceEvaluationInputs:
     batch_key: AlertBatchKey
 
 
+# Where a source keeps its bound inside `source_config`. Each source gives it its own shape and
+# the platform interprets none of it: the history row snapshots it, so a reader sees the bound a
+# check was evaluated against.
+SOURCE_CONDITION_KEY: Final = "condition"
+
+
+def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
+    """A source's bound, or an empty one when the stored value is missing or not an object."""
+    condition = source_config.get(SOURCE_CONDITION_KEY)
+    return condition if isinstance(condition, dict) else {}
+
+
 @frozen
 class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
@@ -101,9 +113,6 @@ class PlatformAlertCheckInput:
     team_id: int
     name: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -122,6 +131,10 @@ class PlatformAlertCheckInput:
         """Satisfies the logs query layer, which names this field `filters`."""
         return self.source_config
 
+    @property
+    def condition(self) -> dict[str, Any]:
+        return source_condition(self.source_config)
+
 
 @frozen
 class PlatformAlertUpsert:
@@ -133,9 +146,6 @@ class PlatformAlertUpsert:
     enabled: bool
     source_kind: SourceKind
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -156,6 +166,12 @@ class SkipReason(StrEnum):
 
     BROKEN_CONFIG = "broken_config"
     QUERY_FAILED = "query_failed"
+    # The source's own stack runs no query for this check, so the source does not either: a
+    # snooze or a schedule restriction where that stack gates evaluation, or data not ready yet.
+    SOURCE_RULE = "source_rule"
+    # ClickHouse refused the query for load, not because of the alert. The check leaves the alert's
+    # state alone, so a comparison can set it aside instead of reading load as a disagreement.
+    CAPACITY = "capacity"
 
 
 class MuteReason(StrEnum):
@@ -283,6 +299,7 @@ class EvaluationAnnouncement:
     """
 
     configuration_id: str
+    source: SourceKind
     alert_name: str
     # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
     # whole evaluation, and every group in one announcement saw the same count.
@@ -378,9 +395,6 @@ class PlatformAlertConfigurationView:
     enabled: bool
     source_kind: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     recurrence_unit: str | None
     anchor_time: str | None
@@ -451,6 +465,7 @@ class DestinationType(LabeledStrEnum):
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
+    EMAIL = "email", "Email"
 
 
 class PagerDutySeverity(StrEnum):
@@ -486,6 +501,7 @@ class AlertDestinationData(TypedDict):
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
+    email_addresses: NotRequired[list[str]]
 
 
 class AlertDestinationValidationError(Exception):
@@ -577,6 +593,49 @@ class DestinationResolver(Protocol):
     def __call__(
         self, *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
     ) -> list[AlertDestinationGroup]: ...
+
+
+@frozen
+class MessageDetail:
+    """One labelled fact in a message. Every provider renders these the same way, as a Slack
+    section, an Adaptive Card body, or lines of markdown."""
+
+    label: str
+    value: str
+
+
+@frozen
+class MessageLink:
+    label: str
+    url: str
+
+
+@frozen
+class SourceDescription:
+    """What a source says about one transition, in the words its own product uses.
+
+    The platform imports no source, so it can say only "Value: 11". A source can say "11 logs in
+    10m". Every part is optional, and a part a source leaves out falls back to the platform's
+    own wording or to nothing.
+    """
+
+    # Replaces the platform's breach details. A failed or turned-off check keeps the platform's
+    # failure details, because the failure is the platform's, not the source's.
+    details: tuple[MessageDetail, ...] = ()
+    # Short lines of small print, such as which services an alert watches.
+    context: tuple[str, ...] = ()
+    # Where the data behind the alert is, such as the matching logs.
+    data_link: MessageLink | None = None
+
+
+class SourceDescriber(Protocol):
+    """How a source describes its transitions. A source registers one for native delivery.
+
+    It runs once per destination on the send path, inside a delivery that a held thread or a
+    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    """
+
+    def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
 
 
 # Comparison against a source's own stack.

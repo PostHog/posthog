@@ -310,11 +310,25 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
 
     @staticmethod
     def _normalize_job_inputs(job_inputs: dict) -> dict:
-        """Make pre-auth-selector key-pair rows readable during a rolling deployment."""
+        """Wrap a flat payload in the auth branch the config expects.
+
+        Two callers send one: a key-pair row stored before the auth selector existed, and the
+        connect form's ad account picker, which posts the single field it holds rather than the
+        branch around it. Reading an integration id as key-pair material leaves the signing path
+        with no private key, so the id decides the branch.
+        """
         if "auth_method" in job_inputs:
             return job_inputs
 
         normalized = dict(job_inputs)
+        integration_id = job_inputs.get("apple_ads_integration_id")
+        if integration_id:
+            normalized["auth_method"] = {
+                "selection": "oauth",
+                "apple_ads_integration_id": integration_id,
+            }
+            return normalized
+
         normalized["auth_method"] = {
             "selection": "key_pair",
             "client_id": job_inputs.get("client_id"),

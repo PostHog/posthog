@@ -84,8 +84,9 @@ service PersonHogService {
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
-  // Deletes only persons that are still tombstoned when the delete runs, a bounded
-  // number of rows per call; pending uuids are sent again by the caller.
+  // Deletes only persons that are still tombstoned, and at or below their version bound when the
+  // request carries bounded_persons. Deletes a bounded number of rows per call; the caller resends
+  // pending uuids.
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeleteTombstonedPersons(personhog.types.v1.DeleteTombstonedPersonsRequest) returns (personhog.types.v1.DeleteTombstonedPersonsResponse);
   rpc GetPersonTombstones(personhog.types.v1.GetPersonTombstonesRequest) returns (personhog.types.v1.GetPersonTombstonesResponse);
@@ -100,4 +101,8 @@ service PersonHogService {
   // Undelete repair version resets. Same routing caveat as DeletePersons above.
   rpc SetPersonDistinctIdVersionFloor(personhog.types.v1.SetPersonDistinctIdVersionFloorRequest) returns (personhog.types.v1.SetPersonDistinctIdVersionFloorResponse);
   rpc SetPersonVersionFloor(personhog.types.v1.SetPersonVersionFloorRequest) returns (personhog.types.v1.SetPersonVersionFloorResponse);
+
+  // Version floors for the ClickHouse cleanup jobs.
+  // The write goes to the primary: same routing caveat as DeletePersons above.
+  rpc EnsurePersonVersionFloors(personhog.types.v1.EnsurePersonVersionFloorsRequest) returns (personhog.types.v1.EnsurePersonVersionFloorsResponse);
 }

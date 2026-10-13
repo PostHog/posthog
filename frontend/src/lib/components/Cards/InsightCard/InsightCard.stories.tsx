@@ -283,6 +283,32 @@ export const ErrorStates: Story = {
     },
 }
 
+export const CapacityCooldown: Story = {
+    parameters: {
+        mockDate: '2026-01-01T12:00:00Z',
+        testOptions: { viewportWidths: ['narrow', 'medium'] },
+    },
+    render: () => {
+        const [error] = useState(
+            () => new ApiError('', 503, new Headers({ 'Retry-After': '45' }), { queryId: 'capacity-example-query' })
+        )
+        return (
+            <div className="w-full max-w-160">
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={{ ...EXAMPLE_TRENDS, name: 'Page views', result: null } as unknown as InsightModel}
+                    apiErrored
+                    apiError={error}
+                    refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
+            </div>
+        )
+    },
+}
+
 // Access Control Stories
 export const AccessControlNoAccess: Story = {
     render: () => {

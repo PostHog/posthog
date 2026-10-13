@@ -647,7 +647,7 @@ def get_cluster(
     creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
     overrides = dict(connection_overrides or {})
     bootstrap_credential_provider: Callable[[], str] | None = None
-    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+    if is_file_backed_user(creds, creds.user):
         bootstrap_credential_provider = creds.read_password
         bootstrap_client = default_client(host=host, password=creds.read_password())
         if not overrides.keys() & {"user", "password", "credential_provider"}:

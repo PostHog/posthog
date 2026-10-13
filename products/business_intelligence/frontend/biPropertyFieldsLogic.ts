@@ -21,6 +21,8 @@ import * as api from '~/generated/core/api'
 import { PaginatedEnterprisePropertyDefinitionListApi } from '~/generated/core/api.schemas'
 import { BIField } from '~/queries/schema/schema-business-intelligence'
 
+import { captureBIWorksheetAction } from './biEditorAnalytics'
+import { biEditorLogic } from './biEditorLogic'
 import { buildBIPropertyFields, getBIPropertyTarget } from './biPropertyFields'
 
 export interface BIPropertyFieldsLogicProps {
@@ -135,6 +137,13 @@ export const biPropertyFieldsLogic: LogicWrapper<biPropertyFieldsLogicType> = ke
                         breakpoint()
                         if (searchVersion !== cache.searchVersion) {
                             return values.page
+                        }
+                        const editor = biEditorLogic.findMounted({ tabId: props.tabId })
+                        if (offset === 0 && editor) {
+                            captureBIWorksheetAction(
+                                values.search.trim() ? 'properties_searched' : 'properties_browsed',
+                                editor.values.config
+                            )
                         }
                         return {
                             ...response,

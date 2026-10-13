@@ -30,10 +30,50 @@ interface SpanNode {
     depth: number
     isLastChild: boolean
     connectorLines: boolean[]
+    /** A placeholder for a parent span that is not in the trace. Its children are the spans that point to it. */
+    isMissingParent?: boolean
+}
+
+const MISSING_PARENT_LABEL = '<parent span missing>'
+
+function missingParentNode(parentSpanId: string, child: Span): SpanNode {
+    return {
+        span: {
+            uuid: `missing-parent-${parentSpanId}`,
+            trace_id: child.trace_id,
+            span_id: parentSpanId,
+            parent_span_id: '',
+            name: MISSING_PARENT_LABEL,
+            kind: 0,
+            service_name: '',
+            status_code: 0,
+            timestamp: child.timestamp,
+            end_time: child.timestamp,
+            duration_nano: 0,
+            is_root_span: false,
+            matched_filter: true,
+            attributes: {},
+            resource_attributes: {},
+        },
+        children: [],
+        depth: 0,
+        isLastChild: false,
+        connectorLines: [],
+        isMissingParent: true,
+    }
+}
+
+// A root span has the all-zero OTel parent id, which the API returns as hex ("0000000000000000"), not "".
+function parentSpanIdOf(span: Span): string | null {
+    if (span.is_root_span || !span.parent_span_id || /^0+$/.test(span.parent_span_id)) {
+        return null
+    }
+    return span.parent_span_id
 }
 
 function buildSpanTree(spans: Span[]): SpanNode[] {
     const byId = new Map<string, SpanNode>()
+    const missingParents = new Map<string, SpanNode>()
     const roots: SpanNode[] = []
 
     for (const span of spans) {
@@ -41,9 +81,23 @@ function buildSpanTree(spans: Span[]): SpanNode[] {
     }
 
     for (const node of byId.values()) {
-        if (node.span.parent_span_id && byId.has(node.span.parent_span_id)) {
-            const parent = byId.get(node.span.parent_span_id)!
+        const parentSpanId = parentSpanIdOf(node.span)
+        if (parentSpanId && byId.has(parentSpanId)) {
+            const parent = byId.get(parentSpanId)!
             parent.children.push(node)
+        } else if (parentSpanId) {
+            let placeholder = missingParents.get(parentSpanId)
+            if (!placeholder) {
+                placeholder = missingParentNode(parentSpanId, node.span)
+                missingParents.set(parentSpanId, placeholder)
+                roots.push(placeholder)
+            }
+            placeholder.children.push(node)
+            // The placeholder sorts with the other roots by its earliest child.
+            if (parseTimestampUs(node.span.timestamp) < parseTimestampUs(placeholder.span.timestamp)) {
+                placeholder.span.timestamp = node.span.timestamp
+                placeholder.span.end_time = node.span.timestamp
+            }
         } else {
             roots.push(node)
         }
@@ -310,7 +364,7 @@ function WaterfallRow({
     collapsedSpanIds,
     onToggleCollapse,
 }: Omit<WaterfallRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
-    const { span } = node
+    const { span, isMissingParent = false } = node
     const hasChildren = node.children.length > 0
     const isCollapsed = collapsedSpanIds.has(span.span_id)
     const hiddenDescendants = isCollapsed ? countDescendants(node) : 0
@@ -328,7 +382,6 @@ function WaterfallRow({
     // Select by span_id (the OTel id the tree is keyed by, and what the inspector/URL resolve),
     // not the ClickHouse row uuid.
     const isSelected = selectedSpanId === span.span_id
-
     return (
         <div>
             <div
@@ -385,9 +438,9 @@ function WaterfallRow({
                             <IconWarning className="text-danger shrink-0 mr-1" fontSize={14} />
                         </Tooltip>
                     )}
-                    <Tooltip title={span.name}>
+                    <Tooltip title={isMissingParent ? `span ${span.span_id} not found` : span.name}>
                         <span
-                            className={`text-xs truncate ${isError ? 'text-danger' : ''} ${
+                            className={`text-xs truncate ${isError || isMissingParent ? 'text-danger' : ''} ${
                                 isSelected || isError ? 'font-semibold' : 'font-medium'
                             } ${isUnmatched ? 'opacity-40' : ''}`}
                         >
@@ -423,35 +476,37 @@ function WaterfallRow({
                     })}
 
                     {/* Span bar */}
-                    <Tooltip
-                        title={
-                            <span>
-                                <strong>{span.name}</strong>
-                                <br />
-                                {span.service_name} · {formatDuration(span.duration_nano)}
-                                {isError ? ' · Error' : ''}
-                            </span>
-                        }
-                    >
-                        <div
-                            className="absolute h-full flex items-center px-1.5 overflow-hidden"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                left: `${leftPct}%`,
-                                width: `${widthPct}%`,
-                                minWidth: 2,
-                                backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
-                                borderLeft: `1px solid ${barColor}`,
-                            }}
+                    {!isMissingParent && (
+                        <Tooltip
+                            title={
+                                <span>
+                                    <strong>{span.name}</strong>
+                                    <br />
+                                    {span.service_name} · {formatDuration(span.duration_nano)}
+                                    {isError ? ' · Error' : ''}
+                                </span>
+                            }
                         >
-                            <span
-                                className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                            <div
+                                className="absolute h-full flex items-center px-1.5 overflow-hidden"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    left: `${leftPct}%`,
+                                    width: `${widthPct}%`,
+                                    minWidth: 2,
+                                    backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
+                                    borderLeft: `1px solid ${barColor}`,
+                                }}
                             >
-                                <span className="text-muted-alt font-medium">{span.service_name}</span>
-                                <span className="text-muted">{formatDuration(span.duration_nano)}</span>
-                            </span>
-                        </div>
-                    </Tooltip>
+                                <span
+                                    className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                                >
+                                    <span className="text-muted-alt font-medium">{span.service_name}</span>
+                                    <span className="text-muted">{formatDuration(span.duration_nano)}</span>
+                                </span>
+                            </div>
+                        </Tooltip>
+                    )}
                 </div>
             </div>
         </div>

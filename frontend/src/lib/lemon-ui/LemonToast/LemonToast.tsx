@@ -40,6 +40,11 @@ interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     hideButton?: boolean
 }
 
+interface SuccessToastOptions<T = string> extends ToastOptionsWithButton<T> {
+    /** A second action, shown after `button` on a row under the message. */
+    secondaryButton?: ToastButton
+}
+
 export const GET_HELP_BUTTON: ToastButton = {
     label: 'Get help',
     action: getHelp,
@@ -60,6 +65,7 @@ export interface ToastContentProps {
     type: 'info' | 'success' | 'warning' | 'error'
     message: string | JSX.Element
     button?: ToastButton
+    secondaryButton?: ToastButton
     id?: number | string
 }
 
@@ -122,8 +128,21 @@ function ToastCopyButton({ getMessageText }: { getMessageText: () => string }): 
     )
 }
 
-export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
+export function ToastContent({ type, message, button, secondaryButton, id }: ToastContentProps): JSX.Element {
     const messageRef = useRef<HTMLSpanElement>(null)
+
+    if (secondaryButton) {
+        // Two actions leave the message no room on one line, so they go on a row under it.
+        return (
+            <div className="flex flex-col gap-2" data-attr={`${type}-toast`}>
+                <span>{message}</span>
+                <div className="flex gap-2 [&_button]:!mx-0">
+                    {button && <ToastActionButton button={button} toastId={id} />}
+                    <ToastActionButton button={secondaryButton} toastId={id} />
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
@@ -227,17 +246,26 @@ export const lemonToast = {
         })
         return id
     },
-    success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
+    success(message: string | JSX.Element, { button, secondaryButton, ...toastOptions }: SuccessToastOptions = {}) {
         const options = ensureToastId(toastOptions, 'success', message)
         const id = options.toastId!
         queueMicrotask(() => {
             if (cancelledIds.delete(id)) {
                 return
             }
-            toast.success(<ToastContent type="success" message={message} button={button} id={id} />, {
-                icon: successIcon(),
-                ...options,
-            })
+            toast.success(
+                <ToastContent
+                    type="success"
+                    message={message}
+                    button={button}
+                    secondaryButton={secondaryButton}
+                    id={id}
+                />,
+                {
+                    icon: successIcon(),
+                    ...options,
+                }
+            )
         })
         return id
     },

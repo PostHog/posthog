@@ -170,10 +170,11 @@ export function NavBar(): JSX.Element {
 
     useShortcut({
         name: 'ToggleLeftNav',
-        keybind: [keyBinds.toggleLeftNav],
+        keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
         intent: 'Toggle collapse left navigation',
         interaction: 'function',
         callback: toggleLayoutNavCollapsed,
+        ignoreInEditable: true,
     })
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {

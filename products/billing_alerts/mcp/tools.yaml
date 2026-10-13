@@ -9,7 +9,8 @@ ui_apps: {}
 tools:
     billing-alert-create:
         operation: billing_alerts_create
-        enabled: true
+        enabled: false
+        disabled_reason: Billing alerts are not ready for general use.
         scopes:
             - organization:write
         annotations:
@@ -27,7 +28,8 @@ tools:
         feature_flag: billing-alerts
     billing-alert-update:
         operation: billing_alerts_partial_update
-        enabled: true
+        enabled: false
+        disabled_reason: Billing alerts are not ready for general use.
         scopes:
             - organization:write
         annotations:

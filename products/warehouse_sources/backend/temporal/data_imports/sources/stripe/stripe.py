@@ -1097,18 +1097,38 @@ def get_rows(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
                 )
         else:
-            stripe_objects = _call_stripe(
-                resource.method, params={**default_params, **resource.params, **resume_params}
-            )
-            for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(_scrub_client_secrets(obj))
 
-                while batcher.should_yield():
-                    py_table = batcher.get_table()
-                    # Staged before the yield, so the commit that follows this table's write covers it.
-                    last_cur = py_table.column("id")[-1].as_py()
-                    resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
-                    yield py_table
+            def _list_resource(params: dict[str, Any]) -> Any:
+                return _call_stripe(resource.method, params=params).auto_paging_iter()
+
+            list_params = {**default_params, **resource.params, **resume_params}
+            cursor_restarted = False
+            while True:
+                try:
+                    for obj in _list_resource(list_params):
+                        batcher.batch(_scrub_client_secrets(obj))
+
+                        while batcher.should_yield():
+                            py_table = batcher.get_table()
+                            # Staged before the yield, so the commit that follows this table's write covers it.
+                            last_cur = py_table.column("id")[-1].as_py()
+                            resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                            yield py_table
+                    break
+                except stripe_lib.InvalidRequestError as e:
+                    # A cursor saved by a previous run (or the auto-paging cursor mid-run) can
+                    # outlive the object it names, e.g. the invoice_payment it pointed at was
+                    # voided between runs. Stripe can't resume pagination from a cursor it no
+                    # longer has, so every retry of this job would 404 identically forever. Drop
+                    # the cursor and restart the listing once instead of getting stuck.
+                    if cursor_restarted or not (resume_params and _is_stripe_resource_missing_error(e)):
+                        raise
+                    logger.debug(
+                        f"Stripe: resume cursor {resume_params['starting_after']} no longer exists, restarting {endpoint} from the beginning"
+                    )
+                    resume_params = {}
+                    cursor_restarted = True
+                    list_params = {**default_params, **resource.params}
 
         def trailing_state(py_table: pa.Table) -> StripeResumeConfig:
             if isinstance(resource, StripeNestedResource):
@@ -1157,6 +1177,16 @@ def get_rows(
         )
 
 
+# How far an invoice is through its lifecycle. An uncollectible invoice can still be paid or voided.
+_INVOICE_STATUS_STAGE = {"draft": 1, "open": 2, "uncollectible": 3, "paid": 4, "void": 4}
+
+
+def _webhook_tie_break(obj: dict) -> int:
+    if obj.get("object") != "invoice":
+        return 0
+    return _INVOICE_STATUS_STAGE.get(obj.get("status") or "", 0)
+
+
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     data_col = table.column("data").to_pylist()
     created_col = table.column("created").to_pylist()
@@ -1164,7 +1194,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     # Deduplicate by object id, keeping the event with the latest created timestamp.
     # Multiple webhook events (e.g. customer.created then customer.updated) can reference
     # the same object, and delta merge doesn't deduplicate within the source batch.
-    best_by_id: dict[str, tuple[int, dict]] = {}
+    best_by_id: dict[str, tuple[tuple[int, int], dict]] = {}
     for data_str, event_created in zip(data_col, created_col):
         if data_str is None:
             continue
@@ -1174,13 +1204,16 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             continue
 
         ts = event_created if isinstance(event_created, int) else 0
+        # `created` is a whole second and one Stripe operation emits several events for an object
+        # inside it. Stripe does not deliver those events in order, so on a tie the row order can
+        # put a pre-payment snapshot after the payment event. The further invoice status wins the
+        # tie, because an invoice does not move back to an earlier status.
+        rank = (ts, _webhook_tie_break(obj))
         existing = best_by_id.get(obj_id)
-        # Later rows win ties. `created` is a whole second and one Stripe operation emits several
-        # events for an object inside it, so the only finer order the batch holds is the row order,
-        # a best-effort proxy for arrival order. Keeping the first row let a pre-payment snapshot
-        # outrank the payment event that followed it in the same second.
-        if existing is None or ts >= existing[0]:
-            best_by_id[obj_id] = (ts, obj)
+        # Later rows win full ties. Row order is a best-effort proxy for arrival order, and it is
+        # the only finer order the batch holds for objects without a ranked status.
+        if existing is None or rank >= existing[0]:
+            best_by_id[obj_id] = (rank, obj)
 
     rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
     return table_from_py_list(rows)

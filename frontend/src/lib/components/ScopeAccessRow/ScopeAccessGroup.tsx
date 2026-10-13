@@ -1,52 +1,46 @@
 import clsx from 'clsx'
-import { type ReactNode, useId, useState } from 'react'
+import { useId, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
-import type { ScopeAccessLevel } from 'lib/scopes'
+import {
+    type ScopePickerGroup,
+    type ScopeAccessLevel,
+    countScopeRowsByLevel,
+    scopeGroupLevel,
+    scopeGroupDisabledReasons,
+    scopeGroupTooltip,
+} from 'lib/scopes'
+
+import { ScopeAccessRow } from './ScopeAccessRow'
 
 interface ScopeAccessGroupProps {
-    /** Group heading, such as a product area. */
-    label: string
-    /** How many rows in the group sit at each level, for the tags in the header. */
-    counts: Record<ScopeAccessLevel, number>
-    /** The level the group control shows as selected. Undefined when the rows disagree. */
-    value: ScopeAccessLevel | undefined
-    /** Called with the level the user picks for the whole group. */
-    onChange: (level: ScopeAccessLevel) => void
-    /** Reason the No access option should be disabled. Set to a non-empty string to disable. */
-    noneDisabledReason?: string
-    /** Reason the Read option should be disabled. Set to a non-empty string to disable. */
-    readDisabledReason?: string
-    /** Reason the Write option should be disabled. Set to a non-empty string to disable. */
-    writeDisabledReason?: string
-    /** Tooltip on the selected level, for when some rows sit at another level. */
-    valueTooltip?: string
+    group: ScopePickerGroup
+    onChangeRow: (scopeObject: string, level: ScopeAccessLevel) => void
+    onChangeGroup: (scopeObjects: string[], level: ScopeAccessLevel) => void
     /** Whether the rows show on first render. */
     defaultOpen?: boolean
     /** Prefix of the `data-attr`s: `<prefix>-toggle-<slug>` on the toggle, `<prefix>-<slug>-<level>` on an option. */
     dataAttrPrefix: string
-    /** The rows of the group, rendered when the group is open. */
-    children: ReactNode
 }
 
+/** A collapsible group of scope rows with a control that sets every row at once. */
 export function ScopeAccessGroup({
-    label,
-    counts,
-    value,
-    onChange,
-    noneDisabledReason,
-    readDisabledReason,
-    writeDisabledReason,
-    valueTooltip,
+    group,
+    onChangeRow,
+    onChangeGroup,
     defaultOpen = false,
     dataAttrPrefix,
-    children,
 }: ScopeAccessGroupProps): JSX.Element {
+    const { label, rows } = group
     const [open, setOpen] = useState(defaultOpen)
     const panelId = useId()
-    const total = counts.none + counts.read + counts.write
+    const counts = countScopeRowsByLevel(rows)
+    const value = scopeGroupLevel(rows)
+    const disabledReasons = scopeGroupDisabledReasons(rows)
+    const valueTooltip = scopeGroupTooltip(rows, value)
+    const keys = rows.map((row) => row.key)
     const groupSlug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
     return (
@@ -73,7 +67,7 @@ export function ScopeAccessGroup({
                 <div className="flex items-center gap-2 ml-auto shrink-0">
                     <span className="hidden @min-[36rem]/scope-group:flex items-center gap-2">
                         <span className="text-xs text-muted whitespace-nowrap">
-                            <span translate="no">{total}</span> {total === 1 ? 'permission' : 'permissions'}
+                            <span translate="no">{rows.length}</span> {rows.length === 1 ? 'permission' : 'permissions'}
                         </span>
                         <span className="flex items-center gap-1">
                             {counts.none > 0 && (
@@ -97,13 +91,14 @@ export function ScopeAccessGroup({
                         <LemonSegmentedButton
                             size="xsmall"
                             value={value}
-                            onChange={(level) => onChange(level as ScopeAccessLevel)}
+                            onChange={(level) => onChangeGroup(keys, level as ScopeAccessLevel)}
                             options={[
-                                { label: 'No access', value: 'none', disabledReason: noneDisabledReason },
-                                { label: 'Read', value: 'read', disabledReason: readDisabledReason },
-                                { label: 'Write', value: 'write', disabledReason: writeDisabledReason },
+                                { label: 'No access', value: 'none' as const },
+                                { label: 'Read', value: 'read' as const },
+                                { label: 'Write', value: 'write' as const },
                             ].map((option) => ({
                                 ...option,
+                                disabledReason: disabledReasons[option.value],
                                 // Tells a group change apart from a row change in autocapture.
                                 'data-attr': `${dataAttrPrefix}-${groupSlug}-${option.value}`,
                                 tooltip: option.value === value ? valueTooltip : undefined,
@@ -114,7 +109,9 @@ export function ScopeAccessGroup({
             </div>
             {open && (
                 <div id={panelId} className="flex flex-col pb-2 pl-7">
-                    {children}
+                    {rows.map((row) => (
+                        <ScopeAccessRow key={row.key} row={row} onChange={onChangeRow} />
+                    ))}
                 </div>
             )}
         </div>

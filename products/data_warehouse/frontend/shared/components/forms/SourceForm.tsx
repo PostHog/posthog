@@ -51,6 +51,8 @@ const NO_OP_SET_VALUE = (): void => undefined
 export interface SourceFormProps {
     sourceConfig: SourceConfigResponseApi
     showPrefix?: boolean
+    /** Another source of this type already has no prefix, so the API rejects a new one without a prefix. */
+    prefixRequired?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
     showDirectQueryToggle?: boolean
@@ -824,6 +826,7 @@ export default function SourceFormContainer(props: SourceFormProps): JSX.Element
 export function SourceFormComponent({
     sourceConfig,
     showPrefix = true,
+    prefixRequired = false,
     showDescription,
     showAccessMethodSelector = true,
     showDirectQueryToggle = false,
@@ -1033,8 +1036,12 @@ export function SourceFormComponent({
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
-                    label="Table name prefix (optional)"
-                    help="Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
+                    label={prefixRequired ? 'Table name prefix' : 'Table name prefix (optional)'}
+                    help={
+                        prefixRequired
+                            ? `You already have a ${sourceConfig.label ?? sourceConfig.name} source without a prefix. Add one so this connection's tables don't clash with it.`
+                            : "Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
+                    }
                 >
                     {({ value, onChange }) => {
                         const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''

@@ -1,7 +1,6 @@
-"""The `get_events_around` tool: analytics events near a recording timestamp, on demand.
+"""Analytics events near a moment in the recording, keyed on video seconds.
 
-Exposed to the scanner LLM so events don't have to be dumped inline — the model watches the video
-and pulls event context for a moment only when it needs it, keyed on video seconds.
+The scan's lookup round reads these on the model's request, so events don't have to be dumped inline.
 """
 
 from __future__ import annotations
@@ -10,17 +9,11 @@ import bisect
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from google.genai import types
-
 if TYPE_CHECKING:
     # Type-only: importing `types` at runtime would trip the pre-existing types <-> scanners import cycle.
     from products.replay_vision.backend.temporal.types import ScannerLlmInputs
-from products.replay_vision.backend.temporal.tool_args import parse_seconds
 from products.replay_vision.backend.temporal.video_clock import VideoClock
 
-GET_EVENTS_TOOL_NAME = "get_events_around"
-
-_DEFAULT_WINDOW_S = 10
 _MAX_WINDOW_S = 60
 # A busy window can hold a lot of events; bound the response and keep the ones nearest `vid_t`.
 _MAX_EVENTS_RETURNED = 50
@@ -75,7 +68,7 @@ def build_events_index(llm_inputs: ScannerLlmInputs, clock: VideoClock) -> Event
     return EventsIndex(offsets=[offset for offset, _ in entries], events=[event for _, event in entries])
 
 
-def get_events_around(index: EventsIndex, vid_t: int, window_s: int = _DEFAULT_WINDOW_S) -> list[dict[str, Any]]:
+def get_events_around(index: EventsIndex, vid_t: int, window_s: int) -> list[dict[str, Any]]:
     """Return the events within ±`window_s` seconds of `vid_t`, chronological, capped to the nearest `_MAX_EVENTS_RETURNED`."""
     vid_t = max(0, vid_t)
     window_s = max(1, min(window_s, _MAX_WINDOW_S))
@@ -88,47 +81,3 @@ def get_events_around(index: EventsIndex, vid_t: int, window_s: int = _DEFAULT_W
         window = sorted(window, key=lambda event: abs(event["vid_t"] - vid_t))[:_MAX_EVENTS_RETURNED]
         window.sort(key=lambda event: event["vid_t"])
     return window
-
-
-def events_tool() -> types.Tool:
-    """The Gemini function declaration the scanner offers, so the model can pull event context on demand."""
-    return types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name=GET_EVENTS_TOOL_NAME,
-                description=(
-                    "Look up the analytics events around a moment in the recording. Pass `vid_t` — whole seconds "
-                    "from the start of the video, the same scale you cite moments in. Use it to check what the event "
-                    "log captured there, e.g. whether a $rageclick, $dead_click or $exception is recorded."
-                ),
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "vid_t": types.Schema(
-                            type=types.Type.INTEGER, description="Video seconds from the start of the video."
-                        ),
-                        "window_s": types.Schema(
-                            type=types.Type.INTEGER,
-                            description=f"Half-window in seconds (default {_DEFAULT_WINDOW_S}).",
-                        ),
-                    },
-                    required=["vid_t"],
-                ),
-            )
-        ]
-    )
-
-
-def dispatch_events_tool(function_call: Any, index: EventsIndex) -> dict[str, Any]:
-    """Execute a model `get_events_around` call against the prebuilt events index."""
-    if getattr(function_call, "name", None) != GET_EVENTS_TOOL_NAME:
-        return {"error": f"unknown tool: {getattr(function_call, 'name', None)}"}
-    args = dict(getattr(function_call, "args", None) or {})
-    # Errors go back to the model as tool output — a malformed call must not fail the billed conversation.
-    vid_t = parse_seconds(args.get("vid_t"))
-    if vid_t is None:
-        return {"error": "vid_t must be a number of seconds from the start of the video"}
-    window_s = parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
-    if window_s is None:
-        window_s = _DEFAULT_WINDOW_S
-    return {"events": get_events_around(index, vid_t, window_s)}

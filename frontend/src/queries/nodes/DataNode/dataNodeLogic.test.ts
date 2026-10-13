@@ -1,5 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api, { ApiError } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
@@ -12,6 +14,8 @@ import { performQuery } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
+
+import { RESPONSE_CACHE_TTL } from './responseCache'
 
 const SCAN_ENDPOINT = '/api/environments/:team_id/query/scan/:cache_key/'
 // The scan endpoint answers with an empty body while the job runs.
@@ -66,6 +70,75 @@ describe('dataNodeLogic', () => {
         initKeaTests()
     })
     afterEach(() => logic?.unmount())
+
+    it.each(['same', 'query', 'filters', 'expired', 'disabled'] as const)(
+        'reuses a completed notebook response on remount: %s',
+        async (change) => {
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(10_000)
+            const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+            const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+            mockedQuery.mockReset()
+            mockedQuery.mockResolvedValue({ results: [[1]], columns: ['value'] })
+            try {
+                logic = dataNodeLogic(props)
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+                logic.unmount()
+
+                if (change === 'query') {
+                    props.query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 2' })
+                } else if (change === 'filters') {
+                    props.filtersOverride = { date_from: '-14d' }
+                } else if (change === 'expired') {
+                    clock.mockReturnValue(10_000 + RESPONSE_CACHE_TTL)
+                } else if (change === 'disabled') {
+                    props.retainResponseOnUnmount = false
+                }
+                logic = dataNodeLogic(props)
+                logic.mount()
+                if (change === 'same') {
+                    dataNodeLogic({ ...props, cachedResults: { result: null } })
+                    expect(logic.values.response).toEqual({ results: [[1]], columns: ['value'] })
+                    expect(mockedQuery).toHaveBeenCalledTimes(1)
+                    await expectLogic(logic, () => logic.actions.loadData('force_blocking')).toDispatchActions([
+                        'loadDataSuccess',
+                    ])
+                } else {
+                    await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+                }
+                expect(mockedQuery).toHaveBeenCalledTimes(2)
+            } finally {
+                clock.mockRestore()
+            }
+        }
+    )
+
+    it('does not resubmit a capacity-limited query after unmount', async () => {
+        jest.useFakeTimers()
+        const submit = jest
+            .spyOn(api, 'query')
+            .mockRejectedValueOnce(new ApiError('', 503, new Headers({ 'Retry-After': '5' })))
+            .mockResolvedValue({ results: [] })
+        mockedQuery.mockImplementationOnce(jest.requireActual('~/queries/query').performQuery)
+        try {
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' }),
+            })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(submit).toHaveBeenCalledTimes(1)
+            expect(logic.values.dataLoading).toBe(true)
+
+            logic.unmount()
+            await jest.advanceTimersByTimeAsync(20000)
+
+            expect(submit).toHaveBeenCalledTimes(1)
+        } finally {
+            submit.mockRestore()
+            jest.useRealTimers()
+        }
+    })
 
     it('calls query to fetch data', async () => {
         const results = {}

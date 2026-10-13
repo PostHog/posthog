@@ -174,8 +174,11 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
             with self.subTest(invalid_fields=invalid_fields):
                 invalid = self.client.post(url, {**payload, **invalid_fields}, format="json")
                 self.assertEqual(invalid.status_code, 400)
-        for limiter in ("get_app_org_rate_limiter", "get_api_team_rate_limiter"):
-            with self.subTest(limiter=limiter), patch(f"products.marketing_analytics.backend.api.{limiter}") as mock:
+        for limiter in (
+            "posthog.clickhouse.client.limit.get_app_org_rate_limiter",
+            "products.marketing_analytics.backend.api.get_api_team_rate_limiter",
+        ):
+            with self.subTest(limiter=limiter), patch(limiter) as mock:
                 mock.return_value.run.side_effect = ConcurrencyLimitExceeded("internal limiter detail")
                 throttled = self.client.post(url, payload, format="json")
                 self.assertEqual(throttled.status_code, 429)

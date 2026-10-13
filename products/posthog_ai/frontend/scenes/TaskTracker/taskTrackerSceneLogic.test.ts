@@ -1081,11 +1081,15 @@ describe('taskTrackerSceneLogic', () => {
         const seedLogic = composerSeedLogic()
         seedLogic.mount()
         const contextItems = [{ type: 'skill', key: 'example-skill' }]
-        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        const files = [new File(['demo'], 'notes.txt', { type: 'text/plain' })]
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems, files })
 
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.stagedAttachments.map(({ file }) => file)).toEqual(files)
+        logic.actions.applyComposerSeed()
+        expect(logic.values.stagedAttachments).toHaveLength(1)
         expect(logic.values.newTaskData.description).toBe('analyze churn')
         expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
         expect(seedLogic.values.seed).toBeNull()

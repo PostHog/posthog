@@ -32,7 +32,6 @@ export const SECTIONS = [
     { id: 'backend-snapshots', title: 'Backend snapshots' },
     { id: 'backend-coverage', title: 'Backend coverage' },
     { id: 'mcp-snapshots', title: 'MCP snapshots' },
-    { id: 'ai-evals', title: 'AI evals' },
     { id: 'django-migration-sql', title: 'Django migration SQL' },
     { id: 'django-migration-risk', title: 'Django migration risk' },
     { id: 'ch-migration-sql', title: 'ClickHouse migration SQL' },

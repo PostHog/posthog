@@ -205,6 +205,7 @@ export {
     FieldTitle,
 } from './field'
 export { Heading, headingVariants } from './heading'
+export { IconStack, IconStackItem } from './icon-stack'
 export { Input } from './input'
 export {
     NumberFieldRoot,
@@ -350,6 +351,6 @@ export { Text, textVariants } from './text'
 export { Textarea } from './textarea'
 export { Toggle, toggleVariants } from './toggle'
 export { ToggleGroup, ToggleGroupItem } from './toggle-group'
-export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
+export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 export { ThemeProvider, useTheme, type Theme } from './theme-provider'
 export { cn } from './lib/utils'

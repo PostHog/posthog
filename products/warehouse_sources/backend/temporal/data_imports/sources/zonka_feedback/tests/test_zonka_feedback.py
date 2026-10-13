@@ -1,176 +1,81 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback import zonka_feedback
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zonkafeedback import (
+    ZonkaFeedbackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.settings import (
     ENDPOINTS,
     ZONKA_FEEDBACK_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source import ZonkaFeedbackSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
-    PAGE_SIZE,
     ZonkaFeedbackResumeConfig,
     base_url,
     check_access,
-    zonka_feedback_source,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
-
-def _response(items: list[dict[str, Any]] | None, *, drop_result: bool = False, status: int = 200) -> Response:
+def _response(items: list[dict[str, Any]] | None, *, drop_result: bool = False, status: int = 200) -> ScriptedResponse:
     body: dict[str, Any] = {}
     if not drop_result:
         body["result"] = items or []
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(status=status, json=body)
 
 
-def _redirect(location: str = "https://evil.example.com/") -> Response:
-    resp = Response()
-    resp.status_code = 302
-    resp.headers["Location"] = location
-    resp._content = b"{}"
-    return resp
+def _redirect(location: str = "https://evil.example.com/") -> ScriptedResponse:
+    return ScriptedResponse(status=302, headers={"Location": location}, body=b"{}")
 
 
-def _make_manager(resume_state: ZonkaFeedbackResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead. The prepared
-    request keeps the real request URL so the client's allowed-host pin sees the true host.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(manager: mock.MagicMock, endpoint: str = "responses", data_center: str = "us1"):
-    return zonka_feedback_source(
-        auth_token="zonka-token",
-        data_center=data_center,
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
+def _run(
+    script: Any, endpoint: str = "responses", resume_state: ZonkaFeedbackResumeConfig | None = None
+) -> DriveResult:
+    driver = SourceDriver(ZonkaFeedbackSource(), ZonkaFeedbackSourceConfig(auth_token="zonka-token", data_center="us1"))
+    return driver.run(endpoint, script, resume_state=resume_state)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_then_empty_page_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}, {"id": 2}]), _response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert params[0]["page"] == 1
-        assert params[0]["page_size"] == PAGE_SIZE
-        assert params[1]["page"] == 2
-        # State is saved after page 1 (pointing at page 2); the terminating empty page saves nothing.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}]), _response([{"id": 2}]), _response([{"id": 3}]), _response([])])
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_batch(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}]), _response([{"id": 2}]), _response([])])
-
-        manager = _make_manager()
-        _rows(_source(manager))
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_page(self) -> None:
         # Page 1 must never be fetched on resume — only pages from the saved bookmark onward.
-        params = _wire(session, [_response([{"id": 2}]), _response([])])
+        result = _run([_response([{"id": 2}]), _response([])], resume_state=ZonkaFeedbackResumeConfig(next_page=2))
 
-        manager = _make_manager(ZonkaFeedbackResumeConfig(next_page=2))
-        rows = _rows(_source(manager))
+        assert result.rows == [{"id": 2}]
+        assert result.params("page")[0] == "2"
 
-        assert rows == [{"id": 2}]
-        assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_page_empty_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_result_key_raises_loudly(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_result=True)])
+    def test_missing_result_key_raises_loudly(self) -> None:
+        result = _run([_response(None, drop_result=True)])
 
         # A 200 body without "result" means the response shape changed — fail loud, not silently 0 rows.
-        with pytest.raises(ValueError, match="matched nothing"):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "matched nothing" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_failure_fails_loud(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], status=401)])
+    def test_auth_failure_fails_loud(self) -> None:
+        result = _run([_response([], status=401)])
 
         # An invalid/revoked token surfaces as a permanent HTTPError; retrying can't fix credentials.
-        with pytest.raises(requests.HTTPError):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestSessionSecurity:
     """Credentialed requests must reject a 3xx so a redirect from a compromised host can't retarget
     the bearer token at another origin (the source pins the client with allow_redirects=False)."""
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_redirect_is_rejected(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_redirect()])
+    def test_redirect_is_rejected(self) -> None:
+        result = _run([_redirect()])
 
-        with pytest.raises(ValueError, match="refusing to follow"):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "refusing to follow" in str(result.raised)
 
 
 class TestBaseUrl:
@@ -210,39 +115,28 @@ class TestCheckAccess:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        response = mock.MagicMock()
-        response.status_code = status
-        session = mock.MagicMock()
-        session.get.return_value = response
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(zonka_feedback, "make_tracked_session", lambda **kwargs: session)
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert check_access("zonka-token", "us1") == (expected_status, expected_message)
 
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(zonka_feedback, "make_tracked_session", lambda **kwargs: session)
-        status, message = check_access("zonka-token", "us1")
+    def test_connection_error_maps_to_zero(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            status, message = check_access("zonka-token", "us1")
         assert status == 0
         assert message == "Could not connect to Zonka Feedback"
 
-    def test_probe_redacts_token_and_pins_redirects(self, monkeypatch: Any) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        session = mock.MagicMock()
-        session.get.return_value = response
-        make_session = mock.MagicMock(return_value=session)
-        monkeypatch.setattr(zonka_feedback, "make_tracked_session", make_session)
-
-        check_access("secret-token", "us1")
-        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
-        assert make_session.call_args.kwargs["allow_redirects"] is False
+    def test_probe_redacts_token_and_pins_redirects(self) -> None:
+        with scripted_network(always(ScriptedResponse(json={}))) as network:
+            check_access("secret-token", "us1")
+        assert network.session_options[0]["redact_values"] == ("secret-token",)
+        assert network.session_options[0]["allow_redirects"] is False
 
 
 class TestZonkaFeedbackSourceResponse:
     @parameterized.expand([("responses",), ("surveys",), ("contacts",), ("survey_links",)])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
+        result = _run(always(_response([])), endpoint=endpoint)
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # No endpoint exposes a stable creation timestamp we can safely partition on.

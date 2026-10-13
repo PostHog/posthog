@@ -94,9 +94,11 @@ describe('MetricsPanel', () => {
 
         afterEach(() => cleanup())
 
-        it('renders the stat headline with the resolved unit', () => {
+        it('renders a single stat with the resolved unit, and no metric name or time at rest', () => {
             renderPanel([seriesWith({}, [100, 200, 340], 'http.duration', 'ms')], { type: 'stat' })
             expect(screen.getByText('340 ms')).toBeInTheDocument()
+            expect(screen.queryByText('http.duration')).not.toBeInTheDocument()
+            expect(screen.queryByText(/12:00/)).not.toBeInTheDocument()
         })
 
         it('stat uses the reduce reducer', () => {

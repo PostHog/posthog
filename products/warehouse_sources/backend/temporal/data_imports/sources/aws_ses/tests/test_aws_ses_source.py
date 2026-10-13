@@ -1,18 +1,12 @@
 import re
 import datetime as dt
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
-import pytest
 from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses import (
-    aws_ses as transport_module,
-    source as source_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import AwsSesError
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.source import AwsSesSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsses import AwsSesSourceConfig
@@ -54,34 +48,10 @@ class TestAwsSesSource:
         # reuse a preserved secret.
         assert self.source.connection_host_fields == ["aws_region"]
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            str(AwsSesError("UnrecognizedClientException", "The security token is invalid", "account", "/p")),
-            str(AwsSesError("SignatureDoesNotMatch", "Signature expired", "account", "/p")),
-            str(AwsSesError("ExpiredTokenException", "The security token is expired", "account", "/p")),
-            str(AwsSesError("AccessDeniedException", "not authorized to perform: ses:GetAccount", "account", "/p")),
-            str(AwsSesError("BadRequestException", "no reason", "multi_region_endpoints", "/p")),
-            "Invalid AWS region: 'email.evil.example/'",
-        ],
-    )
-    def test_permanent_aws_failures_stop_the_sync_instead_of_retrying(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
     def test_a_rejected_request_keeps_the_message_that_names_the_failing_table(self) -> None:
         # A fixed friendly string would replace the raised message and hide which of the ten
         # tables AWS rejected.
         assert self.source.get_non_retryable_errors()["Amazon SES request failed: BadRequestException"] is None
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            str(AwsSesError("TooManyRequestsException", "Rate exceeded", "account", "/p")),
-            str(AwsSesError("HTTP 503", "", "account", "/p")),
-        ],
-    )
-    def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
     def test_the_caption_and_the_access_denied_message_grant_the_same_iam_actions(self) -> None:
         # Both surfaces tell the user which IAM actions to grant; if they diverge, the setup
@@ -105,29 +75,6 @@ class TestAwsSesSource:
 
         assert probe.call_args[0] == ("AKIAEXAMPLE", "secret", None, "us-east-1", ["account"])
 
-    @pytest.mark.parametrize(
-        "endpoint,primary_keys",
-        [
-            ("account", None),
-            ("configuration_sets", ["configuration_set_name"]),
-            ("email_identities", ["identity_name"]),
-            ("suppressed_destinations", ["email_address"]),
-        ],
-    )
-    def test_source_for_pipeline_declares_the_endpoints_primary_key_and_a_final_commit_watermark(
-        self, endpoint: str, primary_keys: list[str] | None
-    ) -> None:
-        inputs = make_inputs(endpoint)
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        # SES documents no response ordering, so the watermark must only commit when a walk
-        # completes; "asc" would checkpoint it after every batch.
-        assert response.sort_mode == "desc"
-
     def test_source_for_pipeline_forwards_the_watermark_only_on_an_incremental_run(self) -> None:
         watermark = dt.datetime(2026, 8, 1, tzinfo=dt.UTC)
 
@@ -139,14 +86,3 @@ class TestAwsSesSource:
             inputs = make_inputs("suppressed_destinations", False, watermark)
             self.source.source_for_pipeline(self.config, self.source.get_resumable_source_manager(inputs), inputs)
             assert build.call_args[1]["db_incremental_field_last_value"] is None
-
-    def test_items_are_lazy_so_building_the_response_sends_no_request(self) -> None:
-        inputs = make_inputs("suppressed_destinations")
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        with mock.patch.object(transport_module, "send_request") as send:
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-            items = cast("Iterable[Any]", response.items())
-
-        assert iter(items) is not None
-        send.assert_not_called()

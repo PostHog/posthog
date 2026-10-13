@@ -74,8 +74,8 @@ import type {
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
     _LogsServicesResponseApi,
+    _LogsSparklineBucketApi,
     _LogsSparklineRequestApi,
-    _LogsSparklineResponseApi,
     _LogsValuesResponseApi,
 } from './api.schemas'
 
@@ -1109,8 +1109,8 @@ export const logsSparklineCreate = async (
     projectId: string,
     _logsSparklineRequestApi: _LogsSparklineRequestApi,
     options?: RequestInit
-): Promise<_LogsSparklineResponseApi> => {
-    return apiMutator<_LogsSparklineResponseApi>(getLogsSparklineCreateUrl(projectId), {
+): Promise<_LogsSparklineBucketApi[]> => {
+    return apiMutator<_LogsSparklineBucketApi[]>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

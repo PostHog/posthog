@@ -13,8 +13,9 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson,
+    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
+    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -650,10 +651,10 @@ impl PersonLookup for PostgresStorage {
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,
-        uuids: &[Uuid],
+        targets: &[TombstoneTarget],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome> {
-        if uuids.is_empty() {
+        if targets.is_empty() {
             return Ok(TombstonedDeleteOutcome::default());
         }
 
@@ -670,9 +671,16 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // One outcome per uuid: a duplicate must not be counted or reported twice.
-        let mut seen = HashSet::with_capacity(uuids.len());
-        let unique: Vec<Uuid> = uuids.iter().copied().filter(|u| seen.insert(*u)).collect();
+        // One outcome per uuid: a duplicate must not be counted or reported twice. It keeps its
+        // lowest bound, the one that deletes the least.
+        let mut bounds: HashMap<Uuid, i64> = HashMap::with_capacity(targets.len());
+        for target in targets {
+            bounds
+                .entry(target.uuid)
+                .and_modify(|bound| *bound = (*bound).min(target.max_version))
+                .or_insert(target.max_version);
+        }
+        let unique: Vec<Uuid> = bounds.keys().copied().collect();
 
         // The caller picks the row budget; the server caps it so no call outlives its deadline.
         let budget = max_rows.clamp(1, self.tombstoned_delete_max_rows as i64);
@@ -684,38 +692,37 @@ impl PersonLookup for PostgresStorage {
             .execute(&mut *tx)
             .await?;
 
-        // Resolved without locks. The delete re-checks the tombstone under its row lock, so a
-        // person revived in between drops out and reads as neither deleted nor live.
-        let candidates: Vec<(i64, Uuid)> = sqlx::query!(
+        // This read takes no lock. The delete re-checks the tombstone and the bound under its row
+        // lock, so a person revived or tombstoned again after this read lands in no outcome bucket.
+        let persons = sqlx::query!(
             r#"
-            SELECT id::bigint AS "id!", uuid AS "uuid!"
+            SELECT id::bigint AS "id!", uuid AS "uuid!", is_deleted AS "is_deleted!",
+                   COALESCE(version, 0)::bigint AS "version!"
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted
+            WHERE team_id = $1 AND uuid = ANY($2)
             ORDER BY id
             "#,
             team_id as i32,
             unique.as_slice()
         )
         .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .map(|row| (row.id, row.uuid))
-        .collect();
-
-        let skipped_live: i64 = sqlx::query_scalar!(
-            r#"
-            SELECT count(*) AS "count!"
-            FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
-            "#,
-            team_id as i32,
-            unique.as_slice()
-        )
-        .fetch_one(&mut *tx)
         .await?;
+        let mut skipped_live = 0;
+        let mut skipped_version = 0;
+        let mut candidates: Vec<(i64, Uuid)> = Vec::with_capacity(persons.len());
+        for row in persons {
+            if !row.is_deleted {
+                skipped_live += 1;
+            } else if row.version > bounds[&row.uuid] {
+                skipped_version += 1;
+            } else {
+                candidates.push((row.id, row.uuid));
+            }
+        }
 
         let mut outcome = TombstonedDeleteOutcome {
             skipped_live,
+            skipped_version,
             ..TombstonedDeleteOutcome::default()
         };
         if candidates.is_empty() {
@@ -747,22 +754,28 @@ impl PersonLookup for PostgresStorage {
             ..
         } = admission;
 
-        // Lock only the persons that are still tombstoned, in id order. READ COMMITTED re-checks
-        // is_deleted on the row version that wins the lock, so a person revived a moment ago
-        // drops out here. Live writers touch live persons, never locked here, and the identity
-        // saga locks persons before distinct ids in this same order.
-        let mut lock_ids: Vec<i64> = admitted.iter().map(|(id, _)| *id).collect();
-        lock_ids.extend(trim.map(|(id, _)| id));
+        // READ COMMITTED re-checks the tombstone and the bound on the row version that wins the
+        // lock, so a person revived or tombstoned again a moment ago drops out, trimmed or not.
+        // Live writers touch only live persons, which this never locks, and the identity saga locks
+        // persons before distinct ids in this same id order.
+        let (lock_ids, lock_bounds): (Vec<i64>, Vec<i64>) = admitted
+            .iter()
+            .chain(trim.iter())
+            .map(|(id, uuid)| (*id, bounds[uuid]))
+            .unzip();
         let locked: HashSet<i64> = sqlx::query_scalar!(
             r#"
-            SELECT id::bigint AS "id!"
-            FROM posthog_person
-            WHERE team_id = $1 AND id = ANY($2) AND is_deleted
-            ORDER BY id
-            FOR UPDATE
+            SELECT p.id::bigint AS "id!"
+            FROM posthog_person p
+            JOIN UNNEST($2::bigint[], $3::bigint[]) AS bound(id, max_version) ON bound.id = p.id
+            WHERE p.team_id = $1 AND p.id = ANY($2) AND p.is_deleted
+              AND COALESCE(p.version, 0) <= bound.max_version
+            ORDER BY p.id
+            FOR UPDATE OF p
             "#,
             team_id as i32,
-            lock_ids.as_slice()
+            lock_ids.as_slice(),
+            lock_bounds.as_slice()
         )
         .fetch_all(&mut *tx)
         .await?
@@ -1285,6 +1298,236 @@ impl PersonLookup for PostgresStorage {
 
         Ok(result.rows_affected() > 0)
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[(Uuid, i64)],
+    ) -> StorageResult<Vec<PersonVersionFloorResult>> {
+        if floors.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_primary_labels("ensure_person_version_floors");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut tx = self.bulk_primary_pool.begin().await?;
+        // A held row means a merge, revival or delete in flight: fail fast and let
+        // the caller retry instead of queueing behind it.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+
+        let uuids: Vec<Uuid> = floors.iter().map(|(uuid, _)| *uuid).collect();
+        let mut before = lock_persons_by_uuids(&mut tx, team_id, &uuids).await?;
+
+        // Insert in uuid order, so two calls racing on the same new uuids wait on each
+        // other's inserts in one order and cannot deadlock.
+        let mut absent: Vec<(Uuid, i64)> = floors
+            .iter()
+            .filter(|(uuid, _)| !before.contains_key(uuid))
+            .copied()
+            .collect();
+        absent.sort_unstable_by_key(|(uuid, _)| *uuid);
+        let (absent_uuids, absent_mins): (Vec<Uuid>, Vec<i64>) = absent.into_iter().unzip();
+        let inserted =
+            insert_person_tombstones(&mut tx, team_id, &absent_uuids, &absent_mins).await?;
+
+        // ON CONFLICT DO NOTHING waited for a concurrent insert of the same uuid and
+        // skipped it. Lock and classify that row like any other existing row.
+        let raced: Vec<Uuid> = absent_uuids
+            .iter()
+            .filter(|uuid| !inserted.contains_key(uuid))
+            .copied()
+            .collect();
+        if !raced.is_empty() {
+            let late = lock_persons_by_uuids(&mut tx, team_id, &raced).await?;
+            if late.len() != raced.len() {
+                return Err(StorageError::FailedPrecondition(format!(
+                    "person rows changed during ensure_person_version_floors (team_id={team_id}); retry"
+                )));
+            }
+            before.extend(late);
+        }
+
+        let (raise_ids, raise_mins): (Vec<i64>, Vec<i64>) = floors
+            .iter()
+            .filter_map(|(uuid, min_version)| {
+                before
+                    .get(uuid)
+                    .filter(|row| row.is_deleted && row.version < *min_version)
+                    .map(|row| (row.id, *min_version))
+            })
+            .unzip();
+        if !raise_ids.is_empty() {
+            sqlx::query!(
+                r#"
+                UPDATE posthog_person p
+                SET version = f.min_version
+                FROM UNNEST($2::bigint[], $3::bigint[]) AS f(id, min_version)
+                WHERE p.team_id = $1 AND p.id = f.id
+                  AND COALESCE(p.version, 0) < f.min_version
+                "#,
+                team_id as i32,
+                &raise_ids,
+                &raise_mins
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        let results = floors
+            .iter()
+            .map(|(uuid, min_version)| {
+                if inserted.contains_key(uuid) {
+                    return PersonVersionFloorResult {
+                        uuid: *uuid,
+                        outcome: VersionFloorOutcome::TombstoneInserted,
+                        version: *min_version,
+                    };
+                }
+                let row = &before[uuid];
+                PersonVersionFloorResult {
+                    uuid: *uuid,
+                    outcome: VersionFloorOutcome::for_existing(
+                        row.is_deleted,
+                        row.version,
+                        *min_version,
+                    ),
+                    version: if row.is_deleted {
+                        row.version.max(*min_version)
+                    } else {
+                        row.version
+                    },
+                }
+            })
+            .collect::<Vec<_>>();
+        record_floor_outcomes(
+            "ensure_person_version_floors",
+            results.iter().map(|r| r.outcome),
+        );
+        Ok(results)
+    }
+}
+
+fn bulk_primary_labels(operation: &str) -> [(String, String); 4] {
+    [
+        ("operation".to_string(), operation.to_string()),
+        ("pool".to_string(), "bulk_primary".to_string()),
+        ("client".to_string(), current_client_name().to_string()),
+        ("method".to_string(), current_method_name().to_string()),
+    ]
+}
+
+const VERSION_FLOOR_OUTCOMES_TOTAL: &str = "personhog_replica_version_floor_outcomes_total";
+
+fn record_floor_outcomes(operation: &str, outcomes: impl Iterator<Item = VersionFloorOutcome>) {
+    record_outcomes(
+        VERSION_FLOOR_OUTCOMES_TOTAL,
+        operation,
+        outcomes.map(|outcome| match outcome {
+            VersionFloorOutcome::TombstoneInserted => "tombstone_inserted",
+            VersionFloorOutcome::TombstoneRaised => "tombstone_raised",
+            VersionFloorOutcome::TombstoneAtFloor => "tombstone_at_floor",
+            VersionFloorOutcome::Live => "live",
+        }),
+    );
+}
+
+/// Count each outcome label once per call, so a batch costs one increment per label.
+fn record_outcomes(
+    metric: &'static str,
+    operation: &str,
+    outcomes: impl Iterator<Item = &'static str>,
+) {
+    let mut counts: HashMap<&'static str, u64> = HashMap::new();
+    for outcome in outcomes {
+        *counts.entry(outcome).or_default() += 1;
+    }
+    let client = current_client_name();
+    for (outcome, count) in counts {
+        common_metrics::inc(
+            metric,
+            &[
+                ("operation".to_string(), operation.to_string()),
+                ("outcome".to_string(), outcome.to_string()),
+                ("client".to_string(), client.to_string()),
+            ],
+            count,
+        );
+    }
+}
+
+struct LockedPerson {
+    id: i64,
+    version: i64,
+    is_deleted: bool,
+}
+
+/// Lock the existing persons among `uuids` in id order, the order the ingestion
+/// writer and the tombstone paths take person locks in.
+async fn lock_persons_by_uuids(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    uuids: &[Uuid],
+) -> StorageResult<HashMap<Uuid, LockedPerson>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT id::bigint as "id!", uuid as "uuid!",
+               COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
+        FROM posthog_person
+        WHERE team_id = $1 AND uuid = ANY($2)
+        ORDER BY id FOR UPDATE
+        "#,
+        team_id as i32,
+        uuids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.uuid,
+                LockedPerson {
+                    id: row.id,
+                    version: row.version,
+                    is_deleted: row.is_deleted,
+                },
+            )
+        })
+        .collect())
+}
+
+/// Insert scrubbed person tombstones, skipping any uuid a concurrent transaction
+/// inserted first. Returns the inserted rows' ids by uuid.
+async fn insert_person_tombstones(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    uuids: &[Uuid],
+    versions: &[i64],
+) -> StorageResult<HashMap<Uuid, i64>> {
+    if uuids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query!(
+        r#"
+        INSERT INTO posthog_person (uuid, team_id, properties, properties_last_updated_at,
+                                    properties_last_operation, created_at, version,
+                                    is_identified, is_deleted)
+        SELECT f.uuid, $1, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NOW(), f.version, false, true
+        FROM UNNEST($2::uuid[], $3::bigint[]) AS f(uuid, version)
+        ON CONFLICT (team_id, uuid) DO NOTHING
+        RETURNING id::bigint as "id!", uuid as "uuid!"
+        "#,
+        team_id as i32,
+        uuids,
+        versions
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows.into_iter().map(|row| (row.uuid, row.id)).collect())
 }
 
 /// Tombstone the requested persons in one transaction, so the caller gets
@@ -1844,6 +2087,10 @@ fn record_tombstoned_delete_rows(outcome: &TombstonedDeleteOutcome, client: &str
         (
             "delete_tombstoned_persons_skipped_live",
             outcome.skipped_live,
+        ),
+        (
+            "delete_tombstoned_persons_skipped_version",
+            outcome.skipped_version,
         ),
         (
             "delete_tombstoned_persons_blocked",

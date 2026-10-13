@@ -37,7 +37,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -56,10 +56,11 @@ import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDe
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { warehouseSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from '~/queries/nodes/DataVisualization/Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
@@ -1083,15 +1084,14 @@ function InternalDataTableVisualization(
                 />
             </BindLogic>
         )
-    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
-            <PieChart
+            <PartOfWholeChart
                 className="p-2"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
@@ -1270,7 +1270,7 @@ const Content = ({
     showQueryScan,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
-    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
@@ -1345,16 +1345,18 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <WarehouseWizardHint
-                        className="max-w-140"
-                        fallback={
-                            <MCPUseCaseCard
-                                surfaceKey="sql.execute"
-                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                                className="max-w-140"
-                            />
-                        }
-                    />
+                    {showAgentHints ? (
+                        <WarehouseWizardHint
+                            className="max-w-140"
+                            fallback={
+                                <MCPUseCaseCard
+                                    surfaceKey="sql.execute"
+                                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                    className="max-w-140"
+                                />
+                            }
+                        />
+                    ) : null}
                 </div>
             )
         }
@@ -1412,20 +1414,28 @@ const Content = ({
                 className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
-                <span className="text-secondary max-w-xl">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
-                    statements with <code>;</code> to run them independently.
-                </span>
-                <WarehouseWizardHint
-                    className="max-w-140"
-                    fallback={
-                        <MCPUseCaseCard
-                            surfaceKey="sql.execute"
-                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                            className="max-w-140"
-                        />
-                    }
-                />
+                {singleStatement ? (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    </span>
+                ) : (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate
+                        multiple statements with <code>;</code> to run them independently.
+                    </span>
+                )}
+                {showAgentHints ? (
+                    <WarehouseWizardHint
+                        className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
+                    />
+                ) : null}
             </div>
         )
     }

@@ -129,7 +129,9 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     listeners({
         resetDeletedDistinctId: async ({ distinct_id }) => {
             await api.persons.resetPersonDistinctId(distinct_id)
-            lemonToast.success('Distinct ID reset. It may take a few minutes to process.')
+            lemonToast.success(
+                "Distinct ID reset. If the person doesn't show up within a few minutes, run the reset again."
+            )
         },
     }),
 

@@ -312,6 +312,7 @@ export class PiAgentServer {
       .updateTaskRun(this.config.taskId, this.config.runId, {
         status: "failed",
         error_message: `Pi agent server crashed: ${message}`,
+        error_type: "agent_server_crash",
         state: { agent_version: this.agentVersion },
       })
       .catch((updateError) =>

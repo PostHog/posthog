@@ -116,6 +116,10 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
+        self.assertEqual(
+            response_data["organization"]["membership_joined_at"],
+            self.organization_membership.joined_at.isoformat(),
+        )
         self.assertEqual(response_data["organization"]["teams"][0]["id"], self.team.id)
         self.assertEqual(response_data["organization"]["teams"][0]["name"], self.team.name)
         self.assertNotIn(
@@ -2493,6 +2497,8 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2518,6 +2524,8 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "data_catalog_weekly_digest": True,
+                "approval_requested": True,
+                "approval_resolved": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2791,6 +2799,8 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed_immediate": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "data_catalog_weekly_digest": True,  # Default value
+                "approval_requested": True,  # Default value
+                "approval_resolved": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
                 "pipeline_notifications_disabled": {},  # Default value

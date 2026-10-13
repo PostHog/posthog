@@ -1,4 +1,4 @@
-# Keep this in sync with plugin-server/src/config/kafka-topics.ts
+# Keep this in sync with nodejs/src/common/config/kafka-topics.ts
 
 from posthog.settings.data_stores import SUFFIX
 from posthog.settings.kafka import KAFKA_PREFIX
@@ -39,6 +39,7 @@ KAFKA_MESSAGE_ASSETS = f"{KAFKA_PREFIX}clickhouse_message_assets{SUFFIX}"
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
 KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = f"{KAFKA_PREFIX}clickhouse_flag_evaluations{SUFFIX}"
+KAFKA_REALTIME_ONLY_EVENTS_JSON = f"{KAFKA_PREFIX}realtime_only_events_json{SUFFIX}"
 
 # Legacy session recording topic — only retained because clickhouse migration 0063 still
 # DROPs the old materialized view by name. Producers/consumers live in the Node.js services.

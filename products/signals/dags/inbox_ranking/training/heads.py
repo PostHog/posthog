@@ -11,7 +11,7 @@ positive for that moment rather than an outcome of an earlier one, and the label
 Every head reads the `everyone` cohort, so each `p_<head>` is a probability over the
 same reports and the heads can be compared and combined. Impressions are not a label gate: only the
 cloud inbox list emits them, and a report reached from Slack, the desktop app or MCP often has none.
-The dataset keeps them for position bias and the shadow grades.
+The dataset keeps them for position bias.
 
 `action` counts intent from any surface: the inbox UI, external coding agents over MCP, the CLI,
 Slack and the desktop app. Self-driving's own `task` and `system` writes are excluded, because

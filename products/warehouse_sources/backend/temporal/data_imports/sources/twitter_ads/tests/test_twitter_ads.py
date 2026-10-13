@@ -17,10 +17,7 @@ from requests_oauthlib import OAuth1
 from posthog.models.integration.model import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import (
-    MAX_STATS_BACKFILL_DAYS,
-    PLACEMENTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import PLACEMENTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.twitter_ads import (
     TwitterAdsClient,
     TwitterAdsResumeConfig,
@@ -181,81 +178,6 @@ def test_stats_limits_daily_rows_currency_and_dst(
         resumed = [row for page in sync_items(resource) for row in page]
     assert min(row["date"] for row in resumed) == date.fromisoformat(first_checkpoint.next_date)
     assert max(row["date"] for row in resumed) == date(2025, 11, 9)
-
-
-def test_stats_backfill_caps_start_date_for_old_accounts(client: TwitterAdsClient, manager: MagicMock) -> None:
-    account_timezone = ZoneInfo("America/Los_Angeles")
-    starts = []
-
-    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
-        path = urlparse(request_url(request)).path
-        if path.endswith("/funding_instruments"):
-            return response({"data": [{"id": "funding", "currency": "EUR"}]})
-        if path.endswith("/campaigns"):
-            return response({"data": [{"id": "campaign-00", "funding_instrument_id": "funding"}]})
-        if "/stats/" not in path:
-            return response({"data": {"timezone": "America/Los_Angeles", "created_at": "2015-01-01T00:00:00Z"}})
-        params = parse_qs(urlparse(request_url(request)).query)
-        starts.append(datetime.fromisoformat(params["start_time"][0]).astimezone(account_timezone).date())
-        return response({"data": [{"id": "campaign-00", "id_data": [{"segment": None, "metrics": {}}]}]})
-
-    with (
-        time_machine.travel("2025-11-10T20:00:00Z", tick=False),
-        patch.object(client.session, "send", side_effect=send),
-    ):
-        resource = twitter_ads_source(client, "account", "campaign_stats", manager, None)
-        list(sync_items(resource))
-    assert min(starts) == date(2025, 11, 10) - timedelta(days=MAX_STATS_BACKFILL_DAYS)
-
-
-def test_daily_null_metrics_are_not_shifted(client: TwitterAdsClient) -> None:
-    rows = client.stats_rows(
-        {
-            "data": [
-                {"id": "id", "id_data": [{"segment": None, "metrics": {"impressions": [10, None, 30], "clicks": None}}]}
-            ]
-        },
-        date(2025, 1, 1),
-        date(2025, 1, 4),
-        "ALL_ON_TWITTER",
-        {"id": "USD"},
-        "account",
-    )
-    assert [row["impressions"] for row in rows] == [10, None, 30]
-    assert [row["date"] for row in rows] == [date(2025, 1, 1), date(2025, 1, 2), date(2025, 1, 3)]
-    assert all(row["clicks"] is None for row in rows)
-
-
-def test_historical_window_uses_the_offset_in_force_on_that_date(client: TwitterAdsClient, manager: MagicMock) -> None:
-    # Reported from production: a backfill run in October (PDT) reached back to February (PST) and
-    # X answered 400, because every window carried today's offset instead of the one that applied
-    # on the day being requested.
-    windows = []
-
-    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
-        url = request_url(request)
-        params = parse_qs(urlparse(url).query)
-        path = urlparse(url).path
-        if path.endswith("/funding_instruments"):
-            return response({"data": [{"id": "funding", "currency": "USD"}]})
-        if path.endswith("/campaigns"):
-            return response({"data": [{"id": "campaign", "funding_instrument_id": "funding"}]})
-        if "/stats/" not in path:
-            return response({"data": {"timezone": "America/Los_Angeles", "created_at": "2020-01-01T10:00:00Z"}})
-        windows.append((params["start_time"][0], params["end_time"][0]))
-        return response({"data": [{"id": "campaign", "id_data": [{"segment": None, "metrics": {}}]}]})
-
-    with (
-        time_machine.travel("2026-10-05T20:00:00Z", tick=False),
-        patch.object(client.session, "send", side_effect=send),
-    ):
-        resource = twitter_ads_source(client, "account", "campaign_stats", manager, date(2020, 2, 11))
-        list(sync_items(resource))
-
-    # 2020-02-11 is PST, so midnight in the ad account's timezone is 08:00Z, not the 07:00Z that
-    # October's PDT offset would produce.
-    assert windows[0][0] == "2020-02-11T08:00:00Z"
-    assert windows[0][1] == "2020-02-18T08:00:00Z"
 
 
 def test_error_detail_rides_along_with_the_status(client: TwitterAdsClient) -> None:

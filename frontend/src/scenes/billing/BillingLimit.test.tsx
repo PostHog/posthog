@@ -106,4 +106,20 @@ describe('BillingLimit', () => {
         )
         expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } })
     })
+
+    // Billing answers a limit write for a flagged product with a 400, so the control must not render.
+    it.each([
+        ['renders the limit control for a product that allows a limit', false, true],
+        ['renders nothing for a product without billing limits', true, false],
+    ])('%s', async (_name, noBillingLimit, rendersControl) => {
+        await seedBilling({ product_analytics: 500 })
+        render(
+            <Provider>
+                <BillingLimit product={{ ...makeProduct(), no_billing_limit: noBillingLimit }} />
+            </Provider>
+        )
+
+        expect(screen.queryByTestId('billing-limit-input-wrapper-product_analytics') !== null).toBe(rendersControl)
+        expect(screen.queryByText('Edit limit') !== null).toBe(rendersControl)
+    })
 })

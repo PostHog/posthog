@@ -5,8 +5,7 @@ Three assets on the same daily partition as the dataset dag, each writing under 
     inbox_ranking_training_examples/v1/<set>/dt=D/    examples over the trailing snapshots, per feature set
     inbox_ranking_models/v1/<name>/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
     inbox_ranking_models/v1/<name>/champion.json      pointer to the version the scoring sweep loads
-    inbox_ranking_unseen_scores/v1/dt=D/              the day's models on the reports born that day
-    inbox_ranking_served_scores/v1/dt=D/              the served model's own scores of those reports
+    inbox_ranking_served_scores/v1/dt=D/              the scoring sweep's scores of the reports born that day
 
 A fifth asset publishes what the scoring sweep serves. The dataset bucket holds the training
 history and the Temporal workers cannot reach it, so `inbox_ranking_serving_manifest` copies the
@@ -18,8 +17,7 @@ Partition dt=D trains on the report-state/labels snapshots dt=D-lookback..D (iss
 scoring-moment join, `training/examples.py`), grades each head on the last `holdout_days` of
 reports, and refits on everything. The champion asset applies `promotion.decide_promotion`; it
 rewrites the pointer only when `INBOX_RANKING_AUTO_PROMOTE` is on, otherwise it logs the decision
-so the daily candidate series doubles as monitoring while the first shadow read runs against a
-frozen champion. Every candidate is kept under `models/v1/<model_name>/dt=D/`; a re-run of a partition replaces
+so the daily candidate series doubles as monitoring. Every candidate is kept under `models/v1/<model_name>/dt=D/`; a re-run of a partition replaces
 that prefix in full (stale head files are removed), and `champion.json` carries the `run_id` it
 was promoted from so a loader can tell a re-run apart from the version it pinned. The champion is
 graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-only fit), so the
@@ -33,15 +31,14 @@ examples or metadata are missing that day is logged and skipped: its own series 
 every other family still trains, promotes and gets graded. The two embedding families read one text
 rendering each, from separate snapshots, so a missing snapshot costs one family and not the pair.
 
-Two further assets grade the day's models on data no example covers. `inbox_ranking_unseen_scores`
-scores every report born on D (`unseen_pool` explains why no example can cover one);
+Two further assets grade the served models on data no example covers. `inbox_ranking_served_scores`
+(`training/served.py`) reads the scoring sweep's live scores of every report born on D, one row set
+per model key the manifest named (`unseen_pool` explains why no example can cover one);
 `inbox_ranking_unseen_graded` evaluates saved scores daily against the dt=D labels until each
 head's horizon, keeping provisional evaluations separate from mature grades. The holdout AUC
-grades the recipe, because the shipped booster is refit on train plus holdout; the baked unseen
-AUC grades the model on reports it never saw. The two are comparable because both apply the
-same `Head` cohort, label and horizon. `inbox_ranking_served_scores` (`training/served.py`) reads
-the scoring sweep's own birth-day scores of the same pool, and the grader grades them as the
-`served` role.
+grades the recipe, because the shipped booster is refit on train plus holdout; the baked online
+AUC grades each model on reports it never saw. The two are comparable because both apply the
+same `Head` cohort, label and horizon.
 """
 
 import json
@@ -53,7 +50,6 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 import dagster
 import pyarrow as pa
-import pyarrow.compute as pc
 from botocore.exceptions import ClientError
 
 from posthog import settings
@@ -69,13 +65,7 @@ from products.signals.backend.ranking.features import (
     Extras,
     FeatureSet,
 )
-from products.signals.backend.ranking.model_contract import (
-    classification_thresholds,
-    model_feature_set,
-    model_mismatch,
-    readable_head_names,
-    trained_head_files,
-)
+from products.signals.backend.ranking.model_contract import model_feature_set, model_mismatch, trained_head_files
 from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ServingManifest, serving_manifest_key
 from products.signals.dags.inbox_ranking.common import (
@@ -84,7 +74,6 @@ from products.signals.dags.inbox_ranking.common import (
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
-    object_row_count,
     owner_tags,
     partition_def,
     partition_object_key,
@@ -92,7 +81,6 @@ from products.signals.dags.inbox_ranking.common import (
     s3_client,
     serving_mirror_storage,
     skip_unconfigured,
-    snapshot_bounds,
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
@@ -116,7 +104,6 @@ from products.signals.dags.inbox_ranking.training.examples import (
     example_columns,
     point_in_time_mask,
     reports_missing_birth_snapshot,
-    state_rows,
 )
 from products.signals.dags.inbox_ranking.training.heads import (
     ACTION_LABEL_COLUMNS,
@@ -138,7 +125,6 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     unseen_head_evaluated_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
-    unseen_score_events,
 )
 from products.signals.dags.inbox_ranking.training.train import (
     XGB_PARAMS,
@@ -149,28 +135,16 @@ from products.signals.dags.inbox_ranking.training.train import (
     train_head,
 )
 from products.signals.dags.inbox_ranking.training.unseen import (
-    CANDIDATE_ROLE,
-    CHAMPION_ROLE,
-    FEATURE_INPUT_COLUMNS,
     MODEL_FAMILIES,
     SERVED_SCORES_TABLE,
-    UNSEEN_SCORES_TABLE,
     HeadGrade,
     ModelFamily,
-    UnseenModel,
     calibration_rows,
-    empty_scores_write_allowed,
-    families_lost_by_rewrite,
     graded_rows,
     head_grades,
-    leaked_report_ids,
     missing_label_columns,
     report_grade_rows,
-    score_event_rows,
-    score_pool,
     scored_pool,
-    scores_table,
-    unseen_pool,
     with_model_names,
 )
 
@@ -198,13 +172,12 @@ _LABEL_COLUMNS = (
     *PROVENANCE_LABEL_COLUMNS,
 )
 # Every registered feature set's columns in one read: the state snapshot is loaded once and every
-# set builds its examples from it. The scored events copy the report-state inputs, so they are read too.
+# set builds its examples from it.
 _STATE_READ_COLUMNS = tuple(
     dict.fromkeys(
         (
             *BASE_STATE_COLUMNS,
             *(column for feature_set in FEATURE_SETS.values() for column in feature_set.state_columns),
-            *FEATURE_INPUT_COLUMNS,
             *PROVENANCE_STATE_COLUMNS,
             "features_observed_at",
         )
@@ -315,8 +288,6 @@ def embeddings_extras(
     prefix: str,
     partition_key: str,
     extras_keys: Sequence[str],
-    *,
-    report_ids: pd.Index | None = None,
 ) -> Extras:
     """The dt=D vectors for `extras_keys`, each indexed by report_id and read from its own snapshot.
 
@@ -333,12 +304,6 @@ def embeddings_extras(
     other case, and keeps its key: no row is then buildable, the family's heads read as unfit, and
     the ordinary thin-input path applies. The two cannot be folded together, because the first must
     leave a partition alone and the second is a day the family genuinely has nothing to fit.
-
-    `report_ids` narrows each frame to the rows the caller will ask for. Every snapshot holds a
-    vector per live report, so a caller that only scores one day's newborns passes the pool's index
-    rather than holding a fleet-wide vector table per rendering at once. The narrowing happens in
-    Arrow, before the frame exists: `to_pandas` gives each row a view on the snapshot's whole
-    vector buffer, so a pandas filter would leave a thin frame holding the fleet-wide table alive.
     """
     extras: dict[str, pd.DataFrame] = {}
     for extras_key in extras_keys:
@@ -354,9 +319,6 @@ def embeddings_extras(
                 f"no {table_name} snapshot for dt={partition_key}; the {extras_key} side input is unavailable"
             )
             continue
-        if report_ids is not None:
-            wanted = pa.array(report_ids.to_numpy(), type=table.schema.field("report_id").type)
-            table = table.filter(pc.is_in(table.column("report_id"), value_set=wanted))
         vectors = table.to_pandas().set_index("report_id")
         # `reindex` refuses a duplicated index, and one report is one document per rendering.
         vectors = vectors[~vectors.index.duplicated()]
@@ -883,6 +845,7 @@ def _decide_champion(
     )
     return {
         f"{family.name}_would_promote": dagster.MetadataValue.bool(decision.promote),
+        f"{family.name}_gates_passed": dagster.MetadataValue.bool(decision.gates_passed),
         f"{family.name}_promoted": dagster.MetadataValue.bool(promoted),
         f"{family.name}_reason": dagster.MetadataValue.text(decision.reason),
         f"{family.name}_override": dagster.MetadataValue.text(outcome.override or "none"),
@@ -1153,204 +1116,17 @@ _HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
 )
 
 
-def load_family_models(
-    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str, model_name: str
-) -> list[UnseenModel]:
-    """One family's models worth an unseen read on dt=D: the day's candidate, plus that family's
-    champion when its pointer names a different version. A model whose feature contract has moved
-    on is logged and left out rather than failing the asset, because its boosters cannot take the
-    current matrix."""
-    candidate = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, partition_key, METADATA_FILE))
-    champion = _read_json_if_exists(client, bucket, champion_object_key(prefix, model_name))
-    records = [(CANDIDATE_ROLE, candidate)]
-    if champion is not None and champion.get("model_version") != (candidate or {}).get("model_version"):
-        records.append((CHAMPION_ROLE, champion))
-
-    models: list[UnseenModel] = []
-    for role, metadata in records:
-        if metadata is None:
-            context.log.warning(f"no {model_name} {role} metadata to score the unseen pool with")
-            continue
-        mismatch = model_mismatch(metadata)
-        # A set the mismatch check accepted always resolves; the None arm is there to narrow it.
-        feature_set = model_feature_set(metadata)
-        if mismatch is not None or feature_set is None:
-            context.log.warning(f"{model_name} {role} {metadata.get('model_version')} not scored: {mismatch}")
-            continue
-        boosters = {}
-        for head_name, filename in trained_head_files(metadata, HEADS_BY_NAME).items():
-            body = _read_bytes_if_exists(
-                client, bucket, model_object_key(prefix, model_name, metadata["model_version"], filename)
-            )
-            if body is not None:
-                boosters[head_name] = body
-        if not boosters:
-            context.log.warning(f"{model_name} {role} {metadata['model_version']} has no trained head to score")
-            continue
-        models.append(
-            UnseenModel(
-                model_name=model_name,
-                model_version=metadata["model_version"],
-                model_role=role,
-                feature_set=feature_set,
-                boosters=boosters,
-                readable_heads=readable_head_names(metadata),
-                classification_thresholds=classification_thresholds(metadata),
-            )
-        )
-    return models
-
-
-def load_unseen_models(
-    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
-) -> list[UnseenModel]:
-    """Every registered family's models, so one grading run puts every family on the same rows. A
-    family with nothing to score that day contributes nothing and does not stop the others: a
-    family can be registered before its trainer's first run, and a broken one costs its own series
-    rather than every family's."""
-    return [
-        model
-        for family in MODEL_FAMILIES
-        for model in load_family_models(context, client, bucket, prefix, partition_key, family.name)
-    ]
-
-
-def models_with_extras(
-    context: dagster.AssetExecutionContext, models: Sequence[UnseenModel], extras: Extras
-) -> list[UnseenModel]:
-    """The models whose feature set has the side inputs it reads.
-
-    A model scored without its side input would score every report off the booster's missing
-    branch. That is a line on the chart that says nothing about the model, so the family takes a
-    gap for the day instead.
-    """
-    kept: list[UnseenModel] = []
-    for model in models:
-        missing = model.feature_set.missing_extras(extras)
-        if missing:
-            context.log.warning(
-                f"{model.model_name} {model.model_role} {model.model_version} not scored: "
-                f"no {', '.join(missing)} for this partition"
-            )
-            continue
-        kept.append(model)
-    return kept
-
-
-def pool_feature_coverage(
-    pool: pd.DataFrame, models: Sequence[UnseenModel], extras: Extras, as_of: datetime.datetime
-) -> dict[str, dagster.MetadataValue]:
-    """The share of the pool each scored feature set can build a real vector for, by set name."""
-    feature_sets = {model.feature_set.name: model.feature_set for model in models}
-    return {
-        f"{name}_pool_coverage": dagster.MetadataValue.float(
-            float(feature_set.buildable(state_rows(pool, feature_set), extras, as_of=as_of).mean())
-            if len(pool)
-            else 0.0
-        )
-        for name, feature_set in feature_sets.items()
-    }
-
-
-@dagster.asset(
-    name=UNSEEN_SCORES_TABLE,
-    deps=["inbox_ranking_model_champion", STATE_TABLE, LABELS_TABLE, EMBEDDINGS_TABLE, TITLE_EMBEDDINGS_TABLE],
-    **COMMON_ASSET_KWARGS,
-)
-def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
-    if skip_unconfigured(context):
-        return
-    partition_key = context.partition_key
-    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
-    day = datetime.date.fromisoformat(partition_key)
-
-    snapshot = load_snapshots(client, bucket, prefix, [day], required=day)[day]
-    # Only the ids, from every feature set: the examples table is one row per (report, snapshot,
-    # head) over the lookback, and a report is leaked if any set trained on it.
-    example_ids: set[object] = set()
-    for feature_set in FEATURE_SETS.values():
-        # A set the examples asset skipped has no object, and so no example to leak.
-        ids = read_parquet_if_exists(
-            client, bucket, examples_object_key(prefix, feature_set.name, partition_key), columns=["report_id"]
-        )
-        if ids is not None:
-            example_ids.update(ids.column("report_id").unique().to_pylist())
-    pool = unseen_pool(snapshot.state, day)
-    leaked = leaked_report_ids(pool, example_ids)
-    if leaked:
-        raise dagster.Failure(
-            f"{len(leaked)} reports created on {partition_key} already appear in that day's training examples, "
-            f"so the unseen read would grade a model on its own data: {leaked[:10]}"
-        )
-    loaded = load_unseen_models(context, client, bucket, prefix, partition_key)
-    # Only the side inputs the day's models read, and only the pool's rows: a snapshot holds a
-    # vector per live report, while the scored population is one day's newborns.
-    extras = embeddings_extras(
-        context,
-        client,
-        bucket,
-        prefix,
-        partition_key,
-        tuple(dict.fromkeys(key for model in loaded for key in model.feature_set.extras_keys)),
-        report_ids=pool.index,
-    )
-    models = models_with_extras(context, loaded, extras)
-    scores = score_pool(pool, snapshot.labels, models, snapshot_date=day, extras=extras)
-    key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
-    if scores.empty:
-        existing_rows = object_row_count(client, bucket, key)
-        if not empty_scores_write_allowed(existing_rows):
-            raise dagster.Failure(
-                f"{UNSEEN_SCORES_TABLE} dt={partition_key} already holds {existing_rows} rows and this run scored "
-                f"none, so writing would destroy the scores the dt=D+horizon grade reads. Candidates are loaded "
-                f"from {MODELS_TABLE}/{DATASET_VERSION}/<model_name>/, so a partition trained before that layout "
-                f"has no model to score with. To replace the object deliberately, delete it by hand first."
-            )
-        context.log.warning(f"nothing scored for dt={partition_key}: {len(pool)} newborn reports, {len(models)} models")
-
-    # One object holds every family, so what it already holds decides whether this run may replace it.
-    existing = read_parquet_if_exists(client, bucket, key)
-    lost = families_lost_by_rewrite(existing.to_pandas(), scores) if existing is not None else []
-    if lost:
-        raise dagster.Failure(
-            f"{UNSEEN_SCORES_TABLE} dt={partition_key} already holds rows for {', '.join(lost)} and this run scored "
-            f"none of them, so writing would destroy the scores the dt=D+horizon grade reads. A family is skipped "
-            f"for the day when its models or its set's side input are missing for the partition. Repair the missing "
-            f"input and re-run, or delete the object by hand to replace it deliberately."
-        )
-    write_parquet(client, bucket, key, scores_table(scores), snapshot_date=partition_key)
-    context.add_output_metadata(
-        {
-            "unseen_pool": dagster.MetadataValue.int(len(pool)),
-            "models_scored": dagster.MetadataValue.int(len(models)),
-            **{
-                f"{model.model_name}_{model.model_role}_heads_scored": dagster.MetadataValue.int(len(model.boosters))
-                for model in models
-            },
-            # Every family scores the whole pool, so the grades stay paired even where a set's side
-            # input is thin. That makes coverage the number to watch: a family reading a side input
-            # that covers few of the day's newborns is graded mostly on its missing branch.
-            **pool_feature_coverage(pool, models, extras, snapshot_bounds(partition_key)[1]),
-            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
-        }
-    )
-    capture_training_events(
-        context,
-        partition_key,
-        unseen_score_events(run_id=context.run.run_id, rows=score_event_rows(scores, pool)),
-    )
-
-
 def grade_metadata(grades: Sequence[HeadGrade]) -> dict[str, dagster.MetadataValue]:
-    """One metadata entry per (head, model, metric). The family is in the key, so two families
-    graded on the same rows do not overwrite each other. Counts stay ints: `MetadataValue.float`
+    """One metadata entry per (head, model version, role, metric). The family and the version are in
+    the key, so two families graded on the same rows do not overwrite each other, and neither do two
+    versions that a manifest change put in one scoring day. Counts stay ints: `MetadataValue.float`
     rejects them."""
     metadata: dict[str, dagster.MetadataValue] = {}
     for grade in grades:
         for name, value in grade.metrics().items():
             if value is None:
                 continue
-            key = f"{grade.head}_{grade.model_name}_{grade.model_role}_{name}"
+            key = f"{grade.head}_{grade.model_name}_{grade.model_version}_{grade.model_role}_{name}"
             metadata[key] = (
                 dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
             )
@@ -1360,7 +1136,6 @@ def grade_metadata(grades: Sequence[HeadGrade]) -> dict[str, dagster.MetadataVal
 @dagster.asset(
     name="inbox_ranking_unseen_graded",
     deps=[
-        dagster.AssetDep(UNSEEN_SCORES_TABLE, partition_mapping=_HORIZON_MAPPING),
         dagster.AssetDep(SERVED_SCORES_TABLE, partition_mapping=_HORIZON_MAPPING),
         LABELS_TABLE,
     ],
@@ -1382,48 +1157,42 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
     for observed_days in range(max(HEADS_BY_HORIZON) + 1):
         heads = [head for head in HEADS if observed_days <= head.horizon_days]
         scoring_partition = (day - datetime.timedelta(days=observed_days)).isoformat()
-        # The served object is graded through the same path, apart from the unseen one, and its
-        # rows carry `model_role = 'served'`. A missing one is a logged skip, as a missing unseen
-        # object is: partitions before the served asset existed have none.
-        for scores_name, skip_prefix, kind in (
-            (UNSEEN_SCORES_TABLE, "", "unseen"),
-            (SERVED_SCORES_TABLE, "served/", "served"),
-        ):
-            table = read_parquet_if_exists(client, bucket, partition_object_key(prefix, scores_name, scoring_partition))
-            if table is None:
-                skipped[f"{skip_prefix}{scoring_partition}"] = f"no {kind} scores"
-                continue
-            scores = with_model_names(table.to_pandas())
-            if len(scores) < table.num_rows:
-                context.log.warning(
-                    f"dropped {table.num_rows - len(scores)} {kind} score rows of {scoring_partition} with no model_name "
-                    "or a retired one"
-                )
-            pool = scored_pool(scores)
-            graded_by_head: dict[str, pd.DataFrame] = {}
-            for head in heads:
-                head_key = f"{skip_prefix}{scoring_partition}/{head.name}"
-                missing = missing_label_columns(labels, head)
-                if missing:
-                    skipped[head_key] = f"dt={partition_key} labels lack {', '.join(missing)}"
-                    continue
-                head_scores = scores[scores["head"] == head.name]
-                if head_scores.empty:
-                    skipped[head_key] = "head was not scored"
-                    continue
-                graded = graded_rows(head_scores, labels, head, pool=pool)
-                evaluated = head_grades(
-                    graded, head, pool=pool, scoring_partition=scoring_partition, include_empty=True
-                )
-                evaluations.extend(evaluated)
-                if observed_days == head.horizon_days:
-                    graded_by_head[head.name] = graded
-                    grades.extend(grade for grade in evaluated if grade.rows)
-            report_rows.extend(
-                report_grade_rows(
-                    graded_by_head, pool=pool, horizon_days=observed_days, scoring_partition=scoring_partition
-                )
+        # Partitions before the served asset existed have no object, which is a logged skip.
+        table = read_parquet_if_exists(
+            client, bucket, partition_object_key(prefix, SERVED_SCORES_TABLE, scoring_partition)
+        )
+        if table is None:
+            skipped[scoring_partition] = "no served scores"
+            continue
+        scores = with_model_names(table.to_pandas())
+        if len(scores) < table.num_rows:
+            context.log.warning(
+                f"dropped {table.num_rows - len(scores)} score rows of {scoring_partition} with no model_name "
+                "or a retired one"
             )
+        pool = scored_pool(scores)
+        graded_by_head: dict[str, pd.DataFrame] = {}
+        for head in heads:
+            head_key = f"{scoring_partition}/{head.name}"
+            missing = missing_label_columns(labels, head)
+            if missing:
+                skipped[head_key] = f"dt={partition_key} labels lack {', '.join(missing)}"
+                continue
+            head_scores = scores[scores["head"] == head.name]
+            if head_scores.empty:
+                skipped[head_key] = "head was not scored"
+                continue
+            graded = graded_rows(head_scores, labels, head, pool=pool)
+            evaluated = head_grades(graded, head, pool=pool, scoring_partition=scoring_partition, include_empty=True)
+            evaluations.extend(evaluated)
+            if observed_days == head.horizon_days:
+                graded_by_head[head.name] = graded
+                grades.extend(grade for grade in evaluated if grade.rows)
+        report_rows.extend(
+            report_grade_rows(
+                graded_by_head, pool=pool, horizon_days=observed_days, scoring_partition=scoring_partition
+            )
+        )
 
     for grade in grades:
         context.log.info(f"unseen grade: {grade.as_dict()}")
@@ -1461,7 +1230,6 @@ inbox_ranking_training_job = dagster.define_asset_job(
         "inbox_ranking_model_candidate",
         "inbox_ranking_model_champion",
         SERVING_MANIFEST_ASSET,
-        UNSEEN_SCORES_TABLE,
         SERVED_SCORES_TABLE,
         "inbox_ranking_unseen_graded",
     ],
@@ -1469,15 +1237,14 @@ inbox_ranking_training_job = dagster.define_asset_job(
         **owner_tags,
         # The report-embeddings family fits 1536-column heads, and each head costs a fit per
         # permutation draw on top of the two it ships, so the wall clock is now the trainer's
-        # rather than the ETL's. Matched to the dataset job's budget.
+        # rather than the ETL's.
         "dagster/max_runtime": str(3 * 60 * 60),
         # The examples asset holds every snapshot of the lookback window in pandas at once (state
         # plus labels per day) before the per-head builders run, plus one rendering's vectors as
         # the side input the embedding set being built reads, so the peak grows with the lookback
         # and the inventory. It is one rendering at a time rather than one per family, so a further
-        # embedding family costs runtime and not peak. The limit sits above the dataset job's
-        # because that vector table is only one of the things held here; growth should surface as a
-        # slow run, not an OOMKilled pod.
+        # embedding family costs runtime and not peak. Growth should surface as a slow run, not an
+        # OOMKilled pod.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {
@@ -1490,9 +1257,9 @@ inbox_ranking_training_job = dagster.define_asset_job(
 )
 
 
-# Runs after the dataset job's 3h budget (02:30 UTC start) so dt=D-1's snapshots exist.
+# Runs after the dataset job's 2h budget (02:30 UTC start) so dt=D-1's snapshots exist.
 @dagster.schedule(
-    cron_schedule="13 6 * * *",
+    cron_schedule="0 5 * * *",
     job=inbox_ranking_training_job,
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING

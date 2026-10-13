@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 
+import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
 import { biSceneLogic } from './biSceneLogic'
@@ -103,19 +105,103 @@ describe('biSceneLogic', () => {
                     ]
                 },
                 '/api/projects/:team_id/insights/': save,
+                '/api/projects/:team_id/insights/viewed/': [201],
                 '/api/projects/:team_id/warehouse_saved_queries/': exportView,
             },
             patch: { '/api/projects/:team_id/insights/:id/': save },
             delete: { '/api/environments/:team_id/query/:id/': [204] },
         })
         initKeaTests()
-        router.actions.push(urls.businessIntelligence(), {}, { q: '' })
+        router.actions.push(urls.businessIntelligenceNew(), {}, { q: '' })
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         editor = biEditorLogic({ tabId: 'bi-test' })
-        editor.actions.setAutoUpdate(false)
     })
     afterEach(() => logic.unmount())
+
+    it.each([false, true])('protects unsaved worksheet edits when navigating away (saved: %s)', async (saved) => {
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
+        try {
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+            if (saved) {
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+                ).toFinishAllListeners()
+            }
+            logic.actions.setName('Edited worksheet')
+            editor.actions.setDataSource({ table: 'events' })
+            await expectLogic(logic).toFinishAllListeners()
+            const editorPath = router.values.location.pathname
+            expect(confirm).not.toHaveBeenCalled()
+
+            router.actions.push(urls.businessIntelligence())
+            expect(confirm).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toBe(editorPath)
+            expect(logic.values.name).toBe('Edited worksheet')
+
+            confirm.mockReturnValue(true)
+            router.actions.push(urls.businessIntelligence())
+            expect(router.values.location.pathname).toBe('/project/997/bi')
+            logic.unmount()
+            router.actions.push(
+                saved ? urls.businessIntelligenceWorksheet(stored.short_id) : urls.businessIntelligenceNew()
+            )
+            logic = biSceneLogic({ tabId: 'bi-test' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.name).toBe(saved ? stored.name : 'Untitled worksheet')
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+        } finally {
+            confirm.mockRestore()
+        }
+    })
+
+    it('keeps a selected table blank until fields are added, including with auto update enabled', async () => {
+        editor.actions.setDataSource({ table: 'events' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBeNull()
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery).toBeNull()
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBeNull()
+        await expectLogic(editor, () => editor.actions.addFieldToShelf(eventField, 'columns')).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+        const lastRun = logic.values.lastRunQuery
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(false)).toFinishAllListeners()
+        await expectLogic(editor, () => editor.actions.setLimit(100)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBe(lastRun)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.config.limit).toBe(100)
+    })
+
+    it('tracks the first successful chart once, without counting empty results or reruns', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.restoreWorksheet(worksheet())
+        const data = dataNodeLogic({
+            key: logic.values.dataNodeKey,
+            query: logic.values.worksheet.source,
+            autoLoad: false,
+        })
+        data.mount()
+        try {
+            data.actions.loadDataSuccess({ results: [], columns: ['count'], types: ['Int64'] })
+            expect(capture).not.toHaveBeenCalledWith(
+                BI_EDITOR_EVENTS.WORKSHEET_ACTION,
+                expect.objectContaining({ action: 'first_chart' })
+            )
+            data.actions.loadDataSuccess({ results: [[3]], columns: ['count'], types: ['Int64'] })
+            data.actions.loadDataSuccess({ results: [[4]], columns: ['count'], types: ['Int64'] })
+            expect(
+                capture.mock.calls.filter(
+                    ([event, properties]) =>
+                        event === BI_EDITOR_EVENTS.WORKSHEET_ACTION && properties?.action === 'first_chart'
+                )
+            ).toHaveLength(1)
+        } finally {
+            capture.mockRestore()
+            data.unmount()
+        }
+    })
 
     it.each([false, true])('releases its connection scope without disrupting another owner: %s', async (shared) => {
         const database = databaseTableListLogic()
@@ -139,12 +225,15 @@ describe('biSceneLogic', () => {
     })
 
     it('saves the wrapper and reopens the insight without a draft or SQL editor', async () => {
-        const node = worksheet()
+        const hierarchy = { id: 'event-time', name: 'Event timeline', levels: [eventField, timestampField] }
+        const node = worksheet({ ...config, hierarchies: [hierarchy] })
         node.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
+        node.chartSettings!.goalLines = [{ label: 'Average', value: 0, calculation: 'mean', scope: 'series' }]
         logic.actions.restoreWorksheet(node)
         logic.actions.setName('Revenue worksheet')
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
         expect(save).toHaveBeenCalledTimes(1)
+        expect(router.values.location.pathname).toBe('/project/997/bi/bi-test')
         expect(stored.query).toMatchObject({ kind: NodeKind.BIVisualizationNode, config })
         expect(stored.query.source).not.toHaveProperty('biConfig')
         logic.unmount()
@@ -154,8 +243,9 @@ describe('biSceneLogic', () => {
         logic = biSceneLogic({ tabId: 'reopened' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.worksheet.config).toEqual(config)
+        expect(logic.values.worksheet.config).toEqual({ ...config, hierarchies: [hierarchy] })
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
+        expect(logic.values.worksheet.chartSettings?.goalLines).toEqual(node.chartSettings!.goalLines)
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 
@@ -172,7 +262,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.hasUnsavedChanges).toBe(false)
         editor.actions.removeFieldFromShelf('rows', 0)
         expect(logic.values.worksheet.chartSettings?.seriesBreakdownColumn).toBeUndefined()
-        expect(logic.values.worksheet.chartSettings?.xAxis).toBeUndefined()
+        expect(logic.values.worksheet.chartSettings?.xAxis).toEqual({ column: 'timestamp' })
         logic.actions.discardChanges()
         expect(logic.values.worksheet.config).toEqual(config)
     })
@@ -183,6 +273,82 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.exportView()).toFinishAllListeners()
         expect(exportedPayload).toEqual({ name: 'revenue_view', query: JSON.parse(JSON.stringify(worksheet().source)) })
         expect(save).not.toHaveBeenCalled()
+    })
+
+    it('undoes shelves, filters, calculations and formatting without running a query, and branches after undo', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        const snapshots = [JSON.parse(JSON.stringify(logic.values.worksheet))]
+        const edits = [
+            () => editor.actions.addFieldToShelf(eventField, 'filters'),
+            () => editor.actions.setFilterValue(0, '$pageview'),
+            () => editor.actions.addFieldToShelf(eventField, 'values'),
+            () => editor.actions.setTableCalculation(0, { type: 'running_total' }),
+            () => editor.actions.updateMeasureSettings(0, { formatting: { prefix: '€' } }),
+            () => editor.actions.addResultFilter(),
+            () => editor.actions.updateResultFilter(editor.values.config.resultFilters![0].id, { value: '100' }),
+            () => editor.actions.setFilterGroup('row', { operator: 'OR', filters: ['event'], groups: [] }),
+            () => editor.actions.removeFieldFromShelf('columns', 0),
+            () => logic.actions.setVisualization({ ...logic.values.worksheet, chartSettings: { showLegend: false } }),
+        ]
+        for (const edit of edits) {
+            edit()
+            snapshots.push(JSON.parse(JSON.stringify(logic.values.worksheet)))
+        }
+        const lastRun = logic.values.lastRunQuery
+        for (let index = snapshots.length - 2; index >= 0; index--) {
+            logic.actions.undo()
+            expect(JSON.parse(JSON.stringify(logic.values.worksheet))).toEqual(snapshots[index])
+            expect(logic.values.lastRunQuery).toEqual(lastRun)
+        }
+        expect(logic.values.canUndo).toBe(false)
+        for (const snapshot of snapshots.slice(1)) {
+            logic.actions.redo()
+            expect(JSON.parse(JSON.stringify(logic.values.worksheet))).toEqual(snapshot)
+        }
+        expect(logic.values.canRedo).toBe(false)
+        logic.actions.undo()
+        editor.actions.setLimit(100)
+        expect(logic.values.canRedo).toBe(false)
+        logic.actions.discardChanges()
+        expect(logic.values.canUndo).toBe(false)
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    it('runs the restored worksheet when auto update is enabled', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        await expectLogic(editor, () => editor.actions.setLimit(100)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.config.limit).toBe(100)
+        await expectLogic(logic, () => logic.actions.undo()).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.config.limit).toBe(config.limit)
+    })
+
+    it('creates a separate worksheet copy and preserves the original, including after a failed copy', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        const original = JSON.parse(JSON.stringify(stored))
+        let fail = true
+        let copy: unknown
+        const createCopy = jest.fn(async ({ request }: { request: Request }) => {
+            const payload = await request.json()
+            copy = { ...payload, id: 456, short_id: 'copy' }
+            return fail ? [500, { detail: 'Could not save copy' }] : [201, copy]
+        })
+        useMocks({
+            post: { '/api/projects/:team_id/insights/': createCopy },
+            get: { '/api/projects/:team_id/insights/': () => [200, { results: [copy] }] },
+        })
+        editor.actions.setLimit(100)
+        await expectLogic(logic, () => logic.actions.saveInsight({ asCopy: true })).toFinishAllListeners()
+        expect(logic.values.insight?.id).toBe(original.id)
+        expect(logic.values.insightLoading).toBe(false)
+        expect(logic.values.worksheet.config.limit).toBe(100)
+        fail = false
+        await expectLogic(logic, () => logic.actions.saveInsight({ asCopy: true })).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+        expect(stored).toEqual(original)
+        expect(createCopy).toHaveBeenCalledTimes(2)
+        expect(router.values.location.pathname).toBe('/project/997/bi/copy')
+        expect(logic.values.insight?.name).toBe('Saved worksheet (copy)')
     })
 
     it('preserves an unfinished calculated measure when chart settings update', () => {
@@ -237,6 +403,14 @@ describe('biSceneLogic', () => {
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         expect(logic.values.config.limit).toBe(50000)
+    })
+
+    it('restores saved source-only count charts with an explicit measure without mutating the saved query', () => {
+        const saved = worksheet({ ...config, rows: [], columns: [], values: [] })
+        logic.actions.restoreWorksheet(saved)
+        expect(saved.config.values).toEqual([])
+        expect(editor.values.config.values).toMatchObject([{ label: 'Count of rows', customExpression: 'count(*)' }])
+        expect(editor.values.generatedQuery?.query).toContain('count(*)')
     })
 
     it('resets fields and results when switching connections', async () => {
@@ -330,19 +504,52 @@ describe('biSceneLogic', () => {
         }
     )
 
-    it('clears cached results when clearing the worksheet', async () => {
-        logic.actions.restoreWorksheet(worksheet())
-        const data = dataNodeLogic({
-            key: logic.values.dataNodeKey,
-            query: logic.values.worksheet.source,
-            autoLoad: false,
-        })
-        data.mount()
-        data.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
-        await expectLogic(editor, () => editor.actions.resetConfig()).toFinishAllListeners()
-        expect(data.values.response).toBeNull()
-        expect(data.values.queryCancelled).toBe(false)
-        expect(logic.values.lastRunQuery).toBeNull()
-        data.unmount()
-    })
+    it.each([undefined, 'example-connection'])(
+        'clears the view while keeping its source and local fields (%s)',
+        async (connectionId) => {
+            const source = { table: 'events', connectionId }
+            const localField = {
+                ...eventField,
+                source,
+                id: 'local-category',
+                name: 'Category',
+                expression: 'lower(event)',
+            }
+            const hierarchy = {
+                id: 'category-event',
+                name: 'Category events',
+                levels: [localField, { ...eventField, source }],
+            }
+            logic.actions.restoreWorksheet(
+                worksheet({ ...config, source, localFields: [localField], hierarchies: [hierarchy] })
+            )
+            logic.actions.recordWorksheet()
+            const data = dataNodeLogic({
+                key: logic.values.dataNodeKey,
+                query: logic.values.worksheet.source,
+                autoLoad: false,
+            })
+            data.mount()
+            data.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
+            await expectLogic(editor, () => editor.actions.resetConfig()).toFinishAllListeners()
+            expect(data.values.response).toBeNull()
+            expect(data.values.queryCancelled).toBe(false)
+            expect(logic.values.lastRunQuery).toBeNull()
+            expect(logic.values.config).toMatchObject({
+                source,
+                localFields: [localField],
+                hierarchies: [hierarchy],
+                rows: [],
+                columns: [],
+                values: [],
+                filters: [],
+            })
+            expect(logic.values.generatedQuery).toBeNull()
+            const cleared = JSON.parse(localStorage.getItem('bi-worksheet-997-bi-test')!)
+            expect(cleared.config.source).toEqual(JSON.parse(JSON.stringify(source)))
+            logic.actions.undo()
+            expect(logic.values.config.rows).toEqual(config.rows)
+            data.unmount()
+        }
+    )
 })

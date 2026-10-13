@@ -190,7 +190,7 @@ export const dashboardTemplateCopyLogic = kea<dashboardTemplateCopyLogicType>([
                     : {}
             )
             dashboardTemplatesLogic.findMounted({ scope: 'default', templatesTabList: true })?.actions.getAllTemplates()
-            router.actions.push(urls.dashboards(), { templates: '1' })
+            router.actions.push(urls.dashboardTemplates())
         },
     })),
     afterMount(({ actions, props, values }) => {

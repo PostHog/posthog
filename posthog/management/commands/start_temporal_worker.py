@@ -150,6 +150,10 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.alerts.backend.facade.temporal import (
+    PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
+    PLATFORM_EVALUATION_WORKFLOWS as INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
+)
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES as ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS as ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
@@ -246,6 +250,10 @@ from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ACTIVITIES,
+    WORKFLOWS as METRICS_WORKFLOWS,
+)
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
@@ -308,9 +316,17 @@ from products.warehouse_sources.backend.facade.temporal import (
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
 )
+from products.warehouse_suggestions.backend.facade.temporal import (
+    ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
+    WORKFLOWS as WAREHOUSE_SUGGESTIONS_WORKFLOWS,
+)
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
+from products.web_analytics.backend.temporal.page_history.registry import (
+    ACTIVITIES as HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    WORKFLOWS as HEATMAP_PAGE_HISTORY_WORKFLOWS,
 )
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
@@ -355,8 +371,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES,
+        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS + WAREHOUSE_SUGGESTIONS_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES + WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     ),
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,
@@ -385,7 +401,8 @@ _task_queue_specs = [
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
         + SECURITY_WORKFLOWS
-        + TODAY_WORKFLOWS,
+        + TODAY_WORKFLOWS
+        + METRICS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -412,7 +429,8 @@ _task_queue_specs = [
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
         + SECURITY_ACTIVITIES
-        + TODAY_ACTIVITIES,
+        + TODAY_ACTIVITIES
+        + METRICS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -566,6 +584,11 @@ _task_queue_specs = [
         EVENT_SCREENSHOTS_ACTIVITIES,
     ),
     (
+        settings.WEB_ANALYTICS_TASK_QUEUE,
+        HEATMAP_PAGE_HISTORY_WORKFLOWS,
+        HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    ),
+    (
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
@@ -599,8 +622,10 @@ _task_queue_specs = [
     ),
     (
         settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS,
-        ALERTS_PLATFORM_EVALUATION_ACTIVITIES + LOGS_SOURCE_EVALUATION_ACTIVITIES,
+        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS + INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
+        ALERTS_PLATFORM_EVALUATION_ACTIVITIES
+        + LOGS_SOURCE_EVALUATION_ACTIVITIES
+        + INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
     ),
     (
         settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,

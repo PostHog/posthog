@@ -47,6 +47,10 @@ class OAuthAuthorizeURLError(Exception):
     pass
 
 
+class OAuthMetadataValidationError(ValueError):
+    """Discovered OAuth metadata fails a safety check. The message is safe to show to the user."""
+
+
 class DCRRegistrationRejectedError(Exception):
     """The authorization server rejected the Dynamic Client Registration request.
 
@@ -248,6 +252,28 @@ def _registrable_domain(hostname: str) -> str | None:
     return f"{extracted.domain}.{extracted.suffix}".lower()
 
 
+# Providers whose own metadata puts OAuth endpoints on a second registrable domain.
+# Discovery fetches issuer metadata from the issuer origin, so an attacker cannot claim these issuers.
+_TRUSTED_ISSUER_ENDPOINT_DOMAINS: dict[str, frozenset[str]] = {
+    # Google: issuer on accounts.google.com, token_endpoint on oauth2.googleapis.com.
+    "google.com": frozenset({"googleapis.com"}),
+}
+
+
+_GOOGLE_ISSUER = "https://accounts.google.com"
+# Google returns a refresh token only for an offline grant, and only when the user sees the consent screen.
+_GOOGLE_AUTHORIZE_PARAMS = {"access_type": "offline", "prompt": "consent"}
+
+
+def provider_authorize_params(metadata: dict) -> dict[str, str]:
+    """Return extra authorize parameters for a verified provider, or an empty dict for any other issuer."""
+    issuer = (metadata.get("issuer") or "").rstrip("/")
+    endpoint = urlparse(metadata.get("authorization_endpoint") or "")
+    if issuer == _GOOGLE_ISSUER and endpoint.scheme == "https" and endpoint.hostname == "accounts.google.com":
+        return dict(_GOOGLE_AUTHORIZE_PARAMS)
+    return {}
+
+
 def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
     """Reject metadata where OAuth endpoints live on an unrelated registrable domain from the issuer.
 
@@ -263,16 +289,17 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
     """
     issuer = (metadata.get("issuer") or "").rstrip("/")
     if not issuer:
-        raise ValueError("OAuth metadata is missing issuer")
+        raise OAuthMetadataValidationError("OAuth metadata is missing issuer")
 
     parsed_issuer = urlparse(issuer)
     if not parsed_issuer.scheme or not parsed_issuer.netloc:
-        raise ValueError("OAuth metadata issuer is not an absolute URL")
+        raise OAuthMetadataValidationError("OAuth metadata issuer is not an absolute URL")
 
     issuer_domain = _registrable_domain(parsed_issuer.hostname or "")
     if issuer_domain is None:
-        raise ValueError("OAuth metadata issuer has no registrable domain")
+        raise OAuthMetadataValidationError("OAuth metadata issuer has no registrable domain")
 
+    allowed_domains = {issuer_domain} | _TRUSTED_ISSUER_ENDPOINT_DOMAINS.get(issuer_domain, frozenset())
     for field in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
         url = metadata.get(field)
         if not url:
@@ -285,9 +312,9 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
                 field=field,
                 endpoint=url,
             )
-            raise ValueError(f"OAuth endpoint '{field}' scheme does not match issuer")
+            raise OAuthMetadataValidationError(f"OAuth endpoint '{field}' scheme does not match issuer")
         endpoint_domain = _registrable_domain(parsed.hostname or "")
-        if endpoint_domain != issuer_domain:
+        if endpoint_domain not in allowed_domains:
             logger.warning(
                 "OAuth endpoint registrable domain does not match issuer",
                 issuer=issuer,
@@ -296,7 +323,7 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
                 issuer_domain=issuer_domain,
                 endpoint_domain=endpoint_domain,
             )
-            raise ValueError(f"OAuth endpoint '{field}' is on an unrelated domain from issuer")
+            raise OAuthMetadataValidationError(f"OAuth endpoint '{field}' is on an unrelated domain from issuer")
 
 
 def discover_oauth_metadata(server_url: str) -> dict:

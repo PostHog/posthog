@@ -110,6 +110,11 @@ export interface SeriesActionFilterProps {
     includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    /**
+     * Picking `$feature_flag_called` builds a `posthog.flag_evaluations` series when the team reads that table.
+     * Set it only where the insight accepts data warehouse series.
+     */
+    flagCallsFromFlagEvaluations?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
@@ -157,6 +162,7 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
         excludedProperties,
         includeHiddenEvents,
         allowNonCapturedEvents,
+        flagCallsFromFlagEvaluations,
         hogQLGlobals,
         definitionPopoverRenderer,
         operatorAllowlist,
@@ -232,6 +238,7 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
         excludedProperties,
         includeHiddenEvents,
         allowNonCapturedEvents,
+        flagCallsFromFlagEvaluations,
         hogQLGlobals,
         operatorAllowlist,
         inlineEventsDocLink: isTrendsInsight

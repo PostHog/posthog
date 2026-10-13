@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     SSHTunnelMixin,
@@ -19,16 +19,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
     MSSQL_METADATA_TIMEOUT_ERROR,
+    MSSQL_ROW_READ_TIMEOUT_ERROR,
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLImplementation,
     MSSQLMetadataTimeoutError,
+    MSSQLResumeState,
     retry_on_transient_connection_error,
     run_metadata_with_deadline,
 )
@@ -54,6 +58,8 @@ _CONNECTION_TIMED_OUT_ERROR = (
     "publicly, use the SSH tunnel option."
 )
 
+_GENERIC_CONNECTION_ERROR = "Could not connect to MS SQL. Please check all connection details are valid."
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -64,16 +70,40 @@ MSSQLErrors = {
     # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
     "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
     "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
+    # DB-Lib error 20002, the generic connect-time failure `get_non_retryable_errors` below also
+    # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
+    # check that hits it returns the same generic guidance as an unmatched error already gets,
+    # instead of falling through to `capture_exception` as a bug.
+    "Adaptive Server connection failed": _GENERIC_CONNECTION_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
 
 
 @SourceRegistry.register
-class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MSSQLSource(
+    SQLSource[MSSQLSourceConfig],
+    ResumableSource[MSSQLSourceConfig, MSSQLResumeState],
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+):
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MSSQLResumeState]:
+        return ResumableSourceManager[MSSQLResumeState](inputs, MSSQLResumeState)
+
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: MSSQLSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MSSQLResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset must not continue from a checkpoint. The read starts from the first row.
+        if inputs.reset_pipeline:
+            resumable_source_manager.clear_state()
+        return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -98,6 +128,10 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # catalog or on the table. The lock belongs to the customer's own workload and goes
             # away when that transaction ends.
             "Lock request time out period exceeded",
+            # The client-side limit on the wait for one batch of rows. The server was reachable
+            # and then sent nothing, so the next attempt, which continues from the last
+            # checkpoint where the read has one, can succeed.
+            MSSQL_ROW_READ_TIMEOUT_ERROR,
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -345,7 +379,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                     return False, value
 
             capture_exception(e)
-            return False, "Could not connect to MS SQL. Please check all connection details are valid."
+            return False, _GENERIC_CONNECTION_ERROR
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,
@@ -354,6 +388,6 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to MS SQL. Please check all connection details are valid."
+            return False, _GENERIC_CONNECTION_ERROR
 
         return True, None

@@ -309,15 +309,6 @@ const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
 }
 
-// Arms of the replay-vision-home-redesign-experiment flag. Narrows a raw flag value so control,
-// booleans, and unknown variants all degrade to the control experience instead of half-applying
-// the redesigned layout.
-export type HomeRedesignVariant = 'control' | 'test'
-
-export function homeRedesignVariant(flagValue: unknown): HomeRedesignVariant | null {
-    return flagValue === 'control' || flagValue === 'test' ? flagValue : null
-}
-
 export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
     (value) => ({
         value,

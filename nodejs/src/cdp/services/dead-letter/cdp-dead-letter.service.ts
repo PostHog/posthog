@@ -26,7 +26,7 @@ type PendingFailure = {
 const PARKED_CLASSES: ReadonlySet<HogErrorClass> = new Set<HogErrorClass>(['drift', 'bug', 'platform'])
 
 /** A step that runs no VM produces no class, and those failures are ours by construction. */
-const isOurs = (failure: { errorClass?: HogErrorClass }): boolean =>
+export const isOurFailure = (failure: { errorClass?: HogErrorClass }): boolean =>
     failure.errorClass === undefined || PARKED_CLASSES.has(failure.errorClass)
 
 export type CdpDlqOutput = CdpEventsDlqOutput
@@ -143,10 +143,14 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         if (!this.config.CDP_DLQ_ENABLED || !failures.length) {
             return
         }
-        const ours = failures.filter(isOurs)
+        const ours = failures.filter(isOurFailure)
         for (const failure of failures) {
             counterFailuresByClass
-                .labels({ step: failure.step, class: failure.errorClass ?? 'unknown', parked: String(isOurs(failure)) })
+                .labels({
+                    step: failure.step,
+                    class: failure.errorClass ?? 'unknown',
+                    parked: String(isOurFailure(failure)),
+                })
                 .inc()
         }
         if (!ours.length) {

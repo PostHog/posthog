@@ -39,6 +39,7 @@ from posthog.hogql.database.database import (
     _TEAM_FLAG_CACHE,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _cached_saved_expression,
     _cached_team_flag,
     _CatalogUnpickler,
     _compute_system_table_access_decision,
@@ -74,6 +75,7 @@ from posthog.hogql.database.sources_cache import (
     clear_sources_cache,
     get_or_fetch_sources,
 )
+from posthog.hogql.database.utils import _cached_join_field_chain, get_join_field_chain
 from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -171,6 +173,18 @@ class TestBuildDatabaseRootNode(TestCase):
 
         assert first_ids and second_ids
         assert first_ids.isdisjoint(second_ids)
+
+    def test_join_field_chain_cache_returns_independent_lists(self):
+        _cached_join_field_chain.cache_clear()
+
+        with patch("posthog.hogql.database.utils.parse_expr", wraps=parse_expr) as parser:
+            first = get_join_field_chain("person.id")
+            assert first is not None
+            first.append("changed")
+            second = get_join_field_chain("person.id")
+
+        assert second == ["person", "id"]
+        assert parser.call_count == 1
 
     def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
         # Slim path: a plain field round-trips its values.
@@ -378,6 +392,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with self.assertRaises(QueryError) as cm:
             Database.create_for(team_id=missing_team_id)
         self.assertIn(str(missing_team_id), str(cm.exception))
+
+    def test_create_hogql_database_records_duration_metrics(self):
+        with patch("posthog.hogql.database.database._OTEL_DATABASE.record_histogram_twin") as record:
+            Database.create_for(team=self.team)
+
+        assert {call.args[2]["phase"] for call in record.call_args_list} == {
+            "fetch_sources",
+            "build_from_sources",
+            "total",
+        }
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
@@ -1447,12 +1471,32 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ):
             allowed = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
             denied = Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
-
             # Inside the patch context: resolving the view on `denied` builds its deferred views,
             # which must go through the patched builder.
             assert allowed.get_table("stripe.stub.charges") is not denied.get_table("stripe.stub.charges")
             assert "secret_expr" in allowed.get_table("stripe.stub.charges").fields
             assert "secret_expr" not in denied.get_table("stripe.stub.charges").fields
+
+    def test_saved_expression_cache_does_not_share_ast_between_databases(self):
+        _cached_saved_expression.cache_clear()
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="events",
+                field_name="cached_expression",
+                expression="properties.cached_value",
+            )
+
+        first_database = Database.create_for(team=self.team)
+        first_field = cast(ExpressionField, first_database.get_table("events").fields["cached_expression"])
+        assert isinstance(first_field.expr, ast.Field)
+        first_field.expr.chain.append("changed")
+
+        second_database = Database.create_for(team=self.team)
+        second_field = cast(ExpressionField, second_database.get_table("events").fields["cached_expression"])
+
+        assert isinstance(second_field.expr, ast.Field)
+        assert second_field.expr.chain == ["properties", "cached_value"]
 
     def test_cached_sources_expire_and_pick_up_new_views(self):
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)

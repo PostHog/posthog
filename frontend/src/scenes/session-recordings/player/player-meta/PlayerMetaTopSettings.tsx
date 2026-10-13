@@ -155,7 +155,6 @@ export function TTLWarning({ variant = 'button' }: { variant?: 'button' | 'inlin
                                 <Link
                                     to="https://posthog.com/docs/session-replay/data-retention"
                                     disableClientSideRouting
-                                    disableDocsPanel
                                     target="_blank"
                                 >
                                     this page

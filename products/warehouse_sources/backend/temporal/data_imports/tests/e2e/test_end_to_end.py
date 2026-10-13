@@ -543,6 +543,7 @@ async def _execute_run(
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
+        page_state_hook: Optional[Any] = None,
     ):
         return iter(mock_data_response)
 
@@ -561,6 +562,7 @@ async def _execute_run(
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
+        page_state_hook: Optional[Any] = None,
     ):
         # Yield each record as its own page so tests that probe chunking
         # by record size still see one call per record.
@@ -4424,8 +4426,9 @@ async def test_mysql_keyset_resume_seeks_past_checkpoint(team, mysql_config, mys
         manager = source.get_resumable_source_manager(inputs)
 
         # Simulate the checkpoint a previous pod committed just before it drained. The commit is what
-        # puts it in Redis — `save_state` only stages — and `can_resume()` reads Redis.
+        # puts it in Redis — `save_state` only stages, `confirm` readies it — and `can_resume()` reads Redis.
         await sync_to_async(manager.save_state)(KeysetResumeState(last_key=3))
+        await sync_to_async(manager.confirm)()
         await sync_to_async(manager.commit)()
 
         # A small chunk keeps resumption paging rather than one-shotting the tail.

@@ -6,6 +6,7 @@ import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useBodyIsDark } from 'lib/hooks/useBodyIsDark'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -20,6 +21,7 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
+import { initPromQLLanguage } from 'lib/monaco/languages/promql'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { registerMountedCodeEditor } from 'lib/monaco/mountedCodeEditors'
 import 'lib/monaco/monacoEnvironment'
@@ -71,21 +73,6 @@ function remeasureFontsWhenReady(monaco: Monaco): void {
     void document.fonts.ready.then(() => monaco.editor.remeasureFonts())
 }
 
-/** Whether the page shows the dark theme, read from `body[theme]`, the attribute the surrounding CSS
- *  follows. `themeLogic.isDarkModeOn` can lag behind it, which left the editor light on a dark page. */
-function useBodyIsDark(): boolean {
-    const [isDark, setIsDark] = useState(() => document.body.getAttribute('theme') === 'dark')
-    useEffect(() => {
-        const sync = (): void => setIsDark(document.body.getAttribute('theme') === 'dark')
-        // The attribute may already have changed between the first render and here.
-        sync()
-        const observer = new MutationObserver(sync)
-        observer.observe(document.body, { attributeFilter: ['theme'] })
-        return () => observer.disconnect()
-    }, [])
-    return isDark
-}
-
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -116,6 +103,9 @@ function initEditor(
     }
     if (editorProps?.language === 'codeowners') {
         initCodeownersLanguage(monaco)
+    }
+    if (editorProps?.language === 'promql') {
+        initPromQLLanguage(monaco)
     }
 
     editor.onKeyDown((evt) => {

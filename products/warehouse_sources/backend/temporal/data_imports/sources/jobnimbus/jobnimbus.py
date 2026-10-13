@@ -65,8 +65,9 @@ def jobnimbus_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
+                    **({"params": dict(config.params)} if config.params else {}),
                     "data_selector": config.data_selector,
-                    # A 200 body without a `results` list means the response shape changed — fail
+                    # A 200 body without the selected list means the response shape changed — fail
                     # loud instead of silently syncing 0 rows (or wrapping a stray object as a row).
                     "data_selector_required": True,
                     **({} if config.paginated else {"paginator": "single_page"}),

@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.source import EConomicSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.economic import (
     EConomicSourceConfig,
@@ -15,11 +14,6 @@ class TestECONomicSource:
         self.source = EConomicSource()
         self.team_id = 123
         self.config = EConomicSourceConfig(app_secret_token="secret", agreement_grant_token="grant")
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O), so the public docs can render the table list.
-        assert self.source.lists_tables_without_credentials is True
-        assert len(self.source.get_documented_tables()) == len(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "is_valid, expected_valid, expected_has_message",

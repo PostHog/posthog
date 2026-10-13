@@ -9,6 +9,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { crossProjectDashboardTracking } from './crossProjectDashboardTracking'
 import { crossProjectDashboardsTilesCreate } from './generated/api'
 
 export interface InsightOption {
@@ -264,6 +265,12 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
                 secondaryButton: { children: 'Keep editing' },
             })
         },
+        openModal: () => {
+            crossProjectDashboardTracking.addInsightOpened(
+                props.dashboardId,
+                crossProjectDashboardLogic.findMounted({ id: props.dashboardId })?.values.tiles ?? []
+            )
+        },
         setProjectId: () => {
             actions.loadInsights()
         },
@@ -277,17 +284,27 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
                 actions.closeModal()
                 return
             }
+            const projectId = values.projectId
+            const usedSearch = !!values.insightSearch.trim()
             try {
                 await crossProjectDashboardsTilesCreate(organizationId, props.dashboardId, {
-                    project_id: values.projectId,
+                    project_id: projectId,
                     insight_id: values.selectedInsight.id,
                 } as any)
+                const tilesBefore =
+                    crossProjectDashboardLogic.findMounted({ id: props.dashboardId })?.values.tiles ?? []
+                crossProjectDashboardTracking.insightAdded(
+                    props.dashboardId,
+                    [...tilesBefore, { project_id: projectId }],
+                    usedSearch
+                )
                 actions.closeModal()
                 // findMounted, not a direct reference: referencing another logic's actions
                 // mounts it and fires its afterMount.
                 crossProjectDashboardLogic.findMounted({ id: props.dashboardId })?.actions.loadDashboard()
             } catch (error: any) {
                 lemonToast.error(error?.detail || 'Could not add that insight. Try again.')
+                crossProjectDashboardTracking.insightAddFailed(props.dashboardId, error?.status)
                 actions.addTileFailure()
             }
         },

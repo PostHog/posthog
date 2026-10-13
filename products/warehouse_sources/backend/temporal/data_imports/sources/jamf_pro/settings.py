@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -64,6 +64,10 @@ class JamfProEndpointConfig:
     # endpoint, and the parent id is written to `parent_id_field` on every child row.
     parent: Optional[str] = None
     parent_id_field: Optional[str] = None
+    # (field, value): fan out only over parent rows whose `field` equals `value`.
+    parent_filter: Optional[tuple[str, Any]] = None
+    # Keep only these keys of each child row (before the parent id is added).
+    row_fields: list[str] = field(default_factory=list)
 
 
 JAMF_PRO_ENDPOINTS: dict[str, JamfProEndpointConfig] = {
@@ -172,6 +176,48 @@ JAMF_PRO_ENDPOINTS: dict[str, JamfProEndpointConfig] = {
         primary_keys=["softwareTitleConfigurationId"],
         parent="patch_software_title_configurations",
         parent_id_field="softwareTitleConfigurationId",
+    ),
+    "patch_policies": JamfProEndpointConfig(
+        name="patch_policies",
+        path="/api/v2/patch-policies",
+    ),
+    "patch_policy_logs": JamfProEndpointConfig(
+        name="patch_policy_logs",
+        path="/api/v2/patch-policies/{id}/logs",
+        primary_keys=["patchPolicyId", "deviceId"],
+        sort="deviceId:asc",
+        parent="patch_policies",
+        parent_id_field="patchPolicyId",
+    ),
+    "mobile_device_groups": JamfProEndpointConfig(
+        name="mobile_device_groups",
+        path="/api/v2/mobile-device-groups",
+        paginated=False,
+        sort=None,
+    ),
+    # The membership endpoints return full mobile device inventory records (including the AirPlay
+    # password), so rows are cut down to the device id: a junction to the mobile_devices table.
+    "mobile_device_smart_group_memberships": JamfProEndpointConfig(
+        name="mobile_device_smart_group_memberships",
+        path="/api/v2/mobile-device-groups/smart-group-membership/{id}",
+        primary_keys=["mobileDeviceGroupId", "mobileDeviceId"],
+        sort="mobileDeviceId:asc",
+        capture_samples=False,
+        parent="mobile_device_groups",
+        parent_id_field="mobileDeviceGroupId",
+        parent_filter=("isSmartGroup", True),
+        row_fields=["mobileDeviceId"],
+    ),
+    "mobile_device_static_group_memberships": JamfProEndpointConfig(
+        name="mobile_device_static_group_memberships",
+        path="/api/v2/mobile-device-groups/static-group-membership/{id}",
+        primary_keys=["mobileDeviceGroupId", "mobileDeviceId"],
+        sort="mobileDeviceId:asc",
+        capture_samples=False,
+        parent="mobile_device_groups",
+        parent_id_field="mobileDeviceGroupId",
+        parent_filter=("isSmartGroup", False),
+        row_fields=["mobileDeviceId"],
     ),
 }
 
