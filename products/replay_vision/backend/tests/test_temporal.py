@@ -962,34 +962,27 @@ class TestCreateObservationActivity:
         assert sorted(created.values()) == [False, True]
         assert ReplayObservation.objects.filter(team=scanner_a.team, status=ObservationStatus.PENDING).count() == 1
 
-    def test_retry_near_the_cap_reclaims_its_own_pending_row(self) -> None:
+    @parameterized.expand([("scanner_cap", True), ("org_limit", False)])
+    def test_retry_near_the_cap_reclaims_its_own_pending_row(self, _name: str, scanner_capped: bool) -> None:
         # A Temporal retry whose first attempt committed the insert but lost the result must get its
         # row back: that row's own reservation fills the budget, so a plain refusal would strand it
         # PENDING forever while the workflow gives up.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
-        scanner = _make_scanner(credit_limit=credits)
-        first_attempt = create_observation_activity(
-            CreateObservationInputs(
-                scanner_id=scanner.id,
-                team_id=scanner.team_id,
-                session_id="sess-retry",
-                triggered_by=ObservationTrigger.SCHEDULE,
-                triggered_by_user_id=None,
-                workflow_id="wf-retry",
-            )
+        scanner = _make_scanner(credit_limit=credits if scanner_capped else None)
+        inputs = CreateObservationInputs(
+            scanner_id=scanner.id,
+            team_id=scanner.team_id,
+            session_id="sess-retry",
+            triggered_by=ObservationTrigger.SCHEDULE,
+            triggered_by_user_id=None,
+            workflow_id="wf-retry",
         )
-        assert first_attempt.was_created is True
-
-        second_attempt = create_observation_activity(
-            CreateObservationInputs(
-                scanner_id=scanner.id,
-                team_id=scanner.team_id,
-                session_id="sess-retry",
-                triggered_by=ObservationTrigger.SCHEDULE,
-                triggered_by_user_id=None,
-                workflow_id="wf-retry",
-            )
-        )
+        with patch(
+            "products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000 if scanner_capped else credits
+        ):
+            first_attempt = create_observation_activity(inputs)
+            assert first_attempt.was_created is True
+            second_attempt = create_observation_activity(inputs)
 
         assert second_attempt.observation_id == first_attempt.observation_id
         assert second_attempt.was_created is True

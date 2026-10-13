@@ -364,7 +364,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         with bounded_queries(CREATE_OBSERVATION_TIMEOUT):
             quota = quota_state_for_cap(organization_id, cap)
         if quota.would_exceed(observation_credits_for_model(priced_model)):
-            return _skip_for_quota(scanner, inputs, quota)
+            # A retry's own lost-result insert counts as spend here, so reclaim it rather than strand it.
+            return _reclaim_own_pending_insert(inputs) or _skip_for_quota(scanner, inputs, quota)
     # Learned rules are not scanner config, so a backfill runs with the current ones rather than frozen ones.
     snapshot_dict["learned_ruleset_ids"] = current_ruleset_ids(scanner.team_id, scanner.id)
 
@@ -475,18 +476,18 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             )
         # Route through the validator so a malformed legacy snapshot surfaces as a tagged non-retryable error.
         existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
-        # A backfill quotes sessions whose earlier scan failed, so retake that row rather than report progress
-        # for a scan that never re-runs. This catches a row that turned FAILED after admission checked.
-        retaken = bool(
-            backfill is not None
-            and existing.status == ObservationStatus.FAILED
-            and ReplayObservation.objects.filter(pk=existing.pk, status=ObservationStatus.FAILED).update(**row_fields)
-        )
+        if backfill is not None and existing.status == ObservationStatus.FAILED:
+            # The row turned FAILED after admission looked at it. A retake here would skip admission, so retry
+            # the activity, which retakes it under admission.
+            raise ApplicationError(
+                f"Observation for ({inputs.scanner_id}, {inputs.session_id}) failed mid-create",
+                non_retryable=False,
+            )
         # A still-PENDING row stamped with our own workflow id is our earlier lost-result insert — reclaim it.
         reclaimed = existing.workflow_id == inputs.workflow_id and existing.status == ObservationStatus.PENDING
         return CreateObservationOutput(
             observation_id=existing.id,
-            was_created=retaken or reclaimed,
+            was_created=reclaimed,
             scanner_type=existing_snapshot.scanner_type,
         )
 
