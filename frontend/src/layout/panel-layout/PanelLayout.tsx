@@ -13,7 +13,7 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { NavBar } from './navbar/NavBar'
 import { PanelLayoutPanels } from './navbar/PanelLayoutPanels'
 import { panelLayoutLogic } from './panelLayoutLogic'
-import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
+import { PROJECT_TREE_KEY } from './ProjectTree/projectTreeLogic'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({

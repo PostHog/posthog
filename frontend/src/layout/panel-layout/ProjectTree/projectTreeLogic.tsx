@@ -24,7 +24,6 @@ import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonT
 import { getEntryAccessDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
@@ -546,6 +545,8 @@ const shouldLoadUnfiledItems = (
     props.isActiveInPanel !== false &&
     !values.unfiledItems &&
     !values.unfiledItemsLoading
+
+export const PROJECT_TREE_KEY = 'project-tree'
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
