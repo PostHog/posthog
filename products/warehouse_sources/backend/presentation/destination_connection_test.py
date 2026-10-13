@@ -66,8 +66,6 @@ def _bigquery_config(config: Mapping[str, Any], test_table: str) -> dict[str, ob
         "project_id": config.get("project") or config.get("project_id") or None,
         "dataset_id": config.get("dataset") or config.get("dataset_id") or None,
         "table_id": test_table,
-        # The writer creates a missing dataset, so the test must accept one it is allowed to create.
-        "create_dataset_if_missing": True,
     }
 
 
@@ -111,7 +109,8 @@ _CONFIG_ADAPTERS: dict[str, Callable[[Mapping[str, Any], str], dict[str, object]
 }
 
 _TEST_TYPES: dict[str, str] = {
-    str(ExternalDataDestination.Type.BIGQUERY): "BigQuery",
+    # The writer creates a missing dataset, so BigQuery uses the test that accepts one it can create.
+    str(ExternalDataDestination.Type.BIGQUERY): "BigQueryCreateDataset",
     str(ExternalDataDestination.Type.AZURE_BLOB): "AzureBlob",
     str(ExternalDataDestination.Type.SNOWFLAKE): "Snowflake",
     str(ExternalDataDestination.Type.DATABRICKS): "Databricks",
@@ -120,7 +119,7 @@ _TEST_TYPES: dict[str, str] = {
 # The first steps of each test check the credentials on the integration. The steps after them
 # check the target named in the destination's config.
 _CREDENTIAL_STEP_COUNT: dict[str, int] = {
-    "BigQuery": 3,
+    "BigQueryCreateDataset": 3,
     "AwsS3": 1,
     "S3Compatible": 0,
     "AzureBlob": 0,

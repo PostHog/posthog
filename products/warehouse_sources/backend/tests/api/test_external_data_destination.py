@@ -201,12 +201,11 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                 ExternalDataDestination.Type.BIGQUERY,
                 Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
                 {"dataset": "analytics", "project": "acme-project"},
-                "BigQuery",
+                "BigQueryCreateDataset",
                 {
                     "project_id": "acme-project",
                     "dataset_id": "analytics",
                     "table_id": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
-                    "create_dataset_if_missing": True,
                 },
             ),
             (
@@ -214,12 +213,11 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
                 ExternalDataDestination.Type.BIGQUERY,
                 Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
                 {"dataset_id": "analytics"},
-                "BigQuery",
+                "BigQueryCreateDataset",
                 {
                     "project_id": None,
                     "dataset_id": "analytics",
                     "table_id": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
-                    "create_dataset_if_missing": True,
                 },
             ),
             (
