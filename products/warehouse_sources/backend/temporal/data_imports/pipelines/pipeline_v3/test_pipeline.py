@@ -457,6 +457,7 @@ class TestResetLoadWritesTheQueuedScheme:
         attempt: int = 1,
         can_resume: bool = False,
         webhook_only: bool = False,
+        source_mode: str | None = "md5",
     ) -> dict[str, Any]:
         resource = MagicMock(
             name="users",
@@ -465,7 +466,7 @@ class TestResetLoadWritesTheQueuedScheme:
             partition_size=None,
             partition_keys=["id"],
             partition_format=None,
-            partition_mode="md5",
+            partition_mode=source_mode,
             cdc_write_mode=None,
             lanes=None,
             webhook_only=webhook_only,
@@ -554,6 +555,19 @@ class TestResetLoadWritesTheQueuedScheme:
         assert kwargs["partition_count"] == expected_count
         assert kwargs["partition_mode"] == "md5"
         assert kwargs["partition_keys"] == ["id"]
+
+    def test_a_new_append_table_is_partitioned_by_its_date_cursor(self) -> None:
+        schema = ExternalDataSchema(
+            name="events",
+            team_id=1,
+            sync_type="append",
+            sync_type_config={"incremental_field": "ts", "incremental_field_type": "timestamp"},
+        )
+
+        kwargs = self._producer_kwargs(schema, reset_pipeline=False, source_mode=None)
+
+        assert kwargs["partition_mode"] == "datetime"
+        assert kwargs["partition_keys"] == ["ts"]
 
     @pytest.mark.asyncio
     async def test_the_reset_load_writes_the_queued_scheme_and_later_attempts_agree(self, tmp_path) -> None:

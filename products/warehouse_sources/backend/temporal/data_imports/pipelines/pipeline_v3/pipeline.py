@@ -76,6 +76,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_cursor_partition_keys,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sinks import (
     PipelineSinks,
     build_pipeline_sinks,
@@ -312,6 +315,10 @@ class PipelineV3(Generic[ResumableData]):
             partition_mode = (
                 self._schema.partition_mode_override or self._schema.partition_mode or self._resource.partition_mode
             )
+            if partition_mode is None:
+                cursor_keys = append_cursor_partition_keys(self._schema)
+                if cursor_keys:
+                    partition_keys, partition_mode = cursor_keys, "datetime"
 
         # Resolved in `_get_models`, not here: the pipeline is built inside an async activity,
         # so the query that tells the warehouse from an external destination cannot run here.
