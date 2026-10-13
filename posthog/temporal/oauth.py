@@ -257,6 +257,15 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
+#   canvas:write           Every canvas in a public space of the scout's project, and every canvas
+#                          the acting user created in a space they can see (see
+#                          `authorized_canvases`): publish a new version, patch a grid layout, write
+#                          runtime state, and run the canvas's declared actions where the token also
+#                          holds the action's own scope. Every publish is a new version that records
+#                          the run's task, so a bad one is reverted from version history. Delete is a
+#                          recoverable soft-delete and only reaches canvases the acting user created.
+#                          A scout cannot create a canvas: a sandbox may only file one in its task's
+#                          space, and a scout task has none. It maintains one a person created.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -283,6 +292,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "canvas:write",
     }
 )
 

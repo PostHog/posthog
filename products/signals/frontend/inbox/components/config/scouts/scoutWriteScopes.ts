@@ -13,6 +13,7 @@ export interface ScoutWriteScopeRow {
         | 'Data'
         | 'Replay vision'
         | 'Workflows'
+        | 'Canvases'
     label: string
     description: string
     /** Flag the product is still released behind. Its MCP tools share it, so a grant without it is inert. */
@@ -98,6 +99,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         label: 'Workflow suggestions',
         description:
             'Suggest changes to workflows whose owner turned suggestions on. A person approves or rejects each one; the scout cannot publish',
+    },
+    {
+        scope: 'canvas:write',
+        group: 'Canvases',
+        label: 'Canvases',
+        description:
+            'Publish new versions of any canvas in a public space and of canvases you created, and change their layout and state. A scout cannot create a canvas, so create the one it should keep up to date',
     },
 ]
 

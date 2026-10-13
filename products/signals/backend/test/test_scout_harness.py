@@ -986,6 +986,9 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.
+        assert "never create one" not in granted
+        assert "never create one" in _prompt(write_scopes=["canvas:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
