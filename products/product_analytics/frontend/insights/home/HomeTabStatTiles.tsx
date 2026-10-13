@@ -22,6 +22,7 @@ export function HomeTabStatTiles({ dateRange, compare, selectedKey, onSelect }: 
                     className="w-52 min-w-[10rem] shrink-0 snap-start @min-[60rem]/home-overview:flex-1"
                 >
                     <HomeTabStatTile
+                        key={stat.trendKey ?? stat.key}
                         stat={stat}
                         compare={compare}
                         selected={selectedKey === stat.key}
