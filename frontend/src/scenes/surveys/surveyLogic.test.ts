@@ -250,6 +250,70 @@ describe('translation validation', () => {
         })
     })
 
+    it.each(['introScreenHeader', 'introScreenDescription', 'introScreenButtonText'] as const)(
+        'validates the %s translation like the confirmation message',
+        async (field) => {
+            const survey = {
+                ...createPersistedSurvey(),
+                appearance: { displayIntroScreen: true, [field]: 'Welcome' },
+                translations: { fr: { [field]: '[Translation needed]' } },
+            } as Survey
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(survey)
+            }).toMatchValues({
+                translationValidationErrors: [
+                    {
+                        language: 'fr',
+                        questionIndex: -1,
+                        field,
+                        error: 'Contains placeholder "[Translation needed]"',
+                    },
+                ],
+            })
+        }
+    )
+
+    it.each([
+        ['an empty button text', 'introScreenButtonText', '', []],
+        ['an unset button text', 'introScreenButtonText', undefined, []],
+        [
+            'an empty header',
+            'introScreenHeader',
+            '',
+            [
+                {
+                    language: 'default',
+                    questionIndex: -1,
+                    field: 'introScreenHeader',
+                    error: 'Cannot be empty (has translation)',
+                },
+            ],
+        ],
+    ] as const)('checks a translated intro field against %s', async (_name, field, base, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: true, [field]: base },
+            translations: { fr: { [field]: 'Commencer' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it('skips intro translation checks while the intro is off', async () => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { displayIntroScreen: false, introScreenHeader: 'Welcome' },
+            translations: { fr: { introScreenHeader: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: [] })
+    })
+
     it('does not validate survey root description translations', async () => {
         const survey = {
             ...createPersistedSurvey(),

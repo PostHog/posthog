@@ -114,6 +114,8 @@ import type {
     UserType,
 } from '../../types'
 import {
+    INTRO_SCREEN_DEFAULT_BUTTON_TEXT,
+    INTRO_SCREEN_TEXT_FIELDS,
     LOADING_SURVEY_RESULTS_TOAST_ID,
     NEW_SURVEY,
     NewSurvey,
@@ -3426,6 +3428,15 @@ export const surveyLogic = kea<surveyLogicType>([
                         key: 'thankYouMessageCloseButtonText',
                         defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
                     },
+                    ...(survey.appearance?.displayIntroScreen
+                        ? INTRO_SCREEN_TEXT_FIELDS.map((key) => ({
+                              key,
+                              defaultValue:
+                                  key === 'introScreenButtonText'
+                                      ? survey.appearance?.[key] || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
+                                      : survey.appearance?.[key],
+                          }))
+                        : []),
                 ]
 
                 // Get all languages
