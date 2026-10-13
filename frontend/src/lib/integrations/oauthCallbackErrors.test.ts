@@ -30,7 +30,28 @@ describe('describeOAuthCallbackError', () => {
         expect(describeOAuthCallbackError('access_denied', kind)).toBe(expected)
     })
 
+    it('points Bing Ads users at their Microsoft account when Microsoft rejects the sign-in', () => {
+        expect(describeOAuthCallbackError('invalid_client', 'bing-ads')).toContain('Microsoft Advertising account')
+    })
+
     it('falls back to the raw code for unknown errors so support can identify them', () => {
-        expect(describeOAuthCallbackError('some_unmapped_code')).toBe('Failed due to "some_unmapped_code"')
+        expect(describeOAuthCallbackError('some_unmapped_code')).toBe('Failed due to "some_unmapped_code".')
+    })
+
+    it.each([
+        ['no description', undefined, 'Failed due to "invalid_client".'],
+        ['an empty description', '  ', 'Failed due to "invalid_client".'],
+        [
+            'a multi-line description',
+            'AADSTS700000: Example sign-in failure.\r\nTrace ID: 00000000-0000',
+            'Failed due to "invalid_client". Details from the provider: AADSTS700000: Example sign-in failure.',
+        ],
+        [
+            'a long description',
+            'x'.repeat(400),
+            `Failed due to "invalid_client". Details from the provider: ${'x'.repeat(300)}…`,
+        ],
+    ])('appends the first line of the provider description given %s', (_name, description, expected) => {
+        expect(describeOAuthCallbackError('invalid_client', undefined, description)).toBe(expected)
     })
 })
