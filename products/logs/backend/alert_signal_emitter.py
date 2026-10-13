@@ -10,6 +10,7 @@ import structlog
 from posthog.models import Team
 
 from products.logs.backend.alert_state_machine import NotificationAction
+from products.logs.backend.models import LogsAlertConfiguration
 from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
@@ -49,9 +50,7 @@ class NotifiedAlert:
     filters: dict
 
 
-_NOTIFICATION_FOR: dict[AlertSignalAction, NotificationAction] = {
-    action: notification for notification, (action, _) in _ACTION_WEIGHT.items()
-}
+_WEIGHT_BY_ACTION: dict[AlertSignalAction, float] = dict(_ACTION_WEIGHT.values())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -139,10 +138,6 @@ def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal
 
     An alert whose logs row is gone gets no signal, the way the logs stack sends none for it.
     """
-    from products.logs.backend.models import (
-        LogsAlertConfiguration,  # noqa: PLC0415 - keeps models off the workflow import path
-    )
-
     alerts = {
         str(alert.id): alert
         for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=[s.alert_id for s in signals])
@@ -158,7 +153,7 @@ def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal
                 team_id=team_id,
                 alert_name=alert.name,
                 action=signal.action,
-                weight=_ACTION_WEIGHT[_NOTIFICATION_FOR[signal.action]][1],
+                weight=_WEIGHT_BY_ACTION[signal.action],
                 threshold_count=alert.threshold_count,
                 threshold_operator=alert.threshold_operator,
                 window_minutes=alert.window_minutes,

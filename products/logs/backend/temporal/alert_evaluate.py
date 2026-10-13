@@ -14,6 +14,7 @@ from temporalio.exceptions import ActivityError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from posthog.sync import database_sync_to_async_pool
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts_platform.backend.facade.contracts import (
@@ -24,7 +25,11 @@ with workflow.unsafe.imports_passed_through():
         SourceOutcomeInputs,
     )
     from products.alerts_platform.backend.facade.temporal import start_deliveries
-    from products.logs.backend.alert_signal_emitter import AlertSignalAction, PlatformAlertSignal
+    from products.logs.backend.alert_signal_emitter import (
+        AlertSignalAction,
+        PlatformAlertSignal,
+        notified_alerts_for_platform,
+    )
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
@@ -43,8 +48,8 @@ EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 # the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
-SIGNALS_START_TO_CLOSE = dt.timedelta(seconds=6)
-SIGNALS_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=8)
+SIGNALS_START_TO_CLOSE = dt.timedelta(seconds=5)
+SIGNALS_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=6)
 # What the source needs from its binding's `evaluation_timeout`, which has to hold the activities
 # and still leave room to start the delivery children.
 EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE + SIGNALS_SCHEDULE_TO_CLOSE
@@ -65,26 +70,27 @@ class PlatformSignalInputs:
 
 
 def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSignal]:
-    """The firings and auto-disables the platform announced for alerts it owns.
+    """The firings and auto-disables the platform sends a message for, on alerts it owns.
 
-    An alert the logs stack still owns gets its signal from the logs stack, so it is left out here.
-    An announced firing or auto-disable always has a delivery, which names the owner and the logs
-    alert id, so the platform's outcome contract needs neither.
+    The logs stack signals the same moments, keyed on a notification going out, which here is a
+    delivery that sends messages. An alert the logs stack still owns gets its signal from the logs
+    stack, so it is left out. The delivery names the owner and the logs alert id, so the platform's
+    outcome contract needs neither.
     """
-    owned = {
+    announced = {
         delivery.configuration_id: delivery.destination_alert_id
         for delivery in evaluation.deliveries
-        if delivery.owned_by_platform
+        if delivery.owned_by_platform and delivery.sends_messages
     }
     return [
         PlatformAlertSignal(
-            alert_id=owned[str(outcome.configuration_id)],
+            alert_id=announced[str(outcome.configuration_id)],
             action=_SIGNAL_ACTIONS[outcome.kind],
             result_count=int(outcome.value) if outcome.value is not None else None,
             consecutive_failures=outcome.consecutive_failures,
         )
         for outcome in evaluation.outcomes
-        if outcome.notified and outcome.kind in _SIGNAL_ACTIONS and str(outcome.configuration_id) in owned
+        if outcome.kind in _SIGNAL_ACTIONS and str(outcome.configuration_id) in announced
     ]
 
 
@@ -104,12 +110,10 @@ def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatch
 
 
 @activity.defn
-@close_db_connections
 async def emit_platform_alert_signals_activity(inputs: PlatformSignalInputs) -> int:
     """Emits the Self-driving signals for alerts the platform owns. Never raises."""
-    from posthog.sync import database_sync_to_async_pool  # noqa: PLC0415
-
-    from products.logs.backend.alert_signal_emitter import notified_alerts_for_platform  # noqa: PLC0415
+    # In the body for the same reason as the import in the activity above: the module loads the
+    # Django models, which the workflow's sandbox refuses.
     from products.logs.backend.temporal.activities import emit_notified_alert_signals  # noqa: PLC0415
 
     notified = await database_sync_to_async_pool(notified_alerts_for_platform)(inputs.team_id, inputs.signals)

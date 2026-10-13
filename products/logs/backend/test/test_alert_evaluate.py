@@ -411,7 +411,7 @@ def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOut
     )
 
 
-def _delivery_for(*, owned_by_platform: bool) -> AlertDeliveryRequest:
+def _delivery_for(*, owned_by_platform: bool, sends_messages: bool = True) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=1,
@@ -420,24 +420,34 @@ def _delivery_for(*, owned_by_platform: bool) -> AlertDeliveryRequest:
         destination_alert_id="legacy-1",
         event_ids_by_kind={},
         owned_by_platform=owned_by_platform,
+        sends_messages=sends_messages,
     )
 
 
 class TestPlatformAlertSignals(SimpleTestCase):
     @parameterized.expand(
         [
-            ("a_platform_owned_firing", AlertEventKind.FIRING, True, True, [("firing", 500, 0)]),
-            ("a_platform_owned_auto_disable", AlertEventKind.BROKEN, True, True, [("broken", None, 5)]),
-            ("a_firing_the_logs_stack_still_owns", AlertEventKind.FIRING, True, False, []),
-            ("a_firing_a_cooldown_held", AlertEventKind.FIRING, False, True, []),
-            ("a_resolve", AlertEventKind.RESOLVED, True, True, []),
+            ("a_platform_owned_firing", AlertEventKind.FIRING, True, True, True, [("firing", 500, 0)]),
+            # An auto-disable announces without moving last_notified_at, so it reads as not notified.
+            ("a_platform_owned_auto_disable", AlertEventKind.BROKEN, False, True, True, [("broken", None, 5)]),
+            ("a_firing_the_logs_stack_still_owns", AlertEventKind.FIRING, True, False, True, []),
+            # A broken filter config is recorded without a message, and the logs stack sends no signal for it.
+            ("a_broken_config_held_back", AlertEventKind.BROKEN, False, True, False, []),
+            ("a_resolve", AlertEventKind.RESOLVED, True, True, True, []),
         ]
     )
     def test_only_announced_firings_and_auto_disables_of_platform_owned_alerts_signal(
-        self, _name: str, kind: AlertEventKind, notified: bool, owned: bool, expected: list[tuple[Any, ...]]
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        notified: bool,
+        owned: bool,
+        sends_messages: bool,
+        expected: list[tuple[Any, ...]],
     ) -> None:
         evaluation = SourceBatchEvaluation(
-            outcomes=(_outcome(kind, notified=notified),), deliveries=(_delivery_for(owned_by_platform=owned),)
+            outcomes=(_outcome(kind, notified=notified),),
+            deliveries=(_delivery_for(owned_by_platform=owned, sends_messages=sends_messages),),
         )
 
         signals = platform_signals(evaluation)
