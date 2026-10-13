@@ -6,9 +6,11 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.data_modeling.backend.facade.api import (
+    IncrementalConfig,
     MissingDagNodeError,
     SavedQueryFrequencyBounds,
-    check_incremental_eligibility,
+    incremental_enabled,
+    propose_incremental_config,
     saved_query_target_bounds,
     upstream_table_refs,
 )
@@ -97,10 +99,6 @@ class MaterializeCandidate(Candidate):
         rejection = self._read_floor_rejection(context, reads)
         if rejection is not None:
             return rejection
-        if context.rules.materialize.require_incremental_eligibility and not _can_refresh_incrementally(
-            saved_query.hogql
-        ):
-            return "its query cannot refresh incrementally"
         frequency = saved_query_target_bounds(context.team_id, saved_query.id)
         if frequency is None:
             capture_exception(MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node"))
@@ -121,6 +119,7 @@ class MaterializeCandidate(Candidate):
         sources = _classify_sources(context, saved_query.id, frequency)
         freshness_today = int(frequency.max_data_age.total_seconds()) or None
         interval_seconds = int(estimate.interval.total_seconds())
+        incremental_config = self._incremental_config(context, saved_query)
         return _Proposal(
             payload=MaterializePayload(
                 subject_name=saved_query.name,
@@ -131,9 +130,19 @@ class MaterializeCandidate(Candidate):
                 freshness_after_seconds=interval_seconds + (freshness_today or 0),
                 live_sources=sources.live,
                 unknown_sources=sources.unknown,
+                incremental_key=incremental_config.incremental_key if incremental_config else None,
+                unique_key=incremental_config.unique_key if incremental_config else (),
             ),
             estimate=estimate,
         )
+
+    def _incremental_config(
+        self, context: CandidateContext, saved_query: SavedQueryDefinition
+    ) -> IncrementalConfig | None:
+        if not incremental_enabled(context.team_id):
+            return None
+        column_types = context.inventory.saved_query_columns.get(str(saved_query.id), {})
+        return propose_incremental_config(saved_query.hogql, column_types)
 
     def _read_floor_rejection(self, context: CandidateContext, reads: SubjectReads) -> str | None:
         rules = context.rules.materialize
@@ -148,11 +157,6 @@ class MaterializeCandidate(Candidate):
         if reads.alone_reads < rules.min_alone_reads:
             return f"read on its own {reads.alone_reads} times, needs {rules.min_alone_reads} to know its cost"
         return None
-
-
-def _can_refresh_incrementally(hogql: str) -> bool:
-    eligibility = check_incremental_eligibility(hogql, None)
-    return eligibility.eligible and bool(eligibility.key_candidates) and bool(eligibility.unique_key_candidates)
 
 
 def allowed_intervals(context: CandidateContext, allowed: Iterable[timedelta], reads: SubjectReads) -> list[timedelta]:

@@ -100,6 +100,7 @@ def context(
             table_names=table_names or {},
             certifications=certifications or {},
             direct_table_ids=direct_table_ids,
+            saved_query_columns={},
         ),
         rules=rules,
         run_id="run-1",

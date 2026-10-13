@@ -13,11 +13,7 @@ from products.warehouse_suggestions.backend.facade.contracts import CertifyPaylo
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionAssetOutcome
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
-from products.warehouse_suggestions.backend.logic.candidates.materialize import (
-    MaterializeCandidate,
-    allowed_intervals,
-    estimate_savings,
-)
+from products.warehouse_suggestions.backend.logic.candidates.materialize import allowed_intervals, estimate_savings
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
@@ -154,21 +150,6 @@ class TestMaterializeRules(SimpleTestCase):
         estimate = estimate_savings(context(team_reads({})), reads, DAY)
 
         assert estimate.clears_a_floor is expect_clear
-
-    @parameterized.expand(
-        [
-            ("limited", "SELECT timestamp, event FROM events ORDER BY timestamp DESC LIMIT 10"),
-            ("no_key_column", "SELECT count() FROM events"),
-        ]
-    )
-    def test_a_view_that_cannot_refresh_incrementally_is_not_proposed(self, _name: str, hogql: str) -> None:
-        reads = team_reads({view_subject(VIEW_ID): busy_reads()})
-        not_incremental = view(VIEW_ID, hogql=hogql)
-
-        result = MaterializeCandidate().evaluate(context(reads, views=[not_incremental]))
-
-        assert result.drafts == ()
-        assert [rejection.reason for rejection in result.rejections] == ["its query cannot refresh incrementally"]
 
 
 class TestDeprecateCandidate(SimpleTestCase):

@@ -10,6 +10,8 @@ from posthog.dataclasses import frozen
 from products.data_catalog.backend.facade.api import certifications_for_team, certify, deprecate, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import (
+    IncrementalConfig,
+    IncrementalConfigRefusedError,
     MaterializationFailedError,
     MaterializationForbiddenError,
     MaterializationRefusedError,
@@ -29,6 +31,7 @@ from ..facade.contracts import (
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SuggestionAlreadyDecidedError,
+    SuggestionOutdatedError,
     SuggestionPayload,
     SuggestionSubjectGoneError,
 )
@@ -94,6 +97,11 @@ class CertificationAcceptor(Acceptor):
         return existing
 
 
+VIEW_CHANGED_SINCE_SUGGESTED = (
+    "This view changed after the suggestion was made, so it can no longer refresh incrementally on the suggested keys."
+)
+
+
 class MaterializeAcceptor(Acceptor):
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
@@ -109,11 +117,14 @@ class MaterializeAcceptor(Acceptor):
                 sync_frequency_interval=interval,
                 visible_blocker_names=_no_blocker_names,
                 was_impersonated=request.was_impersonated,
+                incremental_config=_incremental_config(payload),
             )
         except SavedQueryNotFoundError:
             raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
         except MaterializationForbiddenError:
             raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+        except IncrementalConfigRefusedError as error:
+            raise SuggestionOutdatedError(f"{VIEW_CHANGED_SINCE_SUGGESTED} {error}")
         except MaterializationRefusedError as error:
             raise RefreshIntervalRefusedError(str(error))
         except MaterializationFailedError as error:
@@ -121,6 +132,12 @@ class MaterializeAcceptor(Acceptor):
         return MaterializationAsset(
             saved_query_id=str(suggestion.subject_id), refresh_interval_seconds=int(interval.total_seconds())
         )
+
+
+def _incremental_config(payload: MaterializePayload) -> IncrementalConfig | None:
+    if payload.incremental_key is None:
+        return None
+    return IncrementalConfig(incremental_key=payload.incremental_key, unique_key=payload.unique_key)
 
 
 ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {

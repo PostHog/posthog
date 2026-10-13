@@ -53,6 +53,8 @@ class MaterializePayload:
     freshness_after_seconds: int
     live_sources: tuple[SourceRef, ...]
     unknown_sources: tuple[SourceRef, ...]
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
 
 
 SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload
@@ -76,6 +78,8 @@ class MaterializeSuggestionPayload:
     freshness_after_seconds: int
     live_sources: VisibleSources
     unknown_sources: VisibleSources
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload
@@ -196,6 +200,10 @@ class SubjectAlreadyCertifiedError(Exception):
 
 
 class RefreshIntervalRefusedError(Exception):
+    pass
+
+
+class SuggestionOutdatedError(Exception):
     pass
 
 

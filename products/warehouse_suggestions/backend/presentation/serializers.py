@@ -92,6 +92,14 @@ class MaterializePayloadSerializer(DataclassSerializer):
                 "help_text": "How old the view's data can be today, in seconds. Null when its sources are live."
             },
             "freshness_after_seconds": {"help_text": "How old the data can be once materialized, in seconds."},
+            "incremental_key": {
+                "help_text": "Column whose advancing value marks new rows, so each refresh reads only those rows. "
+                "Null when each refresh rebuilds the whole table."
+            },
+            "unique_key": {
+                "help_text": "Columns that identify a row, so a refresh updates rows instead of adding duplicates. "
+                "Empty when each refresh rebuilds the whole table."
+            },
         }
 
 

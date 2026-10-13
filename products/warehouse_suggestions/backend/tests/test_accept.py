@@ -32,6 +32,7 @@ from .test_suggestions import make_draft
 
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
+DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
@@ -176,6 +177,37 @@ class TestAcceptSuggestion(APIBaseTest):
             NodeType.MAT_VIEW,
             12 * 60 * 60,
         )
+
+    @parameterized.expand(
+        [
+            (
+                "query_still_groups_by_the_key",
+                DAILY_COUNTS,
+                status.HTTP_200_OK,
+                {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0},
+            ),
+            (
+                "query_changed_since_the_suggestion",
+                "SELECT timestamp, event FROM events",
+                status.HTTP_409_CONFLICT,
+                None,
+            ),
+        ]
+    )
+    def test_accepting_an_incremental_suggestion_stores_its_keys_while_the_query_allows_them(
+        self, _name: str, hogql: str, expected_status: int, expected_config: dict | None
+    ) -> None:
+        DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(query={"kind": "HogQLQuery", "query": hogql})
+        incremental = replace(PAYLOADS[WarehouseSuggestionKind.MATERIALIZE], incremental_key="day", unique_key=("day",))
+        draft = make_draft(fingerprint="materialize:orders", subject_id=self.view.id)
+        suggestion = ingest_surfaced(
+            self.team.id, replace(draft, kind=WarehouseSuggestionKind.MATERIALIZE, payload=incremental)
+        )
+
+        accepted = self._accept(suggestion.id)
+
+        self.view.refresh_from_db()
+        assert (accepted["http_status"], self.view.incremental_config) == (expected_status, expected_config), accepted
 
     @parameterized.expand([("not_a_schedulable_interval", 7), ("past_the_largest_interval", 10**14)])
     def test_a_refused_interval_is_a_field_error_and_keeps_the_suggestion_open(
