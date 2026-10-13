@@ -317,6 +317,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # identically every time. Stripe's own message isn't actionable, so surface a message
             # that points at the account rather than showing the raw string.
             "error_details_unknown": "Stripe rejected a request for one of your resources without a specific reason. Check your Stripe account for any restrictions or contact Stripe support, then try again.",
+            # Raised by `_flat_list_objects` when Stripe rejects a list cursor it listed and no earlier
+            # cursor is known. A retry resumes from the same cursor, so it fails the same way.
+            "Stripe rejected list cursor": "Stripe stopped this sync because it listed an object and then reported that the object does not exist. Resync the table to start the list again.",
             # Catch-all for every other `stripe.PermissionError`, surfacing Stripe's raw permission
             # message (None) because it names the specific scope that's missing (e.g. "Having the
             # 'rak_payment_method_read' permission would allow this request to continue").

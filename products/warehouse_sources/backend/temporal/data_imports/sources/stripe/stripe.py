@@ -3,6 +3,7 @@ import re
 import time
 import inspect
 import dataclasses
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
@@ -506,9 +507,13 @@ class StripeResumeConfig:
     ordering, so it cannot carry over to a warehouse parent scan (and vice versa). The
     warehouse fields are the `ScanPosition` triple; a run that finds the wrong kind of state,
     or state from another table, version or filter, discards it and starts the sweep over.
+
+    `fallback_starting_after` is the flat-list row before `starting_after`. Stripe can list an
+    object and then reject its id as a cursor, so a resume needs an earlier cursor to page past it.
     """
 
     starting_after: str | None = None
+    fallback_starting_after: str | None = None
     nested_parent_id: str | None = None
     nested_starting_after: str | None = None
     warehouse_fragment_index: int | None = None
@@ -699,6 +704,68 @@ def _warehouse_start_position(
         version=resume_config.warehouse_version,
     )
     return position if position.matches(table, None) else None
+
+
+class StripeListCursorMissingError(Exception):
+    """Raised when Stripe rejects a list cursor as a missing object and no earlier cursor is
+    known. A retry resumes from the same cursor and fails the same way, so the error is
+    non-retryable."""
+
+    def __init__(self, cursor: str):
+        super().__init__(f"Stripe rejected list cursor {cursor} as a missing object and no earlier cursor is known")
+
+
+def _flat_list_objects(
+    method: Callable[..., Any],
+    params: dict[str, Any],
+    logger: FilteringBoundLogger,
+    starting_after: Optional[str] = None,
+    fallback_starting_after: Optional[str] = None,
+) -> Iterator[Any]:
+    """Page through a flat Stripe list, recovering when Stripe rejects a cursor it listed.
+
+    Stripe can return an object in a page and then answer `resource_missing` when that id is the
+    `starting_after` cursor for the next page. A retry pages to the same object and fails again.
+    To recover, restart the list from the id before the rejected one, and skip the ids that were
+    already yielded. The rejected object is then near the start of a page, not at the end, so
+    Stripe does not use it as a cursor again.
+    """
+    seen: deque[str] = deque(
+        (cursor for cursor in (fallback_starting_after, starting_after) if cursor is not None),
+        maxlen=DEFAULT_LIMIT,
+    )
+    skip: set[str] = set()
+    cursor = starting_after
+    while True:
+        # The SDK pages with the id of the last object Stripe returned, skipped or not.
+        page_cursor = cursor
+        list_params = {**params, "starting_after": cursor} if cursor is not None else params
+        try:
+            for obj in _call_stripe(method, params=list_params).auto_paging_iter():
+                page_cursor = obj["id"]
+                if page_cursor in skip:
+                    continue
+                seen.append(page_cursor)
+                yield obj
+            return
+        except stripe_lib.InvalidRequestError as e:
+            if not _is_stripe_resource_missing_error(e) or page_cursor is None:
+                raise
+            position = seen.index(page_cursor) if page_cursor in seen else 0
+            if position == 0:
+                raise StripeListCursorMissingError(page_cursor) from e
+            skip.update(list(seen)[position:])
+            del seen[position]
+            cursor = seen[position - 1]
+            logger.warning(f"Stripe: list cursor {page_cursor} no longer exists, restarting the list after {cursor}")
+
+
+def _flat_resume_state(table: pa.Table) -> StripeResumeConfig:
+    ids = table.column("id")
+    return StripeResumeConfig(
+        starting_after=ids[-1].as_py(),
+        fallback_starting_after=ids[-2].as_py() if len(ids) > 1 else None,
+    )
 
 
 def _batch_and_yield(
@@ -1097,24 +1164,26 @@ def get_rows(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
                 )
         else:
-            stripe_objects = _call_stripe(
-                resource.method, params={**default_params, **resource.params, **resume_params}
+            flat_objects = _flat_list_objects(
+                resource.method,
+                {**default_params, **resource.params},
+                logger,
+                starting_after=resume_config.starting_after if resume_config else None,
+                fallback_starting_after=resume_config.fallback_starting_after if resume_config else None,
             )
-            for obj in stripe_objects.auto_paging_iter():
+            for obj in flat_objects:
                 batcher.batch(_scrub_client_secrets(obj))
 
                 while batcher.should_yield():
                     py_table = batcher.get_table()
                     # Staged before the yield, so the commit that follows this table's write covers it.
-                    last_cur = py_table.column("id")[-1].as_py()
-                    resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                    resumable_source_manager.save_state(_flat_resume_state(py_table))
                     yield py_table
 
         def trailing_state(py_table: pa.Table) -> StripeResumeConfig:
-            if isinstance(resource, StripeNestedResource):
-                last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
-            else:
-                last_cur = py_table.column("id")[-1].as_py()
+            if not isinstance(resource, StripeNestedResource):
+                return _flat_resume_state(py_table)
+            last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
             return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
 
         yield from _flush_staging_state(batcher, resumable_source_manager, trailing_state)
@@ -1127,30 +1196,24 @@ def get_rows(
             f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
         )
 
-        stripe_objects = _call_stripe(
+        stripe_objects = _flat_list_objects(
             resource.method,
-            params={
-                **default_params,
-                **resource.params,
-                f"created[lt]": db_incremental_field_earliest_value,
-            },
+            {**default_params, **resource.params, f"created[lt]": db_incremental_field_earliest_value},
+            logger,
         )
-        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
+        yield from _batch_and_yield(stripe_objects, batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
         logger.debug(f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}")
 
-        stripe_objects = _call_stripe(
+        stripe_objects = _flat_list_objects(
             resource.method,
-            params={
-                **default_params,
-                **resource.params,
-                f"created[gt]": db_incremental_field_last_value,
-            },
+            {**default_params, **resource.params, f"created[gt]": db_incremental_field_last_value},
+            logger,
         )
         yield from _batch_and_yield(
-            stripe_objects.auto_paging_iter(),
+            stripe_objects,
             batcher,
             incremental_field_name=incremental_field_name,
             stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
