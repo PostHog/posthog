@@ -8,7 +8,14 @@ import { SessionActorType } from '~/types'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 export function SessionActorDisplay({ actor }: { actor: SessionActorType }): JSX.Element {
-    const iconProps = gatherIconProperties(actor.person?.properties)
+    const iconProps = gatherIconProperties({
+        ...actor.person?.properties,
+        ...actor.properties,
+        // Person location may be from a different session; keep other person icon fallbacks.
+        $geoip_country_code: actor.properties?.$geoip_country_code,
+        $geoip_city_name: actor.properties?.$geoip_city_name,
+        $geoip_subdivision_1_name: actor.properties?.$geoip_subdivision_1_name,
+    })
 
     return (
         <>
