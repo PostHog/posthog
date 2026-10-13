@@ -38,6 +38,7 @@ class BuiltTiles:
     tiles: tuple[NewInsightTile | NewTextTile, ...]
     # The titles of the panels that the team cannot fill, because it does not send their metrics.
     dropped: tuple[str, ...]
+    dropped_keys: tuple[str, ...] = ()
 
 
 def _with_team_metric_types(query: dict[str, Any], catalog: MetricCatalog) -> dict[str, Any] | None:
@@ -91,7 +92,7 @@ def _fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
 
 def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog) -> BuiltTiles:
     kept: list[tuple[TemplatePanel, dict[str, Any] | None]] = []
-    dropped: list[str] = []
+    dropped: list[TemplatePanel] = []
     for panel in panels:
         if panel.query is None:
             if panel.text:
@@ -102,7 +103,7 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog) -> Buil
         except ValidationError:
             query = None
         if query is None:
-            dropped.append(panel.title)
+            dropped.append(panel)
         else:
             kept.append((panel, query))
     layouts = _fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped else {}
@@ -116,7 +117,11 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog) -> Buil
             tiles.append(NewTextTile(body=(panel.text or "")[:MAX_TEXT_LENGTH], layout=box))
         else:
             tiles.append(NewInsightTile(name=panel.title, description=panel.description, query=query, layout=box))
-    return BuiltTiles(tiles=tuple(tiles), dropped=tuple(dropped))
+    return BuiltTiles(
+        tiles=tuple(tiles),
+        dropped=tuple(panel.title for panel in dropped),
+        dropped_keys=tuple(panel.key for panel in dropped),
+    )
 
 
 def create_dashboard(

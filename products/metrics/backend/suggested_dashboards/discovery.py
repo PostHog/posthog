@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -23,6 +24,8 @@ logger = structlog.get_logger(__name__)
 NAMES_WINDOW = dt.timedelta(hours=24)
 MAX_TEAMS_PER_SWEEP = 25
 MAX_FINGERPRINT_TEAMS = 10_000
+# Matches the suggest workflow timeout: a first analysis that has not finished by then can start again.
+FIRST_ANALYSIS_INTERVAL = int(dt.timedelta(minutes=20).total_seconds())
 _NEVER = dt.datetime.min.replace(tzinfo=dt.UTC)
 
 # `metrics4_names` is the physical table behind the HogQL `metric_names` table: one row for each
@@ -74,16 +77,18 @@ def suggestions_enabled(team: Team) -> bool:
         return False
 
 
-def teams_to_analyze(now: dt.datetime | None = None) -> list[int]:
-    """The teams with the feature on whose names or bank revision changed, the longest-waiting first.
+def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
+    """The teams to analyze, with their new name fingerprints, the longest-waiting first.
 
-    The new fingerprints are saved here, so a team with no change is not picked again. A team with the
-    feature off is recorded as seen, and its first analysis starts when someone opens its suggestions.
+    A team is analyzed when its names or the bank changed, and either the flag is on for the team or a
+    user already opened its suggestions. The flag can target people, which a background sweep cannot
+    evaluate. The analysis records the fingerprint when it finishes, so a failed one is picked again.
+    Any other team is recorded as seen, and its first analysis starts when someone opens its suggestions.
     """
     now = now or timezone.now()
     fingerprints = name_fingerprints(now)
     if not fingerprints:
-        return []
+        return {}
     revision = bank_revision()
     states = {
         state.team_id: state
@@ -100,23 +105,29 @@ def teams_to_analyze(now: dt.datetime | None = None) -> list[int]:
         key=lambda team_id: (states[team_id].analyzed_at or _NEVER) if team_id in states else _NEVER,
     )
     teams = {team.id: team for team in Team.objects.filter(id__in=changed).only("id", "uuid", "organization_id")}
-    picked: list[int] = []
+    picked: dict[int, int] = {}
     for team_id in changed:
         if len(picked) >= MAX_TEAMS_PER_SWEEP:
             break
         team = teams.get(team_id)
         if team is None:
             continue
-        enabled = suggestions_enabled(team)
-        values: dict[str, object] = {"names_fingerprint": fingerprints[team_id]}
-        if not enabled:
-            values["bank_revision"] = revision
-        MetricsDashboardDiscovery.objects.for_team(team_id).update_or_create(team_id=team_id, defaults=values)
-        if enabled:
-            picked.append(team_id)
+        state = states.get(team_id)
+        if (state is not None and state.analyzed_at is not None) or suggestions_enabled(team):
+            picked[team_id] = fingerprints[team_id]
+            continue
+        MetricsDashboardDiscovery.objects.for_team(team_id).update_or_create(
+            team_id=team_id, defaults={"names_fingerprint": fingerprints[team_id], "bank_revision": revision}
+        )
     return picked
 
 
 def needs_first_analysis(team_id: int) -> bool:
+    """True when the team was never analyzed and no first analysis started in the last few minutes.
+
+    The menu lists suggestions on every open, so without the cache each open would start a workflow.
+    """
     state = MetricsDashboardDiscovery.objects.for_team(team_id).only("analyzed_at").first()
-    return state is None or state.analyzed_at is None
+    if state is not None and state.analyzed_at is not None:
+        return False
+    return cache.add(f"metrics_suggested_dashboards_first_analysis:{team_id}", True, timeout=FIRST_ANALYSIS_INTERVAL)

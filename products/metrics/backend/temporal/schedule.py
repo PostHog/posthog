@@ -22,6 +22,7 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 
 from products.metrics.backend.temporal.inputs import (
     DISCOVERY_WORKFLOW_NAME,
+    SUGGEST_TIMEOUT,
     SUGGEST_WORKFLOW_NAME,
     DiscoveryInputs,
     SuggestInputs,
@@ -32,7 +33,6 @@ SCHEDULE_ID = "metrics-suggested-dashboards-discovery-schedule"
 DISCOVERY_WORKFLOW_ID = "metrics-suggested-dashboards-discovery"
 INTERVAL = timedelta(minutes=5)
 DISCOVERY_TIMEOUT = timedelta(minutes=4)
-SUGGEST_TIMEOUT = timedelta(minutes=20)
 
 
 async def create_suggested_dashboards_discovery_schedule(client: Client) -> None:

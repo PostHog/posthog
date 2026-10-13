@@ -30,6 +30,10 @@ class TemplatePanel(_Model):
     layout: GridLayout
 
 
+def template_panels(stored: list[dict[str, Any]] | None) -> list[TemplatePanel]:
+    return [TemplatePanel.model_validate(panel) for panel in stored or []]
+
+
 class TemplateDefinition(_Model):
     """A curated template file in the bank directory."""
 

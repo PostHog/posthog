@@ -8,6 +8,7 @@ import structlog
 
 from posthog.models import Team, User
 
+from products.dashboards.backend.facade.api import unknown_dashboard_ids
 from products.exports.backend.facade.api import read_export_asset_content
 from products.metrics.backend.facade.contracts import (
     DashboardTemplateRound,
@@ -27,7 +28,7 @@ logger = structlog.get_logger(__name__)
 MAX_LISTED_TEMPLATES = 200
 
 
-def _suggestion(suggestion: MetricsDashboardSuggestion) -> SuggestedDashboard:
+def _suggestion(suggestion: MetricsDashboardSuggestion, *, dashboard_exists: bool) -> SuggestedDashboard:
     template = suggestion.template
     return SuggestedDashboard(
         id=str(suggestion.id),
@@ -38,7 +39,8 @@ def _suggestion(suggestion: MetricsDashboardSuggestion) -> SuggestedDashboard:
         panel_count=sum(1 for panel in template.panels or [] if panel.get("query")),
         matched_metric_count=len(suggestion.matched_metric_names),
         coverage=suggestion.coverage,
-        dashboard_id=suggestion.dashboard_id,
+        # The menu opens this dashboard directly. When the user deleted it, the menu creates it again.
+        dashboard_id=suggestion.dashboard_id if dashboard_exists else None,
     )
 
 
@@ -49,7 +51,12 @@ def list_suggestions(team: Team) -> list[SuggestedDashboard]:
         .select_related("template")
         .order_by("-coverage", "template__name")
     )
-    return [_suggestion(suggestion) for suggestion in suggestions]
+    suggestions = list(suggestions)
+    dashboard_ids = [suggestion.dashboard_id for suggestion in suggestions if suggestion.dashboard_id is not None]
+    deleted = set(unknown_dashboard_ids(dashboard_ids, team_id=team.id)) if dashboard_ids else set()
+    return [
+        _suggestion(suggestion, dashboard_exists=suggestion.dashboard_id not in deleted) for suggestion in suggestions
+    ]
 
 
 def _get_suggestion(team: Team, suggestion_id: str) -> MetricsDashboardSuggestion:

@@ -1,10 +1,12 @@
 """Workflow names and inputs. Light on purpose: the API imports this to start workflows."""
 
 import dataclasses
+from datetime import timedelta
 
 DISCOVERY_WORKFLOW_NAME = "metrics-suggested-dashboards-discovery"
 SUGGEST_WORKFLOW_NAME = "metrics-suggested-dashboards-suggest"
 GENERATE_WORKFLOW_NAME = "metrics-suggested-dashboards-generate"
+SUGGEST_TIMEOUT = timedelta(minutes=20)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -13,10 +15,19 @@ class DiscoveryInputs:
 
 
 @dataclasses.dataclass(frozen=True)
+class TeamToAnalyze:
+    team_id: int
+    names_fingerprint: int
+
+
+@dataclasses.dataclass(frozen=True)
 class SuggestInputs:
     team_id: int
     # Analyze even when no metric name is new and the bank did not change.
     force: bool = False
+    # The fingerprint of the names that the sweep saw. The analysis records it only when it finishes,
+    # so a team whose analysis fails is picked again at the next sweep.
+    names_fingerprint: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)

@@ -29,6 +29,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.metrics.backend.temporal.inputs import (
         DISCOVERY_WORKFLOW_NAME,
         GENERATE_WORKFLOW_NAME,
+        SUGGEST_TIMEOUT,
         SUGGEST_WORKFLOW_NAME,
         DiscoveryInputs,
         FinishInputs,
@@ -40,8 +41,9 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
 
 MAX_ROUNDS = 3
-SUGGEST_TIMEOUT = timedelta(minutes=20)
-GENERATE_TIMEOUT = timedelta(hours=1)
+# Longer than the worst case of the activity timeouts and retries below (about 2 hours), so that
+# finish_generation always runs. A generation that times out would stay in "generating" for good.
+GENERATE_TIMEOUT = timedelta(hours=3)
 _SHORT = timedelta(minutes=2)
 _ANALYZE = timedelta(minutes=10)
 _MODEL_STEP = timedelta(minutes=10)
@@ -66,7 +68,7 @@ class MetricsDashboardDiscoveryWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DiscoveryInputs) -> int:
-        team_ids = await temporalio.workflow.execute_activity(
+        teams = await temporalio.workflow.execute_activity(
             find_teams_to_analyze_activity,
             inputs,
             start_to_close_timeout=_ANALYZE,
@@ -74,13 +76,13 @@ class MetricsDashboardDiscoveryWorkflow(PostHogWorkflow):
             retry_policy=_RETRY,
         )
         started = 0
-        for team_id in team_ids:
+        for team in teams:
             try:
                 # Abandoned, so that a slow team never holds up the next sweep.
                 await temporalio.workflow.start_child_workflow(
                     MetricsDashboardSuggestWorkflow.run,
-                    SuggestInputs(team_id=team_id),
-                    id=suggest_workflow_id(team_id),
+                    SuggestInputs(team_id=team.team_id, names_fingerprint=team.names_fingerprint),
+                    id=suggest_workflow_id(team.team_id),
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     execution_timeout=SUGGEST_TIMEOUT,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
@@ -167,12 +169,16 @@ class MetricsDashboardGenerateWorkflow(PostHogWorkflow):
                 return
             if asset_id is None:
                 return
-            looks_good = await temporalio.workflow.execute_activity(
-                check_preview_activity,
-                RoundInputs(template_id=template_id, round=round_number, revise=round_number < MAX_ROUNDS),
-                start_to_close_timeout=_MODEL_STEP,
-                heartbeat_timeout=_HEARTBEAT,
-                retry_policy=_RETRY,
-            )
+            try:
+                looks_good = await temporalio.workflow.execute_activity(
+                    check_preview_activity,
+                    RoundInputs(template_id=template_id, round=round_number, revise=round_number < MAX_ROUNDS),
+                    start_to_close_timeout=_MODEL_STEP,
+                    heartbeat_timeout=_HEARTBEAT,
+                    retry_policy=_RETRY,
+                )
+            except ActivityError:
+                # A failed check does not make the panels worse. They go to the review as they are.
+                return
             if looks_good:
                 return

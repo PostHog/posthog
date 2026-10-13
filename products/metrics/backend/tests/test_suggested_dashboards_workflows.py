@@ -22,6 +22,7 @@ class Script:
     draft_fails: bool = False
     verdicts: list[bool] = field(default_factory=list)
     render_fails: bool = False
+    check_fails: bool = False
     calls: list[str] = field(default_factory=list)
     finish_error: str | None = "not called"
 
@@ -47,6 +48,8 @@ async def _run(script: Script) -> str | None:
     @activity.defn(name="check_preview_activity")
     async def check(inputs: RoundInputs) -> bool:
         script.calls.append(f"check {inputs.round} revise={inputs.revise}")
+        if script.check_fails:
+            raise ApplicationError("The model call failed", non_retryable=True)
         return script.verdicts[inputs.round - 1]
 
     @activity.defn(name="finish_generation_activity")
@@ -96,6 +99,7 @@ async def _run(script: Script) -> str | None:
             None,
         ),
         ("a_failed_render_ends_the_checks", Script(render_fails=True), ["render 1"], None),
+        ("a_failed_check_keeps_the_panels", Script(check_fails=True), ["render 1", "check 1 revise=True"], None),
         ("a_failed_draft_fails_the_template", Script(draft_fails=True), [], "The model call failed"),
     ]
 )

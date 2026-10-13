@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import hashlib
 from collections.abc import Sequence
 
 from django.db import transaction
-from django.db.models import Max
 from django.utils import timezone
 
 import structlog
@@ -24,7 +24,7 @@ from products.metrics.backend.suggested_dashboards import prompts
 from products.metrics.backend.suggested_dashboards.generation import GenerationRequest, generation_key
 from products.metrics.backend.suggested_dashboards.llm import ModelFailed, ModelUnavailable, ask_model, text_block
 from products.metrics.backend.suggested_dashboards.matching import TemplateMatch, match_template, metric_families
-from products.metrics.backend.suggested_dashboards.spec import MAX_REASON_LENGTH, EvaluationAnswer, TemplatePanel
+from products.metrics.backend.suggested_dashboards.spec import MAX_REASON_LENGTH, EvaluationAnswer, template_panels
 
 logger = structlog.get_logger(__name__)
 
@@ -43,15 +43,18 @@ class AnalysisResult:
 
 
 def bank_revision() -> str:
-    """Changes whenever a template is approved, changed or withdrawn, so that every team gets analyzed again."""
-    approved = MetricsDashboardTemplate.objects.filter(status=MetricsDashboardTemplate.Status.APPROVED)
-    summary = approved.aggregate(latest=Max("updated_at"))
-    latest = summary["latest"].isoformat() if summary["latest"] else ""
-    return hashlib.sha256(f"{approved.count()}:{latest}".encode()).hexdigest()[:16]
+    """Changes whenever a template is approved, changed or withdrawn, so that every team gets analyzed again.
 
-
-def _panels(template: MetricsDashboardTemplate) -> list[TemplatePanel]:
-    return [TemplatePanel.model_validate(panel) for panel in template.panels or []]
+    It hashes what matching reads, not `updated_at`: a save that changes no panel, such as a review
+    preview, must not start an analysis of every team.
+    """
+    approved = (
+        MetricsDashboardTemplate.objects.filter(status=MetricsDashboardTemplate.Status.APPROVED)
+        .order_by("id")
+        .values_list("id", "metric_names", "panels")
+    )
+    content = json.dumps([[str(template_id), names, panels] for template_id, names, panels in approved], sort_keys=True)
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 def _overlap(names: set[str], others: Sequence[str]) -> float:
@@ -128,14 +131,18 @@ def _save_suggestions(team: Team, suggested: dict[str, str], matches: dict[str, 
     return len(suggested)
 
 
-def _record_analysis(team: Team, names: list[str], revision: str) -> None:
-    MetricsDashboardDiscovery.objects.for_team(team.id).update_or_create(
-        team_id=team.id,
-        defaults={"analyzed_metric_names": names, "bank_revision": revision, "analyzed_at": timezone.now()},
-    )
+def _record_analysis(team: Team, names: list[str], revision: str, names_fingerprint: int | None) -> None:
+    values: dict[str, object] = {
+        "analyzed_metric_names": names,
+        "bank_revision": revision,
+        "analyzed_at": timezone.now(),
+    }
+    if names_fingerprint is not None:
+        values["names_fingerprint"] = names_fingerprint
+    MetricsDashboardDiscovery.objects.for_team(team.id).update_or_create(team_id=team.id, defaults=values)
 
 
-def analyze_team(team_id: int, *, force: bool = False) -> AnalysisResult:
+def analyze_team(team_id: int, *, force: bool = False, names_fingerprint: int | None = None) -> AnalysisResult:
     """Update the suggestions of the team. Returns the new dashboards that the model wants generated.
 
     Without new metric names and without a change in the bank, nothing runs, unless `force` is set. Without AI
@@ -149,13 +156,23 @@ def analyze_team(team_id: int, *, force: bool = False) -> AnalysisResult:
     state = MetricsDashboardDiscovery.objects.for_team(team.id).first()
     new_names = set(names) - set(state.analyzed_metric_names if state else [])
     if not force and state is not None and not new_names and state.bank_revision == revision:
+        # Only names went away. Record the fingerprint, so the sweep does not pick the team again.
+        if names_fingerprint is not None:
+            MetricsDashboardDiscovery.objects.for_team(team.id).filter(id=state.id).update(
+                names_fingerprint=names_fingerprint
+            )
         return AnalysisResult(analyzed=False)
     if not names:
-        _record_analysis(team, names, revision)
+        _record_analysis(team, names, revision, names_fingerprint)
         return AnalysisResult(analyzed=True)
 
     templates = list(MetricsDashboardTemplate.objects.filter(status=MetricsDashboardTemplate.Status.APPROVED))
-    scored = [(template, match_template(template.key, _panels(template), catalog)) for template in templates]
+    # The catalog holds at most CATALOG_LIMIT names. Look up the template metrics so that a team with more
+    # names still matches the templates it fits.
+    catalog.look_up(team, {name for template in templates for name in template.metric_names})
+    scored = [
+        (template, match_template(template.key, template_panels(template.panels), catalog)) for template in templates
+    ]
     candidates = [(template, match) for template, match in scored if match.is_candidate]
     matches = {template.key: (str(template.id), match) for template, match in candidates}
 
@@ -182,5 +199,5 @@ def analyze_team(team_id: int, *, force: bool = False) -> AnalysisResult:
     if answer is not None:
         covered = {name for key in suggested for name in matches[key][1].matched_metric_names}
         requests = _proposals(answer, catalog, covered)
-    _record_analysis(team, names, revision)
+    _record_analysis(team, names, revision, names_fingerprint)
     return AnalysisResult(analyzed=True, suggestion_count=count, generation_requests=requests)

@@ -53,7 +53,6 @@ from products.metrics.backend.suggested_dashboards.spec import (
 
 logger = structlog.get_logger(__name__)
 
-MAX_ROUNDS = 3
 MAX_ATTRIBUTE_METRICS = 24
 MAX_ATTRIBUTES_PER_METRIC = 8
 # The values of an attribute with this many values or fewer go into the prompt, so that a filter uses a real value.
@@ -364,9 +363,11 @@ def finish_generation(template_id: str, *, error: str | None = None) -> None:
         if error is None and not template.panels:
             error = "No drafted panel passed the query checks."
         record.error = error
-        template.status = (
-            MetricsDashboardTemplate.Status.FAILED if error else MetricsDashboardTemplate.Status.PENDING_REVIEW
-        )
+        # A reviewer can reject the template while it generates. That decision stays.
+        if template.status == MetricsDashboardTemplate.Status.GENERATING:
+            template.status = (
+                MetricsDashboardTemplate.Status.FAILED if error else MetricsDashboardTemplate.Status.PENDING_REVIEW
+            )
         _save_record(template, record, "status")
     _capture_generated(template, record)
 

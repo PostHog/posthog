@@ -22,6 +22,7 @@ from products.metrics.backend.temporal.inputs import (
     RoundInputs,
     SuggestInputs,
     SuggestResult,
+    TeamToAnalyze,
 )
 
 T = TypeVar("T")
@@ -37,17 +38,23 @@ async def _run(fn: Callable[[], T], *, team_id: int | None = None) -> T:
 
 
 @temporalio.activity.defn
-async def find_teams_to_analyze_activity(inputs: DiscoveryInputs) -> list[int]:
-    def find() -> list[int]:
+async def find_teams_to_analyze_activity(inputs: DiscoveryInputs) -> list[TeamToAnalyze]:
+    def find() -> list[TeamToAnalyze]:
         sync_curated_templates()
-        return discovery.teams_to_analyze()
+        return [
+            TeamToAnalyze(team_id=team_id, names_fingerprint=fingerprint)
+            for team_id, fingerprint in discovery.teams_to_analyze().items()
+        ]
 
     return await _run(find)
 
 
 @temporalio.activity.defn
 async def analyze_team_activity(inputs: SuggestInputs) -> SuggestResult:
-    result = await _run(lambda: analyze_team(inputs.team_id, force=inputs.force), team_id=inputs.team_id)
+    result = await _run(
+        lambda: analyze_team(inputs.team_id, force=inputs.force, names_fingerprint=inputs.names_fingerprint),
+        team_id=inputs.team_id,
+    )
     return SuggestResult(
         suggestion_count=result.suggestion_count,
         generation_requests=[

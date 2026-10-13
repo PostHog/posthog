@@ -122,6 +122,14 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert second.json()["dashboard_id"] == first.json()["dashboard_id"]
         assert DashboardTile.objects.filter(dashboard_id=first.json()["dashboard_id"]).count() == 1
 
+        Dashboard.objects.filter(id=first.json()["dashboard_id"]).update(deleted=True)
+        relisted = self.client.get(f"{self.base_url}/suggested_dashboards/")
+        recreated = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dashboard/")
+
+        assert relisted.json()[0]["dashboard_id"] is None
+        assert recreated.status_code == status.HTTP_201_CREATED
+        assert recreated.json()["dashboard_id"] not in (None, first.json()["dashboard_id"])
+
     def test_suggestions_need_the_feature_flag(self) -> None:
         self.flags.discard("metrics-suggested-dashboards")
 
@@ -141,7 +149,10 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
     def test_approving_keeps_the_changes_made_on_the_preview(self) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
-        template = _template("generated-queue", "pending_review", *QUEUE_METRICS[:2], source="generated")
+        # This project does not send unknown_total, so the preview leaves P2 out.
+        template = _template(
+            "generated-queue", "pending_review", *QUEUE_METRICS[:2], "unknown_total", source="generated"
+        )
         template.source_team_id = self.team.id
         template.save(update_fields=["source_team_id"])
 
@@ -156,19 +167,21 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert approved.status_code == status.HTTP_200_OK
         assert approved.json()["status"] == "approved"
         assert "Queue depth now" in approved.json()["panel_titles"]
+        assert "P2" in approved.json()["panel_titles"]
         assert Dashboard.objects_including_soft_deleted.get(id=preview_id).deleted
         self.start_analysis.assert_called_once_with(self.team.id, force=True)
 
     @parameterized.expand(
         [
-            ("ready_for_review", ["queue_depth"], "pending_review", None),
-            ("no_panel_passed", [], "failed", "No drafted panel passed the query checks."),
+            ("ready_for_review", "generating", ["queue_depth"], "pending_review", None),
+            ("no_panel_passed", "generating", [], "failed", "No drafted panel passed the query checks."),
+            ("rejected_while_generating", "rejected", ["queue_depth"], "rejected", None),
         ]
     )
     def test_finishing_a_generation_sends_one_event_with_the_review_link(
-        self, _name: str, metrics: list[str], expected_status: str, expected_error: str | None
+        self, _name: str, status_at_finish: str, metrics: list[str], expected_status: str, expected_error: str | None
     ) -> None:
-        template = _template("generated-queue", "generating", *metrics, source="generated")
+        template = _template("generated-queue", status_at_finish, *metrics, source="generated")
         template.source_team_id = self.team.id
         template.save(update_fields=["source_team_id"])
 
@@ -181,6 +194,8 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert (event["properties"]["status"], event["properties"]["error"]) == (expected_status, expected_error)
         assert event["properties"]["review_url"].endswith(f"/metrics/dashboard-review/{template.id}")
         assert event["groups"]["project"] == str(self.team.uuid)
+        template.refresh_from_db()
+        assert template.status == expected_status
 
     def test_a_curated_template_cannot_be_rejected(self) -> None:
         self.user.is_staff = True
@@ -190,7 +205,16 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_discovery_picks_only_teams_whose_names_or_bank_changed(self) -> None:
+    @parameterized.expand([("flag_on", True, None), ("flag_off_after_suggestions_were_opened", False, "2026-01-01")])
+    def test_discovery_picks_only_teams_whose_names_or_bank_changed(
+        self, _name: str, flag_on: bool, analyzed_at: str | None
+    ) -> None:
+        if not flag_on:
+            self.flags.discard("metrics-suggested-dashboards")
+        if analyzed_at:
+            MetricsDashboardDiscovery.objects.for_team(self.team.id).create(
+                team_id=self.team.id, names_fingerprint=4, bank_revision=bank_revision(), analyzed_at=analyzed_at
+            )
         unchanged = Team.objects.create(organization=self.organization, name="Unchanged")
         MetricsDashboardDiscovery.objects.for_team(unchanged.id).create(
             team_id=unchanged.id, names_fingerprint=7, bank_revision=bank_revision()
@@ -201,11 +225,42 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         ):
             picked = teams_to_analyze()
 
-        assert picked == [self.team.id]
-        state = MetricsDashboardDiscovery.objects.for_team(self.team.id).get()
-        assert state.names_fingerprint == 5
+        assert picked == {self.team.id: 5}
+        # The analysis records the fingerprint, so a team whose analysis fails is picked again.
+        assert not MetricsDashboardDiscovery.objects.for_team(self.team.id).filter(names_fingerprint=5).exists()
+        with patch("products.metrics.backend.suggested_dashboards.analysis.ask_model", return_value=self._answer()):
+            analyze_team(self.team.id, names_fingerprint=5)
+        assert MetricsDashboardDiscovery.objects.for_team(self.team.id).get().names_fingerprint == 5
+
+    def test_analysis_matches_template_metrics_beyond_the_catalog_limit(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        truncated = MetricCatalog([CatalogEntry(name="other_total", metric_type="sum", unit="")], complete=False)
+
+        def names_runner(*args: Any, names: list[str], **kwargs: Any) -> MagicMock:
+            return MagicMock(run=lambda: [{"name": name, "metric_type": "sum", "unit": ""} for name in names])
+
+        with (
+            patch.object(MetricCatalog, "load", return_value=truncated),
+            patch("products.metrics.backend.dashboard_import.catalog.MetricNamesQueryRunner", side_effect=names_runner),
+        ):
+            analyze_team(self.team.id, force=True)
+
+        suggestions = MetricsDashboardSuggestion.objects.for_team(self.team.id).select_related("template")
+        assert [suggestion.template.key for suggestion in suggestions] == ["orders"]
+
+    def test_opening_a_preview_does_not_change_the_bank(self) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        revision = bank_revision()
+
+        preview = self.client.post(f"{self.base_url}/dashboard_templates/{self.orders.id}/preview/")
+
+        assert preview.json()["dashboard_id"]
+        assert bank_revision() == revision
 
     def test_listing_suggestions_starts_the_first_analysis_of_a_team(self) -> None:
+        self.client.get(f"{self.base_url}/suggested_dashboards/")
         self.client.get(f"{self.base_url}/suggested_dashboards/")
         MetricsDashboardDiscovery.objects.for_team(self.team.id).create(team_id=self.team.id, analyzed_at="2026-01-01")
         self.client.get(f"{self.base_url}/suggested_dashboards/")
