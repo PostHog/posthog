@@ -5,8 +5,9 @@ from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
 from unittest import TestCase
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from requests import HTTPError, Response, Session
@@ -16,6 +17,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.develocity.develocity import (
     DevelocityResumeConfig,
@@ -60,6 +67,190 @@ class TestDevelocity(TestCase):
         self.config = DevelocitySourceConfig(
             instance_url="https://develocity.example.com", access_key="test-access-key"
         )
+        self.driver = SourceDriver(DevelocitySource(), self.config)
+
+    @parameterized.expand(
+        [
+            ("builds", None, []),
+            (
+                "gradle_builds",
+                "buildTool:gradle",
+                ["gradle-attributes", "gradle-build-cache-performance", "gradle-test-performance"],
+            ),
+            (
+                "maven_builds",
+                "buildTool:maven",
+                ["maven-attributes", "maven-build-cache-performance", "maven-test-performance"],
+            ),
+        ]
+    )
+    def test_request_models_and_short_page_pagination(self, name: str, query: str | None, models: list[str]) -> None:
+        first = build("build-one", 1000)
+        first["models"] = {"gradleAttributes": {"model": {"buildDuration": 200}}}
+        second = build("build-two", 1000)
+        result = self.driver.run(
+            name,
+            [ScriptedResponse(json=[first]), ScriptedResponse(json=[second]), ScriptedResponse(json=[])],
+        )
+        assert result.raised is None
+        assert result.rows == [first, second]
+        assert len(result.requests) == 3
+        assert result.params("fromBuild") == [None, "build-one", "build-two"]
+        for request in result.requests:
+            assert request.path == "/api/builds"
+            assert request.headers["authorization"] == "Bearer test-access-key"
+            assert request.read_timeout == 60
+            assert request.param("fromInstant") == "0"
+            assert request.param("reverse") == "false"
+            assert request.param("maxBuilds") == "100"
+            assert request.param("query") == query
+            assert list(request.query.get("models", ())) == models
+        assert result.response is not None and result.response.sort_mode == "asc"
+        assert result.saved_states == [
+            DevelocityResumeConfig(cursor="build-one"),
+            DevelocityResumeConfig(cursor="build-two"),
+        ]
+        assert result.committed_states == result.saved_states
+
+    @parameterized.expand(
+        [
+            (True, 1000, "999"),
+            (True, "1000", "999"),
+            (True, 0, "0"),
+            (True, None, "0"),
+            (False, 1000, "0"),
+            (False, None, "0"),
+        ]
+    )
+    def test_incremental_and_full_refresh(self, incremental: bool, last_value: int | str | None, expected: str) -> None:
+        result = self.driver.run(
+            "builds",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+        )
+        assert result.raised is None
+        assert result.rows == []
+        assert result.params("fromInstant") == [expected]
+        assert result.saved_states == []
+
+    @parameterized.expand([(False,), (True,)])
+    def test_repeated_cursor_fails(self, resume: bool) -> None:
+        result = self.driver.run(
+            "builds",
+            [ScriptedResponse(json=[build("same-build", 1000)])] * (1 if resume else 2),
+            resume_state=DevelocityResumeConfig(cursor="same-build") if resume else None,
+        )
+        assert isinstance(result.raised, ValueError) and "pagination is not advancing" in str(result.raised)
+        assert len(result.requests) == (1 if resume else 2)
+
+    @parameterized.expand(
+        [
+            (200, None, True, None),
+            (200, "gradle_builds", True, None),
+            (401, None, False, "invalid or expired"),
+            (401, "builds", False, "invalid or expired"),
+            (403, None, True, None),
+            (403, "maven_builds", False, "Access build data via the API"),
+        ]
+    )
+    def test_credential_probe(self, status: int, schema: str | None, valid: bool, message: str | None) -> None:
+        with scripted_network([ScriptedResponse(json=[] if status == 200 else {}, status=status)]) as network:
+            actual_valid, actual_message = validate_credentials(self.config, 123, schema)
+        assert actual_valid is valid
+        if message:
+            assert actual_message is not None and message in actual_message
+        else:
+            assert actual_message is None
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.query == {"maxBuilds": ("1",), "maxWaitSecs": ("1",), "reverse": ("true",)}
+        assert request.headers["authorization"] == "Bearer test-access-key"
+
+    @parameterized.expand([(401, "invalid or expired"), (403, "Access build data via the API")])
+    def test_sync_auth_errors_match_user_message(self, status: int, message: str) -> None:
+        result = self.driver.run("builds", [ScriptedResponse(json={}, status=status)])
+        assert isinstance(result.raised, HTTPError)
+        mapped = [
+            value for key, value in DevelocitySource().get_non_retryable_errors().items() if key in str(result.raised)
+        ]
+        assert len(mapped) == 1 and mapped[0] is not None and message in mapped[0]
+        assert len(result.requests) == 1
+
+    @parameterized.expand([(429,), (500,), (503,)])
+    def test_probe_transient_errors_remain_retryable(self, status: int) -> None:
+        with scripted_network(always(ScriptedResponse(json={}, status=status))) as network:
+            with pytest.raises(RESTClientRetryableError):
+                validate_credentials(self.config, 123)
+        assert {request.path for request in network.requests_log} == {"/api/builds"}
+
+    def test_other_client_error_propagates(self) -> None:
+        with scripted_network([ScriptedResponse(json={}, status=404)]) as network:
+            with pytest.raises(HTTPError):
+                validate_credentials(self.config, 123)
+        assert len(network.requests_log) == 1
+
+    @parameterized.expand(
+        [
+            ("http://develocity.example.com",),
+            ("develocity.example.com",),
+            ("https://user:secret@develocity.example.com",),
+            ("https://develocity.example.com/api",),
+            ("https://develocity.example.com?key=value",),
+            ("https://develocity.example.com#fragment",),
+            ("https://develocity.example.com:bad",),
+            ("https://develocity.example.com:99999",),
+            ("https://develocity.example.com:0",),
+            ("https://develocity.example.com\n",),
+            ("https://develocity.example.com\\path",),
+            ("https://[broken",),
+        ]
+    )
+    def test_invalid_url_sends_no_credentials(self, instance_url: str) -> None:
+        self.config.instance_url = instance_url
+        with scripted_network([]) as network:
+            valid, message = validate_credentials(self.config, 123)
+        assert not valid and message is not None and "HTTPS Develocity instance URL" in message
+        assert network.requests_log == []
+        result = self.driver.run("builds", [])
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
+
+    @parameterized.expand(
+        [
+            ("https://develocity.example.com/", "https://develocity.example.com/api/builds"),
+            ("https://develocity.example.com:8443", "https://develocity.example.com:8443/api/builds"),
+        ]
+    )
+    def test_instance_url_normalization(self, instance_url: str, expected: str) -> None:
+        self.config.instance_url = instance_url
+        result = self.driver.run("builds", [ScriptedResponse(json=[])])
+        assert result.raised is None
+        assert result.requests[0].url.split("?")[0] == expected
+
+    def test_redirect_is_rejected(self) -> None:
+        result = self.driver.run(
+            "builds",
+            [ScriptedResponse(json={}, status=302, headers={"Location": "https://other.example.com/api/builds"})],
+        )
+        assert isinstance(result.raised, ValueError) and "refusing to follow" in str(result.raised)
+        assert len(result.requests) == 1
+
+    def test_unknown_table_fails_before_request(self) -> None:
+        result = self.driver.run("unknown", [])
+        assert isinstance(result.raised, UnknownResourceError)
+        assert result.requests == []
+        with scripted_network([]) as network:
+            with pytest.raises(UnknownResourceError):
+                validate_credentials(self.config, 123, "unknown")
+        assert network.requests_log == []
+
+
+class TestDevelocityPrivateDNS(TestCase):
+    def setUp(self) -> None:
+        self.config = DevelocitySourceConfig(
+            instance_url="https://develocity.example.com", access_key="test-access-key"
+        )
         self.inputs = SourceInputs(
             schema_name="builds",
             schema_id="schema-test",
@@ -75,7 +266,6 @@ class TestDevelocity(TestCase):
             reset_pipeline=False,
         )
         self.manager = MagicMock(spec=ResumableSourceManager)
-        self.manager.can_resume.return_value = False
         self.session = MagicMock(spec=Session)
         self.session.headers = {}
         self.session.prepare_request.side_effect = Session().prepare_request
@@ -96,71 +286,6 @@ class TestDevelocity(TestCase):
     def requests(self) -> list[dict[str, list[str]]]:
         return [parse_qs(urlsplit(sent.args[0].url).query) for sent in self.session.send.call_args_list]
 
-    @parameterized.expand(
-        [
-            ("builds", None, []),
-            (
-                "gradle_builds",
-                "buildTool:gradle",
-                ["gradle-attributes", "gradle-build-cache-performance", "gradle-test-performance"],
-            ),
-            (
-                "maven_builds",
-                "buildTool:maven",
-                ["maven-attributes", "maven-build-cache-performance", "maven-test-performance"],
-            ),
-        ]
-    )
-    def test_request_models_and_short_page_pagination(self, name: str, query: str | None, models: list[str]) -> None:
-        self.inputs.schema_name = name
-        first = build("build-one", 1000)
-        first["models"] = {"gradleAttributes": {"model": {"buildDuration": 200}}}
-        second = build("build-two", 1000)
-        self.session.send.side_effect = [response([first]), response([second]), response([])]
-
-        source = develocity_source(self.config, self.inputs, self.manager)
-        rows = [row for page in source_items(source) for row in page]
-
-        assert rows == [first, second]
-        params = self.requests()
-        assert len(params) == 3
-        assert "fromBuild" not in params[0]
-        assert params[1]["fromBuild"] == ["build-one"]
-        assert params[2]["fromBuild"] == ["build-two"]
-        for sent, query_params in zip(self.session.send.call_args_list, params):
-            assert urlsplit(sent.args[0].url).path == "/api/builds"
-            assert sent.args[0].headers["Authorization"] == "Bearer test-access-key"
-            assert sent.kwargs["allow_redirects"] is False
-            assert sent.kwargs["timeout"] == 60
-            assert query_params["fromInstant"] == ["0"]
-            assert query_params["reverse"] == ["false"]
-            assert query_params["maxBuilds"] == ["100"]
-            assert query_params.get("query") == ([query] if query else None)
-            assert query_params.get("models", []) == models
-        assert source.sort_mode == "asc"
-        assert self.manager.save_state.call_args_list == [
-            call(DevelocityResumeConfig(cursor="build-one")),
-            call(DevelocityResumeConfig(cursor="build-two")),
-        ]
-
-    @parameterized.expand(
-        [
-            (True, 1000, "999"),
-            (True, "1000", "999"),
-            (True, 0, "0"),
-            (True, None, "0"),
-            (False, 1000, "0"),
-            (False, None, "0"),
-        ]
-    )
-    def test_incremental_and_full_refresh(self, incremental: bool, last_value: int | str | None, expected: str) -> None:
-        self.inputs.should_use_incremental_field = incremental
-        self.inputs.db_incremental_field_last_value = last_value
-        self.session.send.return_value = response([])
-        assert list(source_items(develocity_source(self.config, self.inputs, self.manager))) == []
-        assert self.requests()[0]["fromInstant"] == [expected]
-        self.manager.save_state.assert_not_called()
-
     @parameterized.expand([(True, "saved-build"), (True, None), (False, "ignored-build")])
     def test_resume_cursor(self, can_resume: bool, cursor: str | None) -> None:
         self.manager.can_resume.return_value = can_resume
@@ -173,87 +298,6 @@ class TestDevelocity(TestCase):
         self.manager.save_state.assert_called_once_with(DevelocityResumeConfig(cursor="next-build"))
         self.manager.commit.assert_not_called()
 
-    @parameterized.expand([(False,), (True,)])
-    def test_repeated_cursor_fails(self, resume: bool) -> None:
-        self.manager.can_resume.return_value = resume
-        self.manager.load_state.return_value = DevelocityResumeConfig(cursor="same-build")
-        self.session.send.return_value = response([build("same-build", 1000)])
-        with self.assertRaisesRegex(ValueError, "pagination is not advancing"):
-            list(source_items(develocity_source(self.config, self.inputs, self.manager)))
-        assert self.session.send.call_count == (1 if resume else 2)
-
-    @parameterized.expand(
-        [
-            (200, None, True, None),
-            (200, "gradle_builds", True, None),
-            (401, None, False, "invalid or expired"),
-            (401, "builds", False, "invalid or expired"),
-            (403, None, True, None),
-            (403, "maven_builds", False, "Access build data via the API"),
-        ]
-    )
-    def test_credential_probe(self, status: int, schema: str | None, valid: bool, message: str | None) -> None:
-        self.session.send.return_value = response([] if status == 200 else {}, status)
-        actual_valid, actual_message = validate_credentials(self.config, 123, schema)
-        assert actual_valid is valid
-        if message:
-            assert actual_message is not None and message in actual_message
-        else:
-            assert actual_message is None
-        self.session.send.assert_called_once()
-        assert self.requests()[0] == {"maxBuilds": ["1"], "maxWaitSecs": ["1"], "reverse": ["true"]}
-        sent = self.session.send.call_args.args[0]
-        assert sent.headers["Authorization"] == "Bearer test-access-key"
-
-    @parameterized.expand([(401, "invalid or expired"), (403, "Access build data via the API")])
-    def test_sync_auth_errors_match_user_message(self, status: int, message: str) -> None:
-        self.session.send.return_value = response({}, status)
-        with self.assertRaises(HTTPError) as raised:
-            list(source_items(develocity_source(self.config, self.inputs, self.manager)))
-        mapped = [
-            value
-            for key, value in DevelocitySource().get_non_retryable_errors().items()
-            if key in str(raised.exception)
-        ]
-        assert len(mapped) == 1 and mapped[0] is not None and message in mapped[0]
-        self.session.send.assert_called_once()
-
-    @parameterized.expand([(429,), (500,), (503,)])
-    def test_probe_transient_errors_remain_retryable(self, status: int) -> None:
-        self.session.send.return_value = response({}, status)
-        with self.assertRaises(RESTClientRetryableError):
-            validate_credentials(self.config, 123)
-        self.session.send.assert_called_once()
-
-    def test_other_client_error_propagates(self) -> None:
-        self.session.send.return_value = response({}, 404)
-        with self.assertRaises(HTTPError):
-            validate_credentials(self.config, 123)
-
-    @parameterized.expand(
-        [
-            ("http://develocity.example.com",),
-            ("develocity.example.com",),
-            ("https://user:secret@develocity.example.com",),
-            ("https://develocity.example.com/api",),
-            ("https://develocity.example.com?key=value",),
-            ("https://develocity.example.com#fragment",),
-            ("https://develocity.example.com:bad",),
-            ("https://develocity.example.com:99999",),
-            ("https://develocity.example.com:0",),
-            ("https://develocity.example.com\n",),
-            ("https://develocity.example.com\\path",),
-            ("https://[broken",),
-        ]
-    )
-    def test_invalid_url_sends_no_credentials(self, instance_url: str) -> None:
-        self.config.instance_url = instance_url
-        valid, message = validate_credentials(self.config, 123)
-        assert not valid and message is not None and "HTTPS Develocity instance URL" in message
-        with self.assertRaises(ValueError):
-            develocity_source(self.config, self.inputs, self.manager)
-        self.session.send.assert_not_called()
-
     @parameterized.expand([("127.0.0.1",), ("10.0.0.1",), ("169.254.169.254",), ("::1",)])
     def test_private_dns_answer_is_rejected(self, address: str) -> None:
         self.dns.return_value = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 443))]
@@ -261,33 +305,4 @@ class TestDevelocity(TestCase):
         assert not valid and message
         with self.assertRaises(ValueError):
             develocity_source(self.config, self.inputs, self.manager)
-        self.session.send.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("https://develocity.example.com/", "https://develocity.example.com/api/builds"),
-            ("https://develocity.example.com:8443", "https://develocity.example.com:8443/api/builds"),
-        ]
-    )
-    def test_instance_url_normalization(self, instance_url: str, expected: str) -> None:
-        self.config.instance_url = instance_url
-        self.session.send.return_value = response([])
-        list(source_items(develocity_source(self.config, self.inputs, self.manager)))
-        assert self.session.send.call_args.args[0].url.split("?")[0] == expected
-
-    def test_redirect_is_rejected(self) -> None:
-        redirect = response({}, 302)
-        redirect.headers["Location"] = "https://other.example.com/api/builds"
-        self.session.send.return_value = redirect
-        with self.assertRaisesRegex(ValueError, "refusing to follow"):
-            list(source_items(develocity_source(self.config, self.inputs, self.manager)))
-        self.session.send.assert_called_once()
-        assert self.session.send.call_args.kwargs["allow_redirects"] is False
-
-    def test_unknown_table_fails_before_request(self) -> None:
-        self.inputs.schema_name = "unknown"
-        with self.assertRaises(UnknownResourceError):
-            develocity_source(self.config, self.inputs, self.manager)
-        with self.assertRaises(UnknownResourceError):
-            validate_credentials(self.config, 123, "unknown")
         self.session.send.assert_not_called()

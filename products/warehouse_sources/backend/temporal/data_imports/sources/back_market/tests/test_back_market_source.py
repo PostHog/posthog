@@ -1,11 +1,18 @@
 import pytest
 from unittest import mock
 
+from requests import ConnectionError
+
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.back_market import (
     BackMarketResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.source import BackMarketSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.backmarket import (
     BackMarketSourceConfig,
 )
@@ -35,17 +42,18 @@ class TestBackMarketSource:
             ((False, None), False, "Could not connect to Back Market with the provided API token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.back_market.source.validate_back_market_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials(
+        self, mock_return: tuple[bool, int | None], expected_valid: bool, expected_message: str | None
+    ) -> None:
+        status = mock_return[1]
+        script = [ScriptedResponse(status=status)] if status is not None else always(ConnectionError("unavailable"))
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network(script) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("token")
+        assert network.requests_log[0].headers["authorization"] == "Basic token"
 
     def test_get_resumable_source_manager_bound_to_resume_config(self):
         inputs = mock.MagicMock()

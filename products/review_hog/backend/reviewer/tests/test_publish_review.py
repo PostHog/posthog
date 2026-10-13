@@ -322,18 +322,30 @@ class TestPublishReviewGate:
         [
             # A valid finding on an off-diff line resolves zero inline comments, but the review (its body
             # carries it in the "Other findings" section) must still post, not be silently dropped.
-            ("all_off_diff", [240], 0, "full", None),
-            ("mixed", [1, 240], 1, "full", None),
-            ("all_inline", [1], 1, "full", ""),
+            ("all_off_diff", [240], 0, "full", "", None),
+            ("mixed", [1, 240], 1, "full", "", None),
+            ("all_inline", [1], 1, "full", "", ""),
             # Standard has no status comment, so its review body always says which turn it is.
             (
                 "standard_all_inline",
                 [1],
                 1,
                 "flash",
+                "",
                 "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix.\n\n",
             ),
-            ("standard_mixed", [1, 240], 1, "flash", None),
+            ("standard_mixed", [1, 240], 1, "flash", "", None),
+            # The footer must survive the inline-only body, which replaces the full body on GitHub.
+            ("footer_all_inline", [1], 1, "full", "Comment `@posthog help`.", "Comment `@posthog help`.\n\n"),
+            (
+                "standard_footer_all_inline",
+                [1],
+                1,
+                "flash",
+                "Comment `@posthog help`.",
+                "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix.\n\nComment `@posthog help`.\n\n",
+            ),
+            ("footer_mixed", [1, 240], 1, "full", "Comment `@posthog help`.", None),
         ]
     )
     @patch(_POST)
@@ -345,6 +357,7 @@ class TestPublishReviewGate:
         finding_lines: list[int],
         expected_comments: int,
         review_mode: str,
+        footer: str,
         inline_prefix: str | None,
         mock_report_cls: MagicMock,
         mock_load: MagicMock,
@@ -377,13 +390,14 @@ class TestPublishReviewGate:
             head_sha="sha",
             published_priorities=_SHOULD_FIX_PUBLISHED,
             review_mode=review_mode,
+            footer=footer,
         )
 
         assert outcome.posted is True
         mock_post.assert_called_once()
         assert len(mock_post.call_args.args[4]) == expected_comments
         marker = mock_post.call_args.kwargs["marker"]
-        assert marker in mock_post.call_args.args[3]
+        assert mock_post.call_args.args[3].endswith(f"{footer}\n\n{marker}" if footer else marker)
         expected_inline_body = None if inline_prefix is None else f"{inline_prefix}{marker}"
         assert mock_post.call_args.kwargs["inline_body"] == expected_inline_body
         # A 👍 from an earlier clean turn must not sit next to these findings.

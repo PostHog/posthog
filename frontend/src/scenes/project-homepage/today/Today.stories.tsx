@@ -1003,6 +1003,10 @@ export const PhoneWidth: Story = {
     parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
 }
 
+export const PhoneWidthNewSessionPage: Story = {
+    parameters: { pageUrl: urls.taskNewSession(), testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
 export const PhoneWidthMorePane: Story = {
     parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
     play: async ({ canvasElement }) => {

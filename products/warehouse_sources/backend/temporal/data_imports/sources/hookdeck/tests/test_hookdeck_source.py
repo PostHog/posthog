@@ -3,6 +3,14 @@ from datetime import date
 import pytest
 from unittest import mock
 
+import requests
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hookdeck import (
     HookdeckSourceConfig,
 )
@@ -114,19 +122,28 @@ class TestHookdeckSource:
             ((False, 500), None, (False, UNREACHABLE_MESSAGE)),
         ],
     )
-    @mock.patch(f"{SOURCE_MODULE}.validate_hookdeck_credentials")
-    def test_validate_credentials(self, mock_validate, probe_result, schema_name, expected) -> None:
-        mock_validate.return_value = probe_result
+    def test_validate_credentials(
+        self, probe_result: tuple[bool, int | None], schema_name: str | None, expected: tuple[bool, str | None]
+    ) -> None:
+        status_code = probe_result[1]
+        script = (
+            always(ScriptedResponse(status=status_code))
+            if status_code is not None
+            else always(requests.ConnectionError("unreachable"))
+        )
+        with scripted_network(script) as network:
+            assert self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name) == expected
 
-        assert self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name) == expected
-        mock_validate.assert_called_once_with("hd_test_key", "2026-09-01")
+        assert network.requests_log[0].path == "/2026-09-01/sources"
+        assert network.requests_log[0].param("limit") == "1"
 
     @pytest.mark.parametrize("pinned", ["2025-07-01", "2026-09-01"])
-    @mock.patch(f"{SOURCE_MODULE}.validate_hookdeck_credentials", return_value=(True, 200))
-    def test_validate_credentials_probes_under_the_pinned_version(self, mock_validate, pinned) -> None:
-        self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
+    def test_validate_credentials_probes_under_the_pinned_version(self, pinned: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
 
-        mock_validate.assert_called_once_with("hd_test_key", pinned)
+        assert network.requests_log[0].path == f"/{pinned}/sources"
+        assert network.requests_log[0].headers["authorization"] == "Bearer hd_test_key"
 
     @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hookdeck_source) -> None:
@@ -157,11 +174,13 @@ class TestHookdeckSource:
             ("2025-01-01", "2025-01-01"),
         ],
     )
-    @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
-    def test_source_for_pipeline_resolves_the_api_version(self, mock_hookdeck_source, pinned, expected) -> None:
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), _make_inputs(api_version=pinned))
+    def test_source_for_pipeline_resolves_the_api_version(self, pinned: str | None, expected: str) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "events", [ScriptedResponse(json={"models": [], "pagination": {}})], api_version=pinned
+        )
 
-        assert mock_hookdeck_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.requests[0].path == f"/{expected}/events"
 
     @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self, mock_hookdeck_source) -> None:

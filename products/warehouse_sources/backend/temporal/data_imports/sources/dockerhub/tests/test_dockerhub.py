@@ -1,19 +1,25 @@
-from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub import dockerhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.dockerhub import (
     DOCKERHUB_BASE_URL,
     PAGE_SIZE,
     DockerhubAuthExpiredError,
-    DockerHubClient,
     DockerhubResumeConfig,
     DockerhubRetryableError,
     _audit_logs_url,
@@ -23,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
     _tags_url,
     check_access,
     check_endpoint_access,
-    dockerhub_source,
     format_incremental_start,
     get_rows,
     validate_credentials,
@@ -33,10 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
     ENDPOINTS,
     ORG_SCOPED_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source import DockerhubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
+    DockerhubSourceConfig,
+)
 
 # Call the undecorated functions so the tenacity retry/backoff wrappers don't slow failure-path tests.
 _fetch_page_unwrapped = dockerhub._fetch_page.__wrapped__  # type: ignore[attr-defined]
-_fetch_jwt_unwrapped = dockerhub._fetch_jwt.__wrapped__  # type: ignore[attr-defined]
 _fetch_object_unwrapped = dockerhub._fetch_object.__wrapped__  # type: ignore[attr-defined]
 
 REPOS_URL = _repositories_url("acme")
@@ -45,6 +53,18 @@ BETA_TAGS_URL = _tags_url("acme", "beta")
 MEMBERS_URL = _org_members_url("acme")
 GROUPS_URL = _org_groups_url("acme")
 ACTIONS_URL = f"{DOCKERHUB_BASE_URL}/v2/auditlogs/acme/actions"
+LOGIN = ScriptedResponse(json={"token": "jwt-1"})
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        DockerhubSource(),
+        DockerhubSourceConfig(username="tom", personal_access_token="dckr_pat_token", namespace="acme"),
+    )
+
+
+def _page(rows: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": rows, "next": next_url})
 
 
 def _audit_page(page: int, since: str | None = None) -> str:
@@ -73,55 +93,7 @@ class _FakeResumableManager:
         self.saved.append(data)
 
 
-class _FakeClient:
-    def __init__(
-        self,
-        pages: Mapping[str, tuple[list[dict[str, Any]], Optional[str]]],
-        objects: Mapping[str, dict[str, Any]] | None = None,
-    ) -> None:
-        self._pages = pages
-        self._objects = objects or {}
-        self.fetched: list[str] = []
-        self.login_calls = 0
-
-    def login(self) -> None:
-        self.login_calls += 1
-
-    def get_page(self, url: str) -> tuple[list[dict[str, Any]], Optional[str]]:
-        self.fetched.append(url)
-        return self._pages[url]
-
-    def get_object(self, url: str) -> dict[str, Any]:
-        self.fetched.append(url)
-        return self._objects[url]
-
-
 class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: Mapping[str, tuple[list[dict[str, Any]], Optional[str]]],
-        endpoint: str,
-        objects: Mapping[str, dict[str, Any]] | None = None,
-        incremental_start: str | None = None,
-    ) -> tuple[list[dict[str, Any]], _FakeClient]:
-        client = _FakeClient(pages, objects)
-        monkeypatch.setattr(dockerhub, "DockerHubClient", lambda *args, **kwargs: client)
-
-        rows: list[dict[str, Any]] = []
-        for batch in get_rows(
-            username="tom",
-            personal_access_token="dckr_pat_token",
-            namespace="acme",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            incremental_start=incremental_start,
-        ):
-            rows.extend(batch)
-        return rows, client
-
     def test_unknown_endpoint_raises(self, monkeypatch: Any) -> None:
         with pytest.raises(ValueError, match="Unknown Docker Hub endpoint 'nope'"):
             list(
@@ -139,85 +111,90 @@ class TestGetRows:
         ("endpoint", "initial_url"),
         [("repositories", REPOS_URL), ("org_members", MEMBERS_URL), ("org_groups", GROUPS_URL)],
     )
-    def test_cursor_endpoint_follows_next_url_until_null(
-        self, endpoint: str, initial_url: str, monkeypatch: Any
-    ) -> None:
-        manager = _FakeResumableManager()
+    def test_cursor_endpoint_follows_next_url_until_null(self, endpoint: str, initial_url: str) -> None:
         second = f"{initial_url}&page=2"
-        pages = {
-            initial_url: ([{"name": "alpha"}], second),
-            second: ([{"name": "beta"}], None),
-        }
-        rows, _ = self._collect(manager, monkeypatch, pages, endpoint)
-        assert rows == [{"name": "alpha"}, {"name": "beta"}]
+        result = _driver().run(endpoint, [LOGIN, _page([{"name": "alpha"}], second), _page([{"name": "beta"}])])
+        assert result.raised is None
+        assert result.rows == [{"name": "alpha"}, {"name": "beta"}]
+        assert result.urls[1:] == [initial_url, second]
         # State is saved once, after the first page and pointing at the next cursor, then we stop.
-        assert [(s.next_url, s.repository) for s in manager.saved] == [(second, None)]
+        assert result.saved_states == [DockerhubResumeConfig(next_url=second)]
 
     @pytest.mark.parametrize(
         ("endpoint", "initial_url"),
         [("repositories", REPOS_URL), ("org_members", MEMBERS_URL), ("org_groups", GROUPS_URL)],
     )
-    def test_cursor_endpoint_resumes_from_saved_cursor(self, endpoint: str, initial_url: str, monkeypatch: Any) -> None:
+    def test_cursor_endpoint_resumes_from_saved_cursor(self, endpoint: str, initial_url: str) -> None:
         second = f"{initial_url}&page=2"
-        manager = _FakeResumableManager(DockerhubResumeConfig(next_url=second))
         # The first page URL must never be fetched on resume.
-        pages = {second: ([{"name": "beta"}], None)}
-        rows, client = self._collect(manager, monkeypatch, pages, endpoint)
-        assert rows == [{"name": "beta"}]
-        assert client.fetched == [second]
+        result = _driver().run(
+            endpoint, [LOGIN, _page([{"name": "beta"}])], resume_state=DockerhubResumeConfig(next_url=second)
+        )
+        assert result.raised is None
+        assert result.rows == [{"name": "beta"}]
+        assert result.urls[1:] == [second]
 
-    def test_tags_fan_out_injects_namespace_and_repository_name(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: Mapping[str, tuple[list[dict[str, Any]], Optional[str]]] = {
-            REPOS_URL: ([{"name": "alpha"}, {"name": "beta"}], None),
-            ALPHA_TAGS_URL: ([{"name": "latest", "repository": 42}], None),
-            BETA_TAGS_URL: ([{"name": "v1"}], None),
-        }
-        rows, _ = self._collect(manager, monkeypatch, pages, "tags")
-        assert rows == [
+    def test_tags_fan_out_injects_namespace_and_repository_name(self) -> None:
+        result = _driver().run(
+            "tags",
+            [
+                LOGIN,
+                _page([{"name": "alpha"}, {"name": "beta"}]),
+                _page([{"name": "latest", "repository": 42}]),
+                _page([{"name": "v1"}]),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [
             {"name": "latest", "repository": 42, "namespace": "acme", "repository_name": "alpha"},
             {"name": "v1", "namespace": "acme", "repository_name": "beta"},
         ]
         # State pins each completed repository so a crash re-syncs at most one repository.
-        assert [(s.repository, s.next_url) for s in manager.saved] == [("alpha", None), ("beta", None)]
-
-    def test_tags_saves_cursor_state_within_a_repository(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        alpha_page_2 = f"{DOCKERHUB_BASE_URL}/v2/namespaces/acme/repositories/alpha/tags?page=2&page_size=100"
-        pages = {
-            REPOS_URL: ([{"name": "alpha"}], None),
-            ALPHA_TAGS_URL: ([{"name": "v2"}], alpha_page_2),
-            alpha_page_2: ([{"name": "v1"}], None),
-        }
-        rows, _ = self._collect(manager, monkeypatch, pages, "tags")
-        assert [r["name"] for r in rows] == ["v2", "v1"]
-        assert [(s.repository, s.next_url) for s in manager.saved] == [
-            ("alpha", alpha_page_2),
-            ("alpha", None),
+        assert result.urls[1:] == [REPOS_URL, ALPHA_TAGS_URL, BETA_TAGS_URL]
+        assert result.saved_states == [
+            DockerhubResumeConfig(repository="alpha"),
+            DockerhubResumeConfig(repository="beta"),
         ]
 
-    def test_tags_resumes_from_saved_repository_and_cursor(self, monkeypatch: Any) -> None:
-        beta_page_2 = f"{DOCKERHUB_BASE_URL}/v2/namespaces/acme/repositories/beta/tags?page=2&page_size=100"
-        manager = _FakeResumableManager(DockerhubResumeConfig(next_url=beta_page_2, repository="beta"))
-        pages = {
-            REPOS_URL: ([{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}], None),
-            beta_page_2: ([{"name": "v1"}], None),
-            _tags_url("acme", "gamma"): ([{"name": "g1"}], None),
-        }
-        rows, client = self._collect(manager, monkeypatch, pages, "tags")
-        # alpha is skipped entirely; beta resumes mid-pagination; gamma starts fresh.
-        assert [(r["repository_name"], r["name"]) for r in rows] == [("beta", "v1"), ("gamma", "g1")]
-        assert ALPHA_TAGS_URL not in client.fetched
-        assert BETA_TAGS_URL not in client.fetched
+    def test_tags_saves_cursor_state_within_a_repository(self) -> None:
+        alpha_page_2 = f"{DOCKERHUB_BASE_URL}/v2/namespaces/acme/repositories/alpha/tags?page=2&page_size=100"
+        result = _driver().run(
+            "tags", [LOGIN, _page([{"name": "alpha"}]), _page([{"name": "v2"}], alpha_page_2), _page([{"name": "v1"}])]
+        )
+        assert result.raised is None
+        assert [row["name"] for row in result.rows] == ["v2", "v1"]
+        assert result.urls[1:] == [REPOS_URL, ALPHA_TAGS_URL, alpha_page_2]
+        assert result.saved_states == [
+            DockerhubResumeConfig(next_url=alpha_page_2, repository="alpha"),
+            DockerhubResumeConfig(repository="alpha"),
+        ]
 
-    def test_tags_restarts_when_resume_repository_was_deleted(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(DockerhubResumeConfig(next_url=None, repository="deleted-repo"))
-        pages = {
-            REPOS_URL: ([{"name": "alpha"}], None),
-            ALPHA_TAGS_URL: ([{"name": "latest"}], None),
-        }
-        rows, _ = self._collect(manager, monkeypatch, pages, "tags")
-        assert [(r["repository_name"], r["name"]) for r in rows] == [("alpha", "latest")]
+    def test_tags_resumes_from_saved_repository_and_cursor(self) -> None:
+        beta_page_2 = f"{DOCKERHUB_BASE_URL}/v2/namespaces/acme/repositories/beta/tags?page=2&page_size=100"
+        result = _driver().run(
+            "tags",
+            [
+                LOGIN,
+                _page([{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}]),
+                _page([{"name": "v1"}]),
+                _page([{"name": "g1"}]),
+            ],
+            resume_state=DockerhubResumeConfig(next_url=beta_page_2, repository="beta"),
+        )
+        assert result.raised is None
+        # alpha is skipped entirely; beta resumes mid-pagination; gamma starts fresh.
+        assert [(row["repository_name"], row["name"]) for row in result.rows] == [("beta", "v1"), ("gamma", "g1")]
+        assert result.urls[1:] == [REPOS_URL, beta_page_2, _tags_url("acme", "gamma")]
+
+    def test_tags_restarts_when_resume_repository_was_deleted(self) -> None:
+        result = _driver().run(
+            "tags",
+            [LOGIN, _page([{"name": "alpha"}]), _page([{"name": "latest"}])],
+            resume_state=DockerhubResumeConfig(repository="deleted-repo"),
+        )
+        assert result.raised is None
+        assert [(row["repository_name"], row["name"]) for row in result.rows] == [("alpha", "latest")]
+        assert result.urls[1:] == [REPOS_URL, ALPHA_TAGS_URL]
 
 
 class TestOrderingParams:
@@ -293,99 +270,57 @@ class TestFetchPage:
 
 
 class TestClientAuth:
-    def _login_response(self, status_code: int = 200, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"token": "jwt-1"}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        return response
-
-    def _page_response(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"results": [{"name": "alpha"}], "next": None}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        return response
-
-    def _client_with_session(self, session: MagicMock) -> DockerHubClient:
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
-            return DockerHubClient("tom", "dckr_pat_token", MagicMock())
-
     def test_login_failure_raises_http_error(self) -> None:
-        session = MagicMock()
-        session.headers = {}
-        session.post.return_value = self._login_response(status_code=401)
-        client = self._client_with_session(session)
-        with pytest.raises(requests.HTTPError):
-            client.login()
+        result = _driver().run("repositories", [ScriptedResponse(status=401)])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert [request.path for request in result.requests] == ["/v2/users/login"]
 
     def test_login_without_token_in_body_is_retryable(self) -> None:
-        session = MagicMock()
-        session.post.return_value = self._login_response(body={"detail": "weird"})
-        with pytest.raises(DockerhubRetryableError):
-            _fetch_jwt_unwrapped(session, "tom", "dckr_pat_token", MagicMock())
+        result = _driver().run("repositories", always(ScriptedResponse(json={"detail": "weird"})))
+        assert isinstance(result.raised, DockerhubRetryableError)
+        assert result.paths == ["/v2/users/login"] * 5
 
     def test_expired_jwt_triggers_single_relogin_and_retry(self) -> None:
-        session = MagicMock()
-        session.headers = {}
-        session.post.side_effect = [
-            self._login_response(body={"token": "jwt-1"}),
-            self._login_response(body={"token": "jwt-2"}),
+        result = _driver().run(
+            "repositories",
+            [
+                LOGIN,
+                ScriptedResponse(status=401),
+                ScriptedResponse(json={"token": "jwt-2"}),
+                _page([{"name": "alpha"}]),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"name": "alpha"}]
+        assert result.paths == [
+            "/v2/users/login",
+            "/v2/namespaces/acme/repositories",
+            "/v2/users/login",
+            "/v2/namespaces/acme/repositories",
         ]
-        session.get.side_effect = [self._page_response(401), self._page_response(200)]
-        client = self._client_with_session(session)
-        client.login()
-
-        rows, next_url = client.get_page(REPOS_URL)
-
-        assert rows == [{"name": "alpha"}]
-        assert next_url is None
-        assert session.post.call_count == 2
-        assert session.headers["Authorization"] == "Bearer jwt-2"
+        assert [request.method for request in result.requests].count("POST") == 2
+        assert result.requests[-1].headers["authorization"] == "Bearer jwt-2"
 
     def test_second_unauthorized_after_relogin_is_permanent(self) -> None:
-        session = MagicMock()
-        session.headers = {}
-        session.post.side_effect = [
-            self._login_response(body={"token": "jwt-1"}),
-            self._login_response(body={"token": "jwt-2"}),
+        result = _driver().run(
+            "repositories",
+            [
+                LOGIN,
+                ScriptedResponse(status=401),
+                ScriptedResponse(json={"token": "jwt-2"}),
+                ScriptedResponse(status=401),
+            ],
+        )
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.paths == [
+            "/v2/users/login",
+            "/v2/namespaces/acme/repositories",
+            "/v2/users/login",
+            "/v2/namespaces/acme/repositories",
         ]
-        session.get.side_effect = [self._page_response(401), self._page_response(401)]
-        client = self._client_with_session(session)
-        client.login()
-
-        with pytest.raises(requests.HTTPError):
-            client.get_page(REPOS_URL)
 
 
 class TestCheckAccess:
-    def _response(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"token": "jwt-1"}
-        return response
-
-    def _session(self, login_response: Any, probe_response: Any = None) -> MagicMock:
-        session = MagicMock()
-        if isinstance(login_response, Exception):
-            session.post.side_effect = login_response
-        else:
-            session.post.return_value = login_response
-        if isinstance(probe_response, Exception):
-            session.get.side_effect = probe_response
-        elif probe_response is not None:
-            session.get.return_value = probe_response
-        return session
-
     @parameterized.expand(
         [
             ("unauthorized", 401),
@@ -393,9 +328,9 @@ class TestCheckAccess:
         ]
     )
     def test_login_auth_failures(self, _name: str, status: int) -> None:
-        session = self._session(self._response(status))
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert check_access("tom", "bad-token", "acme") == (status, None)
+        assert [request.path for request in network.requests_log] == ["/v2/users/login"]
 
     @parameterized.expand(
         [
@@ -409,27 +344,27 @@ class TestCheckAccess:
     def test_login_unexpected_status_returns_actionable_message(
         self, _name: str, status: int, expected_substr: str
     ) -> None:
-        session = self._session(self._response(status))
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             result_status, message = check_access("tom", "token", "acme")
+        assert [request.path for request in network.requests_log] == ["/v2/users/login"]
         assert result_status == status
         assert message is not None
         assert expected_substr in message
         assert message != f"Docker Hub returned HTTP {status}"
 
     def test_login_connection_error_maps_to_zero(self) -> None:
-        session = self._session(requests.ConnectionError("boom"))
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             status, message = check_access("tom", "token", "acme")
         assert status == 0
         assert message is not None and "boom" in message
+        assert {request.path for request in network.requests_log} == {"/v2/users/login"}
 
     def test_login_without_token_maps_to_zero(self) -> None:
-        session = self._session(self._response(200, body={"detail": "weird"}))
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={"detail": "weird"})]) as network:
             status, message = check_access("tom", "token", "acme")
         assert status == 0
         assert message == "Docker Hub login did not return a token"
+        assert [request.path for request in network.requests_log] == ["/v2/users/login"]
 
     @parameterized.expand(
         [
@@ -446,9 +381,13 @@ class TestCheckAccess:
     def test_namespace_probe_status_mapping(
         self, _name: str, probe_status: int, expected_status: int, expected_message: str | None
     ) -> None:
-        session = self._session(self._response(200), self._response(probe_status))
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+        with scripted_network([LOGIN, ScriptedResponse(status=probe_status)]) as network:
             assert check_access("tom", "token", "acme") == (expected_status, expected_message)
+        assert [request.path for request in network.requests_log] == [
+            "/v2/users/login",
+            "/v2/namespaces/acme/repositories",
+        ]
+        assert network.requests_log[-1].param("page_size") == "1"
 
     @parameterized.expand(
         [
@@ -479,23 +418,28 @@ class TestCheckAccess:
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        probe_response = self._response(probe_status) if probe_status is not None else self._response(200)
-        session = self._session(self._response(login_status), probe_response)
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+        script = [ScriptedResponse(status=login_status, json={"token": "jwt-1"})]
+        if login_status == 200:
+            script.append(ScriptedResponse(status=probe_status or 200))
+        with scripted_network(script) as network:
             assert validate_credentials("tom", "token", "acme") == (expected_valid, expected_message)
+        assert network.requests_log[0].path == "/v2/users/login"
+        assert len(network.requests_log) == (2 if login_status == 200 else 1)
 
 
 class TestDockerhubSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = dockerhub_source(
-            username="tom",
-            personal_access_token="dckr_pat_token",
-            namespace="acme",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        if endpoint == "audit_logs":
+            answer = ScriptedResponse(json={"logs": []})
+        elif endpoint == "audit_log_actions":
+            answer = ScriptedResponse(json={"actions": {}})
+        else:
+            answer = _page([])
+        result = _driver().run(endpoint, [LOGIN, answer])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         config = DOCKERHUB_ENDPOINTS[endpoint]
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -515,63 +459,81 @@ class TestDockerhubSourceResponse:
 
 
 class TestAuditLogs:
-    def test_full_page_advances_and_saves_the_page_cursor(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        objects = {
-            _audit_page(1): {"logs": _audit_events(PAGE_SIZE)},
-            _audit_page(2): {"logs": _audit_events(1)},
-        }
-        rows, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
-        assert len(rows) == PAGE_SIZE + 1
-        assert client.fetched == [_audit_page(1), _audit_page(2)]
-        assert [state.page for state in manager.saved] == [2]
-
-    def test_resumes_from_the_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(DockerhubResumeConfig(page=3))
-        objects = {_audit_page(3): {"logs": _audit_events(1)}}
-        _, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
-        assert client.fetched == [_audit_page(3)]
-
-    def test_null_logs_ends_the_walk(self, monkeypatch: Any) -> None:
-        # Docker Hub serializes an empty event list as null rather than [].
-        manager = _FakeResumableManager()
-        objects: dict[str, Any] = {_audit_page(1): {"logs": None}}
-        rows, _ = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
-        assert rows == []
-
-    def test_non_list_logs_is_retryable(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        objects: dict[str, Any] = {_audit_page(1): {"logs": {"unexpected": True}}}
-        with pytest.raises(DockerhubRetryableError):
-            TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
-
-    def test_incremental_run_sends_the_watermark_as_from(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        since = "2026-01-01T00:00:00Z"
-        objects = {_audit_page(1, since): {"logs": _audit_events(1)}}
-        _, client = TestGetRows._collect(
-            manager, monkeypatch, {}, "audit_logs", objects=objects, incremental_start=since
+    def test_full_page_advances_and_saves_the_page_cursor(self) -> None:
+        result = _driver().run(
+            "audit_logs",
+            [
+                LOGIN,
+                ScriptedResponse(json={"logs": _audit_events(PAGE_SIZE)}),
+                ScriptedResponse(json={"logs": _audit_events(1)}),
+            ],
         )
-        assert "from=2026-01-01T00%3A00%3A00Z" in client.fetched[0]
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.urls[1:] == [_audit_page(1), _audit_page(2)]
+        assert result.saved_states == [DockerhubResumeConfig(page=2)]
+
+    def test_resumes_from_the_saved_page(self) -> None:
+        result = _driver().run(
+            "audit_logs",
+            [LOGIN, ScriptedResponse(json={"logs": _audit_events(1)})],
+            resume_state=DockerhubResumeConfig(page=3),
+        )
+        assert result.raised is None
+        assert result.urls[1:] == [_audit_page(3)]
+
+    def test_null_logs_ends_the_walk(self) -> None:
+        # Docker Hub serializes an empty event list as null rather than [].
+        result = _driver().run("audit_logs", [LOGIN, ScriptedResponse(json={"logs": None})])
+        assert result.raised is None
+        assert result.rows == []
+        assert result.urls[1:] == [_audit_page(1)]
+
+    def test_non_list_logs_is_retryable(self) -> None:
+        result = _driver().run("audit_logs", [LOGIN, ScriptedResponse(json={"logs": {"unexpected": True}})])
+        assert isinstance(result.raised, DockerhubRetryableError)
+        assert result.urls[1:] == [_audit_page(1)]
+
+    def test_incremental_run_sends_the_watermark_as_from(self) -> None:
+        since = "2026-01-01T00:00:00Z"
+        result = _driver().run(
+            "audit_logs",
+            [LOGIN, ScriptedResponse(json={"logs": _audit_events(1)})],
+            incremental_field="timestamp",
+            db_incremental_field_last_value=since,
+        )
+        assert result.raised is None
+        assert result.urls[1:] == [_audit_page(1, since)]
+        assert result.params("from") == [None, since]
 
 
 class TestAuditLogActions:
-    def test_action_map_is_flattened_into_joinable_rows(self, monkeypatch: Any) -> None:
+    def test_action_map_is_flattened_into_joinable_rows(self) -> None:
         # An audit event names its action as "<group>.<name>", so the catalog is only usable as a
         # lookup once the joined form is on the row.
-        objects = {
-            ACTIONS_URL: {
-                "actions": {
-                    "repo": {
-                        "label": "Repository",
-                        "actions": [{"name": "tag.push", "label": "Tag Pushed", "description": "Tags pushed"}],
+        result = _driver().run(
+            "audit_log_actions",
+            [
+                LOGIN,
+                ScriptedResponse(
+                    json={
+                        "actions": {
+                            "repo": {
+                                "label": "Repository",
+                                "actions": [{"name": "tag.push", "label": "Tag Pushed", "description": "Tags pushed"}],
+                            },
+                            "org": {
+                                "label": "Organization",
+                                "actions": [{"name": "member.add", "label": "Member Added"}],
+                            },
+                        }
                     },
-                    "org": {"label": "Organization", "actions": [{"name": "member.add", "label": "Member Added"}]},
-                }
-            }
-        }
-        rows, _ = TestGetRows._collect(_FakeResumableManager(), monkeypatch, {}, "audit_log_actions", objects=objects)
-        assert rows == [
+                ),
+            ],
+        )
+        assert result.raised is None
+        assert result.urls[1:] == [ACTIONS_URL]
+        assert result.rows == [
             {
                 "action_group": "repo",
                 "action_group_label": "Repository",
@@ -591,11 +553,10 @@ class TestAuditLogActions:
         ]
 
     @pytest.mark.parametrize("body", [{}, {"actions": []}])
-    def test_unexpected_payload_is_retryable(self, body: Any, monkeypatch: Any) -> None:
-        with pytest.raises(DockerhubRetryableError):
-            TestGetRows._collect(
-                _FakeResumableManager(), monkeypatch, {}, "audit_log_actions", objects={ACTIONS_URL: body}
-            )
+    def test_unexpected_payload_is_retryable(self, body: Any) -> None:
+        result = _driver().run("audit_log_actions", [LOGIN, ScriptedResponse(json=body)])
+        assert isinstance(result.raised, DockerhubRetryableError)
+        assert result.urls[1:] == [ACTIONS_URL]
 
 
 class TestFormatIncrementalStart:
@@ -620,30 +581,15 @@ class TestFormatIncrementalStart:
 
 
 class TestCheckEndpointAccess:
-    def _sessions(self, login_status: int = 200, probe: Any = None) -> MagicMock:
-        session = MagicMock()
-        login = MagicMock()
-        login.ok = login_status < 400
-        login.json.return_value = {"token": "jwt-1"}
-        session.post.return_value = login
-        if isinstance(probe, Exception):
-            session.get.side_effect = probe
-        elif probe is not None:
-            response = MagicMock()
-            response.status_code = probe
-            session.get.return_value = response
-        return session
-
-    def _check(self, session: MagicMock, endpoints: list[str] | None = None) -> dict[str, str | None]:
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
-            return check_endpoint_access("tom", "token", "acme", endpoints or list(ENDPOINTS))
-
     def test_repositories_and_tags_are_never_probed(self) -> None:
         # Both read the namespace endpoints that `validate_credentials` already covered, so probing
         # them again would spend requests to report what the source-level check reports.
-        session = self._sessions()
-        assert self._check(session, ["repositories", "tags"]) == {"repositories": None, "tags": None}
-        session.post.assert_not_called()
+        with scripted_network([]) as network:
+            assert check_endpoint_access("tom", "token", "acme", ["repositories", "tags"]) == {
+                "repositories": None,
+                "tags": None,
+            }
+        assert network.requests_log == []
 
     @parameterized.expand(
         [
@@ -654,8 +600,11 @@ class TestCheckEndpointAccess:
     def test_unreachable_org_endpoints_report_what_to_change(
         self, _name: str, status: int, expected_substr: str
     ) -> None:
-        permissions = self._check(self._sessions(probe=status))
+        with scripted_network([LOGIN, *[ScriptedResponse(status=status) for _ in ORG_SCOPED_ENDPOINTS]]) as network:
+            permissions = check_endpoint_access("tom", "token", "acme", list(ENDPOINTS))
         assert permissions["repositories"] is None
+        assert len(network.requests_log) == 1 + len(ORG_SCOPED_ENDPOINTS)
+        assert network.requests_log[0].path == "/v2/users/login"
         for endpoint in ORG_SCOPED_ENDPOINTS:
             reason = permissions[endpoint]
             assert reason is not None and expected_substr in reason
@@ -671,7 +620,31 @@ class TestCheckEndpointAccess:
     ) -> None:
         # A bad credential is reported by validate_credentials, and a network blip is not a missing
         # permission. Either one marking every org table unavailable would be a false alarm.
-        assert self._check(self._sessions(login_status=login_status, probe=probe)) == dict.fromkeys(ENDPOINTS)
+        if login_status == 200:
+            assert isinstance(probe, BaseException)
+
+            def answer(request: RecordedRequest) -> ScriptedResponse:
+                if request.path == "/v2/users/login":
+                    return LOGIN
+                raise probe
+
+            script: Script = answer
+        else:
+            script = [ScriptedResponse(status=login_status)]
+        with scripted_network(script) as network:
+            assert check_endpoint_access("tom", "token", "acme", list(ENDPOINTS)) == dict.fromkeys(ENDPOINTS)
+        paths = {request.path for request in network.requests_log}
+        expected_paths = {"/v2/users/login"}
+        if login_status == 200:
+            expected_paths.update(
+                {
+                    "/v2/orgs/acme/members",
+                    "/v2/orgs/acme/groups",
+                    "/v2/auditlogs/acme",
+                    "/v2/auditlogs/acme/actions",
+                }
+            )
+        assert paths == expected_paths
 
 
 class TestFetchObject:
@@ -688,22 +661,21 @@ class TestFetchObject:
     def test_expired_jwt_triggers_a_relogin_and_retry(self) -> None:
         # The audit log endpoints go through get_object, so they need the same mid-sync JWT refresh
         # the list endpoints get. Without it a long audit log walk dies at token expiry.
-        session = MagicMock()
-        session.headers = {}
-        login = MagicMock()
-        login.status_code = 200
-        login.ok = True
-        login.json.return_value = {"token": "jwt-2"}
-        session.post.return_value = login
-
-        expired = MagicMock(status_code=401, ok=False, text="")
-        expired.raise_for_status.side_effect = requests.HTTPError("401 error", response=expired)
-        fresh = MagicMock(status_code=200, ok=True, text="")
-        fresh.json.return_value = {"actions": {}}
-        session.get.side_effect = [expired, fresh]
-
-        with patch.object(dockerhub, "make_tracked_session", return_value=session):
-            client = DockerHubClient("tom", "dckr_pat_token", MagicMock())
-
-        assert client.get_object(ACTIONS_URL) == {"actions": {}}
-        assert session.headers["Authorization"] == "Bearer jwt-2"
+        result = _driver().run(
+            "audit_log_actions",
+            [
+                LOGIN,
+                ScriptedResponse(status=401),
+                ScriptedResponse(json={"token": "jwt-2"}),
+                ScriptedResponse(json={"actions": {}}),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == [
+            "/v2/users/login",
+            "/v2/auditlogs/acme/actions",
+            "/v2/users/login",
+            "/v2/auditlogs/acme/actions",
+        ]
+        assert result.requests[-1].headers["authorization"] == "Bearer jwt-2"
