@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/data_warehouse/api'
+import hooks_viewGet from '@/tools/dataWarehouse/viewGetHooks'
+import { withToolHooks } from '@/tools/tool-hooks'
 import {
     withPostHogUrl,
     pickResponseFields,
@@ -298,14 +300,17 @@ const ViewGetSchema = () => {
 const viewGet = (): ToolBase<ReturnType<typeof ViewGetSchema>, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-get',
     schema: ViewGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
-    },
+    handler: withToolHooks(
+        hooks_viewGet,
+        async (context: Context, params: z.infer<ReturnType<typeof ViewGetSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        }
+    ),
 })
 
 const ViewListSchema = () => {

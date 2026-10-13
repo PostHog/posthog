@@ -323,6 +323,7 @@ SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
+EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = "experiments-ratio-metric-events-preaggregation"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

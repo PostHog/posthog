@@ -1,4 +1,4 @@
-import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { MetricsQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import { DashboardTile } from '~/types'
 
@@ -38,6 +38,11 @@ const CONTROLS_BY_QUERY_KIND: Partial<Record<NodeKind, DashboardControl[]>> = {
 
 export function dashboardControlsForQuery(query: Node | null | undefined): DashboardControl[] {
     const source = isNodeWithSource(query) ? query.source : query
+    // Label filters are added to builder clauses only; PromQL and SQL text is not rewritten.
+    const metricsLanguage = source?.kind === NodeKind.MetricsQuery ? (source as MetricsQuery).language : undefined
+    if (metricsLanguage && metricsLanguage !== 'builder') {
+        return ['dateRange']
+    }
     return (source?.kind && CONTROLS_BY_QUERY_KIND[source.kind as NodeKind]) || DEFAULT_CONTROLS
 }
 

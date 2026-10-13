@@ -19,8 +19,28 @@ def _file(filename: str, patch: str | None = "@@ -1 +1 @@\n-a\n+b") -> dict[str,
     return {"filename": filename, "changes": 2, "patch": patch}
 
 
-def _commit(sha: str, *, merge: bool = False) -> dict[str, Any]:
-    return {"sha": sha, "parents": [{"sha": "p1"}, {"sha": "p2"}] if merge else [{"sha": "p1"}]}
+_REVIEWHOG_BOT = {"login": "reviewhog[bot]", "type": "Bot"}
+
+
+def _commit(
+    sha: str,
+    *,
+    merge: bool = False,
+    author: dict[str, str] | None = None,
+    committer: dict[str, str] | None = None,
+    verified: bool = False,
+) -> dict[str, Any]:
+    return {
+        "sha": sha,
+        "parents": [{"sha": "p1"}, {"sha": "p2"}] if merge else [{"sha": "p1"}],
+        "author": author or {"login": "octocat", "type": "User"},
+        "committer": committer or author or {"login": "octocat", "type": "User"},
+        "commit": {"verification": {"verified": verified}},
+    }
+
+
+def _own_commit(sha: str) -> dict[str, Any]:
+    return _commit(sha, author=_REVIEWHOG_BOT, committer=_REVIEWHOG_BOT, verified=True)
 
 
 def _pr(commits: list[dict[str, Any]], files: list[dict[str, Any]]) -> dict[str, Any]:
@@ -54,6 +74,7 @@ def _decide(responses: dict[str, dict[str, Any] | None], system_one: MagicMock |
     with (
         patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
         patch(f"{_MODULE}.build_system_one_client", MagicMock(return_value=system_one or MagicMock())),
+        patch(f"{_MODULE}.posthog_app_login", return_value="reviewhog[bot]"),
     ):
         return PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
             previous_head_sha="old", head_sha="new", base_branch="master"
@@ -97,6 +118,17 @@ _CODE_PUSH = _push(
             "rebase",
             _push(new_commits=[_commit("a2")], pr_files=[_file("posthog/billing.py", _BILLING_AFTER_MERGE)]),
             "merge_only",
+            True,
+        ),
+        # The resolution stage pushed fixes for the last review's findings.
+        (
+            "reviewhog_fix_commits",
+            _push(
+                new_commits=[_commit("a"), _own_commit("c")],
+                pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+                own_commit_files=[_file("posthog/billing.py", _BILLING_FIX)],
+            ),
+            "reviewhog_commits_only",
             True,
         ),
         # ReviewHog never reviews lockfiles, yet a lockfile bump is the author's own change, not a merge.
@@ -155,6 +187,34 @@ def test_push_gate_asks_system_one_about_own_code_commits(
     # The threshold was calibrated on exactly this state: own code patches, docs dropped.
     assert call["state"] == f"--- posthog/billing.py\n{_BILLING_FIX}"
     assert "round" not in str(call["questions"]["alters"].instructions)
+
+
+def test_push_gate_reviews_a_push_that_mixes_reviewhog_and_author_commits() -> None:
+    push = _push(
+        new_commits=[_commit("a"), _own_commit("r"), _commit("c")],
+        pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+        own_commit_files=[_file("posthog/billing.py", _BILLING_FIX)],
+    )
+    decision = _decide({**push, "commits/r": {"files": []}}, _system_one(0.99))
+    assert (decision.skip, decision.reason) == (False, "system_one_above_threshold")
+
+
+@parameterized.expand(
+    [
+        ("unsigned", _commit("s", author=_REVIEWHOG_BOT)),
+        (
+            "signed_by_a_person",
+            _commit("s", author=_REVIEWHOG_BOT, committer={"login": "mallory", "type": "User"}, verified=True),
+        ),
+    ]
+)
+def test_push_gate_reviews_commits_that_only_claim_the_app_as_author(_name: str, spoofed: dict[str, Any]) -> None:
+    push = _push(
+        new_commits=[_commit("a"), spoofed],
+        pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+    )
+    decision = _decide({**push, "commits/s": {"files": [_file("posthog/billing.py", _BILLING_FIX)]}}, _system_one(0.99))
+    assert decision.reason != "reviewhog_commits_only"
 
 
 @parameterized.expand(

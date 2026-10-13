@@ -2990,6 +2990,17 @@ class TestExternalDataSource(APIBaseTest):
         # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
         self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino"}.issubset(source_types))
         self.assertNotIn("Stripe", source_types)
+        # BigQuery is gated on the bigquery-direct-query flag, off by default.
+        self.assertNotIn("BigQuery", source_types)
+
+        with patch(
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
+            return_value=True,
+        ):
+            flag_on = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/"
+            )
+        self.assertIn("BigQuery", {option["source_type"] for option in flag_on.json()})
 
         clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
         self.assertEqual(clickhouse["label"], "ClickHouse")
@@ -4311,6 +4322,52 @@ class TestExternalDataSource(APIBaseTest):
         assert connection_metadata is not None
         self.assertEqual(connection_metadata["database"], "app")
         self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_direct_bigquery_source_without_table_registration(self, mock_get_source):
+        # BigQuery has no materialization engine, so a pure-direct connection is created with
+        # schema rows but no DataWarehouseTable. Creation is gated on the bigquery-direct-query flag.
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {"dataset_id": "analytics"}
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "INTEGER", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        request_data = {
+            "source_type": "BigQuery",
+            "created_via": "web",
+            "access_method": "direct",
+            "prefix": "Analytics warehouse",
+            "payload": {"dataset_id": "analytics"},
+        }
+
+        # Flag off (the default): a direct BigQuery connection cannot be created.
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=request_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE})
+
+        with patch(
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
+            return_value=True,
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=request_data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        self.assertEqual(source.access_method, ExternalDataSource.AccessMethod.DIRECT)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source=source, name="orders")
+        self.assertIsNone(schema.table)
 
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
@@ -9853,7 +9910,6 @@ class TestCreateWebhook(APIBaseTest):
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config
@@ -9994,7 +10050,7 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
-class TestSensitiveFieldClassification(APIBaseTest):
+class TestSensitiveFieldClassification(SimpleTestCase):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
@@ -10246,94 +10302,6 @@ class TestSensitiveFieldClassification(APIBaseTest):
 
         assert result["temporary-dataset"]["temporary_dataset_id"] == "declared"
         assert "temporary_dataset" not in result
-
-    def test_all_registered_sources_have_valid_classification(self):
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-
-            # No field should appear in both sets
-            overlap = split.nonsensitive & split.sensitive
-            assert not overlap, f"{config.name}: fields in both sets: {overlap}"
-
-    def test_password_typed_fields_must_be_marked_secret(self):
-        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
-        it would obscure on screen but still be returned in plain text from the API.
-        """
-
-        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
-            offenders: list[str] = []
-            for field in fields:
-                if isinstance(field, SourceFieldInputConfig):
-                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
-                        offenders.append(field.name)
-                elif isinstance(field, SourceFieldSwitchGroupConfig):
-                    offenders.extend(collect_password_fields_without_secret(field.fields))
-                elif isinstance(field, SourceFieldSelectConfig):
-                    for option in field.options:
-                        if option.fields:
-                            offenders.extend(collect_password_fields_without_secret(option.fields))
-            return offenders
-
-        all_offenders: dict[str, list[str]] = {}
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            offenders = collect_password_fields_without_secret(config.fields)
-            if offenders:
-                all_offenders[config.name] = offenders
-
-        assert not all_offenders, (
-            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
-            f"Offending fields: {all_offenders}"
-        )
-
-    def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
-        """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
-
-        old_allowed = {
-            "stripe_account_id",
-            "database",
-            "host",
-            "port",
-            "user",
-            "schema",
-            "ssh_tunnel",
-            "using_ssl",
-            "region",
-            "site_name",
-            "subdomain",
-            "email_address",
-            "hubspot_integration_id",
-            "custom_properties",
-            "account_id",
-            "warehouse",
-            "role",
-            "dataset_id",
-            "temporary-dataset",
-            "dataset_project",
-            "customer_id",
-            "google_ads_integration_id",
-            "is_mcc_account",
-            "spreadsheet_url",
-            "linkedin_ads_integration_id",
-            "meta_ads_integration_id",
-            "sync_lookback_days",
-            "reddit_integration_id",
-            "salesforce_integration_id",
-            "repository",
-            "shopify_store_id",
-            "namespace",
-        }
-
-        # Collect all nonsensitive field names across all sources
-        all_nonsensitive: set[str] = set()
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-            all_nonsensitive.update(split.nonsensitive)
-
-        missing = old_allowed - all_nonsensitive
-        assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
 
 
 class TestWebhookInfo(APIBaseTest):

@@ -39,6 +39,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.exports.backend.temporal.subscriptions.activities import (
     _resolve_exportable_insights,
@@ -1203,6 +1204,10 @@ async def test_create_export_assets_persists_insight_snapshots_to_delivery_conte
 async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(team, user):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="delrec01", name="Delivery record")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    context_dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Context dashboard")
+    await sync_to_async(SubscriptionContext.objects.for_team(team.id).create)(
+        team_id=team.id, subscription=subscription, dashboard=context_dashboard
+    )
 
     env = ActivityEnvironment()
     inputs = CreateDeliveryRecordInputs(
@@ -1226,6 +1231,7 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
     assert row.content_snapshot["total_insight_count"] == 0
     assert len(row.content_snapshot["insights"]) == 1
     assert row.content_snapshot["insights"][0]["short_id"] == "delrec01"
+    assert row.context_refs == [f"dashboard:{context_dashboard.id}"]
 
     inputs_retry = CreateDeliveryRecordInputs(
         subscription_id=subscription.id,

@@ -7,6 +7,7 @@ import { BIConnections } from 'products/business_intelligence/frontend/BIConnect
 import { BIDataPaneSection } from 'products/business_intelligence/frontend/BIDataPaneSection'
 import { BIDataSourcePicker } from 'products/business_intelligence/frontend/BIDataSourcePicker'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
+import { BIHierarchySection } from 'products/business_intelligence/frontend/BIHierarchySection'
 
 import { BIConnectionSelector } from './BIConnectionSelector'
 
@@ -20,7 +21,7 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
         dataPaneSearch,
         filteredDataPaneFields,
     } = useValues(biEditorLogic)
-    const { editCalculatedMeasure, hydrateTableFields, setDataPaneSearch } = useActions(biEditorLogic)
+    const { editCalculatedField, hydrateTableFields, setDataPaneSearch } = useActions(biEditorLogic)
 
     const hasFields = dataPaneFields.dimensions.length > 0 || dataPaneFields.measures.length > 0
     const hasMatches = filteredDataPaneFields.dimensions.length > 0 || filteredDataPaneFields.measures.length > 0
@@ -87,6 +88,7 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                         />
                     </>
                 )}
+                {config.source && !dataPaneFieldsError ? <BIHierarchySection tabId={tabId} /> : null}
                 {config.source && !dataPaneFieldsError ? <BIConnections /> : null}
             </div>
             <div className="border-t p-2">
@@ -95,11 +97,11 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                     size="xsmall"
                     fullWidth
                     type="secondary"
-                    onClick={() => editCalculatedMeasure()}
+                    onClick={() => editCalculatedField()}
                     disabledReason={!config.source ? 'Select a data source first' : undefined}
                     data-attr="bi-editor-add-calculated-measure"
                 >
-                    Add calculated measure
+                    Add calculated field
                 </LemonButton>
             </div>
         </div>
