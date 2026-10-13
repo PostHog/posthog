@@ -108,7 +108,7 @@ export interface teamsLogicActions {
     refresh: () => {
         value: true
     } // engineeringAnalyticsLogic
-    loadTeams: (_: any) => any
+    loadTeams: (_: void) => void
     loadTeamsFailure: (
         error: string,
         errorObject?: any
@@ -118,10 +118,10 @@ export interface teamsLogicActions {
     }
     loadTeamsSuccess: (
         teams: TeamsData,
-        payload?: any
+        payload?: void
     ) => {
         teams: TeamsData
-        payload?: any
+        payload?: void
     }
 }
 
@@ -145,7 +145,7 @@ export const teamsLogic = kea<teamsLogicType>([
         teams: [
             null as TeamsData | null,
             {
-                loadTeams: async (_, breakpoint): Promise<TeamsData> => {
+                loadTeams: async (_: void, breakpoint): Promise<TeamsData> => {
                     const data = await engineeringAnalyticsTeamCiHealth(projectId(), {
                         date_from: DEFAULT_TEAMS_WINDOW,
                         source_id: values.sourceId ?? undefined,
