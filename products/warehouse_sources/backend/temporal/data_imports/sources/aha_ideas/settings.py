@@ -24,7 +24,7 @@ def _updated_at_incremental_fields(column: str = "updated_at") -> list[Increment
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class AhaIdeasEndpointConfig:
     name: str
     path: str  # Path under /api/v1, e.g. "/ideas"
