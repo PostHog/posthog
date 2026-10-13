@@ -16,6 +16,11 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: logs
+scout-precheck-query: |
+  SELECT 1 AS has_logs
+  FROM logs
+  WHERE timestamp > {now} - INTERVAL 24 HOUR
+  LIMIT 1
 ---
 
 # Signals scout: logs
@@ -43,6 +48,8 @@ On a busy project the log stream runs to hundreds of millions of lines/hour, the
 Carry the team's baselines in `pattern:` memory (total lines/hour, error+fatal/hour, the busiest services) so future runs skip rediscovery.
 
 ## Quick close-out: are logs even in use?
+
+A scheduled run can start with a `<precheck_result>` block. Its row shows that the project ingested at least one log line of any severity in the last 24 hours, so logs are in use. When the block is present, skip this check.
 
 Check with **`logs-services-create`** over `-24h` (`m` = month and there is no minute unit, so don't write `-15m`; `-24h`/`-7d` or explicit ISO are the safe forms) — it's an all-severity aggregation that survives the firehose. **Zero services back = genuinely not using logs.** Use a day-plus window, not minutes, so a batch/sparse project that only logs periodically isn't misread as silent. Do _not_ decide this from error/fatal counts alone: a team that logs only at `info`/`warn` (common — one line per request) would read as "no logs" and get permanently short-circuited. And don't read a `logs-count` 500 as "no logs" — that's the firehose, not silence. Write one scratchpad entry:
 
