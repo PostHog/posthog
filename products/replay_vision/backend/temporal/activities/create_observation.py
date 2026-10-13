@@ -161,7 +161,9 @@ def _admit_within_cap(scanner: ReplayScanner, cost: int, period: BillingPeriod) 
         # A contended refresh times out into the OperationalError handler below and retries on the
         # activity's backoff, and the retry usually lands on the winner's warm cache. By-pk via
         # all_origins, so a capped inline scanner locks its row rather than skipping enforcement.
-        ReplayScanner.all_origins.select_for_update(of=("self",))
+        # NO KEY UPDATE, so an insert's foreign-key check on this row does not wait behind it while that
+        # insert's transaction holds the org row this refresh waits for next.
+        ReplayScanner.all_origins.select_for_update(of=("self",), no_key=True)
         .filter(pk=scanner.pk)
         .only("pk", "credit_limit")
         .first()
@@ -231,7 +233,11 @@ def _admit_within_org_limit(organization_id: UUID, cost: int, cap: OrgCreditCap)
     if _try_cached_org_admission(organization_id, cost, cap):
         return None
     locked = ReplayVisionOrgAdmissionBudget.objects.select_for_update().filter(organization_id=organization_id)
-    if locked.first() is None:
+    if locked.first() is not None:
+        # A waiter that queued behind another refresh finds the cache warm again, so skip the aggregates.
+        if _try_cached_org_admission(organization_id, cost, cap):
+            return None
+    else:
         # A racing creator waits on the unique key and then takes the row lock below.
         ReplayVisionOrgAdmissionBudget.objects.bulk_create(
             [

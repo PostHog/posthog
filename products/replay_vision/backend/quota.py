@@ -512,15 +512,11 @@ def quota_state(organization_id: UUID) -> QuotaState:
 def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
     """The org's spend against a cap the caller already resolved, so the two cannot straddle a period boundary."""
     period = cap.period
-    # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
-    consumed = ReplayObservationUsage.objects.filter(
-        organization_id=organization_id,
-        observation_created_at__gte=period.start,
-        observation_created_at__lt=period.end,
-    ).aggregate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))["total"]
     # In-flight rows aren't in the ledger yet (receipt is written on success), so reserve their credits live,
     # priced from the frozen snapshot model exactly as the eventual receipt will be. One created just before
     # a period rollover settles into the next window, so it is briefly counted in neither; accepted.
+    # Read before the ledger: an observation settling between the two reads is then counted twice, which
+    # fails toward capped, never in neither.
     in_flight_models = Counter(
         ReplayObservation.objects.filter(
             team__organization_id=organization_id,
@@ -529,6 +525,12 @@ def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
             created_at__lt=period.end,
         ).values_list("scanner_snapshot__model", flat=True)
     )
+    # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
+    consumed = ReplayObservationUsage.objects.filter(
+        organization_id=organization_id,
+        observation_created_at__gte=period.start,
+        observation_created_at__lt=period.end,
+    ).aggregate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))["total"]
     reserved = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     return QuotaState(
         credit_limit=cap.credit_limit,
