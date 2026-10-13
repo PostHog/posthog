@@ -1,4 +1,5 @@
 import json
+import contextlib
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -9,6 +10,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.settings import GRIDLY_ENDPOINTS
@@ -78,7 +80,9 @@ def _fetch(
     # `redacted_url` replaces `url` in every log line and error when the URL embeds customer content,
     # such as a customer-defined record id.
     try:
-        response = session.get(url, params=params, headers=headers, timeout=60)
+        # The tracked transport records the request URL, so a redacted request hides it there too.
+        with redact_request_urls() if redacted_url else contextlib.nullcontext():
+            response = session.get(url, params=params, headers=headers, timeout=60)
     except (requests.ReadTimeout, requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as error:
         if redacted_url is None:
             raise
