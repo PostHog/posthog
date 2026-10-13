@@ -240,32 +240,34 @@ const MOCKS: Mocks = {
                         )
                         .map((row) => ({
                             ...row,
-                            posthogConversions: query.includePostHogConversions
-                                ? [
-                                      {
-                                          id: 'signup',
-                                          name: 'Signups',
-                                          conversions: 24,
-                                          costPerConversion: row.cost == null ? null : row.cost / 24,
-                                          previousConversions: query.compareFilter?.compare ? 20 : null,
-                                          previousCostPerConversion:
-                                              query.compareFilter?.compare && row.cost != null
-                                                  ? (row.cost * 1.1) / 20
-                                                  : null,
-                                      },
-                                      {
-                                          id: 'purchase',
-                                          name: 'Purchases',
-                                          conversions: 6,
-                                          costPerConversion: row.cost == null ? null : row.cost / 6,
-                                          previousConversions: query.compareFilter?.compare ? 8 : null,
-                                          previousCostPerConversion:
-                                              query.compareFilter?.compare && row.cost != null
-                                                  ? (row.cost * 1.1) / 8
-                                                  : null,
-                                      },
-                                  ]
-                                : undefined,
+                            posthogConversions:
+                                query.includePostHogConversions &&
+                                (query.breakdown === 'page' || row.platform !== 'GoogleSearchConsole')
+                                    ? [
+                                          {
+                                              id: 'signup',
+                                              name: 'Signups',
+                                              conversions: 24,
+                                              costPerConversion: row.cost == null ? null : row.cost / 24,
+                                              previousConversions: query.compareFilter?.compare ? 20 : null,
+                                              previousCostPerConversion:
+                                                  query.compareFilter?.compare && row.cost != null
+                                                      ? (row.cost * 1.1) / 20
+                                                      : null,
+                                          },
+                                          {
+                                              id: 'purchase',
+                                              name: 'Purchases',
+                                              conversions: 6,
+                                              costPerConversion: row.cost == null ? null : row.cost / 6,
+                                              previousConversions: query.compareFilter?.compare ? 8 : null,
+                                              previousCostPerConversion:
+                                                  query.compareFilter?.compare && row.cost != null
+                                                      ? (row.cost * 1.1) / 8
+                                                      : null,
+                                          },
+                                      ]
+                                    : undefined,
                             previous: query.compareFilter?.compare
                                 ? {
                                       clicks: row.clicks * 0.8,
@@ -827,6 +829,22 @@ export const PostHogConversionsNarrow: Story = {
             </div>
         ),
     ],
+}
+
+export const KeywordPostHogConversions: Story = {
+    ...PostHogConversions,
+    play: async (context) => {
+        await PostHogConversions.play?.(context)
+        const canvas = within(context.canvasElement)
+        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await expect(canvas.findByText(/Paid keywords are matched/)).resolves.toBeVisible()
+        await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
+    },
+}
+
+export const KeywordPostHogConversionsNarrow: Story = {
+    ...KeywordPostHogConversions,
+    decorators: PostHogConversionsNarrow.decorators,
 }
 
 function conversionLoadingMock(state: 'loading' | 'error'): MockSignature {
