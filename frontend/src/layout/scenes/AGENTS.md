@@ -8,7 +8,7 @@ This directory owns the **scene action surfaces**:
 - **`SceneMenuBar`** (`components/SceneMenuBar.tsx`): the Mac-style menu bar above `<SceneTitleSection>`
   that consolidates those actions into File / Edit / View / Metadata / Staff only menus. This is the
   **new** action surface, gated behind the `SCENE_MENU_BAR` feature flag. Under the `today-rail-nav` flag
-  the bar moves itself below the title row, so scenes still render it above `<SceneTitleSection>`.
+  the menus move into the title row after the scene name, so scenes still render it above `<SceneTitleSection>`.
 
 We are mid-migration (`ScenePanel` to `SceneMenuBar`). Until the flag ships everywhere, **both surfaces
 must stay in sync**.
