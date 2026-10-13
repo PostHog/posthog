@@ -545,6 +545,7 @@ export class EmailTrackingService {
         parentRunId?: string
         distinctId?: string
         workflowVersion?: number
+        verifiedTeamId?: string
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -559,6 +560,8 @@ export class EmailTrackingService {
                 parentRunId: parsed?.parentRunId,
                 distinctId: parsed?.distinctId,
                 workflowVersion: parsed?.workflowVersion,
+                // Trusted only from a signed code, like distinct_id. A template send has no flow to read it from.
+                verifiedTeamId: parsed?.format === 'signed' ? parsed.teamId : undefined,
             }
         }
         return {

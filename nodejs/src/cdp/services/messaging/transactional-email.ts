@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 // The id of the email step in a transactional send's flow. It is signed into the tracking code as
-// the action id, which is how engagement tracking tells a template send from a workflow send.
+// the action id, which is how engagement tracking tells a template send from a workflow send. The
+// workflows API reserves it (graph_validation.py), so no workflow step can use it.
 export const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
 
 const TRIGGER_ACTION_ID = 'trigger_node'
@@ -55,6 +56,8 @@ export function buildTransactionalEmailFlow(teamId: number, source: Transactiona
                 id: TRANSACTIONAL_EMAIL_ACTION_ID,
                 name: source.template_name,
                 type: 'function_email',
+                // The flow has nothing to continue to, so a failed send must fail the run.
+                on_error: 'abort',
                 config: {
                     message_category_id: source.message_category_id ?? undefined,
                     message_category_type: 'transactional',

@@ -149,8 +149,10 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 if (resolveByRepointedPerson) {
                     delete hogFlowInvocationState.personIdRepointed
                 }
+                // A transactional send only attributes its engagement to the distinct_id. It never loads
+                // the person, so a template can't render person properties the caller may not be allowed to read.
                 const personIdOrDistinctId =
-                    isRowScoped || isAccountAudience
+                    isRowScoped || isAccountAudience || transactionalEmail
                         ? undefined
                         : resolveByRepointedPerson
                           ? hogFlowInvocationState.personId
