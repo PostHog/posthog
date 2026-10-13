@@ -6414,6 +6414,10 @@ snapshots:
         hash: v1.k794b7964.42f446b124bea09236f2bed461731e121face0443254e8d8ca16e3df0f6f4b7a.fygV3-fMSGpy4iismNlUQfIZLx_VcMF7pF5ArdYIzgw
     metrics-metricsdashboardimportmodal--import-summary--light:
         hash: v1.k794b7964.e7a41111b399b2b31b9533056e60b1c84182701b2ad4d70ae637610adc776a08.z85gVPCQ05epK3Q41EPh9OWDK2tVbfeAATkLqqH5j7U
+    metrics-suggesteddashboardsmenu--open--dark:
+        hash: v1.k794b7964.26042971acae2fdee3917ae3dcc1879998fd9f396b4a712c8800ce22e702255b.g9qECAindjBuyHInXF5PifPAeY_UznUo8uNyuqqOIlg
+    metrics-suggesteddashboardsmenu--open--light:
+        hash: v1.k794b7964.ea7d67673e547e92fd3cf702986a6b37d52b8f08325c027d65e3d8b6b5316473.QqeS4J_iEaFjnoKgslHXZSaHZum3phvaqpsNWqx1KTM
     posthog-3000-keyboard-shortcut--default--dark:
         hash: v1.k794b7964.a5fc5a426df52137d3fb6377a06c7b39c36b041280de154cf2b95cbe46932b8d.f2HHu2jv6bztshqmrVtHpiuuv3PJZNskIh7SbZRgIpk
     posthog-3000-keyboard-shortcut--default--light:
