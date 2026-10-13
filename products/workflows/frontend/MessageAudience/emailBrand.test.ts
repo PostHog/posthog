@@ -1,8 +1,14 @@
-import { EmailBrand, applyEmailBrand } from './emailBrand'
+import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
+import { hogFlowsList } from 'products/workflows/frontend/generated/api'
+
+import { EmailBrand, applyEmailBrand, loadEmailBrand } from './emailBrand'
 import { draftMessage, messageDraftEmail } from './messageDrafts'
 
 const block = (inner: string): string =>
     `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" border="0"><tbody><tr><td style="padding:10px;font-family:georgia;">${inner}</td></tr></tbody></table>`
+
+jest.mock('products/messaging/frontend/generated/api', () => ({ messagingTemplatesList: jest.fn() }))
+jest.mock('products/workflows/frontend/generated/api', () => ({ hogFlowsList: jest.fn() }))
 
 const BRAND: EmailBrand = {
     source: 'template',
@@ -70,5 +76,68 @@ describe('applyEmailBrand', () => {
         { case: 'a design with no text block', brand: { ...BRAND, design: { body: { rows: [] } } } },
     ])('leaves the draft unbranded for $case', ({ brand }) => {
         expect(applyEmailBrand(messageDraftEmail(draftMessage({ kind: 'issue_fixed' })), brand)).toBeNull()
+    })
+
+    it('keeps a text block that holds the unsubscribe link and skips a body hidden on desktop', () => {
+        const columns = BRAND.design.body.rows[0].columns[0].contents
+        const brand: EmailBrand = {
+            ...BRAND,
+            design: {
+                ...BRAND.design,
+                body: {
+                    ...BRAND.design.body,
+                    rows: [
+                        {
+                            columns: [
+                                {
+                                    contents: [
+                                        columns[0],
+                                        {
+                                            type: 'text',
+                                            values: {
+                                                text: '<p>A much longer mobile only version of the template body copy.</p>',
+                                                hideDesktop: true,
+                                            },
+                                        },
+                                        columns[2],
+                                        columns[3],
+                                        {
+                                            type: 'text',
+                                            values: { text: '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>' },
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+            html: BRAND.html
+                .replace(
+                    '<h1>Template headline</h1>',
+                    '<div><p>A much longer mobile only version of the template body copy.</p></div>'
+                )
+                .replace(
+                    '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                    '<div><p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p></div>'
+                ),
+        }
+        const draft = draftMessage({ kind: 'issue_fixed' })
+        const branded = applyEmailBrand(messageDraftEmail(draft), brand)!
+
+        const contents = branded.design.body.rows[0].columns[0].contents
+        expect(contents.filter((content: any) => content.values?.hideDesktop)).toEqual([])
+        expect(contents[1].values.color).toEqual('#123456')
+        expect(branded.html).toContain('{{ unsubscribe_url }}')
+        expect(branded.html).not.toContain('mobile only')
+    })
+
+    it('ignores a saved template written for Hog templating', async () => {
+        jest.mocked(messagingTemplatesList).mockResolvedValue({
+            results: [{ content: { email: { templating: 'hog', html: BRAND.html, design: BRAND.design } } }],
+        } as never)
+        jest.mocked(hogFlowsList).mockResolvedValue({ results: [] } as never)
+
+        expect(await loadEmailBrand('1', messageDraftEmail(draftMessage({ kind: 'issue_fixed' })))).toBeNull()
     })
 })

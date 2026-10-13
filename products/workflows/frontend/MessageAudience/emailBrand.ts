@@ -17,12 +17,22 @@ type DesignContent = Record<string, any>
 // The template's own words. The draft replaces them, and everything else in the design stays.
 const WORDING_TYPES = new Set(['text', 'heading', 'button'])
 const SENT_BROADCASTS_TO_CHECK = 5
+// The brand only decorates the draft, so a slow lookup must not hold up the draft itself.
+const BRAND_TIMEOUT_MS = 5000
 
 function plainText(html: string): string {
     return html
         .replace(/<[^>]*>/g, '')
         .replace(/&[a-z#0-9]+;/gi, ' ')
         .trim()
+}
+
+function holdsUnsubscribe(content: DesignContent): boolean {
+    return JSON.stringify(content.values ?? {}).includes('unsubscribe_url')
+}
+
+function visibleEverywhere(content: DesignContent): boolean {
+    return !content.values?.hideDesktop && !content.values?.hideMobile
 }
 
 function designContents(design: Record<string, any>): DesignContent[][] | null {
@@ -86,7 +96,8 @@ export function applyEmailBrand(
     let body: { column: number; index: number; length: number } | null = null
     columns.forEach((contents, column) =>
         contents.forEach((content, index) => {
-            const length = content.type === 'text' ? plainText(String(content.values?.text ?? '')).length : -1
+            const candidate = content.type === 'text' && !holdsUnsubscribe(content) && visibleEverywhere(content)
+            const length = candidate ? plainText(String(content.values?.text ?? '')).length : -1
             if (length >= 0 && (!body || length > body.length)) {
                 body = { column, index, length }
             }
@@ -131,7 +142,7 @@ export function applyEmailBrand(
                 }
                 bodyRendered.remove()
                 contents.splice(index, 1, ...paragraphs.map((paragraph) => paragraph.design))
-            } else if (WORDING_TYPES.has(contents[index].type)) {
+            } else if (WORDING_TYPES.has(contents[index].type) && !holdsUnsubscribe(contents[index])) {
                 rendered[column][index].remove()
                 contents.splice(index, 1)
             }
@@ -142,8 +153,12 @@ export function applyEmailBrand(
     return { html: `<!DOCTYPE html>${doc.documentElement.outerHTML}`, design }
 }
 
-function emailContent(value: unknown): { html: string; design: Record<string, any> } | null {
+function emailContent(value: unknown, templating: unknown): { html: string; design: Record<string, any> } | null {
     const email = value as { html?: unknown; design?: unknown } | null | undefined
+    // Drafts render with Liquid, so a design written for Hog would keep its expressions as literal text.
+    if (templating === 'hog') {
+        return null
+    }
     return email && typeof email.html === 'string' && email.design && typeof email.design === 'object'
         ? { html: email.html, design: email.design as Record<string, any> }
         : null
@@ -158,7 +173,10 @@ export async function loadEmailBrand(
     probe: { design?: Record<string, any> | null }
 ): Promise<EmailBrand | null> {
     try {
-        return await findEmailBrand(projectId, probe)
+        return await Promise.race([
+            findEmailBrand(projectId, probe),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), BRAND_TIMEOUT_MS)),
+        ])
     } catch {
         // The brand is a nicety. A draft without it is still complete, so a failed lookup stays quiet.
         return null
@@ -170,7 +188,8 @@ async function findEmailBrand(
     probe: { design?: Record<string, any> | null }
 ): Promise<EmailBrand | null> {
     const templates = await messagingTemplatesList(projectId, { limit: 1 })
-    const template = emailContent(templates.results[0]?.content?.email)
+    const templateEmail = templates.results[0]?.content?.email
+    const template = emailContent(templateEmail, (templateEmail as { templating?: unknown } | undefined)?.templating)
     if (template) {
         const brand: EmailBrand = { source: 'template', ...template }
         return applyEmailBrand(probe, brand) ? brand : null
@@ -184,7 +203,7 @@ async function findEmailBrand(
         const action = (broadcast.actions as Record<string, any>[] | undefined)?.find(
             (candidate) => candidate?.config?.template_id === 'template-email'
         )
-        const content = emailContent(action?.config?.inputs?.email?.value)
+        const content = emailContent(action?.config?.inputs?.email?.value, action?.config?.inputs?.email?.templating)
         if (content) {
             const brand: EmailBrand = { source: 'last_sent', ...content }
             if (applyEmailBrand(probe, brand)) {

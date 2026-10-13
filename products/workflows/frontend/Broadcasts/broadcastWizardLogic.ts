@@ -1349,7 +1349,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         loadEmailBrandSuccess: ({ emailBrand }) => {
             // Only a draft nobody has touched yet takes the brand, so it never overwrites an edit.
-            if (!emailBrand || !cache.prefilledEmail || !prefilledEmailUnchanged(cache.prefilledEmail, values.email)) {
+            if (
+                !emailBrand ||
+                cache.brandClosed ||
+                !cache.prefilledEmail ||
+                !prefilledEmailUnchanged(cache.prefilledEmail, values.email)
+            ) {
                 return
             }
             const branded = applyEmailBrand(values.email, emailBrand)
@@ -1694,6 +1699,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
         },
         launchBroadcast: async (_, breakpoint) => {
+            // Launch sends the email as saved, so a brand that arrives after this click must not change the preview.
+            cache.brandClosed = true
             if (!values.currentProjectId) {
                 actions.launchBroadcastFinished()
                 return
