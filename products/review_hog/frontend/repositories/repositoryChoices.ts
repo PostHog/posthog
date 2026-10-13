@@ -1,3 +1,5 @@
+import { pluralize } from 'lib/utils/strings'
+
 import type {
     AutomaticFlashForEnumApi,
     AutomaticReviewDecisionApi,
@@ -5,6 +7,7 @@ import type {
     DefaultReviewModeEnumApi,
     ReviewInstallationApi,
     ReviewProjectRefApi,
+    ReviewProjectSettingsApi,
     ReviewRepositoryOverviewEntryApi,
     ReviewRepositoryPersonKindEnumApi,
     ReviewUserRepositoryChoiceModeEnumApi,
@@ -18,11 +21,11 @@ export interface ChoiceOption<T extends string> {
 export const FLASH_FOR_OPTIONS: ChoiceOption<AutomaticFlashForEnumApi>[] = [
     { value: 'everyone', label: 'Everyone' },
     { value: 'listed', label: 'Selected people' },
-    { value: 'off', label: 'Only people who opt in' },
+    { value: 'off', label: 'People who opt in' },
 ]
 
 export const DEFAULT_REVIEW_MODE_OPTIONS: ChoiceOption<DefaultReviewModeEnumApi>[] = [
-    { value: 'follow', label: 'Follow the project rules' },
+    { value: 'follow', label: 'Let each repository decide' },
     { value: 'flash', label: 'On everywhere' },
     { value: 'off', label: 'Off everywhere' },
 ]
@@ -33,6 +36,22 @@ export function peopleKindFor(flashFor: AutomaticFlashForEnumApi): ReviewReposit
         return 'excepted'
     }
     return flashFor === 'listed' ? 'listed' : null
+}
+
+/** The project rule in one sentence, for the tab where its controls are not shown. */
+export function projectRuleSummary(project: ReviewProjectSettingsApi): string {
+    const flashFor = project.flash_for ?? 'off'
+    const kind = peopleKindFor(flashFor)
+    const count = project.people.filter((person) => person.kind === kind).length
+    if (flashFor === 'everyone') {
+        return count
+            ? `Project rule: everyone, except ${pluralize(count, 'person', 'people')}.`
+            : 'Project rule: everyone.'
+    }
+    if (flashFor === 'listed') {
+        return `Project rule: ${pluralize(count, 'selected person', 'selected people')}.`
+    }
+    return 'Project rule: people who opt in.'
 }
 
 const SOURCES: Record<AutomaticReviewReasonEnumApi, string> = {
@@ -66,12 +85,12 @@ export function describeResult(decision: AutomaticReviewDecisionApi): string {
 export function myChoiceNote(entry: ReviewRepositoryOverviewEntryApi): string | null {
     const inherited = entry.inherited_result
     if (entry.my_choice !== null) {
-        return `Without your choice: ${describeResult(inherited).toLowerCase()} (${describeSource(inherited)})`
+        return `Your choice. Without it: ${describeResult(inherited).toLowerCase()} (${describeSource(inherited)})`
     }
     // Rows on the project rule get no note: the description of the viewer's default already covers them.
     const repositoryResult = entry.repository_result
     if (inherited.reason === 'own_default' && entry.exception !== null && repositoryResult.flash !== inherited.flash) {
-        return `Without your default: ${describeResult(repositoryResult).toLowerCase()} (repository exception)`
+        return `Your default. Without it: ${describeResult(repositoryResult).toLowerCase()} (repository exception)`
     }
     return null
 }

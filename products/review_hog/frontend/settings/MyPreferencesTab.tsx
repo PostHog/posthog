@@ -13,6 +13,7 @@ import type {
 import {
     DEFAULT_REVIEW_MODE_OPTIONS,
     myDefaultNotice,
+    projectRuleSummary,
 } from 'products/review_hog/frontend/repositories/repositoryChoices'
 import { RepositoryList } from 'products/review_hog/frontend/repositories/RepositoryList'
 import { RepositoryMyRow } from 'products/review_hog/frontend/repositories/RepositoryMyRow'
@@ -47,12 +48,17 @@ function mineOptions<T extends string>(
 export function MyPreferencesTab(): JSX.Element {
     const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
     const { updateSettings, followProjectDefault, setActiveTab } = useActions(reviewHogSettingsLogic)
-    const { projectSettings, installations } = useValues(reviewHogProjectSettingsLogic)
+    const { projectSettings, projectSettingsLoadFailed, installations, canEdit } =
+        useValues(reviewHogProjectSettingsLogic)
+    const { loadProjectSettings } = useActions(reviewHogProjectSettingsLogic)
     const { overview } = useValues(reviewHogRepositoriesLogic)
     const { setMyDefault } = useActions(reviewHogRepositoriesLogic)
 
     const disabledReason = settings === null ? 'Loading…' : settingsLoading ? 'Saving…' : undefined
     const myDefault = settings?.default_review_mode ?? 'follow'
+    const followsProject = projectSettings
+        ? `${projectRuleSummary(projectSettings)} A repository can have its own exception.`
+        : 'Choose whether your pull requests get a Standard review.'
     const project = projectDeepDefaults(projectSettings, settings)
     const ownThreshold = settings?.sources.urgency_threshold === 'user' ? settings.urgency_threshold : undefined
     const ownCelebrate =
@@ -62,25 +68,33 @@ export function MyPreferencesTab(): JSX.Element {
 
     return (
         <>
-            {projectSettings !== null && installations.length === 0 && (
-                <LemonBanner
-                    type="info"
-                    action={{ children: 'Open Project settings', onClick: () => setActiveTab('project') }}
-                >
-                    Reviews start once GitHub is connected in Project settings.
+            {projectSettings === null && projectSettingsLoadFailed && (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadProjectSettings() }}>
+                    Could not load the project settings.
                 </LemonBanner>
             )}
+            {projectSettings !== null &&
+                installations.length === 0 &&
+                (canEdit ? (
+                    <LemonBanner
+                        type="info"
+                        action={{ children: 'Open Project settings', onClick: () => setActiveTab('project') }}
+                    >
+                        Reviews start once GitHub is connected in Project settings.
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner type="info">Reviews start once a project admin connects GitHub.</LemonBanner>
+                ))}
             <SceneSection
                 title="Standard reviews"
-                description="Standard reviews run on every push and only comment on your pull request."
-                titleHelper="Standard reviews never push to your branch. A pull request that already had a Deep review gets no more Standard reviews."
+                description="Standard reviews run on every push. They comment and never push commits."
+                titleHelper="A pull request that already had a Deep review gets no more Standard reviews."
             >
                 <SettingsList>
                     <SettingRow
                         title="Review my pull requests"
                         description={
-                            myDefaultNotice(myDefault, overview?.my_choices_unlike_default ?? null) ??
-                            'Choose whether your pull requests get a Standard review.'
+                            myDefaultNotice(myDefault, overview?.my_choices_unlike_default ?? null) ?? followsProject
                         }
                     >
                         <LemonSelect<DefaultReviewModeEnumApi>
@@ -106,6 +120,10 @@ export function MyPreferencesTab(): JSX.Element {
                         />
                     </SettingRow>
                 </SettingsList>
+                <p className="m-0 text-xs text-secondary">
+                    Decided in this order: your choice for a repository, your default, the repository's exception, the
+                    project rule.
+                </p>
                 {installations.length > 0 && (
                     <LemonCollapse
                         panels={[
@@ -122,14 +140,14 @@ export function MyPreferencesTab(): JSX.Element {
 
             <SceneSection
                 title="Deep reviews"
-                description="Deep reviews run on request and cost several times more than Standard."
-                titleHelper="Start a Deep review with the Review button, the posthog-review label, or an Inbox report assigned to you. These preferences apply to the Deep reviews you start. A review someone else starts on your pull request uses their preferences, but only your own Resolve setting can push to your branch."
+                description="Deep reviews run on request. These preferences apply to the ones you start."
+                titleHelper="Start a Deep review with the Review button, the posthog-review label, or an Inbox report assigned to you. A Deep review costs several times more than a Standard one. A review someone else starts on your pull request uses their preferences."
             >
                 <SettingsList>
                     <SettingRow
                         title="Resolve comments on my pull requests"
-                        description="A Deep review can push fix commits to your branch."
-                        info="Only your own setting counts, whoever starts the review. PostHog Review pushes nothing while the pull request is in the merge queue, has another pull request stacked on it, or has no PostHog account behind it."
+                        description="A Deep review can push fix commits to your branch. Only this setting allows it, whoever starts the review."
+                        info="PostHog Review pushes nothing while the pull request is in the merge queue, has another pull request stacked on it, or has no PostHog account behind it."
                     >
                         <LemonSwitch
                             aria-label="Resolve comments on my pull requests"

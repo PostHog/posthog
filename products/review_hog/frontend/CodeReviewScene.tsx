@@ -194,30 +194,37 @@ function singleAgentCounts(review: ReviewRecentReviewApi): { posted: number; rai
     return { posted, raised: raised !== null && raised > posted ? raised : null }
 }
 
-/** The drawer header for a single-agent turn: how many issues it posted, and how many it raised but left out. */
+/** The drawer header for a single-agent turn: how it ran, how many issues it posted, and how many it raised but left out. */
 function SingleAgentDrawerSummary({ review }: { review: ReviewDetailApi }): JSX.Element {
     const { setReviewDrawerTab } = useActions(reviewHogSettingsLogic)
     const { posted, raised } = singleAgentCounts(review)
+    const lenses = singleAgentLensCount(review)
+    const lensText = lenses
+        ? ` plus ${lenses} ${lenses === 1 ? 'lens that focuses' : 'lenses that each focus'} on one area`
+        : ''
     const notPostedLabel = `${raised !== null ? raised - posted : 0} not posted`
     return (
-        <div className="text-sm text-secondary">
-            {/* A turn whose GitHub publish failed kept its findings without posting them. */}
-            <span>{review.turn_published ? 'Posted' : 'Kept'}</span>{' '}
-            <span className="font-semibold text-default">{posted}</span>
-            {raised !== null ? (
-                <>
-                    {' '}
-                    of <span className="font-semibold text-default">{raised}</span> issues raised,{' '}
-                    {/* Turns that predate the dropped-finding record have nothing to switch to. */}
-                    {review.dropped_findings.length ? (
-                        <Link onClick={() => setReviewDrawerTab('not_posted')}>{notPostedLabel}</Link>
-                    ) : (
-                        <span>{notPostedLabel}</span>
-                    )}
-                </>
-            ) : (
-                ` issue${posted === 1 ? '' : 's'}`
-            )}
+        <div className="flex flex-col gap-1 text-sm text-secondary">
+            <div>{`Standard review: one main pass over the whole pull request${lensText}. No separate validation step.`}</div>
+            <div>
+                {/* A turn whose GitHub publish failed kept its findings without posting them. */}
+                <span>{review.turn_published ? 'Posted' : 'Kept'}</span>{' '}
+                <span className="font-semibold text-default">{posted}</span>
+                {raised !== null ? (
+                    <>
+                        {' '}
+                        of <span className="font-semibold text-default">{raised}</span> issues raised,{' '}
+                        {/* Turns that predate the dropped-finding record have nothing to switch to. */}
+                        {review.dropped_findings.length ? (
+                            <Link onClick={() => setReviewDrawerTab('not_posted')}>{notPostedLabel}</Link>
+                        ) : (
+                            <span>{notPostedLabel}</span>
+                        )}
+                    </>
+                ) : (
+                    ` issue${posted === 1 ? '' : 's'}`
+                )}
+            </div>
         </div>
     )
 }

@@ -54,7 +54,7 @@ export function ReviewSkillsPanel(): JSX.Element {
 
     return (
         <SceneSection
-            title="Review skills"
+            title="Deep review skills"
             description="Skills decide what a Deep review looks for and what it posts."
             titleHelper="Standard reviews use a fixed set of skills and read none of these."
             actions={<span className="text-xs text-secondary">Kept counts: your last 10 Deep reviews</span>}

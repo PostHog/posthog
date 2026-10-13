@@ -50,7 +50,7 @@ export function ProjectSettingsTab(): JSX.Element {
                 <LemonBanner type="info">Only project admins can change these settings.</LemonBanner>
             )}
 
-            <SceneSection title="Repositories" description="Choose which repositories this project reviews.">
+            <SceneSection title="GitHub accounts" description="Choose which repositories this project reviews.">
                 <InstallationClaims />
             </SceneSection>
 
@@ -60,7 +60,7 @@ export function ProjectSettingsTab(): JSX.Element {
             >
                 <SettingsList>
                     <SettingRow
-                        title="Who gets reviews"
+                        title="Who gets Standard reviews"
                         description="People can still choose for their own pull requests in My preferences."
                     >
                         <RuleControls
@@ -94,6 +94,15 @@ export function ProjectSettingsTab(): JSX.Element {
                     </SettingRow>
                 </SettingsList>
             </SceneSection>
+
+            {installations.length > 0 && (
+                <SceneSection
+                    title="Repositories"
+                    description="Include or remove a repository, or give one an exception to the Standard rule."
+                >
+                    <RepositoryList Row={RepositoryProjectRow} hiddenView="mine" />
+                </SceneSection>
+            )}
 
             <SceneSection
                 title="Deep reviews"
@@ -130,15 +139,6 @@ export function ProjectSettingsTab(): JSX.Element {
                     </SettingRow>
                 </SettingsList>
             </SceneSection>
-
-            {installations.length > 0 && (
-                <SceneSection
-                    title="Repository rules"
-                    description="Give a repository its own rule, or add and remove repositories."
-                >
-                    <RepositoryList Row={RepositoryProjectRow} hiddenView="mine" />
-                </SceneSection>
-            )}
         </>
     )
 }

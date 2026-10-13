@@ -836,7 +836,7 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(await canvas.findByText('Add retry to the export job')).toBeVisible()
         await expect(canvas.getByText('Mine')).toBeVisible()
-        await expect(canvas.queryByText('Review skills')).not.toBeInTheDocument()
+        await expect(canvas.queryByText('Deep review skills')).not.toBeInTheDocument()
         await expect(canvas.getByText('How we review your PRs')).toBeVisible()
     },
 }
@@ -859,7 +859,7 @@ export const Settings: Story = {
         userLogic.actions.loadUser()
         await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(false))
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Review skills')).toBeVisible()
+        await expect(await canvas.findByText('Deep review skills')).toBeVisible()
         await expect(canvas.getByText('Kept counts: your last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
@@ -892,7 +892,7 @@ export const ProjectSettings: Story = {
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
         await expect(canvas.getByLabelText('Project rule')).not.toHaveAttribute('aria-disabled', 'true')
-        await expect(canvas.queryByText('Review skills')).not.toBeInTheDocument()
+        await expect(canvas.queryByText('Deep review skills')).not.toBeInTheDocument()
     },
 }
 
