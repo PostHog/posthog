@@ -31,6 +31,7 @@ import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generate
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
@@ -57,7 +58,7 @@ import {
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
-import { prefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
+import { prefilledWorkflow, withEmailBrand, withEmailSender } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
 import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
@@ -3196,13 +3197,19 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
-                            return await withDefaultEmailSender(
-                                prefilledWorkflow(
-                                    NEW_WORKFLOW,
-                                    triggerConfig,
-                                    parseMessageDraftPrefill(props.emailPrefill)
-                                )
+                            const prefilled = prefilledWorkflow(
+                                NEW_WORKFLOW,
+                                triggerConfig,
+                                parseMessageDraftPrefill(props.emailPrefill)
                             )
+                            const emailAction = prefilled.actions.find((action) => action.type === 'function_email')
+                            const brand = emailAction
+                                ? await loadEmailBrand(
+                                      String(values.currentProjectId),
+                                      (emailAction.config as Record<string, any>).inputs?.email?.value ?? {}
+                                  )
+                                : null
+                            return await withDefaultEmailSender(withEmailBrand(prefilled, brand))
                         }
                         return { ...NEW_WORKFLOW }
                     }

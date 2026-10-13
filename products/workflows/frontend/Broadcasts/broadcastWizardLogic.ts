@@ -50,6 +50,7 @@ import type {
 
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import { UNVERIFIED_SENDER_MESSAGE } from '../Channels/emailSendingMessages'
+import { EmailBrand, applyEmailBrand, loadEmailBrand } from '../MessageAudience/emailBrand'
 import { EMAIL_PREFILL_PARAM, messageDraftEmail, parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import type { MissingRecipientEmailBannerProps } from '../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import {
@@ -245,6 +246,8 @@ export interface broadcastWizardLogicValues {
     duplicating: boolean
     effectiveTimezone: string
     email: BroadcastEmailValue
+    emailBrand: EmailBrand | null
+    emailBrandLoading: boolean
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings: BroadcastEmailSettings
     entrySource: string | null
@@ -296,6 +299,9 @@ export interface broadcastWizardLogicActions {
     }
     archiveBroadcast: () => {
         value: true
+    }
+    brandApplied: (content: Pick<BroadcastEmailValue, 'design' | 'html'>) => {
+        content: Pick<BroadcastEmailValue, 'design' | 'html'>
     }
     collapseRun: (runId: string) => {
         runId: string
@@ -382,6 +388,21 @@ export interface broadcastWizardLogicActions {
         payload?: any
     ) => {
         broadcast: HogFlowApi | null
+        payload?: any
+    }
+    loadEmailBrand: () => any
+    loadEmailBrandFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEmailBrandSuccess: (
+        emailBrand: EmailBrand | null,
+        payload?: any
+    ) => {
+        emailBrand: EmailBrand | null
         payload?: any
     }
     loadExternalEdit: () => {
@@ -622,6 +643,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
+        brandApplied: (content: Pick<BroadcastEmailValue, 'html' | 'design'>) => ({ content }),
         applyDefaultSender: true,
         defaultSenderApplied: (integrationId: number) => ({ integrationId }),
         setScheduleMode: (mode: BroadcastScheduleMode) => ({ mode }),
@@ -717,6 +739,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         // A failed check must not block the send; it only drops the warning.
                         return null
                     }
+                },
+            },
+        ],
+        emailBrand: [
+            null as EmailBrand | null,
+            {
+                loadEmailBrand: async () => {
+                    if (!values.currentProjectId) {
+                        return null
+                    }
+                    return await loadEmailBrand(String(values.currentProjectId), values.email)
                 },
             },
         ],
@@ -874,6 +907,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL,
             {
                 setEmail: (_, { email }) => email,
+                brandApplied: (state, { content }) => ({ ...state, ...content }),
                 prefillFromLink: (state, { prefill }) =>
                     prefill.email ? { ...state, ...messageDraftEmail(prefill.email) } : state,
                 defaultSenderApplied: (state, { integrationId }) =>
@@ -1312,6 +1346,20 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.loadBlastRadius()
             }
             actions.reportReviewVisit()
+        },
+        loadEmailBrandSuccess: ({ emailBrand }) => {
+            // Only a draft nobody has touched yet takes the brand, so it never overwrites an edit.
+            if (!emailBrand || !cache.prefilledEmail || !prefilledEmailUnchanged(cache.prefilledEmail, values.email)) {
+                return
+            }
+            const branded = applyEmailBrand(values.email, emailBrand)
+            if (!branded) {
+                return
+            }
+            actions.brandApplied(branded)
+            cache.prefilledEmail = { ...cache.prefilledEmail, ...branded }
+            // pinned: analytics event name
+            posthog.capture('broadcast email branded', { source: emailBrand.source })
         },
         expandRun: ({ runId }) => {
             actions.setExpandedRunOverride([...values.expandedRunIds.filter((id) => id !== runId), runId])
@@ -1982,6 +2030,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.prefillFromLink(prefill)
             if (email) {
                 cache.prefilledEmail = { ...DEFAULT_BROADCAST_EMAIL, ...messageDraftEmail(email) }
+                actions.loadEmailBrand()
             }
             if (properties) {
                 cache.landOnPrefilledStep = true
