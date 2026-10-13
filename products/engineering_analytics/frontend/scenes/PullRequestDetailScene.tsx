@@ -459,7 +459,9 @@ export function PullRequestDetailScene(): JSX.Element {
         : null
 
     const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
-    const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
+    const failedRuns = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion))
+    const failed = failedRuns.length
+    const failedRunsOnGitHub = failedRuns.every((run) => run.ciEngine === 'github_actions')
     const running = runs.filter((run) => run.conclusion === null).length
     const visiblePrCost = prCostFailed || prCostLoading ? null : prCost
     const latestRound = commitGroups[0] ? pushRoundOf(commitGroups[0].headSha, commitGroups[0].runs) : null
@@ -752,8 +754,17 @@ export function PullRequestDetailScene(): JSX.Element {
                         logs={failureLogs}
                         loading={failureLogsLoading}
                         onRetry={loadFailureLogs}
-                        errorDescription="Retry, or open one of the failed runs on GitHub to read its logs."
-                        emptyText="No failure logs. Fork runs may not be linked to this pull request, nothing failed, or the logs have aged out of retention."
+                        logsOnGitHub={failedRunsOnGitHub}
+                        errorDescription={
+                            failedRunsOnGitHub
+                                ? 'Retry, or open one of the failed runs on GitHub to read its logs.'
+                                : 'Retry, or read the failed run logs in your CI provider.'
+                        }
+                        emptyText={`Failure logs aren't available for these runs. They weren't collected, fork runs may not be linked to this pull request, or the logs have aged out of retention. ${
+                            failedRunsOnGitHub
+                                ? 'Open a failed run on GitHub to read its logs.'
+                                : 'Read the failed run logs in your CI provider.'
+                        }`}
                     />
                 </Section>
             )}

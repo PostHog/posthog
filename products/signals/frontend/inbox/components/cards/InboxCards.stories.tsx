@@ -5,6 +5,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind, type InsightVizNode, type TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
+import { userEvent } from 'storybook/test'
+
 import { makeReport, pullRequestReports, reportTabReports, runReportsMany } from '../../__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunCard } from './AgentRunCard'
@@ -253,6 +255,56 @@ export const ReportCardWithImpact: Story = {
             ))}
         </CardList>
     ),
+}
+
+const RANKING = {
+    served_key: 'report_embeddings@2026-06-10',
+    model_name: 'report_embeddings',
+    model_version: '2026-06-10',
+    manifest_version: '12',
+    scored_at: '2026-06-10T09:00:00Z',
+    readable_heads: ['open', 'action', 'fixed', 'pr_merged'],
+    stale: false,
+}
+
+// Under the Engage sort: a lift, a probability with no lift, an unscored report, and a report edited after scoring.
+const rankedReports: SignalReport[] = [
+    makeReport({
+        title: 'Checkout button does nothing on Safari',
+        priority: 'P1',
+        source_products: ['session_replay'],
+        ranking: {
+            ...RANKING,
+            scores: { open: 0.91, action: 0.78, fixed: 0.33, pr_merged: 0.52 },
+            lifts: { open: 1.1, action: 2.1, fixed: 2.2, pr_merged: 2.6 },
+        },
+    }),
+    makeReport({
+        title: 'Slow dashboard load for large projects',
+        priority: 'P2',
+        source_products: ['error_tracking'],
+        ranking: { ...RANKING, scores: { open: 0.4, action: 0.062, fixed: 0.05 }, lifts: {} },
+    }),
+    makeReport({ title: 'Typo in the billing settings page', priority: 'P4', ranking: null }),
+    makeReport({
+        title: 'Retry loop in the export job',
+        priority: 'P3',
+        ranking: { ...RANKING, scores: { action: 0.5 }, lifts: { action: 1.2 }, stale: true },
+    }),
+]
+
+export const ReportCardRankingTags: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
+    render: () => (
+        <CardList>
+            {rankedReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingSortField="ranking_action" />
+            ))}
+        </CardList>
+    ),
+    play: async ({ canvas }) => {
+        await userEvent.hover(await canvas.findByText('2.1x engage'))
+    },
 }
 
 export const PullRequestCards: Story = {

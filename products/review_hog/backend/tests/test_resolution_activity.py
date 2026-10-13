@@ -465,7 +465,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             _fail_resolution(FailResolutionInput(team_id=self.team.id, owner="posthog", repo="posthog", pr_number=123))
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report.id).status == ReviewReport.Status.IDLE
-        assert "stopped at 1/3" in status_comment.call_args.args[2]
+        assert "Stopped at 1/3" in status_comment.call_args.args[2]
 
         # Crash before prepare queued anything: no run anchor, so no section to replace.
         report.pr_number = 124
@@ -794,7 +794,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
                 "pr_in_merge_queue",
                 "submitted to the merge queue",
             ),
-            ("stacked", None, True, "pr_has_stacked_pull_requests", "now stacked on this branch"),
+            ("stacked", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
         ]
     )
     def test_hold_appearing_mid_run_stops_the_session_before_the_next_turn(
@@ -826,7 +826,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         continue_turn.assert_not_called()
         assert result.triaged == 1
         assert result.stopped_reason == reason
-        assert "Stopped resolving comments at 1/2" in status_comment.call_args.args[2]
+        assert "| stopped | Stopped at 1/2 because" in status_comment.call_args.args[2]
         assert section_text in status_comment.call_args.args[2]
         assert self._report_status() == ReviewReport.Status.IDLE
 

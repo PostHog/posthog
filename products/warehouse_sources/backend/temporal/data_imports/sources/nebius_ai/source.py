@@ -50,7 +50,7 @@ class NebiusAISource(ResumableSource[NebiusAISourceConfig, NebiusAIResumeConfig]
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Nebius AI Studio (Token Factory) API key to pull your Nebius inference platform metadata into the PostHog Data warehouse.
 
-You can create an API key in the [Nebius AI Studio console](https://studio.nebius.com/settings/api-keys). A key with read access is enough to sync models, files, batches, and fine-tuning jobs.""",
+You can create an API key in the [Nebius AI Studio console](https://studio.nebius.com/settings/api-keys). A key with read access is enough to sync models, files, batches, datasets, dataset operations, and fine-tuning jobs with their events and checkpoints.""",
             iconPath="/static/services/nebius_ai.png",
             docsUrl="https://posthog.com/docs/cdp/sources/nebius-ai",
             fields=cast(

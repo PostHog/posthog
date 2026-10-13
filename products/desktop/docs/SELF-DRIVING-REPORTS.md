@@ -6,6 +6,11 @@ The title shows the change type and scope. The metadata row shows the time and l
 Priority and reviewer scope remain in the report list. Evidence counts remain in the Evidence section, which starts expanded.
 
 Chat opens the report conversation beside the document, including an existing implementation session when one is available.
+The opening question uses a separate, best-effort scout-note forwarding path. Ask AI only offers to save new feedback learned after the opening turn.
+When a later discussion turn reveals a correction, preference, missing context, or verified fact worth keeping, Ask AI offers to save a short scout note or report work-log entry.
+When both destinations are available and the chat token has the required scopes, the agent offers both choices.
+The agent asks for agreement on the text and selected destination before writing. If a scout note is unavailable or refused, it offers a work-log entry and asks again.
+Pure Q&A needs no save offer. Saving feedback does not resolve or dismiss the report.
 Select text in either report view to ask about that passage.
 Reports with a PR show Open in GitHub as the first header button, followed by Chat.
 Copy-link options are in the More report actions menu. Report actions do not offer canvas creation.

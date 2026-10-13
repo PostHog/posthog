@@ -548,13 +548,20 @@ class TestHogQLQueryRecordBatchModel:
         assert record_batch_model.wait_for_data_interval_end is True
 
     @pytest.mark.parametrize(
-        "hogql_modifiers,converts_timezone",
-        [(None, True), ({"convertToProjectTimezone": False}, False)],
-        ids=["team-modifiers", "export-modifiers"],
+        "team_modifiers,hogql_modifiers,converts_timezone",
+        [
+            (None, None, False),
+            ({"convertToProjectTimezone": True}, None, True),
+            (None, {"convertToProjectTimezone": True}, True),
+            ({"convertToProjectTimezone": True}, {"convertToProjectTimezone": False}, False),
+        ],
+        ids=["utc-by-default", "team-modifier", "export-modifier", "export-overrides-team"],
     )
     async def test_resolved_model_prints_query_with_stored_modifiers(
-        self, ateam, auser, data_interval_start, data_interval_end, hogql_modifiers, converts_timezone
+        self, ateam, auser, data_interval_start, data_interval_end, team_modifiers, hogql_modifiers, converts_timezone
     ):
+        ateam.modifiers = team_modifiers
+        await ateam.asave()
         batch_export_model = BatchExportModel(
             name="hogql",
             schema=None,
@@ -695,7 +702,7 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
     }
     with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
         _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-            team_id=ateam.pk, batch_export_schema=schema
+            team_id=ateam.pk, batch_export_model=BatchExportModel(name="events", schema=schema)
         )
 
     assert fields is not None
@@ -763,7 +770,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "values": {"unused_old_parameter": "stale"},
             }
             _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-                team_id=ateam.pk, batch_export_schema=schema
+                team_id=ateam.pk, batch_export_model=BatchExportModel(name="events", schema=schema)
             )
             assert fields is not None
             assert "unused_old_parameter" not in values

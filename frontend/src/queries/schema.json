@@ -6147,6 +6147,9 @@
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
+                "colorBy": {
+                    "type": ["string", "null"]
+                },
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/BIField"
@@ -6178,6 +6181,13 @@
                 "filters": {
                     "items": {
                         "$ref": "#/definitions/BIFilter"
+                    },
+                    "type": "array"
+                },
+                "hierarchies": {
+                    "description": "Named dimension sequences saved with the worksheet; imports are independent copies.",
+                    "items": {
+                        "$ref": "#/definitions/BIHierarchy"
                     },
                     "type": "array"
                 },
@@ -6274,6 +6284,10 @@
                 "dateBucket": {
                     "$ref": "#/definitions/BIDateBucket"
                 },
+                "datePart": {
+                    "enum": ["month", "quarter", "day_of_week"],
+                    "type": "string"
+                },
                 "expression": {
                     "type": "string"
                 },
@@ -6282,6 +6296,9 @@
                 },
                 "localDefinition": {
                     "$ref": "#/definitions/BILocalFieldDefinition"
+                },
+                "localFieldId": {
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -6344,8 +6361,45 @@
             ],
             "type": "string"
         },
+        "BIHierarchy": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "levels": {
+                    "description": "Ordered from the broadest dimension to the most detailed.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "levels"],
+            "type": "object"
+        },
         "BILocalFieldDefinition": {
             "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "aggregate": {
+                            "type": "boolean"
+                        },
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "expression",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "aggregate"],
+                    "type": "object"
+                },
                 {
                     "additionalProperties": false,
                     "properties": {
@@ -6527,6 +6581,11 @@
                     "$ref": "#/definitions/ChartSettingsFormatting"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "shelf": {
+                    "description": "Measures in older worksheets belong to rows.",
+                    "enum": ["rows", "columns"],
                     "type": "string"
                 },
                 "tableCalculation": {
@@ -18798,6 +18857,17 @@
                         }
                     ]
                 },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Period comparison forced onto every insight that supports one. Absent/null = inherit."
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
@@ -29201,6 +29271,11 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "calculation": {
+                    "description": "Recalculate from returned chart marks. An absent calculation uses the fixed value.",
+                    "enum": ["fixed", "mean", "median", "min", "max"],
+                    "type": "string"
+                },
                 "displayIfCrossed": {
                     "type": "boolean"
                 },
@@ -29212,6 +29287,11 @@
                 },
                 "position": {
                     "enum": ["start", "end"],
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "SQL chart calculations use the primary axis, across all series or separately per series.",
+                    "enum": ["all", "series"],
                     "type": "string"
                 },
                 "value": {
@@ -55591,6 +55671,16 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
                         },
                         {
                             "type": "null"

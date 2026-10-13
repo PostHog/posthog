@@ -83,6 +83,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         estimated_at: null,
         user_access_level: 'editor',
         sweep_throttle_factor: 1,
+        dashboard_id: null,
+        dashboard_suggested: false,
         ...overrides,
     }) as ReplayScannerApi
 
@@ -1237,6 +1239,15 @@ export const MonitorOverview: StoryObj = {
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [overviewDecorator({ ...summarizerScanner, sweep_throttle_factor: 12 }, summarizerStats)],
+}
+
+// Once a scanner has enough observations, the overview offers a dashboard for it.
+export const MonitorOverviewDashboardOffer: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(monitorOverviewScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_SCANNER_DASHBOARD]: true },
+    },
+    decorators: [overviewDecorator({ ...monitorOverviewScanner, dashboard_suggested: true }, monitorOverviewStats)],
 }
 
 export const ClassifierOverview: StoryObj = {

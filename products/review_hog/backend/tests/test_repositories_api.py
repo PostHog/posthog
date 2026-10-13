@@ -105,13 +105,13 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("environment_only", False, (403, 403, 403, 403)),
-            ("environment_and_parent", True, (200, 200, 200, 200)),
+            ("environment_only", False, (403, 403, 403, 403, 403)),
+            ("environment_and_parent", True, (200, 200, 200, 200, 200)),
         ]
     )
     @patch("products.review_hog.backend.pr_status.probe_workflow", return_value=WorkflowProbe.NOT_RUNNING)
     def test_a_project_scoped_key_needs_the_parent_project(
-        self, _name: str, include_parent: bool, expected: tuple[int, int, int, int], _probe: MagicMock
+        self, _name: str, include_parent: bool, expected: tuple[int, int, int, int, int], _probe: MagicMock
     ) -> None:
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
         value = generate_random_token_personal()
@@ -131,8 +131,15 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         pr_status = self.client.get(
             self._url("reviews/pr_status/", environment), {"pr_url": "https://github.com/PostHog/posthog/pull/5"}
         )
+        table = self.client.get(self._url("reviews/table/", environment))
 
-        assert (read.status_code, write.status_code, reviews.status_code, pr_status.status_code) == expected
+        assert (
+            read.status_code,
+            write.status_code,
+            reviews.status_code,
+            pr_status.status_code,
+            table.status_code,
+        ) == expected
 
     def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
         res = self.client.patch(

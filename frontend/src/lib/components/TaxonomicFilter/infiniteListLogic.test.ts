@@ -561,6 +561,38 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('page URL search in a picker that collapses URLs to a contains row', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/events/values': [200, [{ name: 'https://example.com/pricing' }]],
+                },
+            })
+        })
+
+        it.each([
+            { kind: 'a plain word', query: 'pricing', offeredInAllTab: false },
+            { kind: 'a path', query: '/pricing', offeredInAllTab: true },
+            { kind: 'a domain', query: 'example.com', offeredInAllTab: true },
+        ])(
+            'offers the URL contains row for $kind on the URL tab, and in the All tab only when it looks like a URL',
+            async ({ query, offeredInAllTab }) => {
+                const urlLogic = logicWith({
+                    listGroupType: TaxonomicFilterGroupType.PageviewUrls,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+                    collapseUrlsToContainsRow: true,
+                })
+
+                await expectLogic(urlLogic, () => {
+                    urlLogic.actions.setSearchQuery(query)
+                }).toDispatchActions(['setSearchQuery', 'loadRemoteItemsSuccess'])
+
+                expect(urlLogic.values.items.results).toHaveLength(1)
+                expect(urlLogic.values.topMatchesForQuery).toHaveLength(offeredInAllTab ? 1 : 0)
+            }
+        )
+    })
+
     describe('unmounting clears the shared api cache', () => {
         it('does not keep serving a cached response after the list unmounts', async () => {
             let requestCount = 0

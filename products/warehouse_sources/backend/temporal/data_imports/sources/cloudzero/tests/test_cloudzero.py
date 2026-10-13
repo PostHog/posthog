@@ -1,24 +1,28 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import (
     KEY_REJECTED_MESSAGE,
     PROBE_FAILED_MESSAGE,
     CloudzeroResumeConfig,
     _rolling_incremental_start_date,
-    cloudzero_source,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source import CloudzeroSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudzero import (
+    CloudzeroSourceConfig,
+)
 
 
 class TestRollingIncrementalStartDate:
@@ -34,14 +38,6 @@ class TestRollingIncrementalStartDate:
         # CloudZero can restate historical costs, so the incremental start_date must roll back
         # a fixed window rather than resuming exactly where the last sync left off.
         assert _rolling_incremental_start_date(value) == expected
-
-
-def _make_http_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
 
 
 def _costs_page(next_cursor: str | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -74,49 +70,11 @@ def _list_page(data_key: str, next_cursor: str | None, rows: list[dict[str, Any]
 
 
 class TestCloudzeroSourceTransport:
-    """End-to-end behaviour of ``cloudzero_source`` via ``rest_api_resource``."""
+    """End-to-end behaviour of ``CloudzeroSource`` via ``rest_api_resource``."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        **kwargs: Any,
-    ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
-        """Drive ``cloudzero_source`` with a mocked HTTP session.
-
-        Returns ``(sent_urls, sent_params, rows)``, all captured at send-time: the request URLs,
-        shallow copies of ``request.params``, and the flattened rows the resource yielded.
-        """
-        sent_urls: list[str] = []
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_urls.append(request.url)
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = cloudzero_source(
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=False,
-                **kwargs,
-            )
-            pages = list(cast(Iterable[Any], resource))
-            return sent_urls, sent_params, [row for page in pages for row in page]
+    @staticmethod
+    def _driver(*, group_by: str | None = None) -> SourceDriver:
+        return SourceDriver(CloudzeroSource(), CloudzeroSourceConfig(api_key="test-key", group_by=group_by))
 
     @parameterized.expand(
         [
@@ -136,14 +94,18 @@ class TestCloudzeroSourceTransport:
     def test_list_endpoint_reads_its_own_path_params_and_envelope(
         self, endpoint: str, path: str, expected_params: dict[str, Any], body: Any
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        sent_urls, sent_params, rows = self._drive(endpoint, manager, [_make_http_response(body)])
-
-        assert sent_urls == [f"https://api.cloudzero.com{path}"]
-        assert sent_params == [expected_params]
-        assert len(rows) == 1
+        assert result.raised is None
+        assert result.requests[0].origin == "https://api.cloudzero.com"
+        assert result.paths == [path]
+        assert result.queries == [
+            {
+                key: tuple(str(value) for value in values) if isinstance(values, list) else (str(values),)
+                for key, values in expected_params.items()
+            }
+        ]
+        assert len(result.rows) == 1
 
     @parameterized.expand(
         [
@@ -154,78 +116,51 @@ class TestCloudzeroSourceTransport:
     )
     def test_paginated_list_endpoint_follows_the_cursor(self, endpoint: str, data_key: str) -> None:
         # Without the cursor paginator these endpoints would sync only their first page.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=_list_page(data_key, "cursor-1", [{"id": "1"}])),
+                ScriptedResponse(json=_list_page(data_key, None, [{"id": "2"}])),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_list_page(data_key, "cursor-1", [{"id": "1"}])),
-            _make_http_response(_list_page(data_key, None, [{"id": "2"}])),
-        ]
-        _, sent_params, rows = self._drive(endpoint, manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == [None, "cursor-1"]
-        assert len(rows) == 2
+        assert result.raised is None
+        assert result.params("cursor") == [None, "cursor-1"]
+        assert len(result.rows) == 2
 
     def test_costs_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CloudzeroResumeConfig(next_cursor="cursor-resumed")
+        result = self._driver().run(
+            "Costs",
+            [ScriptedResponse(json=_costs_page(None, [{"usage_date": "2025-01-04T00:00:00+00:00", "cost": 4.0}]))],
+            resume_state=CloudzeroResumeConfig(next_cursor="cursor-resumed"),
+        )
 
-        responses = [
-            _make_http_response(_costs_page(None, [{"usage_date": "2025-01-04T00:00:00+00:00", "cost": 4.0}])),
-        ]
-        _, sent_params, _ = self._drive("Costs", manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.params("cursor") == ["cursor-resumed"]
 
     def test_incremental_rolls_start_date_back_from_watermark(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Costs",
+            [ScriptedResponse(json=_costs_page(None, [{"usage_date": "2026-01-15T00:00:00+00:00", "cost": 5.0}]))],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-15T00:00:00+00:00",
+        )
 
-        responses = [
-            _make_http_response(_costs_page(None, [{"usage_date": "2026-01-15T00:00:00+00:00", "cost": 5.0}])),
-        ]
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = cloudzero_source(
-                api_key="test-key",
-                endpoint="Costs",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value="2026-01-15T00:00:00+00:00",
-                should_use_incremental_field=True,
-            )
-            list(cast(Iterable[Any], resource))
-
-        assert sent_params[0]["start_date"] == "2026-01-08T00:00:00+00:00"
+        assert result.raised is None
+        assert result.requests[0].param("start_date") == "2026-01-08T00:00:00+00:00"
 
     def test_group_by_sent_as_repeated_query_param(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver(group_by="service,account").run(
+            "Costs",
+            [
+                ScriptedResponse(
+                    json=_costs_page(None, [{"usage_date": "2025-01-05T00:00:00+00:00", "service": "ec2", "cost": 5.0}])
+                )
+            ],
+        )
 
-        responses = [
-            _make_http_response(
-                _costs_page(None, [{"usage_date": "2025-01-05T00:00:00+00:00", "service": "ec2", "cost": 5.0}])
-            ),
-        ]
-        _, sent_params, _ = self._drive("Costs", manager, responses, group_by=["service", "account"])
-
-        assert sent_params[0]["group_by"] == ["service", "account"]
+        assert result.raised is None
+        assert result.requests[0].query["group_by"] == ("service", "account")
 
 
 class TestValidateCredentials:
@@ -241,14 +176,11 @@ class TestValidateCredentials:
     def test_status_code_maps_to_validity(
         self, _name: str, status_code: int, expected: tuple[bool, str | None]
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero.make_tracked_session"
-        ) as mock_make_session:
-            mock_response = MagicMock()
-            mock_response.status_code = status_code
-            mock_make_session.return_value.get.return_value = mock_response
-
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             assert validate_credentials("test-key") == expected
+        assert network.requests_log
+        assert {request.path for request in network.requests_log} == {"/v2/billing/dimensions"}
+        assert all(request.headers["authorization"] == "test-key" for request in network.requests_log)
 
 
 class TestGetResource:

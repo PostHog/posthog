@@ -1,8 +1,11 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
     DatahubSourceConfig,
@@ -52,21 +55,21 @@ class TestDatahubSource:
         )
 
     @parameterized.expand([(True, 1500), (False, None)])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source.datahub_source")
     def test_source_for_pipeline_only_passes_the_watermark_on_an_incremental_run(
-        self, should_use_incremental_field: bool, expected: int | None, mock_source: mock.MagicMock
+        self, should_use_incremental_field: bool, expected: int | None
     ) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "dataset_profiles"
-        inputs.should_use_incremental_field = should_use_incremental_field
-        inputs.db_incremental_field_last_value = 1500
+        result = SourceDriver(self.source, self.config).run(
+            "dataset_profiles",
+            [ScriptedResponse(json={"results": []})],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=1500,
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] == expected
+        assert result.raised is None
+        assert result.params("startTimeMillis") == [str(expected) if expected is not None else None]
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "nope"
-        with pytest.raises(ValueError, match="Unknown DataHub schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("nope", [])
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown DataHub schema" in str(result.raised)
+        assert result.requests == []

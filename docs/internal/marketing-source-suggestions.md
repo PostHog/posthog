@@ -14,9 +14,18 @@ These counts guide connection suggestions; they do not change report attribution
 ## MCP setup recommendations
 
 The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes the read-only `marketing-analytics-setup-plan` tool.
+The same flag also enables the read-only setup plan API independently of the Setup tab, dashboard, and source onboarding rollouts.
+Applying setup operations still requires the Setup or dashboard flag and the existing write permissions.
 The tool returns ranked source connection recommendations with evidence and confidence, alongside other setup improvements.
 It supports `refresh=true` for an explicit rescan and does not connect accounts or apply changes.
 Incomplete or truncated scan results must be presented as such.
+
+## Updating conversion goals through MCP
+
+The update tool requires `conversion_goal_id` outside the `goal` patch.
+Omit `kind` for partial updates. Changing `kind` replaces the stored goal, so send the complete new definition, including its name, schema map, and target fields.
+An invalid replacement returns `conversion_goal_kind_change_invalid` with the required fields in the response detail.
+MCP analytics records the controlled error code and field without storing the response detail.
 
 ## Search performance
 
@@ -98,6 +107,15 @@ Enable `destination_url_performance_report` in the Bing Ads source settings and 
 The view groups search distribution metrics by destination URL and currency, with clicks, impressions, spend, and platform-attributed conversions.
 The connector uses `ConversionsQualified` because Microsoft deprecated `Conversions` for this report.
 Keyword reporting continues to use `keyword_performance_report`.
+
+## Source connection context
+
+Setup scan recommendations include a connection link with the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.
+The `entry_point` query parameter identifies the originating surface separately from the visible return label.
+Marketing links identify MCP (`marketing_analytics_mcp`), onboarding, Setup, the integration menu, search suggestions, and search detail.
+The connection flow preserves return URLs, labels, access mode, and origin metadata through OAuth.
+The `warehouse source connect completed` event records the originating entry point.
+Users complete platform authorization through the connection flow.
 
 ## Google Ads campaign trends
 
