@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { ProjectTreeRef } from '~/types'
 
+import { ProductIconWrapper } from './defaultTree'
 import { isProjectTreeItemActive } from './utils'
 
 const ANALYTICS_PRODUCTS = ['Product analytics', 'Web analytics', 'Marketing analytics']
@@ -37,7 +38,17 @@ export function groupLegacyAnalyticsNavigation(
         id: 'legacy-navigation/analytics',
         name: 'Analytics',
         displayName: 'Analytics',
-        icon: <IconLineGraph />,
+        icon: (
+            <ProductIconWrapper
+                type="product_analytics"
+                colorOverride={[
+                    'var(--color-product-product-analytics-light)',
+                    'var(--color-product-product-analytics-dark)',
+                ]}
+            >
+                <IconLineGraph />
+            </ProductIconWrapper>
+        ),
         children: analytics.sort(
             (a, b) => ANALYTICS_PRODUCTS.indexOf(a.record?.path) - ANALYTICS_PRODUCTS.indexOf(b.record?.path)
         ),
@@ -63,7 +74,17 @@ export function groupLegacyAnalyticsNavigation(
                 id: 'legacy-navigation/reports',
                 name: 'Reports',
                 displayName: 'Reports',
-                icon: <IconDocument />,
+                icon: (
+                    <ProductIconWrapper
+                        type="dashboard"
+                        colorOverride={[
+                            'var(--color-product-dashboards-light)',
+                            'var(--color-product-dashboards-dark)',
+                        ]}
+                    >
+                        <IconDocument />
+                    </ProductIconWrapper>
+                ),
                 record: { path: 'Reports', type: 'folder', href: urls.reports(), sceneKey: 'Reports' },
                 children: [
                     {
