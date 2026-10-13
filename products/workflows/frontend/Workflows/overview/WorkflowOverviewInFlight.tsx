@@ -52,7 +52,7 @@ export function WorkflowOverviewInFlight({ id, logicKey }: { id: string; logicKe
                             ))}
                             {inFlightSteps.length > MAX_STEPS ? (
                                 <span className="text-xs text-muted">
-                                    And {inFlightSteps.length - MAX_STEPS} more steps
+                                    {`And ${inFlightSteps.length - MAX_STEPS} more steps`}
                                 </span>
                             ) : null}
                         </div>

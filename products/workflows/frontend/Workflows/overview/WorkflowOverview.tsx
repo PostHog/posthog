@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -16,6 +16,7 @@ import { WorkflowOverviewDetails } from './WorkflowOverviewDetails'
 import { WorkflowOverviewFeedback } from './WorkflowOverviewFeedback'
 import { WorkflowOverviewHealth } from './WorkflowOverviewHealth'
 import { WorkflowOverviewInFlight } from './WorkflowOverviewInFlight'
+import { workflowOverviewLogic } from './workflowOverviewLogic'
 import { WorkflowOverviewSuggestions } from './WorkflowOverviewSuggestions'
 import { WorkflowStepReach } from './WorkflowStepReach'
 
@@ -69,8 +70,11 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
         convertedUsersUrl,
         conversionStats,
         conversionRate,
-    } = useValues(workflowMetricsSummaryLogic({ logicKey, id }))
+    } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
     const { hasEmail, hasPush } = messagingChannels
+    const overviewLogic = workflowOverviewLogic({ id, logicKey })
+    const { trendsFailed } = useValues(overviewLogic)
+    const { retry } = useActions(overviewLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const selfDrivingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
 
@@ -102,6 +106,14 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
             <div className="flex flex-wrap items-center justify-end gap-2">
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
+            {trendsFailed ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: retry, 'data-attr': 'workflow-overview-retry' }}
+                >
+                    Couldn't load this workflow's metrics, so the numbers below may be missing.
+                </LemonBanner>
+            ) : null}
 
             <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-5">
                 <WorkflowMetricCard

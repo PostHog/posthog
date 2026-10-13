@@ -31,7 +31,7 @@ const METRIC_OPTIONS: { value: LeaderboardMetric; label: string }[] = [
 
 export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
     const { emailMetricsRows, pushMetricsRows, emailTotalsByActionIdLoading, pushTotalsByActionIdLoading, params } =
-        useValues(workflowMetricsSummaryLogic({ logicKey, id }))
+        useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
     const [metric, setMetric] = useState<LeaderboardMetric>('sent')
 
     const rows = useMemo<LeaderboardRow[]>(() => {

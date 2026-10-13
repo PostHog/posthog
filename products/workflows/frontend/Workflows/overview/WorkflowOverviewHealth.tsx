@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -44,9 +44,9 @@ function HealthItem({
 function rateItem(
     kind: 'bounce' | 'complaint',
     count: number,
-    sent: number
+    sent: number,
+    detail: string
 ): { value: string; tag: { label: string; type: LemonTagType } | null; detail: string } {
-    const noun = kind === 'bounce' ? 'bounced' : 'marked as spam'
     if (sent === 0) {
         return { value: '-', tag: null, detail: 'No emails sent' }
     }
@@ -54,7 +54,7 @@ function rateItem(
     return {
         value: percentage(rate, 2, true),
         tag: sent < minimumVolumeToClassify(kind) ? null : RATE_LEVEL_TAG[classifyRate(rate, kind)],
-        detail: `${humanFriendlyNumber(count)} ${noun}`,
+        detail,
     }
 }
 
@@ -68,10 +68,18 @@ function loggedErrorsUrl(id: string, dateFrom?: string | null, dateTo?: string |
 }
 
 export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const { healthTotals, healthTotalsLoading, failedRuns, stepTotalsLoading, params } = useValues(
-        workflowOverviewLogic({ id, logicKey })
-    )
-    const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id }))
+    const logic = workflowOverviewLogic({ id, logicKey })
+    const {
+        healthTotals,
+        healthTotalsLoading,
+        failedRuns,
+        stepTotalsLoading,
+        params,
+        stepTotalsFailed,
+        healthTotalsFailed,
+    } = useValues(logic)
+    const { retry } = useActions(logic)
+    const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true }))
     const { emailSendingPaused } = useValues(workflowLogic)
 
     const loading = (healthTotalsLoading && !healthTotals) || (stepTotalsLoading && failedRuns === null)
@@ -79,9 +87,23 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
     const started = totals.triggered ?? 0
     const emailSent = totals.email_sent ?? 0
     const pushSent = totals.push_sent ?? 0
-    const bounce = rateItem('bounce', totals.email_bounced ?? 0, emailSent)
+    // Reputation thresholds apply to permanent bounces only, as on the Reputation page.
+    const hardBounces = totals.email_bounced_hard ?? 0
+    const bounce = rateItem(
+        'bounce',
+        hardBounces,
+        emailSent,
+        `${humanFriendlyNumber(hardBounces)} hard, ${humanFriendlyNumber(totals.email_bounced ?? 0)} bounced in total`
+    )
     // Spam complaints are stored under the email_blocked metric name.
-    const complaint = rateItem('complaint', totals.email_blocked ?? 0, emailSent)
+    const complaintCount = totals.email_blocked ?? 0
+    const complaint = rateItem(
+        'complaint',
+        complaintCount,
+        emailSent,
+        `${humanFriendlyNumber(complaintCount)} marked as spam`
+    )
+    const failed = stepTotalsFailed || healthTotalsFailed
 
     return (
         <div className="@container rounded border bg-surface-primary" data-attr="workflow-overview-health">
@@ -93,7 +115,19 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
                     </LemonTag>
                 ) : null}
             </div>
-            {loading ? (
+            {failed ? (
+                <div className="flex flex-wrap items-center gap-2 p-4 text-sm text-muted">
+                    <span>Couldn't load this workflow's health.</span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={retry}
+                        data-attr="workflow-overview-health-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
+            ) : loading ? (
                 <div className="p-4">
                     <LemonSkeleton className="h-12" />
                 </div>
@@ -110,8 +144,7 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
                                     to={loggedErrorsUrl(id, params.dateFrom, params.dateTo)}
                                     data-attr="workflow-overview-health-failures"
                                 >
-                                    {started > 0 ? `${percentage((failedRuns ?? 0) / started, 1)} of started. ` : ''}
-                                    View runs with errors
+                                    {`${started > 0 ? `${percentage((failedRuns ?? 0) / started, 1)} of started. ` : ''}View runs with errors`}
                                 </Link>
                             ) : (
                                 'No errors'
@@ -121,8 +154,8 @@ export function WorkflowOverviewHealth({ id, logicKey }: { id: string; logicKey:
                     {messagingChannels.hasEmail ? (
                         <>
                             <HealthItem
-                                label="Bounce rate"
-                                tooltip="Bounces as a share of emails sent. A high bounce rate can pause email from this workflow automatically."
+                                label="Hard bounce rate"
+                                tooltip="Permanent bounces as a share of emails sent. A high hard bounce rate can pause email from this workflow automatically."
                                 {...bounce}
                             />
                             <HealthItem

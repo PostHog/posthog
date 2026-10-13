@@ -79,10 +79,15 @@ export function conversionWindowLabel(window: string | undefined): string | null
     return `${amount} ${WINDOW_UNITS[match[2]]}${amount === 1 ? '' : 's'}`
 }
 
+type GoalEntity = { name?: string | null; id?: string | number | null }
+
 export function conversionGoalEvents(conversion: HogFlow['conversion']): string[] {
-    return (conversion?.events ?? []).flatMap((goal) =>
-        ((goal.filters?.events ?? []) as { name?: string; id?: string }[])
-            .map((event) => event.name || String(event.id ?? ''))
-            .filter(Boolean)
-    )
+    return (conversion?.events ?? [])
+        .flatMap((goal) => [
+            ...((goal.filters?.events ?? []) as GoalEntity[]).map((event) => event.name || String(event.id ?? '')),
+            ...((goal.filters?.actions ?? []) as GoalEntity[]).map(
+                (action) => action.name || (action.id != null ? `Action ${action.id}` : '')
+            ),
+        ])
+        .filter(Boolean)
 }

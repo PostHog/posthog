@@ -125,8 +125,7 @@ export function WorkflowOverviewDetails({ id }: { id: string }): JSX.Element {
                 <span>{frequencySummary(originalWorkflow)}</span>
                 {email_sending_rate_limit ? (
                     <span className="text-muted">
-                        Emails send at most {email_sending_rate_limit.count.toLocaleString()} per{' '}
-                        {email_sending_rate_limit.period}.
+                        {`Emails send at most ${email_sending_rate_limit.count.toLocaleString()} per ${email_sending_rate_limit.period}.`}
                     </span>
                 ) : null}
             </DetailsSection>
@@ -159,7 +158,7 @@ export function WorkflowOverviewDetails({ id }: { id: string }): JSX.Element {
                         ) : null}
                         {goalWindow ? (
                             <span className="text-xs text-muted">
-                                Counted within {goalWindow} of entering the workflow.
+                                {`Counted within ${goalWindow} of entering the workflow.`}
                             </span>
                         ) : null}
                     </>

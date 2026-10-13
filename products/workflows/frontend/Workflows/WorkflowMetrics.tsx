@@ -19,7 +19,7 @@ import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { EmailMetricsSummary } from './EmailMetricsSummary'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
-import { metricsRangeFromSearchParams } from './metricsDrillParams'
+import { metricsRangeFromSearchParams, metricsRangeSearchParams } from './metricsDrillParams'
 import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
@@ -153,8 +153,11 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         if (!props.id) {
             return
         }
-        const { action: _prev, ...rest } = searchParams
-        router.actions.push(urls.workflow(props.id, 'metrics'), actionId ? { ...rest, action: actionId } : rest)
+        const { action: _prev, date_from: _from, date_to: _to, interval: _interval, ...rest } = searchParams
+        // A range in the URL came from a drill link; replace it with the range picked since, or urlToAction restores the old one.
+        const hadRange = _from !== undefined || _to !== undefined || _interval !== undefined
+        const next = { ...rest, ...(hadRange ? metricsRangeSearchParams(params) : {}) }
+        router.actions.push(urls.workflow(props.id, 'metrics'), actionId ? { ...next, action: actionId } : next)
     }
 
     return (

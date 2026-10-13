@@ -37,7 +37,7 @@ function ReachRow({
                     )}
                     {failed ? (
                         <LemonTag type="danger" size="small">
-                            {humanFriendlyNumber(failed)} failed
+                            {`${humanFriendlyNumber(failed)} failed`}
                         </LemonTag>
                     ) : null}
                     {waiting ? (
@@ -45,13 +45,15 @@ function ReachRow({
                             className="whitespace-nowrap text-xs text-muted"
                             data-attr="workflow-overview-step-reach-waiting"
                         >
-                            {humanFriendlyNumber(waiting)} waiting now
+                            {`${humanFriendlyNumber(waiting)} waiting now`}
                         </span>
                     ) : null}
                 </span>
                 <span className="whitespace-nowrap">
-                    {humanFriendlyNumber(count)}
-                    {base > 0 ? <span className="text-muted"> ({percentage(count / base, 1)})</span> : null}
+                    <span translate="no">{humanFriendlyNumber(count)}</span>
+                    {base > 0 ? (
+                        <span className="text-muted" translate="no">{` (${percentage(count / base, 1)})`}</span>
+                    ) : null}
                 </span>
             </div>
             <LemonProgress percent={share * 100} />

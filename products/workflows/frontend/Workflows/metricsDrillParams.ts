@@ -5,18 +5,23 @@ type MetricsRange = Pick<AppMetricsCommonParams, 'dateFrom' | 'dateTo' | 'interv
 
 const INTERVALS: NonNullable<AppMetricsCommonParams['interval']>[] = ['day', 'hour', 'minute']
 
-/** Links to one step on the Metrics tab, keeping the date range the link was clicked from. */
-export function metricsStepUrl(id: string, actionId: string, range: MetricsRange): string {
-    const search = new URLSearchParams({ action: actionId })
+export function metricsRangeSearchParams(range: MetricsRange): Record<string, string> {
+    const search: Record<string, string> = {}
     if (range.dateFrom) {
-        search.set('date_from', range.dateFrom)
+        search.date_from = range.dateFrom
     }
     if (range.dateTo) {
-        search.set('date_to', range.dateTo)
+        search.date_to = range.dateTo
     }
     if (range.interval) {
-        search.set('interval', range.interval)
+        search.interval = range.interval
     }
+    return search
+}
+
+/** Links to one step on the Metrics tab, keeping the date range the link was clicked from. */
+export function metricsStepUrl(id: string, actionId: string, range: MetricsRange): string {
+    const search = new URLSearchParams({ action: actionId, ...metricsRangeSearchParams(range) })
     return `${urls.workflow(id, 'metrics')}?${search.toString()}`
 }
 
