@@ -155,14 +155,18 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
 
     synced_variables: dict[str, HogQLVariable] = {}
     existing_code_names: set[str] = set()
+    # Entries whose variable was deleted or recreated: rebind them by code name below.
+    stale_variables: dict[str, tuple[str, HogQLVariable]] = {}
 
     for variable_id, variable in existing_variables.items():
         if variable.code_name and variable.code_name in placeholder_names:
+            team_variable = team_variables_by_id.get(variable.variableId)
+            if team_variable is None:
+                stale_variables[variable.code_name] = (variable_id, variable)
+                continue
             if variable.value is None and variable.isNull is not True:
-                team_variable = team_variables_by_id.get(variable.variableId)
-                if team_variable:
-                    variable.value = team_variable.default_value
-                    variable.isNull = team_variable.default_value is None
+                variable.value = team_variable.default_value
+                variable.isNull = team_variable.default_value is None
             synced_variables[variable_id] = variable
             existing_code_names.add(variable.code_name)
 
@@ -173,12 +177,21 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
         for definition in missing_variables:
             if not definition.code_name:
                 continue
+            stale = stale_variables.pop(definition.code_name, None)
+            if stale and (stale[1].value is not None or stale[1].isNull is True):
+                value, is_null = stale[1].value, stale[1].isNull
+            else:
+                value, is_null = definition.default_value, definition.default_value is None
             synced_variables[str(definition.id)] = HogQLVariable(
                 variableId=str(definition.id),
                 code_name=definition.code_name,
-                value=definition.default_value,
-                isNull=definition.default_value is None,
+                value=value,
+                isNull=is_null,
             )
+
+    # No team variable has this code name, so keep the entry and let validation name the bad id.
+    for variable_id, variable in stale_variables.values():
+        synced_variables[variable_id] = variable
 
     query.variables = synced_variables or None
 
