@@ -7,6 +7,8 @@ const PENDING_CARD_ATTR = 'data-pending-artifact-comment'
 
 const PADDING_PX = 48
 const MIN_SIZE_PX = 240
+const MAX_SIZE_PX = 1200
+const MAX_PIXEL_RATIO = 2
 const MARK_COLOR = '#f54e00'
 
 interface Box {
@@ -35,8 +37,8 @@ function loadImage(blob: Blob): Promise<HTMLImageElement> {
 function grow(box: Box, width: number, height: number): Box {
     const centerX = (box.left + box.right) / 2
     const centerY = (box.top + box.bottom) / 2
-    const halfWidth = Math.max(box.right - box.left + PADDING_PX * 2, MIN_SIZE_PX) / 2
-    const halfHeight = Math.max(box.bottom - box.top + PADDING_PX * 2, MIN_SIZE_PX) / 2
+    const halfWidth = Math.min(Math.max(box.right - box.left + PADDING_PX * 2, MIN_SIZE_PX), MAX_SIZE_PX) / 2
+    const halfHeight = Math.min(Math.max(box.bottom - box.top + PADDING_PX * 2, MIN_SIZE_PX), MAX_SIZE_PX) / 2
     return {
         left: Math.max(0, centerX - halfWidth),
         top: Math.max(0, centerY - halfHeight),
@@ -70,32 +72,27 @@ export async function captureCommentScreenshot(card: HTMLElement): Promise<File 
         bottom: Math.max(...markBoxes.map((box) => box.bottom)),
     }
     const crop = grow(marked, surface.offsetWidth, surface.offsetHeight)
+    const width = Math.round(crop.right - crop.left)
+    const height = Math.round(crop.bottom - crop.top)
     try {
-        const pixelRatio = window.devicePixelRatio || 1
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO)
         const blob = await captureElementImage(surface, {
+            width,
+            height,
             pixelRatio,
+            style: { transform: `translate(${-crop.left}px, ${-crop.top}px)`, transformOrigin: 'top left' },
             filter: (node) => !(node instanceof Element && node.hasAttribute(PENDING_CARD_ATTR)),
         })
         const image = await loadImage(blob)
-        const ratio = image.width / surface.offsetWidth
+        const ratio = image.width / width
         const canvas = document.createElement('canvas')
-        canvas.width = Math.round((crop.right - crop.left) * ratio)
-        canvas.height = Math.round((crop.bottom - crop.top) * ratio)
+        canvas.width = image.width
+        canvas.height = image.height
         const context = canvas.getContext('2d')
         if (!context) {
             return null
         }
-        context.drawImage(
-            image,
-            crop.left * ratio,
-            crop.top * ratio,
-            canvas.width,
-            canvas.height,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        )
+        context.drawImage(image, 0, 0)
         context.strokeStyle = MARK_COLOR
         context.lineWidth = 2 * ratio
         for (const box of markBoxes) {

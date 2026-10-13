@@ -617,17 +617,18 @@ function takeCommentContexts(props: RunInteractionLogicProps, content: string): 
         return content
     }
     const attachments = composerAttachmentsLogic.findMounted({ attachmentsKey: props.interactionKey ?? props.runId })
-    const screenshots: File[] = []
-    const contexts = commentLogic.values.commentContexts.map(({ label, body, screenshotFile }) => {
-        if (!screenshotFile || !attachments) {
-            return { label, body }
-        }
-        screenshots.push(screenshotFile)
-        return { label, body, screenshot: screenshotFile.name }
-    })
-    if (screenshots.length > 0) {
-        attachments?.actions.addFiles(screenshots)
+    const screenshots = commentLogic.values.commentContexts.flatMap(({ screenshotFile }) =>
+        screenshotFile ? [screenshotFile] : []
+    )
+    if (attachments && screenshots.length > 0) {
+        attachments.actions.addFiles(screenshots)
     }
+    const stagedFiles = new Set(attachments?.values.stagedAttachments.map(({ file }) => file) ?? [])
+    const stagedNames = new Set([...stagedFiles].map((file) => file.name))
+    const contexts = commentLogic.values.commentContexts.map(({ label, body, screenshot, screenshotFile }) => {
+        const attached = screenshotFile ? stagedFiles.has(screenshotFile) : !!screenshot && stagedNames.has(screenshot)
+        return attached ? { label, body, screenshot: screenshotFile?.name ?? screenshot } : { label, body }
+    })
     const message = withCommentContexts(contexts, content)
     commentLogic.actions.clearCommentContexts()
     return message

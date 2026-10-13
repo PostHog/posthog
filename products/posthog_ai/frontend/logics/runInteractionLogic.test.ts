@@ -293,6 +293,36 @@ describe('runInteractionLogic', () => {
             comments.unmount()
         })
 
+        it('keeps the chip screenshot name when a failed send is retried', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValueOnce(new Error('S3 said no'))
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValueOnce(['art-1', 'art-2'])
+            const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+            comments.mount()
+            const screenshot = new File(['png'], 'comment-1.png', { type: 'image/png' })
+            comments.actions.addCommentToChat(
+                { label: 'chart.png (region)', body: '- **Artifact** chart.png' },
+                'x',
+                screenshot
+            )
+
+            logic.actions.setComposerFormValues({ draft: 'Fix this bar' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                RUN_ID,
+                expect.objectContaining({
+                    params: expect.objectContaining({
+                        content:
+                            '<comment_context label="chart.png (region)" screenshot="comment-1.png">\n- **Artifact** chart.png\n</comment_context>\nFix this bar',
+                    }),
+                })
+            )
+            comments.unmount()
+        })
+
         it('keeps the files staged when the send fails', async () => {
             ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
 
