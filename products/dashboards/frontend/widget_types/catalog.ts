@@ -1,6 +1,15 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconList, IconLive, IconMessage, IconNotebook, IconRewindPlay, IconWarning } from '@posthog/icons'
+import {
+    IconApps,
+    IconFlask,
+    IconList,
+    IconLive,
+    IconMessage,
+    IconNotebook,
+    IconRewindPlay,
+    IconWarning,
+} from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -9,6 +18,7 @@ import { ActivityTab } from '~/types'
 
 import {
     activityEventsWidgetConfigSchema,
+    canvasAppWidgetConfigSchema,
     conversationsRecentTicketsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
@@ -81,6 +91,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     surveys: 'Surveys',
     logs: 'Logs',
     conversations: 'Support',
+    canvas: 'Canvas',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -97,6 +108,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     surveys: IconMessage,
     logs: IconList,
     conversations: IconMessage,
+    canvas: IconApps,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -334,6 +346,20 @@ export const DASHBOARD_WIDGET_CATALOG = {
         sharedPlaceholder: {
             title: 'Recent logs',
             message: 'Log in to PostHog to see the latest logs from this dashboard.',
+        },
+    },
+    canvas_app: {
+        groupId: 'canvas',
+        label: 'Canvas app',
+        description: "A published canvas app, rendered with each viewer's own permissions.",
+        headerTitle: 'Canvas app',
+        // An app owns its own controls; there is no configured date range to surface.
+        headerMeta: { showDateRange: false },
+        defaultConfig: canvasAppWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 6, minW: 3, minH: 3 },
+        sharedPlaceholder: {
+            title: 'Canvas app',
+            message: 'Log in to PostHog with access to this canvas to use it from this dashboard.',
         },
     },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
