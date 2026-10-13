@@ -113,13 +113,14 @@ def test_incremental_watermark_is_inclusive_and_normalized_to_utc(watermark: obj
     request = result.requests[0]
     assert request.path == "/v2025-02-19/data/query/production"
     assert json.loads(request.param("$type") or "null") == document_type
-    assert request.param("query") and document_type not in request.param("query")
+    query = request.param("query")
+    assert query and document_type not in query
     if watermark is None:
         assert request.param("$since") is None
-        assert "$since" not in (request.param("query") or "")
+        assert "$since" not in query
     else:
         assert request.param("$since") == '"2026-01-01T00:00:00.000Z"'
-        assert "_updatedAt >= $since" in (request.param("query") or "")
+        assert "_updatedAt >= $since" in query
 
 
 def test_a_failed_next_request_keeps_the_previous_batch_checkpoint() -> None:
