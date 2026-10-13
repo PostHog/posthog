@@ -1,124 +1,51 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from typing import Any, Optional, cast
-
-import pytest
-from unittest import mock
-from unittest.mock import MagicMock
+from typing import Any, Optional
 
 from parameterized import parameterized
-from requests import Response
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitbook import (
+    GitBookSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook import (
     GITBOOK_BASE_URL,
     PAGE_SIZE,
     GitBookResumeConfig,
-    gitbook_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.settings import (
     ENDPOINTS,
     GITBOOK_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the gitbook module.
-GITBOOK_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook.make_tracked_session"
-)
-
-PageKey = tuple[str, Optional[str]]
+from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.source import GitBookSource
 
 
-def _u(path: str) -> str:
-    return f"{GITBOOK_BASE_URL}{path}"
+def _driver() -> SourceDriver:
+    return SourceDriver(GitBookSource(), GitBookSourceConfig(api_token="gb-token"))
 
 
-def _response(
-    items: Optional[list[dict]], *, next_page: Optional[str] = None, status: int = 200, raw_body: Any = None
-) -> Response:
-    if raw_body is not None:
-        body: Any = raw_body
-    else:
-        body = {"items": items or []}
-        if next_page is not None:
-            body["next"] = {"page": next_page}
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-class _FakeManager:
-    def __init__(self, state: GitBookResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[GitBookResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> GitBookResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: GitBookResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _wire(session: MagicMock, pages: dict[PageKey, Response]) -> list[tuple[str, dict[str, Any]]]:
-    """Wire a mock session that dispatches each request to a response keyed by (url, page token).
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy at
-    prepare-request time to observe what each page actually sent.
-    """
-    session.headers = {}
-    snapshots: list[tuple[str, dict[str, Any]]] = []
-
-    def _prepare(request: Any) -> SimpleNamespace:
-        params = dict(request.params or {})
-        snapshots.append((request.url, params))
-        return SimpleNamespace(url=request.url, _page=params.get("page"), is_redirect=False)
-
-    def _send(prepared: Any, **kwargs: Any) -> Response:
-        key = (prepared.url, prepared._page)
-        if key not in pages:
-            raise AssertionError(f"unexpected request {key}; known keys: {sorted(pages)}")
-        return pages[key]
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = _send
-    return snapshots
-
-
-def _drive(
-    endpoint: str, pages: dict[PageKey, Response], manager: _FakeManager, **kwargs: Any
-) -> tuple[list[dict], list[tuple[str, dict[str, Any]]]]:
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-        session = MockSession.return_value
-        snapshots = _wire(session, pages)
-        response = gitbook_source(
-            api_token="gb-token",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            **kwargs,
-        )
-        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
-    return rows, snapshots
+def _page(items: list[dict[str, Any]], *, next_page: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"items": items}
+    if next_page is not None:
+        body["next"] = {"page": next_page}
+    return ScriptedResponse(json=body)
 
 
 class TestTopLevel:
-    ORGS = _u("/orgs")
-
     def test_resumes_from_saved_page_token(self) -> None:
-        manager = _FakeManager(GitBookResumeConfig(next_page="tok2"))
-        # Only the tok2 page is wired; fetching the first page would raise from the mock.
-        rows, _ = _drive("organizations", {(self.ORGS, "tok2"): _response([{"id": "org2"}])}, manager)
-        assert rows == [{"id": "org2"}]
+        result = _driver().run(
+            "organizations", [_page([{"id": "org2"}])], resume_state=GitBookResumeConfig(next_page="tok2")
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "org2"}]
+        assert result.params("page") == ["tok2"]
 
     @parameterized.expand(
         [
@@ -129,41 +56,46 @@ class TestTopLevel:
     def test_request_params_carry_limit_and_page_token(
         self, _name: str, page: Optional[str], expected: dict[str, Any]
     ) -> None:
-        pages = {
-            (self.ORGS, None): _response([{"id": "org1"}], next_page="tok2"),
-            (self.ORGS, "tok2"): _response([{"id": "org2"}]),
-        }
-        _, snapshots = _drive("organizations", pages, _FakeManager())
-        index = 0 if page is None else 1
-        url, params = snapshots[index]
-        assert url == self.ORGS
-        assert params == expected
+        result = _driver().run("organizations", [_page([{"id": "org1"}], next_page="tok2"), _page([{"id": "org2"}])])
+        assert result.raised is None
+        request = result.requests[0 if page is None else 1]
+        assert request.url.partition("?")[0] == f"{GITBOOK_BASE_URL}/orgs"
+        assert request.path == "/v1/orgs"
+        assert request.query == {key: (str(value),) for key, value in expected.items()}
 
 
 class TestFanOut:
-    ORGS = _u("/orgs")
-
     def test_org_fanout_injects_parent_id_into_rows(self) -> None:
-        pages: dict[PageKey, Response] = {
-            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}]),
-            (_u("/orgs/org1/members"), None): _response([{"id": "user1"}]),
-            (_u("/orgs/org2/members"), None): _response([{"id": "user1"}, {"id": "user2"}]),
-        }
-        rows, _ = _drive("members", pages, _FakeManager())
+        result = _driver().run(
+            "members",
+            route(
+                {
+                    "/orgs": [_page([{"id": "org1"}, {"id": "org2"}])],
+                    "/orgs/org1/members": [_page([{"id": "user1"}])],
+                    "/orgs/org2/members": [_page([{"id": "user1"}, {"id": "user2"}])],
+                }
+            ),
+        )
+        assert result.raised is None
         # The same user id in two orgs stays distinguishable via the injected organization_id.
-        assert rows == [
+        assert result.rows == [
             {"id": "user1", "organization_id": "org1"},
             {"id": "user1", "organization_id": "org2"},
             {"id": "user2", "organization_id": "org2"},
         ]
 
     def test_spaces_rows_keep_api_shape_without_injection(self) -> None:
-        pages: dict[PageKey, Response] = {
-            (self.ORGS, None): _response([{"id": "org1"}]),
-            (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1", "organization": "org1"}]),
-        }
-        rows, _ = _drive("spaces", pages, _FakeManager())
-        assert rows == [{"id": "sp1", "organization": "org1"}]
+        result = _driver().run(
+            "spaces",
+            route(
+                {
+                    "/orgs": [_page([{"id": "org1"}])],
+                    "/orgs/org1/spaces": [_page([{"id": "sp1", "organization": "org1"}])],
+                }
+            ),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "sp1", "organization": "org1"}]
 
     def test_pages_tree_is_flattened_with_parent_links(self) -> None:
         tree = {
@@ -176,13 +108,18 @@ class TestFanOut:
                 {"id": "g1", "type": "group", "pages": [{"id": "p2", "type": "document", "pages": []}]},
             ]
         }
-        pages: dict[PageKey, Response] = {
-            (self.ORGS, None): _response([{"id": "org1"}]),
-            (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1"}]),
-            (_u("/spaces/sp1/content/pages"), None): _response(None, raw_body=tree),
-        }
-        rows, snapshots = _drive("pages", pages, _FakeManager())
-        assert rows == [
+        result = _driver().run(
+            "pages",
+            route(
+                {
+                    "/orgs": [_page([{"id": "org1"}])],
+                    "/orgs/org1/spaces": [_page([{"id": "sp1"}])],
+                    "/spaces/sp1/content/pages": [ScriptedResponse(json=tree)],
+                }
+            ),
+        )
+        assert result.raised is None
+        assert result.rows == [
             {"id": "p1", "type": "document", "space_id": "sp1", "parent_page_id": None},
             {"id": "p1a", "type": "document", "space_id": "sp1", "parent_page_id": "p1"},
             {"id": "p1a1", "type": "link", "space_id": "sp1", "parent_page_id": "p1a"},
@@ -190,7 +127,9 @@ class TestFanOut:
             {"id": "p2", "type": "document", "space_id": "sp1", "parent_page_id": "g1"},
         ]
         # The pages endpoint is not paginated, so it gets no `limit`.
-        assert snapshots[-1] == (_u("/spaces/sp1/content/pages"), {})
+        assert result.requests[-1].url == f"{GITBOOK_BASE_URL}/spaces/sp1/content/pages"
+        assert result.requests[-1].path == "/v1/spaces/sp1/content/pages"
+        assert result.requests[-1].query == {}
 
     @parameterized.expand(
         [
@@ -225,16 +164,21 @@ class TestFanOut:
         api_row: dict[str, Any],
         expected_row: dict[str, Any],
     ) -> None:
-        pages: dict[PageKey, Response] = {
-            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}]),
-            (_u(f"/orgs/org1/{parent_segment}"), None): _response([{"id": "x1"}]),
-            (_u(f"/orgs/org2/{parent_segment}"), None): _response([{"id": "x1"}]),
-            (_u(child_path.format(org="org1", parent="x1")), None): _response([dict(api_row)]),
-            (_u(child_path.format(org="org2", parent="x1")), None): _response([dict(api_row)]),
-        }
-        rows, _ = _drive(endpoint, pages, _FakeManager())
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/orgs": [_page([{"id": "org1"}, {"id": "org2"}])],
+                    f"/orgs/org1/{parent_segment}": [_page([{"id": "x1"}])],
+                    f"/orgs/org2/{parent_segment}": [_page([{"id": "x1"}])],
+                    child_path.format(org="org1", parent="x1"): [_page([dict(api_row)])],
+                    child_path.format(org="org2", parent="x1"): [_page([dict(api_row)])],
+                }
+            ),
+        )
+        assert result.raised is None
         # The same child id under two organizations stays distinguishable via organization_id.
-        assert rows == [
+        assert result.rows == [
             {**expected_row, "organization_id": "org1", parent_key: "x1"},
             {**expected_row, "organization_id": "org2", parent_key: "x1"},
         ]
@@ -249,63 +193,66 @@ class TestFanOut:
     def test_site_answers_filter_on_watermark_only_when_incremental(
         self, _name: str, incremental: bool, last_value: Optional[datetime], expected_from: Optional[str]
     ) -> None:
-        answers = _u("/orgs/org1/sites/s1/answers")
-        pages: dict[PageKey, Response] = {
-            (self.ORGS, None): _response([{"id": "org1"}]),
-            (_u("/orgs/org1/sites"), None): _response([{"id": "s1"}]),
-            (answers, None): _response([{"id": "a1"}], next_page="tok2"),
-            (answers, "tok2"): _response([{"id": "a2"}]),
-        }
-        rows, snapshots = _drive(
+        answers = "/v1/orgs/org1/sites/s1/answers"
+        result = _driver().run(
             "site_answers",
-            pages,
-            _FakeManager(),
+            route(
+                {
+                    "/orgs": [_page([{"id": "org1"}])],
+                    "/orgs/org1/sites": [_page([{"id": "s1"}])],
+                    answers: [_page([{"id": "a1"}], next_page="tok2"), _page([{"id": "a2"}])],
+                }
+            ),
             should_use_incremental_field=incremental,
             db_incremental_field_last_value=last_value,
             incremental_field="createdAt" if incremental else None,
         )
-        assert [row["id"] for row in rows] == ["a1", "a2"]
-        answer_params = [params for url, params in snapshots if url == answers]
-        assert len(answer_params) == 2
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a1", "a2"]
+        answer_requests = [request for request in result.requests if request.path == answers]
+        assert len(answer_requests) == 2
         # The watermark filter stays on every page, not just the first.
-        assert all(params.get("from") == expected_from for params in answer_params)
+        assert all(request.param("from") == expected_from for request in answer_requests)
 
     def test_resume_skips_completed_parents_and_resumes_current_at_token(self) -> None:
-        manager = _FakeManager(
-            GitBookResumeConfig(
+        result = _driver().run(
+            "teams",
+            route(
+                {
+                    "/orgs": [_page([{"id": "org1"}, {"id": "org2"}, {"id": "org3"}])],
+                    "/orgs/org2/teams": [_page([{"id": "t2"}])],
+                    "/orgs/org3/teams": [_page([{"id": "t3"}])],
+                }
+            ),
+            resume_state=GitBookResumeConfig(
                 fanout_state={
                     "completed": ["/orgs/org1/teams"],
                     "current": "/orgs/org2/teams",
                     "child_state": {"cursor": "tok2"},
                 }
-            )
+            ),
         )
-        # org1's pages and org2's first page are not wired: fetching either would raise from the mock.
-        pages = {
-            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}, {"id": "org3"}]),
-            (_u("/orgs/org2/teams"), "tok2"): _response([{"id": "t2"}]),
-            (_u("/orgs/org3/teams"), None): _response([{"id": "t3"}]),
-        }
-        rows, _ = _drive("teams", pages, manager)
-        assert rows == [
+        assert result.raised is None
+        assert result.paths == ["/v1/orgs", "/v1/orgs/org2/teams", "/v1/orgs/org3/teams"]
+        assert result.requests[1].param("page") == "tok2"
+        assert result.rows == [
             {"id": "t2", "organization_id": "org2"},
             {"id": "t3", "organization_id": "org3"},
         ]
 
 
 class TestFailLoud:
-    ORGS = _u("/orgs")
-
     @parameterized.expand([("bare_list", [{"id": "a"}]), ("missing_items", {"count": 1})])
     def test_unexpected_payload_fails_loud(self, _name: str, raw_body: Any) -> None:
         # A 200 body that isn't {"items": [...]} means the response shape changed — fail loud.
-        with pytest.raises(ValueError, match="matched nothing"):
-            _drive("organizations", {(self.ORGS, None): _response(None, raw_body=raw_body)}, _FakeManager())
+        result = _driver().run("organizations", [ScriptedResponse(json=raw_body)])
+        assert isinstance(result.raised, ValueError)
+        assert "matched nothing" in str(result.raised)
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_errors_raise(self, _name: str, status: int) -> None:
-        with pytest.raises(HTTPError):
-            _drive("organizations", {(self.ORGS, None): _response([], status=status)}, _FakeManager())
+        result = _driver().run("organizations", [ScriptedResponse(status=status, json={"items": []})])
+        assert isinstance(result.raised, HTTPError)
 
 
 class TestValidateCredentials:
@@ -317,22 +264,22 @@ class TestValidateCredentials:
             ("server_error", 500, False, "GitBook returned HTTP 500"),
         ]
     )
-    @mock.patch(GITBOOK_SESSION_PATCH)
     def test_status_mapping(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
     ) -> None:
-        mock_session.return_value.get.return_value = MagicMock(status_code=status)
-        assert validate_credentials("gb-token") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert validate_credentials("gb-token") == (expected_valid, expected_message)
+        assert network.requests_log[0].path == "/v1/user"
+        assert network.requests_log[0].headers["authorization"] == "Bearer gb-token"
 
-    @mock.patch(GITBOOK_SESSION_PATCH)
-    def test_connection_error_is_not_validated(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("gb-token") == (False, "Could not validate GitBook API token")
+    def test_connection_error_is_not_validated(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials("gb-token") == (False, "Could not validate GitBook API token")
+        assert {request.path for request in network.requests_log} == {"/v1/user"}
 
 
 class TestSourceResponse:
@@ -348,21 +295,14 @@ class TestSourceResponse:
             ("comments", ["space_id", "id"]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(
-        self, endpoint: str, expected_primary_keys: list[str], _mock_session: MagicMock
-    ) -> None:
-        response = gitbook_source(
-            api_token="gb-token",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_primary_keys
+    def test_source_response_shape(self, endpoint: str, expected_primary_keys: list[str]) -> None:
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_primary_keys
         # No stable creation timestamp exists on every object, so we don't partition by datetime.
-        assert response.partition_mode is None
+        assert result.response.partition_mode is None
 
     def test_endpoint_catalog_is_consistent(self) -> None:
         assert set(GITBOOK_ENDPOINTS) == set(ENDPOINTS)

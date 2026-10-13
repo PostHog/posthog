@@ -207,11 +207,11 @@ outbound_rate_limit_decisions = Counter(
     "Outbound egress rate limiter admission decisions. Recorded per attempt, so a shed call that retries "
     "(e.g. warehouse _fetch_page under tenacity) inflates granted=false by the retry count — alert on the "
     "grant/deny ratio or rate, not raw denied totals.",
-    labelnames=["domain", "source", "priority", "granted"],
+    labelnames=["domain", "scope", "source", "priority", "granted"],
 )
 
 
-def record_outbound_decision(*, domain: str, source: str, priority: str, granted: bool) -> None:
+def record_outbound_decision(*, domain: str, scope: str, source: str, priority: str, granted: bool) -> None:
     """Record one limiter decision. ``priority`` is the lane string (e.g. ``"batch"``); the caller
     derives ``domain`` from the limiter key's first segment so this stays limiter-library-agnostic."""
-    outbound_rate_limit_decisions.labels(domain, source, priority, "true" if granted else "false").inc()
+    outbound_rate_limit_decisions.labels(domain, scope, source, priority, "true" if granted else "false").inc()

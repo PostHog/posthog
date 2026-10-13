@@ -134,6 +134,7 @@ class TestSyncMetricToDag(BaseTest):
 
         self.assertFalse(Node.objects.filter(id=node_id).exists())
         self.assertFalse(Edge.objects.filter(target_id=node_id).exists())
+        self.assertFalse(Node.objects.filter(team=self.team, name="events", type=NodeType.TABLE).exists())
 
     def test_a_failed_sync_is_recorded_on_the_node_and_cleared_by_the_next_one(self):
         mark_metric_node_degraded(self.team, self.metric_id, "weekly_active_accounts", "schema build blew up")

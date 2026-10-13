@@ -243,9 +243,9 @@ def read_repository_file(team: Team, user: User, repo: str, path: str) -> Reposi
 
 def _fetch_file(team: Team, integration: Integration, full_name: str, path: str, sha: str) -> RepositoryFile:
     try:
-        payload = GitHubIntegration(integration, source="business_knowledge").get_file_contents(
-            full_name, _quote_github_path(path), ref=sha
-        )
+        payload = GitHubIntegration(
+            integration, source="business_knowledge", priority=Priority.NORMAL
+        ).get_file_contents(full_name, _quote_github_path(path), ref=sha)
     except UnicodeDecodeError:
         raise GithubReposError("That file is not text.")
     except (GitHubIntegrationError, GitHubRateLimitError, EgressBudgetExhausted):
@@ -346,9 +346,9 @@ def _require_allowlist(team: Team) -> tuple[Integration, list[str]]:
 def _installation_repo_names(integration: Integration) -> set[str]:
     # A pure read of the stored repository list, so a repository removed from the installation
     # stops being searchable as soon as that list refreshes, even while its cache row remains.
-    listed = GitHubIntegration(integration, source="business_knowledge").list_all_cached_repositories(
-        allow_refresh=False
-    )
+    listed = GitHubIntegration(
+        integration, source="business_knowledge", priority=Priority.NORMAL
+    ).list_all_cached_repositories(allow_refresh=False)
     return {
         item["full_name"].lower()
         for item in listed
@@ -371,7 +371,7 @@ def _validate_against_installation(team_id: int, integration_id: int, repos: lis
     integration = _integration_for(team_id, integration_id)
     if integration is None:
         raise GithubReposError("GitHub installation not found on this project.")
-    github = GitHubIntegration(integration, source="business_knowledge")
+    github = GitHubIntegration(integration, source="business_knowledge", priority=Priority.NORMAL)
     try:
         listed = github.list_all_cached_repositories()
     # Without a cached snapshot the refresh re-raises whatever the sync hit, not only GitHub errors.

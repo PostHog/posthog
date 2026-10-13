@@ -23,7 +23,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_saving
     ENDPOINTS,
     SAVINGS_PLANS_API_VERSION,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.source import (
+    AwsSavingsPlansSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssavingsplans import (
     AwsSavingsPlansSourceConfig,
 )
@@ -38,6 +48,10 @@ def config(start_date: str | None = "2025-01-01") -> AwsSavingsPlansSourceConfig
         aws_session_token="example-session",
         start_date=start_date,
     )
+
+
+def driver(start_date: str | None = "2025-01-01") -> SourceDriver:
+    return SourceDriver(AwsSavingsPlansSource(), config(start_date))
 
 
 def response(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
@@ -125,27 +139,25 @@ def test_signed_protocol_and_payload_match_service_model(transport: MagicMock, m
     ],
 )
 @pytest.mark.parametrize("terminal", [None, ""])
-def test_pagination_continues_after_empty_page(
-    transport: MagicMock, manager: MagicMock, name: str, key: str, token: str, terminal: str | None
-) -> None:
+def test_pagination_continues_after_empty_page(name: str, key: str, token: str, terminal: str | None) -> None:
     item = (
         {"savingsPlanArn": "arn:aws:savingsplans::123456789012:savingsplan/example"}
         if name == "savings_plans"
         else {"TimePeriod": {"Start": "2025-01-10", "End": "2025-01-11"}}
     )
-    transport.return_value.post.side_effect = [
-        response({key: [], token: "next"}),
-        response({key: [item], token: terminal}),
-    ]
-    rows = run_source(manager, name, start_date="2025-01-10")
-    assert len(rows) == 1
-    calls = transport.return_value.post.call_args_list
-    first, second = [json.loads(call.kwargs["data"]) for call in calls]
+    result = driver("2025-01-10").run(
+        name,
+        [ScriptedResponse(json={key: [], token: "next"}), ScriptedResponse(json={key: [item], token: terminal})],
+    )
+    assert result.raised is None
+    assert len(result.rows) == 1
+    first, second = [request.json() for request in result.requests]
     assert token not in first
     assert second == {**first, token: "next"}
-    assert manager.save_state.call_args.args[0].completed
-    manager.clear_state.assert_not_called()
-    assert manager.safe_point.call_count == 2
+    assert len(result.saved_states) == 2
+    assert result.saved_states[-1].completed
+    assert result.committed_states[-1].completed
+    assert result.final_state == result.saved_states[-1]
 
 
 @pytest.mark.parametrize(
@@ -157,21 +169,24 @@ def test_pagination_continues_after_empty_page(
         (True, dt.datetime(2025, 1, 5, tzinfo=dt.UTC), "2025-01-01"),
     ],
 )
-def test_time_filter_and_restatement(
-    transport: MagicMock, manager: MagicMock, incremental: bool, last_value: Any, expected: str
-) -> None:
-    run_source(manager, "coverage_daily", incremental, last_value)
-    payload = json.loads(transport.return_value.post.call_args.kwargs["data"])
+def test_time_filter_and_restatement(incremental: bool, last_value: Any, expected: str) -> None:
+    result = driver().run(
+        "coverage_daily",
+        [ScriptedResponse(json={})],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=last_value,
+    )
+    assert result.raised is None
+    payload = result.requests[0].json()
     assert payload["TimePeriod"] == {"Start": expected, "End": "2025-01-11"}
     assert "GroupBy" not in payload
 
 
-def test_details_use_daily_windows_and_preserve_attributes(transport: MagicMock, manager: MagicMock) -> None:
-    def answer(url: str, *, data: bytes, **kwargs: Any) -> requests.Response:
-        payload = json.loads(data)
-        return response(
-            {
-                "TimePeriod": payload["TimePeriod"],
+def test_details_use_daily_windows_and_preserve_attributes() -> None:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
+                "TimePeriod": request.json()["TimePeriod"],
                 "SavingsPlansUtilizationDetails": [
                     {
                         "SavingsPlanArn": "arn:aws:savingsplans::123456789012:savingsplan/example",
@@ -183,8 +198,9 @@ def test_details_use_daily_windows_and_preserve_attributes(transport: MagicMock,
             }
         )
 
-    transport.return_value.post.side_effect = answer
-    rows = run_source(manager, "utilization_details_daily", start_date="2025-01-09")
+    result = driver("2025-01-09").run("utilization_details_daily", answer)
+    assert result.raised is None
+    rows = result.rows
     assert [row["period_start"] for row in rows] == [dt.datetime(2025, 1, day, tzinfo=dt.UTC) for day in (9, 10)]
     assert rows[0]["attributes"] == {"AccountId": "001234567890"}
     assert rows[0]["utilization_total_commitment"] == Decimal("1.234567890123456789")
@@ -192,21 +208,29 @@ def test_details_use_daily_windows_and_preserve_attributes(transport: MagicMock,
     assert rows[0]["savings_plan_arn"] == rows[1]["savings_plan_arn"]
 
 
-def test_plan_inventory_ignores_incremental_cursor(transport: MagicMock, manager: MagicMock) -> None:
-    transport.return_value.post.return_value = response(
-        {
-            "savingsPlans": [
-                {
-                    "savingsPlanArn": "arn:aws:savingsplans::123456789012:savingsplan/example",
-                    "start": "2025-01-01T00:00:00Z",
-                    "commitment": "0.1234567890123456789",
-                    "tags": {"account": "001"},
+def test_plan_inventory_ignores_incremental_cursor() -> None:
+    result = driver().run(
+        "savings_plans",
+        [
+            ScriptedResponse(
+                json={
+                    "savingsPlans": [
+                        {
+                            "savingsPlanArn": "arn:aws:savingsplans::123456789012:savingsplan/example",
+                            "start": "2025-01-01T00:00:00Z",
+                            "commitment": "0.1234567890123456789",
+                            "tags": {"account": "001"},
+                        }
+                    ]
                 }
-            ]
-        }
+            )
+        ],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="invalid",
     )
-    rows = run_source(manager, "savings_plans", True, "invalid")
-    assert json.loads(transport.return_value.post.call_args.kwargs["data"]) == {"maxResults": 100}
+    assert result.raised is None
+    rows = result.rows
+    assert result.requests[0].json() == {"maxResults": 100}
     assert rows[0]["start"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
     assert rows[0]["commitment"] == Decimal("0.1234567890123456789")
     assert rows[0]["tags"] == {"account": "001"}
@@ -243,14 +267,13 @@ def test_resume_keeps_original_window_and_stages_before_yield(transport: MagicMo
 
 
 @pytest.mark.parametrize("completed,start_date", [(True, "2025-01-01"), (False, "2025-01-12")])
-def test_completed_or_future_window_makes_no_requests(
-    transport: MagicMock, manager: MagicMock, completed: bool, start_date: str
-) -> None:
-    if completed:
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = AwsSavingsPlansResumeConfig(completed=True)
-    assert run_source(manager, "coverage_daily", start_date=start_date) == []
-    transport.return_value.post.assert_not_called()
+def test_completed_or_future_window_makes_no_requests(completed: bool, start_date: str) -> None:
+    result = driver(start_date).run(
+        "coverage_daily", [], resume_state=AwsSavingsPlansResumeConfig(completed=True) if completed else None
+    )
+    assert result.raised is None
+    assert result.rows == []
+    assert result.requests == []
 
 
 def test_repeated_token_fails_instead_of_looping(transport: MagicMock, manager: MagicMock) -> None:
@@ -323,16 +346,18 @@ def test_credential_errors(
 
 
 @pytest.mark.parametrize("schema,key", [(None, "maxResults"), ("coverage_daily", "MaxResults")])
-def test_validation_probe_is_one_small_request(transport: MagicMock, schema: str | None, key: str) -> None:
-    assert validate_credentials(config(), schema) == (True, None)
-    assert transport.return_value.post.call_count == 1
-    assert json.loads(transport.return_value.post.call_args.kwargs["data"])[key] == 1
+def test_validation_probe_is_one_small_request(schema: str | None, key: str) -> None:
+    with scripted_network([ScriptedResponse(json={})]) as network:
+        assert validate_credentials(config(), schema) == (True, None)
+    assert len(network.requests_log) == 1
+    assert network.requests_log[0].json()[key] == 1
 
 
 @pytest.mark.parametrize("start_date", [None, "2020-01-01"])
-def test_history_is_bounded(transport: MagicMock, manager: MagicMock, start_date: str | None) -> None:
-    run_source(manager, "utilization_daily", start_date=start_date)
-    calls = [json.loads(call.kwargs["data"]) for call in transport.return_value.post.call_args_list]
+def test_history_is_bounded(start_date: str | None) -> None:
+    result = driver(start_date).run("utilization_daily", always(ScriptedResponse(json={})))
+    assert result.raised is None
+    calls = [request.json() for request in result.requests]
     assert calls[0]["TimePeriod"]["Start"] == "2024-01-12"
     assert calls[-1]["TimePeriod"]["End"] == "2025-01-11"
     assert all(first["TimePeriod"]["End"] == second["TimePeriod"]["Start"] for first, second in zip(calls, calls[1:]))
@@ -345,13 +370,12 @@ def test_history_is_bounded(transport: MagicMock, manager: MagicMock, start_date
         ("2025-01-01", "unknown", "Unknown"),
     ],
 )
-def test_invalid_configuration_makes_no_requests(
-    transport: MagicMock, start_date: str, schema: str | None, expected: str
-) -> None:
-    valid, message = validate_credentials(config(start_date), schema)
+def test_invalid_configuration_makes_no_requests(start_date: str, schema: str | None, expected: str) -> None:
+    with scripted_network([]) as network:
+        valid, message = validate_credentials(config(start_date), schema)
     assert not valid
     assert expected in (message or "")
-    transport.return_value.post.assert_not_called()
+    assert network.requests_log == []
 
 
 def test_network_failure_closes_session(transport: MagicMock) -> None:

@@ -1,42 +1,43 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pyarrow as pa
 import requests
-from tenacity import stop_after_attempt, wait_none
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zapiersupportedstorage import (
+    ZapierSupportedStorageSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.source import (
+    ZapierSupportedStorageSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.zapier_supported_storage import (
     ZapierSupportedStorageRetryableError,
-    _fetch_store,
-    get_rows,
     validate_credentials,
     zapier_supported_storage_source,
 )
 
-MODULE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.zapier_supported_storage"
-)
+
+def _driver() -> SourceDriver:
+    return SourceDriver(ZapierSupportedStorageSource(), ZapierSupportedStorageSourceConfig(secret="s"))
 
 
-def _response(body: Any, status_code: int = 200) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.ok = 200 <= status_code < 300
-    resp.json.return_value = body
-    resp.text = str(body)
-    resp.reason = "Bad Request"
-    resp.url = "https://store.zapier.com/api/records"
-    return resp
+def _sync(script: Any) -> DriveResult:
+    return _driver().run("records", script)
 
 
 def _rows_from_store(store: Any) -> list[dict[str, Any]]:
-    with patch(f"{MODULE}.make_tracked_session") as factory:
-        factory.return_value.get.return_value = _response(store)
-        tables = list(get_rows(secret="s", logger=MagicMock()))
+    result = _sync([ScriptedResponse(json=store)])
     out: list[dict[str, Any]] = []
-    for table in tables:
+    for table in result.items:
         assert isinstance(table, pa.Table)
         out.extend(table.to_pylist())
     return out
@@ -64,17 +65,11 @@ class TestGetRows:
 
 
 class TestFetchStore:
-    def _fetch_once(self, response: MagicMock) -> Any:
-        # Collapse the retry to a single attempt with no backoff so retryable-status tests don't sleep.
-        session = MagicMock()
-        session.get.return_value = response
-        fetch = _fetch_store.retry_with(stop=stop_after_attempt(1), wait=wait_none())  # type: ignore[attr-defined]
-        return fetch(session, "secret", MagicMock())
-
     @pytest.mark.parametrize("status", [429, 500, 502, 503])
     def test_retryable_statuses_raise_retryable_error(self, status: int) -> None:
-        with pytest.raises(ZapierSupportedStorageRetryableError):
-            self._fetch_once(_response({}, status_code=status))
+        result = _sync(always(ScriptedResponse(status=status, json={})))
+
+        assert isinstance(result.raised, ZapierSupportedStorageRetryableError)
 
     @pytest.mark.parametrize("status", [400, 401, 403, 404])
     def test_client_errors_raise_scrubbed_http_error(self, status: int) -> None:
@@ -83,30 +78,27 @@ class TestFetchStore:
         # (get_non_retryable_errors matches on it) but never echo the response body, which can hold
         # arbitrary store secrets and would otherwise leak into logs and latest_error.
         secret_body = {"leaked": "super-secret-store-value"}
-        with pytest.raises(requests.HTTPError) as exc:
-            self._fetch_once(_response(secret_body, status_code=status))
-        message = str(exc.value)
+        result = _sync([ScriptedResponse(status=status, json=secret_body)])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        message = str(result.raised)
         assert "https://store.zapier.com/api/records" in message
         assert "super-secret-store-value" not in message
+        assert len(result.requests) == 1
 
     def test_non_dict_payload_raises_retryable(self) -> None:
         # A non-object payload (transient API/proxy response) must not complete a "successful" full
         # refresh with zero rows and wipe previously synced records; it must raise so the sync retries.
-        with pytest.raises(ZapierSupportedStorageRetryableError):
-            self._fetch_once(_response([1, 2, 3]))
+        result = _sync(always(ScriptedResponse(json=[1, 2, 3])))
+
+        assert isinstance(result.raised, ZapierSupportedStorageRetryableError)
+        assert result.rows == []
 
 
 class TestValidateCredentials:
-    def _run(self, response: MagicMock | None = None, side_effect: Exception | None = None) -> tuple[bool, str | None]:
-        with patch(f"{MODULE}.make_tracked_session") as factory:
-            if side_effect is not None:
-                factory.return_value.get.side_effect = side_effect
-            else:
-                factory.return_value.get.return_value = response
-            return validate_credentials("some-secret")
-
     def test_valid_secret(self) -> None:
-        assert self._run(_response({}, status_code=200)) == (True, None)
+        with scripted_network([ScriptedResponse(json={})]):
+            assert validate_credentials("some-secret") == (True, None)
 
     @pytest.mark.parametrize(
         ("status", "fragment"),
@@ -117,12 +109,14 @@ class TestValidateCredentials:
         ],
     )
     def test_error_statuses_map_to_messages(self, status: int, fragment: str) -> None:
-        valid, error = self._run(_response({}, status_code=status))
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+            valid, error = validate_credentials("some-secret")
         assert valid is False
         assert error is not None and fragment in error
 
     def test_network_error_returns_message(self) -> None:
-        valid, error = self._run(side_effect=requests.ConnectionError("boom"))
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            valid, error = validate_credentials("some-secret")
         assert valid is False
         assert error is not None and "boom" in error
 
@@ -135,23 +129,24 @@ class TestSessionIsHardened:
     # since requests forwards custom headers across cross-host redirects and a regression to
     # allow_redirects=True would let the secret leak to a redirect target.
     def test_get_rows_disables_capture_and_redirects(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as factory:
-            factory.return_value.get.return_value = _response({"a": "1"})
-            list(get_rows(secret="s", logger=MagicMock()))
-        assert factory.call_args.kwargs["capture"] is False
-        assert factory.call_args.kwargs["allow_redirects"] is False
+        result = _sync([ScriptedResponse(json={"a": "1"})])
+
+        assert result.session_options[0]["capture"] is False
+        assert result.session_options[0]["allow_redirects"] is False
 
     def test_validate_credentials_disables_capture_and_redirects(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as factory:
-            factory.return_value.get.return_value = _response({}, status_code=200)
+        with scripted_network([ScriptedResponse(json={})]) as network:
             validate_credentials("s")
-        assert factory.call_args.kwargs["capture"] is False
-        assert factory.call_args.kwargs["allow_redirects"] is False
+
+        assert network.session_options[0]["capture"] is False
+        assert network.session_options[0]["allow_redirects"] is False
 
 
 class TestSourceResponse:
     def test_items_is_lazy(self) -> None:
         # Building the SourceResponse must not issue any request; only iterating items should.
-        with patch(f"{MODULE}.make_tracked_session") as factory:
+        with scripted_network([]) as network:
             zapier_supported_storage_source(secret="s", endpoint="records", logger=MagicMock())
-            factory.assert_not_called()
+
+        assert network.requests_log == []
+        assert network.session_options == []

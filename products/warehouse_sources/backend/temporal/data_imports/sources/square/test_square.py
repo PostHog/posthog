@@ -2,14 +2,19 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import SQUARE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.square.source import SquareSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import (
     MAX_CURSOR_RESTARTS,
     SQUARE_HOSTS,
@@ -18,11 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.square.squ
     _build_initial_params,
     _format_rfc3339,
     _is_invalid_cursor_error,
-    get_rows,
     validate_credentials,
 )
-
-SQUARE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.square.square"
 
 
 def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -31,6 +33,10 @@ def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp._content = json.dumps(body).encode()
     resp.headers["Content-Type"] = "application/json"
     return resp
+
+
+def _page(body: dict[str, Any], status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body)
 
 
 class TestFormatRFC3339:
@@ -144,85 +150,61 @@ class TestValidateCredentials:
         ]
     )
     def test_status_code_mapping(self, _name: str, status_code: int, expected: tuple[bool, bool]) -> None:
-        with patch(f"{SQUARE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _make_response({}, status_code=status_code)
+        with scripted_network(always(_page({}, status_code=status_code))):
             assert validate_credentials("token", "production") == expected
 
     def test_network_error_returns_invalid(self) -> None:
-        with patch(f"{SQUARE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
+        with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("token", "production") == (False, False)
 
     def test_schema_probes_that_endpoint(self) -> None:
-        with patch(f"{SQUARE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _make_response({}, status_code=200)
+        with scripted_network([_page({})]) as network:
             validate_credentials("token", "sandbox", schema_name="payments")
-            url = mock_session.return_value.get.call_args.args[0]
-            assert url.startswith(f"{SQUARE_HOSTS['sandbox']}/v2/payments")
+        assert network.requests_log[0].url.startswith(f"{SQUARE_HOSTS['sandbox']}/v2/payments")
 
 
 class TestGetRowsPagination:
-    def _drive(self, endpoint: str, manager: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-        """Drive get_rows with a mocked session, returning the params sent per page."""
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    def _drive(
+        self, endpoint: str, script: list[ScriptedResponse], resume_state: SquareResumeConfig | None = None
+    ) -> DriveResult:
+        config = SquareSourceConfig(access_token="token", environment="production")
+        return SourceDriver(SquareSource(), config).run(endpoint, script, resume_state=resume_state)
 
-        def fake_get(_url: str, *, params: dict[str, Any], **_kwargs: Any) -> Response:
-            sent_params.append(dict(params or {}))
-            return next(response_iter)
+    def test_first_request_starts_unresumed_when_there_is_no_saved_state(self) -> None:
+        result = self._drive("payments", [_page({"payments": [{"id": "a"}]})])
 
-        with patch(f"{SQUARE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = fake_get
-            list(
-                get_rows(
-                    access_token="token",
-                    environment="production",
-                    endpoint=endpoint,
-                    logger=MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-        return sent_params
-
-    def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive("payments", manager, [_make_response({"payments": [{"id": "a"}]})])
-        manager.load_state.assert_not_called()
+        assert result.requests[0].param("cursor") is None
 
     def test_invalid_cursor_resumes_incremental_endpoint_from_last_seen(self) -> None:
         # An endpoint with a server-side time filter (payments has begin_time) must not
         # re-scan from zero when a cursor expires mid-stream — it should re-issue the
         # query seeded with the last created_at it saw, bounding the re-scan to the tail.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._drive(
+            "payments",
+            [
+                _page({"payments": [{"id": "p1", "created_at": "2026-03-04T02:58:14Z"}], "cursor": "cur-1"}),
+                _page({"errors": [{"code": "INVALID_CURSOR"}]}, status_code=400),
+                _page({"payments": [{"id": "p2", "created_at": "2026-03-05T00:00:00Z"}]}),
+            ],
+        )
 
-        responses = [
-            _make_response({"payments": [{"id": "p1", "created_at": "2026-03-04T02:58:14Z"}], "cursor": "cur-1"}),
-            _make_response({"errors": [{"code": "INVALID_CURSOR"}]}, status_code=400),
-            _make_response({"payments": [{"id": "p2", "created_at": "2026-03-05T00:00:00Z"}]}),
-        ]
-        sent_params = self._drive("payments", manager, responses)
-
-        assert "cursor" not in sent_params[0]
-        assert sent_params[1] == {"sort_order": "ASC", "limit": "50", "cursor": "cur-1"}
+        queries = result.queries
+        assert "cursor" not in queries[0]
+        assert queries[1] == {"sort_order": ("ASC",), "limit": ("50",), "cursor": ("cur-1",)}
         # The restart drops the cursor and seeds begin_time from the last seen created_at
         # rather than issuing a bare full restart.
-        assert "cursor" not in sent_params[2]
-        assert sent_params[2]["begin_time"] == "2026-03-04T02:58:14Z"
+        assert "cursor" not in queries[2]
+        assert queries[2]["begin_time"] == ("2026-03-04T02:58:14Z",)
 
     def test_invalid_cursor_gives_up_after_restart_budget_exhausted(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = SquareResumeConfig(cursor="stale-cursor")
-
-        invalid = _make_response({"errors": [{"field": "cursor", "code": "INVALID_CURSOR"}]}, status_code=400)
+        invalid = _page({"errors": [{"field": "cursor", "code": "INVALID_CURSOR"}]}, status_code=400)
         # Each restart re-scans one page then expires again; once the budget is spent
         # the next rejection is surfaced.
-        responses = [invalid]
+        script = [invalid]
         for _ in range(MAX_CURSOR_RESTARTS):
-            responses.append(_make_response({"customers": [{"id": "c"}], "cursor": "cur"}))
-            responses.append(invalid)
-        with pytest.raises(SquareInvalidCursorError):
-            self._drive("customers", manager, responses)
+            script.append(_page({"customers": [{"id": "c"}], "cursor": "cur"}))
+            script.append(invalid)
+
+        result = self._drive("customers", script, resume_state=SquareResumeConfig(cursor="stale-cursor"))
+
+        assert isinstance(result.raised, SquareInvalidCursorError)

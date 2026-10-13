@@ -1,10 +1,9 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from requests import Response
 
@@ -15,12 +14,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.close.clos
     CloseResumeConfig,
     _format_close_datetime,
     _organization_ids,
-    close_organizations_source,
-    close_source,
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
 
 
 class TestCloseOffsetPaginator:
@@ -93,19 +97,12 @@ class TestCloseSourcePartitioning:
         ],
     )
     def test_partition_config(self, endpoint: str, expects_partition: bool) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        response = close_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager,
-            logger=MagicMock(),
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
+        result = SourceDriver(CloseSource(), CloseSourceConfig(api_key="test-key")).run(
+            endpoint, [ScriptedResponse(json={"data": []})]
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
@@ -127,137 +124,96 @@ def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Respons
 
 
 class TestCloseSourceResumeBehavior:
-    """End-to-end resume behaviour of ``close_source`` via ``rest_api_resource``."""
+    """End-to-end resume behaviour of ``CloseSource`` via ``rest_api_resource``."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        incremental_field: str | None = None,
-        db_incremental_field_last_value: Any = None,
-    ) -> list[dict[str, Any]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(CloseSource(), CloseSourceConfig(api_key="test-key"))
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = close_source(
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                logger=MagicMock(),
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                should_use_incremental_field=should_use_incremental_field,
-                incremental_field=incremental_field,
-            )
-            list(cast(Iterable[Any], resource.items()))
-            return sent_params
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], has_more: bool) -> ScriptedResponse:
+        return ScriptedResponse(json={"data": rows, "has_more": has_more})
 
     def test_fresh_run_saves_skip_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response({"data": [{"id": "user_1"}], "has_more": True}),
-            _make_http_response({"data": [{"id": "user_2"}], "has_more": True}),
-            _make_http_response({"data": [{"id": "user_3"}], "has_more": False}),
-        ]
-        sent_params = self._drive("Users", manager, responses)
-
-        assert [p.get("_skip") for p in sent_params] == [0, 100, 200]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CloseResumeConfig(next_skip=100), CloseResumeConfig(next_skip=200)]
-
-    def test_resume_seeds_paginator_with_saved_skip(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CloseResumeConfig(next_skip=200)
-
-        responses = [_make_http_response({"data": [{"id": "user_9"}], "has_more": False})]
-        sent_params = self._drive("Users", manager, responses)
-
-        assert [p.get("_skip") for p in sent_params] == [200]
-        manager.load_state.assert_called_once()
-
-    def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"id": "a"}], "has_more": False})]
-        self._drive("Users", manager, responses)
-
-        manager.load_state.assert_not_called()
-
-    def test_incremental_request_carries_gte_and_order_by(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"id": "oppo_1"}], "has_more": False})]
-        sent_params = self._drive(
-            "Opportunities",
-            manager,
-            responses,
-            should_use_incremental_field=True,
-            incremental_field="date_created",
-            db_incremental_field_last_value=None,
+        result = self._driver().run(
+            "Users",
+            [
+                self._page([{"id": "user_1"}], True),
+                self._page([{"id": "user_2"}], True),
+                self._page([{"id": "user_3"}], False),
+            ],
         )
 
-        assert sent_params[0]["date_created__gte"] == INITIAL_INCREMENTAL_VALUE
-        assert sent_params[0]["_order_by"] == "date_created"
+        assert result.raised is None
+        assert result.params("_skip") == ["0", "100", "200"]
+        assert result.rows == [{"id": "user_1"}, {"id": "user_2"}, {"id": "user_3"}]
+        assert result.saved_states == [CloseResumeConfig(next_skip=100), CloseResumeConfig(next_skip=200)]
+
+    def test_resume_seeds_paginator_with_saved_skip(self) -> None:
+        result = self._driver().run(
+            "Users", [self._page([{"id": "user_9"}], False)], resume_state=CloseResumeConfig(next_skip=200)
+        )
+
+        assert result.raised is None
+        assert result.params("_skip") == ["200"]
+
+    def test_does_not_load_state_when_cannot_resume(self) -> None:
+        result = self._driver().run("Users", [self._page([{"id": "a"}], False)])
+
+        assert result.raised is None
+        assert result.params("_skip") == ["0"]
+
+    def test_incremental_request_carries_gte_and_order_by(self) -> None:
+        result = self._driver().run(
+            "Opportunities",
+            [self._page([{"id": "oppo_1"}], False)],
+            incremental_field="date_created",
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("date_created__gte") == INITIAL_INCREMENTAL_VALUE
+        assert result.requests[0].param("_order_by") == "date_created"
 
     def test_events_stop_once_a_page_predates_the_watermark(self) -> None:
         # Without the client-side stop the cursor walk would keep going back through Close's
         # whole retention window on every incremental sync.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(
-                {"data": [{"id": "ev_2", "date_updated": "2024-06-05T00:00:00+00:00"}], "cursor_next": "cursor_2"}
-            ),
-            _make_http_response(
-                {"data": [{"id": "ev_1", "date_updated": "2024-05-20T00:00:00+00:00"}], "cursor_next": "cursor_3"}
-            ),
-        ]
-        sent_params = self._drive(
+        result = self._driver().run(
             "Events",
-            manager,
-            responses,
-            should_use_incremental_field=True,
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "ev_2", "date_updated": "2024-06-05T00:00:00+00:00"}],
+                        "cursor_next": "cursor_2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "ev_1", "date_updated": "2024-05-20T00:00:00+00:00"}],
+                        "cursor_next": "cursor_3",
+                    }
+                ),
+            ],
             incremental_field="date_updated",
             db_incremental_field_last_value=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
         )
 
-        assert len(sent_params) == 2
+        assert result.raised is None
+        assert result.paths == ["/api/v1/event/", "/api/v1/event/"]
+        assert result.params("_cursor") == [None, "cursor_2"]
 
     def test_events_resume_seeds_the_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CloseResumeConfig(next_cursor="cursor_7")
+        result = self._driver().run(
+            "Events",
+            [
+                ScriptedResponse(
+                    json={"data": [{"id": "ev_9", "date_updated": "2024-06-05T00:00:00+00:00"}], "cursor_next": None}
+                )
+            ],
+            resume_state=CloseResumeConfig(next_cursor="cursor_7"),
+        )
 
-        responses = [
-            _make_http_response(
-                {"data": [{"id": "ev_9", "date_updated": "2024-06-05T00:00:00+00:00"}], "cursor_next": None}
-            )
-        ]
-        sent_params = self._drive("Events", manager, responses)
-
-        assert sent_params[0]["_cursor"] == "cursor_7"
+        assert result.raised is None
+        assert result.requests[0].param("_cursor") == "cursor_7"
 
 
 class TestCloseEventCursorPaginator:
@@ -317,21 +273,26 @@ class TestCloseOrganizationsSource:
     def test_organization_ids(self, me: dict[str, Any], expected: list[str]) -> None:
         assert _organization_ids(me) == expected
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_session")
-    def test_fetches_each_organization_named_by_me(self, mock_make_session: MagicMock) -> None:
+    def test_fetches_each_organization_named_by_me(self) -> None:
         # Close publishes no `/organization/` list endpoint, so a missed `/me/` hop syncs nothing.
-        responses: dict[str, dict[str, Any]] = {
-            "https://api.close.com/api/v1/me/": {"organizations": [{"id": "orga_1"}, {"id": "orga_2"}]},
-            "https://api.close.com/api/v1/organization/orga_1/": {"id": "orga_1", "name": "First"},
-            "https://api.close.com/api/v1/organization/orga_2/": {"id": "orga_2", "name": "Second"},
-        }
-        mock_make_session.return_value.get.side_effect = lambda url, **_: _make_http_response(responses[url])
+        result = SourceDriver(CloseSource(), CloseSourceConfig(api_key="api_test")).run(
+            "Organizations",
+            [
+                ScriptedResponse(json={"organizations": [{"id": "orga_1"}, {"id": "orga_2"}]}),
+                ScriptedResponse(json={"id": "orga_1", "name": "First"}),
+                ScriptedResponse(json={"id": "orga_2", "name": "Second"}),
+            ],
+        )
 
-        response = close_organizations_source(api_key="api_test", endpoint="Organizations")
-        batches = list(cast(Iterable[Any], response.items()))
-
-        assert batches == [[{"id": "orga_1", "name": "First"}, {"id": "orga_2", "name": "Second"}]]
-        assert response.primary_keys == ["id"]
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/me/",
+            "/api/v1/organization/orga_1/",
+            "/api/v1/organization/orga_2/",
+        ]
+        assert result.items == [[{"id": "orga_1", "name": "First"}, {"id": "orga_2", "name": "Second"}]]
+        assert result.response is not None
+        assert result.response.primary_keys == ["id"]
 
 
 class TestValidateCredentials:
@@ -344,15 +305,14 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.close.close.make_tracked_session")
-    def test_status_code_mapping(self, mock_session: MagicMock, status_code: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_status_code_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("api_test") is expected
 
-        assert validate_credentials("api_test") is expected
+        assert {request.path for request in network.requests_log} == {"/api/v1/me/"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.close.close.make_tracked_session")
-    def test_network_error_returns_false(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("api_test") is False
+    def test_network_error_returns_false(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials("api_test") is False
+
+        assert {request.path for request in network.requests_log} == {"/api/v1/me/"}

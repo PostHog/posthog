@@ -657,8 +657,9 @@ class ReviewDroppedFindingSerializer(serializers.Serializer):
     )
     disposition = serializers.ChoiceField(
         choices=ReviewDropDisposition.choices,
-        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code "
-        "that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. "
+        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code "
+        "that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings "
+        "this way too). `dedup_prior`: repeats an earlier turn's finding. "
         "`dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same "
         "spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below "
         "the per-review finding limit.",
@@ -960,7 +961,7 @@ def _review_payload(
         "published": report.published_head_sha is not None,
         "turn_published": str(run_index) in (report.published_head_shas or {}),
         "review_mode": marker.review_mode if marker else None,
-        "review_design": snapshot.review_design,
+        "review_design": marker.review_design if marker else snapshot.review_design,
         "status_comment_url": f"{report.pr_url}#issuecomment-{report.status_comment_id}"
         if report.pr_url and report.status_comment_id
         else None,

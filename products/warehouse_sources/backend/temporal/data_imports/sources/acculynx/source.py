@@ -103,8 +103,16 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            should_sync_default={"calendar_appointments": False},
-            descriptions={"calendar_appointments": "Appointments within the configured date range."},
+            should_sync_default={
+                "calendar_appointments": False,
+                "financial_amendments": False,
+                "estimate_section_items": False,
+            },
+            descriptions={
+                "calendar_appointments": "Appointments within the configured date range.",
+                "financial_amendments": "Off by default because it makes extra requests for every job.",
+                "estimate_section_items": "Off by default because it makes extra requests for every estimate.",
+            },
         )
 
     def validate_credentials(

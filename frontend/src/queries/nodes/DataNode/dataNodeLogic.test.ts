@@ -15,6 +15,8 @@ import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schem
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
+import { RESPONSE_CACHE_TTL } from './responseCache'
+
 const SCAN_ENDPOINT = '/api/environments/:team_id/query/scan/:cache_key/'
 // The scan endpoint answers with an empty body while the job runs.
 const PENDING_SCAN = {}
@@ -68,6 +70,48 @@ describe('dataNodeLogic', () => {
         initKeaTests()
     })
     afterEach(() => logic?.unmount())
+
+    it.each(['same', 'query', 'filters', 'expired', 'disabled'] as const)(
+        'reuses a completed notebook response on remount: %s',
+        async (change) => {
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(10_000)
+            const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+            const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+            mockedQuery.mockReset()
+            mockedQuery.mockResolvedValue({ results: [[1]], columns: ['value'] })
+            try {
+                logic = dataNodeLogic(props)
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+                logic.unmount()
+
+                if (change === 'query') {
+                    props.query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 2' })
+                } else if (change === 'filters') {
+                    props.filtersOverride = { date_from: '-14d' }
+                } else if (change === 'expired') {
+                    clock.mockReturnValue(10_000 + RESPONSE_CACHE_TTL)
+                } else if (change === 'disabled') {
+                    props.retainResponseOnUnmount = false
+                }
+                logic = dataNodeLogic(props)
+                logic.mount()
+                if (change === 'same') {
+                    dataNodeLogic({ ...props, cachedResults: { result: null } })
+                    expect(logic.values.response).toEqual({ results: [[1]], columns: ['value'] })
+                    expect(mockedQuery).toHaveBeenCalledTimes(1)
+                    await expectLogic(logic, () => logic.actions.loadData('force_blocking')).toDispatchActions([
+                        'loadDataSuccess',
+                    ])
+                } else {
+                    await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+                }
+                expect(mockedQuery).toHaveBeenCalledTimes(2)
+            } finally {
+                clock.mockRestore()
+            }
+        }
+    )
 
     it('does not resubmit a capacity-limited query after unmount', async () => {
         jest.useFakeTimers()
