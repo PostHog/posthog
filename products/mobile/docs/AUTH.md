@@ -139,7 +139,7 @@ Copy the generated client id into the Custom client id field on the sign-in scre
 A real OAuth sign in cannot run in CI. Before a release, on a development build:
 
 1. Sign in on US with a PostHog account. Check that the system browser opens, returns to the app and lands on the inbox.
-2. Settings shows the host, your email and every project grouped by organization. Switch project and check the inbox reloads.
+2. Settings shows the host, your email and every project grouped by organization. Switch project, in Settings and from the project name at the top of the inbox menu, and check the inbox reloads.
 3. Kill and reopen the app. It opens on the inbox without signing in again.
 4. Cancel the browser during sign in. The sign-in screen says it was canceled and offers Try again.
 5. Turn on airplane mode and reopen the app. The app stays signed in and shows load errors with Try again.

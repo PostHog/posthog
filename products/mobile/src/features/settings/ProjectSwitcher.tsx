@@ -1,31 +1,13 @@
 import { type ReactElement, useMemo } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
-import { type AuthProject, useAuthStore } from '@/auth/authStore'
+import { useAuthStore } from '@/auth/authStore'
+import { groupByOrganization } from '@/features/projects/projectList'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
 
 import { SettingsGroup } from './SettingsGroup'
-
-interface OrganizationProjects {
-    id: string
-    name: string
-    projects: AuthProject[]
-}
-
-function groupByOrganization(projects: AuthProject[]): OrganizationProjects[] {
-    const groups: OrganizationProjects[] = []
-    for (const project of projects) {
-        const last = groups[groups.length - 1]
-        if (last && last.id === project.organizationId) {
-            last.projects.push(project)
-        } else {
-            groups.push({ id: project.organizationId, name: project.organizationName, projects: [project] })
-        }
-    }
-    return groups
-}
 
 export function ProjectSwitcher(): ReactElement {
     const projects = useAuthStore((state) => state.projects)

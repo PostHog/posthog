@@ -70,7 +70,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   Chat, Products) and the Chat button. Chat in the pill opens the chat sheet, like the button.
   Products opens the project's product library in the web app, and is dimmed in demo mode.
   Loading, empty and error states are separate screens.
-- **Nav menu**: project name, Inbox (selected), Settings, Sign out.
+- **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
 - **Report**: top chrome, headline, lede, evidence (trace, quotes, replay), facts, sparkline,
   activity, and the action bar.
 - **Action bar** (`actionBarStateFor`): `idle` (Hand off to PostHog + chevron),
@@ -79,6 +79,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   full-width Review PR button), `resolved` (action pill only). The Reassign / Snooze / Chat pill
   shows in every state.
 - **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card,
+  Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover and a simple thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
 - **Sign-in** and **Settings**: minimal, built from the same tokens.
