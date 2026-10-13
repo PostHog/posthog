@@ -1396,20 +1396,28 @@ class MaterializationTransformer(CloningVisitor):
         super().__init__()
         self.variable_infos = variable_infos
         self._current_cte_name: Optional[str] = None
+        # SELECT nesting inside the current context. 0 is the SELECT that _context_select picks
+        # (or a UNION member at that level), which is the only SELECT pre-flight checks.
+        self._select_depth = 0
 
     def visit_select_query(self, node: ast.SelectQuery):
+        is_context_root = self._select_depth == 0
         new_ctes = self._process_ctes(node)
 
         # Visit the select query itself (without re-visiting CTEs)
         original_ctes = node.ctes
         node.ctes = None
-        new_node = super().visit_select_query(node)
-        node.ctes = original_ctes  # Restore original
+        self._select_depth += 1
+        try:
+            new_node = super().visit_select_query(node)
+        finally:
+            self._select_depth -= 1
+            node.ctes = original_ctes  # Restore original
         new_node.ctes = new_ctes
 
         # Add variable columns + remove variable WHERE clauses for current context
         vars_for_context = self._vars_for_current_context()
-        if vars_for_context:
+        if vars_for_context and is_context_root:
             self._add_variable_columns(new_node, vars_for_context)
 
         # Top-level query: add passthrough columns for CTE variables
@@ -1425,10 +1433,10 @@ class MaterializationTransformer(CloningVisitor):
             return None
         new_ctes: dict[str, ast.CTE] = {}
         for cte_name, cte in node.ctes.items():
-            prev_cte = self._current_cte_name
-            self._current_cte_name = cte_name
+            prev_cte, prev_depth = self._current_cte_name, self._select_depth
+            self._current_cte_name, self._select_depth = cte_name, 0
             new_expr = self.visit(cte.expr)
-            self._current_cte_name = prev_cte
+            self._current_cte_name, self._select_depth = prev_cte, prev_depth
 
             # After the CTE body has been cloned/visited, propagate any variable
             # whose plan targets this CTE. Definition order is also topological,
