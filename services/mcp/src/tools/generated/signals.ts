@@ -15,12 +15,15 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const InboxSteeringGetSchema = () => z.object({})
+const InboxSteeringInstructionsGetSchema = () => z.object({})
 
-const inboxSteeringGet = (): ToolBase<ReturnType<typeof InboxSteeringGetSchema>, Schemas.SignalTeamConfig> => ({
-    name: 'inbox-steering-get',
-    schema: InboxSteeringGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxSteeringGetSchema>>) => {
+const inboxSteeringInstructionsGet = (): ToolBase<
+    ReturnType<typeof InboxSteeringInstructionsGetSchema>,
+    Schemas.SignalTeamConfig
+> => ({
+    name: 'inbox-steering-instructions-get',
+    schema: InboxSteeringInstructionsGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxSteeringInstructionsGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalTeamConfig>({
             method: 'GET',
@@ -35,7 +38,7 @@ const inboxSteeringGet = (): ToolBase<ReturnType<typeof InboxSteeringGetSchema>,
     },
 })
 
-const InboxSteeringUpdateSchema = () => {
+const InboxSteeringInstructionsUpdateSchema = () => {
     const SignalsConfigCreateBody = orvalSchemas.SignalsConfigCreateBody()
     return SignalsConfigCreateBody.omit({
         autostart_enabled: true,
@@ -52,10 +55,13 @@ const InboxSteeringUpdateSchema = () => {
     })
 }
 
-const inboxSteeringUpdate = (): ToolBase<ReturnType<typeof InboxSteeringUpdateSchema>, Schemas.SignalTeamConfig> => ({
-    name: 'inbox-steering-update',
-    schema: InboxSteeringUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSteeringUpdateSchema>>) => {
+const inboxSteeringInstructionsUpdate = (): ToolBase<
+    ReturnType<typeof InboxSteeringInstructionsUpdateSchema>,
+    Schemas.SignalTeamConfig
+> => ({
+    name: 'inbox-steering-instructions-update',
+    schema: InboxSteeringInstructionsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSteeringInstructionsUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.scout_instructions !== undefined) {
@@ -3096,8 +3102,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'inbox-steering-get': inboxSteeringGet,
-    'inbox-steering-update': inboxSteeringUpdate,
+    'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
+    'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,
     'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
     'inbox-report-artefacts-list': inboxReportArtefactsList,

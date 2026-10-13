@@ -9,6 +9,7 @@ import { InstructionsEditor } from 'scenes/settings/environment/InstructionsEdit
 import { urls } from 'scenes/urls'
 
 import { SteeringRole, agentSteeringLogic } from '../../logics/agentSteeringLogic'
+import { SettingsSection } from '../tabs/SettingsSection'
 
 export function AgentSteeringSection(): JSX.Element {
     const { selectedRole, storedInstructions, instructions, instructionsDirty, steeringConfigLoading } =
@@ -42,14 +43,18 @@ export function AgentSteeringSection(): JSX.Element {
     const role = roles[selectedRole]
 
     return (
-        <div className="flex flex-col gap-4">
-            <p className="m-0 text-xs text-secondary">
-                All agents also follow your{' '}
-                <Link to={urls.settings('environment-task-agent-instructions', 'task-agent-project-instructions')}>
-                    project instructions
-                </Link>
-                .
-            </p>
+        <SettingsSection
+            title="Steering"
+            description={
+                <>
+                    Guide each agent's work in addition to your{' '}
+                    <Link to={urls.settings('environment-task-agent-instructions', 'task-agent-project-instructions')}>
+                        project instructions
+                    </Link>
+                    .
+                </>
+            }
+        >
             <div>
                 <LemonTabs
                     activeKey={selectedRole}
@@ -124,6 +129,6 @@ export function AgentSteeringSection(): JSX.Element {
                     )}
                 </div>
             </div>
-        </div>
+        </SettingsSection>
     )
 }

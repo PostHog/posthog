@@ -7,7 +7,7 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
-    inbox-steering-get:
+    inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true
         scopes:
@@ -21,7 +21,7 @@ tools:
         response:
             include: [research_instructions, implementation_instructions, scout_instructions]
         feature_flag: signals-agent-steering
-    inbox-steering-update:
+    inbox-steering-instructions-update:
         operation: signals_config_create
         enabled: true
         scopes:
@@ -33,7 +33,7 @@ tools:
         title: Update Self-driving steering instructions
         description: >
             Set project-level instructions for research agents, implementation agents, or all scouts. Requires
-            project admin. Sandbox agents cannot change these instructions. Read inbox-steering-get first. Send the
+            project admin. Sandbox agents cannot change these instructions. Read inbox-steering-instructions-get first. Send the
             full replacement text for each role you change, not a diff; omitted roles keep their instructions. Send
             an empty string to clear a role while retaining shared project instructions. Each field accepts up to
             20,000 characters. New and resumed runs receive the saved instructions. Use

@@ -4,7 +4,7 @@ import { GENERATED_TOOLS } from '@/tools/generated/signals'
 import type { Context } from '@/tools/types'
 
 describe('Self-driving steering tools', () => {
-    it.each(['inbox-steering-get', 'inbox-steering-update'])(
+    it.each(['inbox-steering-instructions-get', 'inbox-steering-instructions-update'])(
         '%s uses the current project and returns only steering fields',
         async (name) => {
             const instructions = {
@@ -18,13 +18,16 @@ describe('Self-driving steering tools', () => {
                 stateManager: { getProjectId: async () => '42' },
             } as unknown as Context
             const tool = GENERATED_TOOLS[name]!()
-            const input = name === 'inbox-steering-update' ? { research_instructions: '', autostart_enabled: true } : {}
+            const input =
+                name === 'inbox-steering-instructions-update'
+                    ? { research_instructions: '', autostart_enabled: true }
+                    : {}
 
             expect(await tool.handler(context, tool.schema.parse(input))).toEqual(instructions)
             expect(request).toHaveBeenCalledWith({
-                method: name === 'inbox-steering-get' ? 'GET' : 'POST',
+                method: name === 'inbox-steering-instructions-get' ? 'GET' : 'POST',
                 path: '/api/projects/42/signals/config/',
-                ...(name === 'inbox-steering-update' ? { body: { research_instructions: '' } } : {}),
+                ...(name === 'inbox-steering-instructions-update' ? { body: { research_instructions: '' } } : {}),
             })
         }
     )
@@ -32,7 +35,7 @@ describe('Self-driving steering tools', () => {
     it.each(['research_instructions', 'implementation_instructions', 'scout_instructions'])(
         'enforces the API length and null constraints for %s',
         (field) => {
-            const schema = GENERATED_TOOLS['inbox-steering-update']!().schema
+            const schema = GENERATED_TOOLS['inbox-steering-instructions-update']!().schema
             expect(schema.safeParse({ [field]: null }).success).toBe(false)
             expect(schema.safeParse({ [field]: 'x'.repeat(20_001) }).success).toBe(false)
             expect(schema.parse({ [field]: 'x'.repeat(20_000) })).toEqual({ [field]: 'x'.repeat(20_000) })

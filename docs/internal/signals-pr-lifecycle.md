@@ -61,7 +61,7 @@ Every Signals cloud task receives project instructions, including internal resea
 
 Instructions are resolved when the run context is prepared and written through the normal agent-instructions channel for each runtime. Resuming an existing session refreshes the instructions using that run's stage, including removing instructions that have been cleared. Changing settings does not interrupt a running agent.
 
-The MCP tools `inbox-steering-get` and `inbox-steering-update` expose only the three role instruction fields. They require `task:read` and `task:write`, respectively. Enable `signals-agent-steering` after the config migration, Django fields and permissions, and Tasks instruction injection are deployed. Shared project instructions remain available through `tasks-config-list` and `tasks-config-agent-instructions-create`.
+The MCP tools `inbox-steering-instructions-get` and `inbox-steering-instructions-update` expose only the three role instruction fields. They require `task:read` and `task:write`, respectively. Enable `signals-agent-steering` after the config migration, Django fields and permissions, and Tasks instruction injection are deployed. Shared project instructions remain available through `tasks-config-list` and `tasks-config-agent-instructions-create`.
 
 ## Repository selection
 

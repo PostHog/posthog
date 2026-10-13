@@ -3,7 +3,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { SignalTeamConfigApi } from '../../../generated/api.schemas'
-import { SettingsSection } from '../tabs/SettingsSection'
 import { AgentSteeringSection } from './AgentSteeringSection'
 
 const config = {
@@ -29,9 +28,7 @@ const meta: Meta<typeof AgentSteeringSection> = {
         }),
         (Story) => (
             <div className="max-w-160">
-                <SettingsSection title="Steering" description="Guide what agents look for and how they work.">
-                    <Story />
-                </SettingsSection>
+                <Story />
             </div>
         ),
     ],

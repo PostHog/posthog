@@ -112,7 +112,7 @@ tools:
             in every eligible Tasks run on the project, including internal Self-driving research, implementation,
             and scout runs. Requires project admin. Sandbox agents cannot rewrite these instructions. Replaces the
             stored text; send an empty string to clear. Read tasks-config-list first, and send the full new text, not
-            a diff. Use inbox-steering-update for instructions that apply to only one Self-driving agent role.
+            a diff. Use inbox-steering-instructions-update for instructions that apply to only one Self-driving agent role.
         feature_flag: tasks
     tasks-config-create:
         operation: tasks_config_create

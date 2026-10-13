@@ -42,9 +42,7 @@ export function SettingsTab(): JSX.Element {
             >
                 <SelfDrivingSection />
             </SettingsSection>
-            <SettingsSection title="Steering" description="Guide what agents look for and how they work.">
-                <AgentSteeringSection />
-            </SettingsSection>
+            <AgentSteeringSection />
             <SettingsSection
                 title="Code access"
                 description="Connect GitHub so agents can read repositories and open pull requests."
