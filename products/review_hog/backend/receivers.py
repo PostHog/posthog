@@ -49,6 +49,11 @@ from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
+from products.stamphog.backend.facade.review_evidence import (
+    ReviewEvidence,
+    ReviewEvidenceState,
+    register_review_evidence_provider,
+)
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
 # posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
@@ -57,9 +62,12 @@ from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_r
 
 logger = logging.getLogger(__name__)
 
+# The name stamphog shows for these reviews, the same name the reviews carry on GitHub.
+REVIEWER_NAME = "PostHog Review"
+
 
 def connect() -> None:
-    """Wire the TaskRun-save receiver and the stamphog toggle hook; called once from `AppConfig.ready()`."""
+    """Wire the TaskRun-save receiver and the stamphog hooks; called once from `AppConfig.ready()`."""
     post_save.connect(
         handle_task_run_saved,
         sender=django_apps.get_model("tasks", "TaskRun"),
@@ -68,6 +76,30 @@ def connect() -> None:
     # Stamphog re-checks this toggle before re-reviewing a self-driving PR. It gets the resolver
     # through a hook because importing review_hog from stamphog would be a dependency cycle.
     register_inbox_acting_reviewer_resolver(resolve_stamphog_acting_reviewer)
+    # Stamphog waits for a pending review of the head it judges and counts a completed one as
+    # assurance. The same dependency cycle rules out a direct import.
+    register_review_evidence_provider(review_evidence_for_stamphog)
+
+
+def review_evidence_for_stamphog(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence | None:
+    """Map review_hog's own head status onto stamphog's evidence contract."""
+    # The lookup reads the review pipeline's modules, which reach openai, anthropic and temporalio.
+    from products.review_hog.backend.facade.review_status import review_status_for_head  # noqa: PLC0415
+
+    status = review_status_for_head(repository, pr_number, head_sha)
+    if status is None:
+        return None
+    return ReviewEvidence(
+        state=ReviewEvidenceState(status.state.value),
+        reviewer=REVIEWER_NAME,
+        review_kind=status.review_kind,
+        findings_count=status.findings_count,
+        published=status.published,
+        head_sha=status.head_sha,
+        base_ref=status.base_branch,
+        base_sha=status.base_sha,
+        skipped_paths=status.skipped_paths,
+    )
 
 
 def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
