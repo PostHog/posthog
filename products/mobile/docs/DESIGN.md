@@ -78,5 +78,6 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   full-width Review PR button), `resolved` (action pill only). The Reassign / Snooze / Chat pill
   shows in every state.
 - **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card,
-  chat sheet with @-mention popover and a simple thread.
+  chat sheet with @-mention popover and a simple thread. The chat sheet shares the sheets' grabber
+  and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
 - **Sign-in** and **Settings**: minimal, built from the same tokens.

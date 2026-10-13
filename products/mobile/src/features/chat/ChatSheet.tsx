@@ -1,5 +1,6 @@
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, type TextInput, useWindowDimensions, View } from 'react-native'
+import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
@@ -16,6 +17,7 @@ import { Scrim } from '@/ui/Scrim'
 import { colors, motion, radii, shadows, type } from '@/ui/tokens'
 import { usePresence } from '@/ui/usePresence'
 import { useScreenInsets } from '@/ui/useScreenInsets'
+import { useSheetDrag } from '@/ui/useSheetDrag'
 
 import { useInboxItems } from '../inbox/hooks'
 import { ChatEmptyState } from './ChatEmptyState'
@@ -47,6 +49,8 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
     const keyboard = useReanimatedKeyboardAnimation()
     const [visible, setVisible] = useState(true)
     const { progress } = usePresence(visible, motion.sheet)
+    const close = useCallback((): void => setVisible(false), [])
+    const { drag, pan } = useSheetDrag(visible, close)
     const [text, setText] = useState('')
     const [attached, setAttached] = useState<string[]>(() =>
         initialReportId && isReportId(initialReportId, demo) ? [initialReportId] : []
@@ -67,7 +71,9 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
     const itemsById = useMemo(() => new Map(items.map((item) => [item.reportId, item])), [items])
     const mentionItems = useMemo(() => items.filter((item) => !attached.includes(item.reportId)), [items, attached])
     const canMention = attached.length < MAX_ATTACHED_REPORTS && mentionItems.length > 0
-    const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - progress.value) * windowHeight }] }))
+    const sheetStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: (1 - progress.value) * windowHeight + drag.value }],
+    }))
     // The sheet ends at the bottom edge of the window, so padding it by the keyboard height keeps the composer above
     // the keyboard. `height` is negative while the keyboard is open, and the keyboard covers the home indicator.
     const bottomInset = insets.bottom
@@ -150,38 +156,45 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
               ))
             : null
 
+    // The route is a native modal, so on Android the app's gesture root does not reach it and the sheet needs its own.
     return (
-        <View style={styles.overlay} testID="chat-sheet">
+        <GestureHandlerRootView style={styles.overlay} testID="chat-sheet">
             <Scrim color={colors.scrimChat} progress={progress} />
             <Animated.View style={[styles.sheet, shadows.bottomSheet, sheetStyle]} accessibilityViewIsModal>
                 <Animated.View style={[styles.keyboard, keyboardStyle]}>
-                    <View style={styles.header}>
-                        <Pressable44
-                            onPress={() => setVisible(false)}
-                            accessibilityLabel="Close"
-                            pressedBackground={colors.background}
-                            style={styles.round}
-                            testID="chat-close"
-                        >
-                            <CloseIcon size={16} />
-                        </Pressable44>
-                        <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
-                            {conversation.title ?? 'New chat'}
-                        </Text>
-                        {conversation.messages.length > 0 ? (
-                            <Pressable44
-                                onPress={startNewChat}
-                                accessibilityLabel="New chat"
-                                pressedBackground={colors.background}
-                                style={styles.round}
-                                testID="chat-new"
-                            >
-                                <ComposeIcon size={18} />
-                            </Pressable44>
-                        ) : (
-                            <View style={styles.headerSpacer} />
-                        )}
-                    </View>
+                    {/* The thread scrolls, so only the header takes the drag; a drag there never competes with a scroll. */}
+                    <GestureDetector gesture={pan}>
+                        <View style={styles.header} testID="chat-header">
+                            <View style={styles.grabber} />
+                            <View style={styles.headerRow}>
+                                <Pressable44
+                                    onPress={close}
+                                    accessibilityLabel="Close"
+                                    pressedBackground={colors.background}
+                                    style={styles.round}
+                                    testID="chat-close"
+                                >
+                                    <CloseIcon size={16} />
+                                </Pressable44>
+                                <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
+                                    {conversation.title ?? 'New chat'}
+                                </Text>
+                                {conversation.messages.length > 0 ? (
+                                    <Pressable44
+                                        onPress={startNewChat}
+                                        accessibilityLabel="New chat"
+                                        pressedBackground={colors.background}
+                                        style={styles.round}
+                                        testID="chat-new"
+                                    >
+                                        <ComposeIcon size={18} />
+                                    </Pressable44>
+                                ) : (
+                                    <View style={styles.headerSpacer} />
+                                )}
+                            </View>
+                        </View>
+                    </GestureDetector>
                     {conversation.messages.length === 0 ? (
                         <ChatEmptyState
                             reportCount={attached.length}
@@ -215,7 +228,7 @@ export function ChatSheet({ initialReportId, onClosed }: ChatSheetProps): ReactE
                     </View>
                 </Animated.View>
             </Animated.View>
-        </View>
+        </GestureHandlerRootView>
     )
 }
 
@@ -234,11 +247,21 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     header: {
+        paddingTop: 10,
+    },
+    grabber: {
+        width: 40,
+        height: 5,
+        borderRadius: 3,
+        backgroundColor: colors.border,
+        alignSelf: 'center',
+    },
+    headerRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 12,
-        paddingTop: 18,
+        paddingTop: 6,
         paddingHorizontal: 16,
         paddingBottom: 8,
     },

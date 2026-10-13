@@ -1,15 +1,13 @@
-import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
+import { type ReactElement, type ReactNode, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
-import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import { GestureDetector } from 'react-native-gesture-handler'
+import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { Scrim } from './Scrim'
 import { colors, motion, radii, shadows } from './tokens'
 import { usePresence } from './usePresence'
 import { bottomOffset, useScreenInsets } from './useScreenInsets'
-
-const DISMISS_DISTANCE = 80
-const DISMISS_VELOCITY = 800
+import { useSheetDrag } from './useSheetDrag'
 
 interface BottomSheetProps {
     visible: boolean
@@ -31,27 +29,7 @@ export function BottomSheet({
     const insets = useScreenInsets()
     const { mounted, progress } = usePresence(visible, motion.sheet)
     const [height, setHeight] = useState(480)
-    const drag = useSharedValue(0)
-
-    useEffect(() => {
-        if (visible) {
-            drag.value = 0
-        }
-    }, [visible, drag])
-
-    const pan = Gesture.Pan()
-        .runOnJS(true)
-        .activeOffsetY(8)
-        .onUpdate((event) => {
-            drag.value = Math.max(0, event.translationY)
-        })
-        .onEnd((event) => {
-            if (event.translationY > DISMISS_DISTANCE || event.velocityY > DISMISS_VELOCITY) {
-                onClose()
-            } else {
-                drag.value = withTiming(0, { duration: motion.sheet })
-            }
-        })
+    const { drag, pan } = useSheetDrag(visible, onClose)
 
     const sheetStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: (1 - progress.value) * height + drag.value }],
