@@ -29,6 +29,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { createSesV2Client } from './helpers/ses-client'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -52,7 +53,10 @@ const sesThrottleResponsesTotal = new Counter({
  */
 const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
-const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
+export const AUTO_SUBMITTED_HEADER: MessageHeader = {
+    Name: AUTO_SUBMITTED_HEADER_NAME,
+    Value: AUTO_SUBMITTED_HEADER_VALUE,
+}
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -354,12 +358,7 @@ export class EmailService {
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
     ) {
-        this.sesV2Client = this.sesConfig.sesRegion
-            ? new SESv2Client({
-                  region: this.sesConfig.sesRegion,
-                  endpoint: this.sesConfig.sesEndpoint || undefined,
-              })
-            : null
+        this.sesV2Client = createSesV2Client(this.sesConfig)
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
     }
 

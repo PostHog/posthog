@@ -183,6 +183,9 @@ export class TemplateTester {
     public mockTeamManager = {
         getTeam: jest.fn().mockResolvedValue({ id: 1 }),
     }
+    public mockSystemEmailService = {
+        sendFromInvocation: jest.fn(),
+    }
     constructor(
         private _template: HogFunctionTemplate,
         options: { executionTimeoutMs?: number } = {}
@@ -249,6 +252,7 @@ export class TemplateTester {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                systemEmailService: this.mockSystemEmailService as any,
             }
         )
     }
