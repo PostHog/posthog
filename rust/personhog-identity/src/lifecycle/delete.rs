@@ -192,7 +192,11 @@ impl OpDriver for DeleteDriver {
         DeleteStep::Started.as_str()
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         let step = DeleteStep::parse(&op.step).ok_or_else(|| {
             SagaError::CorruptState(format!(
                 "delete op {} is on unknown step '{}'",
@@ -223,7 +227,11 @@ fn parse_request(op: &OpRow) -> Result<DeleteRequest, SagaError> {
 /// `skipped_conflict`. Requested ids with no live person row get no row at
 /// all — they surface as `not_found` in the outcome. If nothing was claimed
 /// the op aborts here, before anything was mutated.
-async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn mark(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<Option<OpRow>, SagaError> {
     let request = parse_request(op)?;
     let team_id = op.team_id as i32;
     let person_table = &tables.person;
@@ -376,10 +384,10 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         )
         .await?
     };
-    if !advanced {
+    let Some(next) = advanced else {
         tx.rollback().await?;
-        return Ok(());
-    }
+        return Ok(None);
+    };
     tx.commit().await?;
     match abort_outcome {
         Some(outcome) => {
@@ -388,7 +396,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         }
         None => record_transition(DeleteStep::Started.as_str(), DeleteStep::Marked.as_str()),
     }
-    Ok(())
+    Ok(Some(next))
 }
 
 /// `marked → sealed`: fence every victim on its owning leader and
@@ -411,7 +419,7 @@ async fn seal(
     calls: LeaderCalls<'_>,
     tables: &IdentityTables,
     op: &OpRow,
-) -> Result<(), SagaError> {
+) -> Result<Option<OpRow>, SagaError> {
     let victims: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
         op = "delete_seal_victims",
@@ -483,7 +491,7 @@ async fn seal(
         )?;
     }
 
-    if !advance_step_in_tx(
+    let Some(next) = advance_step_in_tx(
         &mut tx,
         tables,
         op.op_id,
@@ -491,13 +499,13 @@ async fn seal(
         DeleteStep::Sealed.as_str(),
     )
     .await?
-    {
+    else {
         tx.rollback().await?;
-        return Ok(());
-    }
+        return Ok(None);
+    };
     tx.commit().await?;
     record_transition(DeleteStep::Marked.as_str(), DeleteStep::Sealed.as_str());
-    Ok(())
+    Ok(Some(next))
 }
 
 /// `sealed → unmapped`: the destroying transaction. Tombstone the victims'
@@ -512,7 +520,7 @@ async fn unmap(
     pools: &IdentityPools,
     tables: &IdentityTables,
     op: &OpRow,
-) -> Result<(), SagaError> {
+) -> Result<Option<OpRow>, SagaError> {
     let team_id = op.team_id as i32;
     let mut tx = pools.begin(Lane::Heavy).await?;
 
@@ -653,7 +661,7 @@ async fn unmap(
         .execute(&mut *tx)
         .await?;
 
-    if !advance_step_in_tx(
+    let Some(next) = advance_step_in_tx(
         &mut tx,
         tables,
         op.op_id,
@@ -661,13 +669,13 @@ async fn unmap(
         DeleteStep::Unmapped.as_str(),
     )
     .await?
-    {
+    else {
         tx.rollback().await?;
-        return Ok(());
-    }
+        return Ok(None);
+    };
     tx.commit().await?;
     record_transition(DeleteStep::Sealed.as_str(), DeleteStep::Unmapped.as_str());
-    Ok(())
+    Ok(Some(next))
 }
 
 /// `unmapped → completed`: release each fenced victim with the committed
@@ -687,7 +695,7 @@ async fn complete(
     calls: LeaderCalls<'_>,
     tables: &IdentityTables,
     op: &OpRow,
-) -> Result<(), SagaError> {
+) -> Result<Option<OpRow>, SagaError> {
     let request = parse_request(op)?;
 
     let fenced = mirrored_query_as!(
@@ -719,7 +727,7 @@ async fn complete(
     )?;
 
     let outcome = build_outcome(&mut tx, tables, op.op_id, &request.person_ids).await?;
-    if !complete_op_in_tx(
+    let Some(next) = complete_op_in_tx(
         &mut tx,
         tables,
         op.op_id,
@@ -728,14 +736,14 @@ async fn complete(
         &outcome,
     )
     .await?
-    {
+    else {
         tx.rollback().await?;
-        return Ok(());
-    }
+        return Ok(None);
+    };
     tx.commit().await?;
     record_transition(DeleteStep::Unmapped.as_str(), STEP_COMPLETED);
     record_outcomes(&outcome);
-    Ok(())
+    Ok(Some(next))
 }
 
 /// One outcome entry per requested person id, in request order, from the

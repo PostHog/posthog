@@ -51,7 +51,11 @@ impl OpDriver for DummyDriver {
         "started"
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
         let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
         let advanced = match op.step.as_str() {
@@ -80,12 +84,12 @@ impl OpDriver for DummyDriver {
                 return Err(SagaError::CorruptState(format!("unknown step {other}")));
             }
         };
-        if !advanced {
+        let Some(next) = advanced else {
             tx.rollback().await.map_err(SagaError::Db)?;
-            return Ok(());
-        }
+            return Ok(None);
+        };
         tx.commit().await.map_err(SagaError::Db)?;
-        Ok(())
+        Ok(Some(next))
     }
 }
 
@@ -347,9 +351,13 @@ impl OpDriver for SlowDriver {
         "started"
     }
 
-    async fn run_step(&self, _pools: &IdentityPools, _op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        _pools: &IdentityPools,
+        _op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -449,12 +457,23 @@ async fn lease_is_live(pool: &PgPool, op_id: Uuid) -> bool {
         .unwrap_or(false)
 }
 
-/// Driver whose first step gets its lease stolen mid-run. `fail_after_steal`
-/// picks the exit: Err exercises the engine's release path, Ok without
-/// advancing (a lost CAS) exercises the attempt check on the reloaded row.
+/// What [`StolenLeaseDriver`] does once its lease is gone.
+#[derive(Debug, Clone, Copy)]
+enum AfterSteal {
+    /// Err exercises the engine's release path.
+    Fail,
+    /// Ok without advancing (a lost CAS) exercises the attempt check on
+    /// the reloaded row.
+    NoAdvance,
+    /// Advance and hand the row back (a won CAS) exercises the attempt
+    /// check on the row the step returns.
+    Advance,
+}
+
+/// Driver whose first step gets its lease stolen mid-run.
 struct StolenLeaseDriver {
     steps_run: AtomicUsize,
-    fail_after_steal: bool,
+    after_steal: AfterSteal,
 }
 
 #[async_trait]
@@ -467,13 +486,29 @@ impl OpDriver for StolenLeaseDriver {
         "started"
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
         steal_lease(pools.fast(), op.op_id).await;
-        if self.fail_after_steal {
-            Err(SagaError::CorruptState("simulated step failure".into()))
-        } else {
-            Ok(())
+        match self.after_steal {
+            AfterSteal::Fail => Err(SagaError::CorruptState("simulated step failure".into())),
+            AfterSteal::NoAdvance => Ok(None),
+            AfterSteal::Advance => {
+                let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
+                let next = advance_step_in_tx(
+                    &mut tx,
+                    &common::default_tables(),
+                    op.op_id,
+                    "started",
+                    "half",
+                )
+                .await?;
+                tx.commit().await.map_err(SagaError::Db)?;
+                Ok(next)
+            }
         }
     }
 }
@@ -481,38 +516,42 @@ impl OpDriver for StolenLeaseDriver {
 #[tokio::test]
 async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing() {
     let ctx = TestContext::new().await;
-    let driver = StolenLeaseDriver {
-        steps_run: AtomicUsize::new(0),
-        fail_after_steal: false,
-    };
-    let op_id = Uuid::now_v7();
+    // Whether the step hands back nothing or the advanced row, the engine
+    // must see the stealer's attempt and not run another step on it.
+    for after_steal in [AfterSteal::NoAdvance, AfterSteal::Advance] {
+        let driver = StolenLeaseDriver {
+            steps_run: AtomicUsize::new(0),
+            after_steal,
+        };
+        let op_id = Uuid::now_v7();
 
-    let short_engine = personhog_identity::lifecycle::engine::Engine::new(
-        ctx.pools.clone(),
-        personhog_identity::lifecycle::engine::EngineConfig {
-            lease: std::time::Duration::from_secs(5),
-            execute_timeout: std::time::Duration::from_millis(200),
-            poll_interval: std::time::Duration::from_millis(25),
-            attempt_alert_threshold: 5,
-            gc_batch_limit: 10_000,
-        },
-        ctx.tables.clone(),
-    );
-    let err = short_engine
-        .execute(&driver, op_id, ctx.team_id, &json!({}))
-        .await
-        .expect_err("waits on the stealer's lease until the deadline");
+        let short_engine = personhog_identity::lifecycle::engine::Engine::new(
+            ctx.pools.clone(),
+            personhog_identity::lifecycle::engine::EngineConfig {
+                lease: std::time::Duration::from_secs(5),
+                execute_timeout: std::time::Duration::from_millis(200),
+                poll_interval: std::time::Duration::from_millis(25),
+                attempt_alert_threshold: 5,
+                gc_batch_limit: 10_000,
+            },
+            ctx.tables.clone(),
+        );
+        let err = short_engine
+            .execute(&driver, op_id, ctx.team_id, &json!({}))
+            .await
+            .expect_err("waits on the stealer's lease until the deadline");
 
-    assert!(matches!(err, SagaError::Busy));
-    assert_eq!(
-        driver.steps_run.load(Ordering::SeqCst),
-        1,
-        "no step ran after the lease was stolen"
-    );
-    assert!(
-        lease_is_live(&ctx.pool, op_id).await,
-        "the displaced driver must not have renewed or cleared the stealer's lease"
-    );
+        assert!(matches!(err, SagaError::Busy), "{after_steal:?}");
+        assert_eq!(
+            driver.steps_run.load(Ordering::SeqCst),
+            1,
+            "{after_steal:?}: no step ran after the lease was stolen"
+        );
+        assert!(
+            lease_is_live(&ctx.pool, op_id).await,
+            "{after_steal:?}: the displaced driver must not have renewed or cleared the stealer's lease"
+        );
+    }
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -535,7 +574,11 @@ impl OpDriver for LeaseRecordingDriver {
         "started"
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         let expiry: chrono::DateTime<chrono::Utc> =
             sqlx::query_scalar("SELECT lease_expires_at FROM lifecycle_op WHERE op_id = $1")
                 .bind(op.op_id)
@@ -624,7 +667,7 @@ async fn a_failing_driver_whose_lease_was_stolen_does_not_release_the_stealers_l
     let engine = ctx.engine();
     let driver = StolenLeaseDriver {
         steps_run: AtomicUsize::new(0),
-        fail_after_steal: true,
+        after_steal: AfterSteal::Fail,
     };
     let op_id = Uuid::now_v7();
 
@@ -669,7 +712,11 @@ impl OpDriver for RefusingDriver {
         "started"
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
         if self
             .refusals_left
@@ -682,7 +729,7 @@ impl OpDriver for RefusingDriver {
             )));
         }
         let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
-        let advanced = complete_op_in_tx(
+        let Some(next) = complete_op_in_tx(
             &mut tx,
             &common::default_tables(),
             op.op_id,
@@ -690,13 +737,13 @@ impl OpDriver for RefusingDriver {
             STEP_COMPLETED,
             &json!({}),
         )
-        .await?;
-        if !advanced {
+        .await?
+        else {
             tx.rollback().await.map_err(SagaError::Db)?;
-            return Ok(());
-        }
+            return Ok(None);
+        };
         tx.commit().await.map_err(SagaError::Db)?;
-        Ok(())
+        Ok(Some(next))
     }
 }
 
@@ -769,7 +816,11 @@ impl OpDriver for StolenLeaseRefusingDriver {
         "started"
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         steal_lease(pools.fast(), op.op_id).await;
         Err(SagaError::leader(semantic_refusal(
             "injected refusal",
@@ -967,7 +1018,11 @@ impl OpDriver for DeadlockingDriver {
         "started"
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         if self.attempts.fetch_add(1, Ordering::SeqCst) < self.fail_first {
             return Err((self.error)());
         }

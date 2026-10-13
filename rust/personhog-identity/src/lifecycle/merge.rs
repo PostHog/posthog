@@ -488,7 +488,11 @@ impl OpDriver for MergeDriver {
         MergeStep::Started.as_str()
     }
 
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         let step = MergeStep::parse(&op.step).ok_or_else(|| {
             SagaError::CorruptState(format!(
                 "merge op {} is on unknown step '{}'",
@@ -617,7 +621,7 @@ impl MergeDriver {
     /// still-mergeable source person via the mark index — all in one
     /// transaction. Nothing outside this op's own rows is mutated, so the
     /// abort branch can end the op in the same commit.
-    async fn claim(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn claim(&self, pools: &IdentityPools, op: &OpRow) -> Result<Option<OpRow>, SagaError> {
         let request = parse_request(op)?;
         let team_id = op.team_id as i32;
         // Conflict reasons emit only after a commit (see record_conflicts).
@@ -910,7 +914,7 @@ impl MergeDriver {
         })?;
         write_claim_record(&mut tx, &self.tables, op, &claim_record).await?;
 
-        if !advance_step_in_tx(
+        let Some(next) = advance_step_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
@@ -918,14 +922,14 @@ impl MergeDriver {
             MergeStep::Claimed.as_str(),
         )
         .await?
-        {
+        else {
             tx.rollback().await?;
-            return Ok(());
-        }
+            return Ok(None);
+        };
         tx.commit().await?;
         record_conflicts(conflicts);
         record_transition(MergeStep::Started.as_str(), MergeStep::Claimed.as_str());
-        Ok(())
+        Ok(Some(next))
     }
 }
 
@@ -969,7 +973,7 @@ async fn abort_in_claim_tx(
     op: &OpRow,
     dispositions: Vec<Disposition>,
     conflicts: Vec<(&'static str, u64)>,
-) -> Result<(), SagaError> {
+) -> Result<Option<OpRow>, SagaError> {
     let mut outcome = outcome_from_dispositions(
         &dispositions,
         Some(AbortOutcome::Conflict),
@@ -979,7 +983,7 @@ async fn abort_in_claim_tx(
     // The entrance discards flagged rows on the next presentation of the
     // op id, so a plain retry re-runs where a recorded conflict replays.
     outcome["claim_abort"] = Value::Bool(true);
-    if !complete_op_in_tx(
+    let Some(next) = complete_op_in_tx(
         &mut tx,
         tables,
         op.op_id,
@@ -988,15 +992,15 @@ async fn abort_in_claim_tx(
         &outcome,
     )
     .await?
-    {
+    else {
         tx.rollback().await?;
-        return Ok(());
-    }
+        return Ok(None);
+    };
     tx.commit().await?;
     record_conflicts(conflicts);
     record_transition(MergeStep::Started.as_str(), STEP_ABORTED);
     record_outcomes(&outcome);
-    Ok(())
+    Ok(Some(next))
 }
 
 impl MergeDriver {
@@ -1013,7 +1017,7 @@ impl MergeDriver {
     /// source, so the orphan clears via the leader's ghost-fence healer on
     /// the next rejected write (or a partition handoff) — the same class
     /// the takeover scan can mint, bounded the same way.
-    async fn seal(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn seal(&self, pools: &IdentityPools, op: &OpRow) -> Result<Option<OpRow>, SagaError> {
         let request = parse_request(op)?;
         let sources = live_sources(pools, &self.tables, op).await?;
 
@@ -1109,7 +1113,7 @@ impl MergeDriver {
             abort_marks(&mut tx, &self.tables, op).await?;
             let outcome =
                 build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Conflict)).await?;
-            if !complete_op_in_tx(
+            let Some(next) = complete_op_in_tx(
                 &mut tx,
                 &self.tables,
                 op.op_id,
@@ -1118,14 +1122,14 @@ impl MergeDriver {
                 &outcome,
             )
             .await?
-            {
+            else {
                 tx.rollback().await?;
-                return Ok(());
-            }
+                return Ok(None);
+            };
             tx.commit().await?;
             record_transition(MergeStep::Claimed.as_str(), STEP_ABORTED);
             record_outcomes(&outcome);
-            return Ok(());
+            return Ok(Some(next));
         }
 
         let mut tx = pools.begin(Lane::Heavy).await?;
@@ -1153,7 +1157,7 @@ impl MergeDriver {
             => execute(&mut *tx)
         )?;
 
-        if !advance_step_in_tx(
+        let Some(next) = advance_step_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
@@ -1161,16 +1165,16 @@ impl MergeDriver {
             MergeStep::SourcesSealed.as_str(),
         )
         .await?
-        {
+        else {
             tx.rollback().await?;
-            return Ok(());
-        }
+            return Ok(None);
+        };
         tx.commit().await?;
         record_transition(
             MergeStep::Claimed.as_str(),
             MergeStep::SourcesSealed.as_str(),
         );
-        Ok(())
+        Ok(Some(next))
     }
 
     /// Back the op out after a pre-flip refusal. Nothing is destroyed
@@ -1181,7 +1185,7 @@ impl MergeDriver {
         op: &OpRow,
         from_step: MergeStep,
         status: &Status,
-    ) -> Result<(), SagaError> {
+    ) -> Result<Option<OpRow>, SagaError> {
         let live = live_sources(pools, &self.tables, op).await?;
         let pairs: Vec<(i64, Uuid)> = live.iter().map(|s| (s.person_id, s.person_uuid)).collect();
 
@@ -1189,7 +1193,7 @@ impl MergeDriver {
         abort_marks(&mut tx, &self.tables, op).await?;
         // Fence contention never reaches this abort; it retries at the step.
         let outcome = build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Refused)).await?;
-        if !complete_op_in_tx(
+        let Some(next) = complete_op_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
@@ -1198,10 +1202,10 @@ impl MergeDriver {
             &outcome,
         )
         .await?
-        {
+        else {
             tx.rollback().await?;
-            return Ok(());
-        }
+            return Ok(None);
+        };
         tx.commit().await?;
         // Attribute the abort before the releases: a failed release
         // leaves the op terminal with nothing retrying it.
@@ -1225,7 +1229,7 @@ impl MergeDriver {
         // Releases only after the completing CAS proves we still owned the
         // op; ghosts left by a crash here are healed lazily by the leader.
         self.release_fences(op, &pairs).await?;
-        Ok(())
+        Ok(Some(next))
     }
 
     /// Release fences with outcome `aborted` for the given persons,
@@ -1374,7 +1378,7 @@ impl MergeDriver {
     /// landed in between (see FoldPersonDocumentRequest.op_id in the
     /// proto). The folded document persists on the target row: the
     /// terminal outcome's survivor, durable without ever re-folding.
-    async fn fold(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn fold(&self, pools: &IdentityPools, op: &OpRow) -> Result<Option<OpRow>, SagaError> {
         let request = parse_request(op)?;
         let target = target_row(pools, &self.tables, op).await?;
         let sources = sealed_sources(pools, &self.tables, op).await?;
@@ -1491,7 +1495,7 @@ impl MergeDriver {
             ROLE_TARGET
             => execute(&mut *tx)
         )?;
-        if !advance_step_in_tx(
+        let Some(next) = advance_step_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
@@ -1499,16 +1503,16 @@ impl MergeDriver {
             MergeStep::DocumentFolded.as_str(),
         )
         .await?
-        {
+        else {
             tx.rollback().await?;
-            return Ok(());
-        }
+            return Ok(None);
+        };
         tx.commit().await?;
         record_transition(
             MergeStep::SourcesSealed.as_str(),
             MergeStep::DocumentFolded.as_str(),
         );
-        Ok(())
+        Ok(Some(next))
     }
 }
 
@@ -1564,7 +1568,11 @@ fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
 /// hash-key overrides target-wins, scrub and tombstone the source person
 /// rows at their exact death versions, and clear the target's mark. The
 /// source marks stay: they are the fences' durable record until release.
-async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn flip(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<Option<OpRow>, SagaError> {
     let team_id = op.team_id as i32;
     let mut tx = pools.begin(Lane::Heavy).await?;
 
@@ -1622,7 +1630,7 @@ async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     tombstone_sealed_sources(&mut tx, tables, op, team_id).await?;
     clear_target_mark(&mut tx, tables, op).await?;
 
-    if !advance_step_in_tx(
+    let Some(next) = advance_step_in_tx(
         &mut tx,
         tables,
         op.op_id,
@@ -1630,16 +1638,16 @@ async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         MergeStep::Flipped.as_str(),
     )
     .await?
-    {
+    else {
         tx.rollback().await?;
-        return Ok(());
-    }
+        return Ok(None);
+    };
     tx.commit().await?;
     record_transition(
         MergeStep::DocumentFolded.as_str(),
         MergeStep::Flipped.as_str(),
     );
-    Ok(())
+    Ok(Some(next))
 }
 
 /// One distinct-id row repointed by [`repoint_distinct_ids`], keyed by its
@@ -1862,7 +1870,11 @@ impl MergeDriver {
     /// release ack, because to the leader a `deleted` mark means "the
     /// death document already exists; absorb the retry". Flipping first
     /// would make the first-ever release absorb and never produce.
-    async fn complete(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+    async fn complete(
+        &self,
+        pools: &IdentityPools,
+        op: &OpRow,
+    ) -> Result<Option<OpRow>, SagaError> {
         let sources = sealed_sources(pools, &self.tables, op).await?;
 
         let release_calls: Vec<_> = sources
@@ -1927,7 +1939,7 @@ impl MergeDriver {
             => execute(&mut *tx)
         )?;
         let outcome = build_outcome(&mut tx, &self.tables, op, None).await?;
-        if !complete_op_in_tx(
+        let Some(next) = complete_op_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
@@ -1936,14 +1948,14 @@ impl MergeDriver {
             &outcome,
         )
         .await?
-        {
+        else {
             tx.rollback().await?;
-            return Ok(());
-        }
+            return Ok(None);
+        };
         tx.commit().await?;
         record_transition(MergeStep::Flipped.as_str(), STEP_COMPLETED);
         record_outcomes(&outcome);
-        Ok(())
+        Ok(Some(next))
     }
 }
 

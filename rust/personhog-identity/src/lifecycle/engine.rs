@@ -201,10 +201,12 @@ pub struct OpRow {
 ///
 /// Contract for `run_step`: do the current step's work and, in the same
 /// transaction as that work, advance `lifecycle_op.step` with
-/// [`advance_step_in_tx`] (or finish with [`complete_op_in_tx`]). If the
-/// advance reports the step already moved, roll the transaction back and
-/// return Ok — the engine reloads and continues from the fresh row. Every
-/// step must be safe to repeat.
+/// [`advance_step_in_tx`] (or finish with [`complete_op_in_tx`]). Return
+/// the row those hand back once the transaction commits, so the engine
+/// runs the next step from it without a reload. If the advance reports
+/// the step already moved, roll the transaction back and return
+/// `Ok(None)` — the engine reloads and continues from the fresh row.
+/// Every step must be safe to repeat.
 ///
 /// [`run_step`]: OpDriver::run_step
 #[async_trait]
@@ -212,7 +214,41 @@ pub trait OpDriver: Send + Sync {
     fn op_type(&self) -> &'static str;
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
-    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError>;
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow)
+        -> Result<Option<OpRow>, SagaError>;
+}
+
+/// The one-statement answer of [`Engine::create_or_attach`]: the op row
+/// plus whether this call inserted it.
+struct CreateOrAttachRow {
+    op_id: Uuid,
+    op_type: String,
+    team_id: i64,
+    step: String,
+    attempt: i32,
+    request: Value,
+    outcome: Option<Value>,
+    created_at: DateTime<Utc>,
+    completed_at: Option<DateTime<Utc>>,
+    lease_live: bool,
+    inserted: bool,
+}
+
+impl From<CreateOrAttachRow> for OpRow {
+    fn from(row: CreateOrAttachRow) -> Self {
+        OpRow {
+            op_id: row.op_id,
+            op_type: row.op_type,
+            team_id: row.team_id,
+            step: row.step,
+            attempt: row.attempt,
+            request: row.request,
+            outcome: row.outcome,
+            created_at: row.created_at,
+            completed_at: row.completed_at,
+            lease_live: row.lease_live,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -287,9 +323,10 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        self.create_or_attach(driver, op_id, team_id, request)
+        let row = self
+            .create_or_attach(driver, op_id, team_id, request)
             .await?;
-        self.drive(driver, op_id, true).await
+        self.drive(driver, op_id, true, Some(row)).await
     }
 
     /// The create-or-attach half of [`execute`], without driving: create
@@ -306,27 +343,54 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        let inserted = mirrored_query!(
+        // One round trip for both outcomes: the insert hands back the new
+        // row, or the attach branch reads the existing one. The attach
+        // branch runs in the statement's snapshot, so a rival row committed
+        // after that snapshot conflicts the insert and stays invisible here;
+        // that case comes back empty and reloads below.
+        let answered = mirrored_query_as!(
+            CreateOrAttachRow,
             self.tables.is_validation(),
             op = "op_create_or_attach",
             r#"
-            INSERT INTO {lifecycle_op} (op_id, op_type, team_id, step, request)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (op_id) DO NOTHING
+            WITH ins AS (
+                INSERT INTO {lifecycle_op} (op_id, op_type, team_id, step, request)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (op_id) DO NOTHING
+                RETURNING op_id, op_type, team_id, step, attempt, request, outcome,
+                          created_at, completed_at, lease_expires_at
+            )
+            SELECT op_id as "op_id!", op_type as "op_type!", team_id::bigint as "team_id!",
+                   step as "step!", attempt as "attempt!", request as "request!: Value",
+                   outcome as "outcome: Value", created_at as "created_at!", completed_at,
+                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now()) as "lease_live!",
+                   true as "inserted!"
+            FROM ins
+            UNION ALL
+            SELECT op_id, op_type, team_id::bigint, step, attempt, request, outcome,
+                   created_at, completed_at,
+                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now()), false
+            FROM {lifecycle_op}
+            WHERE op_id = $1 AND NOT EXISTS (SELECT 1 FROM ins)
             "#,
             op_id,
             driver.op_type(),
             team_id as i32,
             driver.initial_step(),
             request
-            => execute(self.pools.fast())
-        )?
-        .rows_affected()
-            > 0;
-
-        let row = self.load(op_id).await?.ok_or_else(|| {
-            SagaError::CorruptState(format!("op {op_id} vanished right after create-or-attach"))
-        })?;
+            => fetch_optional(self.pools.fast())
+        )?;
+        let (inserted, row) = match answered {
+            Some(answered) => (answered.inserted, OpRow::from(answered)),
+            None => {
+                let row = self.load(op_id).await?.ok_or_else(|| {
+                    SagaError::CorruptState(format!(
+                        "op {op_id} vanished right after create-or-attach"
+                    ))
+                })?;
+                (false, row)
+            }
+        };
         // Only a genuine attach is verified: the reloaded copy of our own
         // insert has been through jsonb normalization (number rewriting,
         // key ordering), so comparing it against the caller's request
@@ -383,14 +447,19 @@ impl Engine {
     /// sweeper a live lease means "not abandoned", so this bails with `Busy`
     /// instead of polling out the execute timeout.
     pub async fn resume(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.drive(driver, op_id, false).await
+        self.drive(driver, op_id, false, None).await
     }
 
+    /// `current` is the row as the caller (or the previous step) last saw
+    /// it; `None` means load it. A row a step hands back is as fresh as a
+    /// load: it comes from the advance's RETURNING, so a stolen lease
+    /// still shows as a bumped `attempt`.
     async fn drive(
         &self,
         driver: &dyn OpDriver,
         op_id: Uuid,
         wait_for_lease: bool,
+        mut current: Option<OpRow>,
     ) -> Result<OpRow, SagaError> {
         let drive_start = tokio::time::Instant::now();
         let deadline = drive_start + self.config.execute_timeout;
@@ -403,10 +472,11 @@ impl Engine {
         let mut lease_set_at = tokio::time::Instant::now();
 
         loop {
-            let Some(row) = self.load(op_id).await? else {
-                return Err(SagaError::CorruptState(format!(
-                    "op {op_id} vanished while being driven"
-                )));
+            let row = match current.take() {
+                Some(row) => row,
+                None => self.load(op_id).await?.ok_or_else(|| {
+                    SagaError::CorruptState(format!("op {op_id} vanished while being driven"))
+                })?,
             };
             if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
@@ -516,90 +586,95 @@ impl Engine {
             let step_start = Instant::now();
             let stepped = driver.run_step(&self.pools, &row).await;
             record_step_duration(&row, step_start);
-            if let Err(err) = stepped {
-                // Attributable escalation: a persistently failing op (a
-                // corrupt row, a wedged leader call) shows up as this
-                // counter climbing for one op_type/kind, not as generic
-                // retry noise. Alert on it — a wedged op can hold fences.
-                let kind = match &err {
-                    SagaError::Db(_) if err.is_db_conflict() => "db_conflict",
-                    SagaError::Db(_) if err.is_db_connection_lost() => "db_connection",
-                    SagaError::Db(_) => "db",
-                    SagaError::Leader(_) => "leader",
-                    SagaError::LeaderRefused(_) => "leader_refused",
-                    SagaError::CorruptState(_) => "corrupt_state",
-                    // Collapsed: these carry no attribution worth a label.
-                    SagaError::RequestMismatch(_)
-                    | SagaError::Busy
-                    | SagaError::DeadlineElapsed => "other",
-                };
-                common_metrics::inc(
-                    STEP_FAILURES_TOTAL,
-                    &[
-                        ("op_type".to_string(), row.op_type.clone()),
-                        ("kind".to_string(), kind.to_string()),
-                    ],
-                    1,
+            let err = match stepped {
+                Ok(next) => {
+                    current = next;
+                    continue;
+                }
+                Err(err) => err,
+            };
+            // Attributable escalation: a persistently failing op (a
+            // corrupt row, a wedged leader call) shows up as this
+            // counter climbing for one op_type/kind, not as generic
+            // retry noise. Alert on it — a wedged op can hold fences.
+            let kind = match &err {
+                SagaError::Db(_) if err.is_db_conflict() => "db_conflict",
+                SagaError::Db(_) if err.is_db_connection_lost() => "db_connection",
+                SagaError::Db(_) => "db",
+                SagaError::Leader(_) => "leader",
+                SagaError::LeaderRefused(_) => "leader_refused",
+                SagaError::CorruptState(_) => "corrupt_state",
+                // Collapsed: these carry no attribution worth a label.
+                SagaError::RequestMismatch(_) | SagaError::Busy | SagaError::DeadlineElapsed => {
+                    "other"
+                }
+            };
+            common_metrics::inc(
+                STEP_FAILURES_TOTAL,
+                &[
+                    ("op_type".to_string(), row.op_type.clone()),
+                    ("kind".to_string(), kind.to_string()),
+                ],
+                1,
+            );
+            if err.is_db_conflict() {
+                // Concurrent multi-row writers (a writer flush, another
+                // saga) can deadlock or time out against a step's
+                // transaction; the loser rolls back whole and the step
+                // is safe to repeat. Keep the lease and re-drive after a
+                // pause instead of surfacing an error the caller would
+                // retry anyway; the execute deadline bounds the loop.
+                tracing::warn!(
+                    op_id = %op_id,
+                    op_type = %row.op_type,
+                    step = %row.step,
+                    error = %err,
+                    detail = %err.db_detail().unwrap_or(""),
+                    "lifecycle step lost a database conflict; retrying"
                 );
-                if err.is_db_conflict() {
-                    // Concurrent multi-row writers (a writer flush, another
-                    // saga) can deadlock or time out against a step's
-                    // transaction; the loser rolls back whole and the step
-                    // is safe to repeat. Keep the lease and re-drive after a
-                    // pause instead of surfacing an error the caller would
-                    // retry anyway; the execute deadline bounds the loop.
-                    tracing::warn!(
-                        op_id = %op_id,
-                        op_type = %row.op_type,
-                        step = %row.step,
-                        error = %err,
-                        detail = %err.db_detail().unwrap_or(""),
-                        "lifecycle step lost a database conflict; retrying"
-                    );
-                    tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
-                    continue;
-                }
-                if err.is_db_connection_lost() {
-                    tracing::warn!(
-                        op_id = %op_id,
-                        op_type = %row.op_type,
-                        step = %row.step,
-                        error = %err,
-                        "lifecycle step lost its database connection; retrying"
-                    );
-                    tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
-                    continue;
-                }
-                if let SagaError::LeaderRefused(status) = &err {
-                    // Retrying a refusal cannot succeed, and the sweeper
-                    // looping on it would hold this op's fences forever.
-                    // Park it; only an explicit retry with the same op_id
-                    // resumes a parked op.
-                    if let Some(attempt) = claim_attempt {
-                        match self.park(op_id, attempt, &row, status).await {
-                            Ok(true) => {}
-                            // The park lost its compare-and-swap: another
-                            // driver claimed or completed the op, so this
-                            // refusal is stale. Answer Busy, never a
-                            // definitive refusal for an op that may yet
-                            // complete.
-                            Ok(false) => return Err(SagaError::Busy),
-                            // Parking failed: drop the lease anyway; the
-                            // sweeper will re-drive into the refusal and
-                            // park then.
-                            Err(_) => {
-                                self.release_lease(op_id, attempt).await.ok();
-                            }
+                tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
+                continue;
+            }
+            if err.is_db_connection_lost() {
+                tracing::warn!(
+                    op_id = %op_id,
+                    op_type = %row.op_type,
+                    step = %row.step,
+                    error = %err,
+                    "lifecycle step lost its database connection; retrying"
+                );
+                tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
+                continue;
+            }
+            if let SagaError::LeaderRefused(status) = &err {
+                // Retrying a refusal cannot succeed, and the sweeper
+                // looping on it would hold this op's fences forever.
+                // Park it; only an explicit retry with the same op_id
+                // resumes a parked op.
+                if let Some(attempt) = claim_attempt {
+                    match self.park(op_id, attempt, &row, status).await {
+                        Ok(true) => {}
+                        // The park lost its compare-and-swap: another
+                        // driver claimed or completed the op, so this
+                        // refusal is stale. Answer Busy, never a
+                        // definitive refusal for an op that may yet
+                        // complete.
+                        Ok(false) => return Err(SagaError::Busy),
+                        // Parking failed: drop the lease anyway; the
+                        // sweeper will re-drive into the refusal and
+                        // park then.
+                        Err(_) => {
+                            self.release_lease(op_id, attempt).await.ok();
                         }
                     }
-                    return Err(err);
-                }
-                // Drop the lease so an immediate retry doesn't wait it out.
-                if let Some(attempt) = claim_attempt {
-                    self.release_lease(op_id, attempt).await.ok();
                 }
                 return Err(err);
             }
+            // Drop the lease so an immediate retry doesn't wait it out.
+            if let Some(attempt) = claim_attempt {
+                self.release_lease(op_id, attempt).await.ok();
+            }
+            return Err(err);
         }
     }
 
@@ -842,26 +917,33 @@ struct AbandonedOp {
 }
 
 /// Compare-and-swap the op's step inside the step's own transaction, so the
-/// work and the advance commit together. Returns false when the row is no
-/// longer on `from` — another driver already advanced it; the caller must
-/// roll back its transaction and let the engine reload.
+/// work and the advance commit together. Returns the advanced row, or None
+/// when the row is no longer on `from` — another driver already advanced
+/// it; the caller must roll back its transaction and let the engine reload.
 pub async fn advance_step_in_tx(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
     op_id: Uuid,
     from: &str,
     to: &str,
-) -> Result<bool, sqlx::Error> {
-    let result = mirrored_query!(
+) -> Result<Option<OpRow>, sqlx::Error> {
+    mirrored_query_as!(
+        OpRow,
         tables.is_validation(),
         op = "op_advance_step",
-        "UPDATE {lifecycle_op} SET step = $3 WHERE op_id = $1 AND step = $2",
+        r#"
+        UPDATE {lifecycle_op} SET step = $3 WHERE op_id = $1 AND step = $2
+        RETURNING op_id, op_type, team_id::bigint as "team_id!", step, attempt,
+                  request as "request: Value", outcome as "outcome: Value",
+                  created_at, completed_at,
+                  (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
+                      as "lease_live!"
+        "#,
         op_id,
         from,
         to
-        => execute(&mut **tx)
-    )?;
-    Ok(result.rows_affected() == 1)
+        => fetch_optional(&mut **tx)
+    )
 }
 
 /// Terminal flavor of [`advance_step_in_tx`]: record the outcome, stamp
@@ -873,20 +955,25 @@ pub async fn complete_op_in_tx(
     from: &str,
     final_step: &str,
     outcome: &Value,
-) -> Result<bool, sqlx::Error> {
-    let result = mirrored_query!(
+) -> Result<Option<OpRow>, sqlx::Error> {
+    mirrored_query_as!(
+        OpRow,
         tables.is_validation(),
         op = "op_complete",
         r#"
         UPDATE {lifecycle_op}
         SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL
         WHERE op_id = $1 AND step = $2
+        RETURNING op_id, op_type, team_id::bigint as "team_id!", step, attempt,
+                  request as "request: Value", outcome as "outcome: Value",
+                  created_at, completed_at,
+                  (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
+                      as "lease_live!"
         "#,
         op_id,
         from,
         final_step,
         outcome
-        => execute(&mut **tx)
-    )?;
-    Ok(result.rows_affected() == 1)
+        => fetch_optional(&mut **tx)
+    )
 }
