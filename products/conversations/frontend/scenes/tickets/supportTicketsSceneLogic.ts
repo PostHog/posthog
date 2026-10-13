@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    connect,
     isBreakpoint,
     kea,
     key,
@@ -24,6 +25,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
+import { assigneeSelectLogic } from '../../components/Assignee/assigneeSelectLogic'
 import { conversationsTicketsBulkUpdateStatusCreate, conversationsViewsRetrieve } from '../../generated/api'
 import type { AiTriageResultEnumApi } from '../../generated/api.schemas'
 import { normalizeAssigneeFilter } from '../../types'
@@ -258,6 +260,9 @@ export interface supportTicketsSceneLogicActions {
     clearSelectedTickets: () => {
         value: true
     }
+    ensureAssigneeTypesLoaded: () => {
+        value: true
+    } // assigneeSelectLogic
     loadSavedView: (shortId: string) => {
         shortId: string
     }
@@ -388,6 +393,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
     props({} as SupportTicketsSceneLogicProps),
     key((props: SupportTicketsSceneLogicProps) => props?.key || 'SupportTicketsScene'),
+    connect(() => ({
+        actions: [assigneeSelectLogic, ['ensureAssigneeTypesLoaded']],
+    })),
     actions({
         setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
@@ -1004,6 +1012,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
     })),
     afterMount(({ actions, values, props }) => {
+        // The assignee column resolves user ids against the org members, which nothing else loads on a direct visit.
+        actions.ensureAssigneeTypesLoaded()
         const embedded = !!props.distinctIds?.length
         const { searchParams } = router.values
         if (!embedded && searchParams.view) {
