@@ -6,6 +6,7 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
+from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 from temporalio import common
 from temporalio.client import (
     Client,
@@ -119,7 +120,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
 )
-from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
+from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
@@ -145,8 +146,6 @@ from products.warehouse_suggestions.backend.facade.temporal import create_wareho
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.page_history.schedule import create_heatmap_page_history_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
-
-from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
 
@@ -966,7 +965,7 @@ schedules = [
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
-    create_logs_volume_tick_schedule,
+    disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
