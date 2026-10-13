@@ -16,6 +16,7 @@ import type { Config } from './lib/config'
 import { logger } from './lib/logging'
 import { register, shuttingDown } from './metrics'
 import { SecretMount } from './mount'
+import { createSecretSource, type SecretSnapshot, type SecretSource } from './source'
 import type { Lifecycle } from './types'
 
 /** How long a drain may take once the prestop window has passed. */
@@ -34,6 +35,7 @@ type ServeFn = (
 export interface IntegrationServerOverrides {
     serve?: ServeFn
     exit?: (code: number) => void
+    source?: SecretSource
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -55,6 +57,7 @@ export class IntegrationServer {
     private readonly lifecycle: Lifecycle = { shuttingDown: false, ready: false }
     private server: DrainableServer | undefined
     private metricsServer: Server | undefined
+    private source: SecretSource | undefined
     private mount: SecretMount | undefined
     private signingKeys: SigningKeyLoader | undefined
     private cancelTimers: (() => void)[] = []
@@ -77,24 +80,58 @@ export class IntegrationServer {
         return address && typeof address === 'object' ? (address as AddressInfo).port : undefined
     }
 
-    /** Re-read the signing keys and the mount now, without waiting for the timer. */
+    /** Re-read the secret now, without waiting for the timer. */
     async reload(): Promise<void> {
+        const source = this.source
+        if (source) {
+            this.apply(source, await source.read())
+        }
+    }
+
+    /** Apply one snapshot of the secret to the signing keys and the secrets together. */
+    private apply(source: SecretSource, snapshot: SecretSnapshot | null): void {
         // Keys before secrets: a revocation and a rotation can land in one secret
         // edit, and the revoked caller must not see the new values in the gap between.
-        await this.signingKeys?.reload()
-        await this.mount?.reload()
-        this.lifecycle.ready = this.mount?.current() != null
+        this.signingKeys?.reloadFrom(snapshot?.values ?? null)
+        this.applySecrets(source, snapshot)
+    }
+
+    private applySecrets(source: SecretSource, snapshot: SecretSnapshot | null): void {
+        const mount = this.mount
+        if (!mount) {
+            return
+        }
+        const before = mount.current()?.versionId
+        mount.apply(snapshot?.values ?? null)
+        const after = mount.current()
+        if (after && after.versionId !== before) {
+            logger.info('secrets:applied', {
+                source: source.kind,
+                versionId: after.versionId,
+                revision: snapshot?.revision ?? null,
+            })
+        }
+        this.lifecycle.ready = after != null && this.signingKeys?.isLoaded === true
     }
 
     async start(): Promise<void> {
         const config = this.config
 
-        const signingKeys = new SigningKeyLoader(config.mountDir)
+        const source = this.overrides.source ?? createSecretSource(config)
+        this.source = source
+        const signingKeys = new SigningKeyLoader(source.description)
         this.signingKeys = signingKeys
-        await signingKeys.load()
-
-        const mount = new SecretMount({ dir: config.mountDir })
+        const mount = new SecretMount({})
         this.mount = mount
+
+        const first = await source.read()
+        // Boot fails closed when the secret carries no usable signing keys. A Kubernetes API
+        // that cannot be read at boot is different: the pod stays not-ready, and the watch
+        // retries until the first read succeeds, the same as an empty mount.
+        if (first || source.kind === 'directory') {
+            signingKeys.loadFrom(first?.values ?? {})
+        }
+        this.applySecrets(source, first)
 
         const app = createApp({
             verifier: new JwtVerifier(signingKeys),
@@ -102,11 +139,12 @@ export class IntegrationServer {
             secrets: () => mount.current(),
         })
 
-        await mount.reload()
-        this.lifecycle.ready = mount.current() != null
         if (!this.lifecycle.ready) {
-            logger.error('startup:no_secrets_on_mount', { dir: config.mountDir })
+            logger.error('startup:no_secrets_on_mount', { source: source.description })
         }
+
+        source.watch((snapshot) => this.apply(source, snapshot))
+        this.cancelTimers.push(() => source.stop())
 
         const serveFn = this.overrides.serve ?? serve
         this.server = serveFn({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
