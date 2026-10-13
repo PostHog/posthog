@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-5b93-e08a4c1f7d26",
     "name": "Ticket SLA: set first response time",
-    "description": "When a customer opens a ticket, set how soon your team should send the first reply. The deadline depends on the customer's plan, and tickets that match no plan get a default.",
+    "description": "When a customer opens a ticket, set how soon your team should send the first reply. The deadline depends on the customer's plan, and tickets that match no plan get a default. The ticket is also tagged with its tier, which the other SLA templates use.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,
@@ -134,7 +134,7 @@
         {
             "id": "sla_tier_1",
             "name": "Set SLA: 4 working hours",
-            "description": "Enterprise: first reply due within 4 working hours. Set your working hours and timezone here.",
+            "description": "Enterprise: first reply due within 4 working hours. Set your working hours and timezone here. Also tags the ticket tier_enterprise, which the other SLA templates use to find the tier.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -160,6 +160,14 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["tier_enterprise"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
                     }
                 }
             },
@@ -168,7 +176,7 @@
         {
             "id": "sla_tier_2",
             "name": "Set SLA: 1 working day",
-            "description": "Pro: first reply due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here.",
+            "description": "Pro: first reply due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here. Also tags the ticket tier_pro, which the other SLA templates use to find the tier.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -193,6 +201,14 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["tier_pro"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
                         "templating": "hog"
                     }
                 }

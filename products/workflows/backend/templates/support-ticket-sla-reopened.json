@@ -43,6 +43,11 @@
     "edges": [
         {
             "from": "trigger_node",
+            "to": "get_ticket",
+            "type": "continue"
+        },
+        {
+            "from": "get_ticket",
             "to": "tier",
             "type": "continue"
         },
@@ -119,9 +124,29 @@
             "output_variable": null
         },
         {
+            "id": "get_ticket",
+            "name": "Get ticket",
+            "description": "Load the ticket's tags to find its tier.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": {
+                "key": "ticket"
+            }
+        },
+        {
             "id": "tier",
-            "name": "Which plan is the customer on?",
-            "description": "Example tiers using the person property 'plan'. Change the property and values to match your plans, or pick a group property to tier by company. Tickets that match no tier get the default SLA.",
+            "name": "Which tier is the ticket?",
+            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. On a team reply or a status change, the person on the event is your teammate, not the customer, so the customer's plan can't be read here. Tickets without a tier tag get the default SLA.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
@@ -133,10 +158,9 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "plan",
-                                    "type": "person",
-                                    "value": ["enterprise"],
-                                    "operator": "exact"
+                                    "key": "has(variables.ticket.tags, 'tier_enterprise')",
+                                    "type": "hogql",
+                                    "value": null
                                 }
                             ]
                         }
@@ -147,10 +171,9 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "plan",
-                                    "type": "person",
-                                    "value": ["pro"],
-                                    "operator": "exact"
+                                    "key": "has(variables.ticket.tags, 'tier_pro')",
+                                    "type": "hogql",
+                                    "value": null
                                 }
                             ]
                         }
@@ -188,6 +211,14 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "remove",
+                        "templating": "hog"
                     }
                 }
             },
@@ -222,6 +253,14 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "remove",
+                        "templating": "hog"
                     }
                 }
             },
@@ -255,6 +294,14 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "remove",
                         "templating": "hog"
                     }
                 }

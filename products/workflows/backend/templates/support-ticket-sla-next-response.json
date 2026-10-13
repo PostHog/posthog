@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-c7a0-1d5e93b8f4e2",
     "name": "Ticket SLA: set next response time when the customer replies",
-    "description": "When a customer replies on a ticket, set how soon your team should reply next. The deadline depends on the customer's plan. An earlier deadline that's already set is kept.",
+    "description": "When a customer replies on a ticket, set how soon your team should reply next. If the customer is already waiting on a reply, their earlier deadline is kept. The deadline depends on the customer's plan.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,
@@ -45,57 +45,35 @@
         },
         {
             "from": "is_new",
+            "to": "already_waiting",
+            "type": "continue"
+        },
+        {
+            "from": "already_waiting",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "already_waiting",
             "to": "tier",
             "type": "continue"
         },
         {
             "from": "tier",
-            "to": "guard_tier_1",
-            "type": "branch",
-            "index": 0
-        },
-        {
-            "from": "tier",
-            "to": "guard_tier_2",
-            "type": "branch",
-            "index": 1
-        },
-        {
-            "from": "tier",
-            "to": "guard_default",
-            "type": "continue"
-        },
-        {
-            "from": "guard_tier_1",
             "to": "sla_tier_1",
             "type": "branch",
             "index": 0
         },
         {
-            "from": "guard_tier_1",
-            "to": "exit_node",
-            "type": "continue"
-        },
-        {
-            "from": "guard_tier_2",
+            "from": "tier",
             "to": "sla_tier_2",
             "type": "branch",
-            "index": 0
+            "index": 1
         },
         {
-            "from": "guard_tier_2",
-            "to": "exit_node",
-            "type": "continue"
-        },
-        {
-            "from": "guard_default",
+            "from": "tier",
             "to": "sla_default",
-            "type": "branch",
-            "index": 0
-        },
-        {
-            "from": "guard_default",
-            "to": "exit_node",
             "type": "continue"
         },
         {
@@ -186,6 +164,32 @@
             "output_variable": null
         },
         {
+            "id": "already_waiting",
+            "name": "Already waiting on a reply?",
+            "description": "If the ticket already has a deadline for your team's reply, keep it, so more messages from the customer don't push it back. A follow-up deadline (tagged sla_follow_up) is replaced, since the customer is now waiting on you.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Earlier reply deadline still running",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.ticket.sla is not null and toDateTime(variables.ticket.sla) > now() and not has(variables.ticket.tags, 'sla_follow_up')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
             "id": "tier",
             "name": "Which plan is the customer on?",
             "description": "Example tiers using the person property 'plan'. Change the property and values to match your plans, or pick a group property to tier by company. Tickets that match no tier get the default SLA.",
@@ -227,84 +231,6 @@
             "output_variable": null
         },
         {
-            "id": "guard_tier_1",
-            "name": "No earlier deadline?",
-            "description": "Skip if the ticket is already due within 4 hours.",
-            "type": "conditional_branch",
-            "on_error": null,
-            "filters": null,
-            "config": {
-                "conditions": [
-                    {
-                        "name": "No deadline within 4 hours",
-                        "filters": {
-                            "source": "events",
-                            "properties": [
-                                {
-                                    "key": "toUnixTimestamp(toDateTime(ifNull(variables.ticket.sla, '2999-01-01T00:00:00Z'))) > toUnixTimestamp(now()) + 4 * 3600",
-                                    "type": "hogql",
-                                    "value": null
-                                }
-                            ]
-                        }
-                    }
-                ]
-            },
-            "output_variable": null
-        },
-        {
-            "id": "guard_tier_2",
-            "name": "No earlier deadline?",
-            "description": "Skip if the ticket is already due within 8 hours.",
-            "type": "conditional_branch",
-            "on_error": null,
-            "filters": null,
-            "config": {
-                "conditions": [
-                    {
-                        "name": "No deadline within 8 hours",
-                        "filters": {
-                            "source": "events",
-                            "properties": [
-                                {
-                                    "key": "toUnixTimestamp(toDateTime(ifNull(variables.ticket.sla, '2999-01-01T00:00:00Z'))) > toUnixTimestamp(now()) + 8 * 3600",
-                                    "type": "hogql",
-                                    "value": null
-                                }
-                            ]
-                        }
-                    }
-                ]
-            },
-            "output_variable": null
-        },
-        {
-            "id": "guard_default",
-            "name": "No earlier deadline?",
-            "description": "Skip if the ticket is already due within 16 hours.",
-            "type": "conditional_branch",
-            "on_error": null,
-            "filters": null,
-            "config": {
-                "conditions": [
-                    {
-                        "name": "No deadline within 16 hours",
-                        "filters": {
-                            "source": "events",
-                            "properties": [
-                                {
-                                    "key": "toUnixTimestamp(toDateTime(ifNull(variables.ticket.sla, '2999-01-01T00:00:00Z'))) > toUnixTimestamp(now()) + 16 * 3600",
-                                    "type": "hogql",
-                                    "value": null
-                                }
-                            ]
-                        }
-                    }
-                ]
-            },
-            "output_variable": null
-        },
-        {
             "id": "sla_tier_1",
             "name": "Set SLA: 4 working hours",
             "description": "Enterprise: next reply due within 4 working hours. Set your working hours and timezone here.",
@@ -332,6 +258,14 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "remove",
                         "templating": "hog"
                     }
                 }
@@ -367,6 +301,14 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "remove",
+                        "templating": "hog"
                     }
                 }
             },
@@ -400,6 +342,14 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "remove",
                         "templating": "hog"
                     }
                 }

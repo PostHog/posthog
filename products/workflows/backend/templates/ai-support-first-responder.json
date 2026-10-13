@@ -147,7 +147,7 @@
                 "template_id": "template-posthog-create-task",
                 "inputs": {
                     "prompt": {
-                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen investigate:\n- Look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n- If you have access to the team's docs, code repository or other connectors, check them for known issues, relevant docs pages or recent changes that explain the problem.\n\nThen classify the ticket:\n- Pick one category: `category_bug`, `category_billing`, `category_how_to`, `category_feature_request`, `category_account_access` or `category_other`.\n- Pick a priority: low, medium or high.\n\nReply with:\n1. A one-line summary of the problem.\n2. The category and priority you picked, and why.\n3. What you found in their data, docs or code that explains the problem, with links.\n4. A suggested reply the support team can edit and send.\n\nEnd your reply with this line on its own, exactly in this format, so the workflow can apply it:\nTRIAGE: <category> | <priority>\n\nDo not change anything yourself, and never reply to the customer. Your write-up is for the support team, who decide what to send.",
+                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen investigate:\n- Look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n- If you have access to the team's docs, code repository or other connectors, check them for known issues, relevant docs pages or recent changes that explain the problem.\n\nThen classify the ticket:\n- Pick one category: `category_bug`, `category_billing`, `category_how_to`, `category_feature_request`, `category_account_access` or `category_other`.\n- Pick a priority: low, medium or high.\n\nStart your reply with this line on its own, exactly in this format, so the workflow can apply it:\nTRIAGE: <category> | <priority>\n\nThen reply with:\n1. A one-line summary of the problem.\n2. Why you picked that category and priority.\n3. What you found in their data, docs or code that explains the problem, with links.\n4. A suggested reply the support team can edit and send.\n\nKeep your whole reply under 1,200 characters, because longer replies get cut off. Do not change anything yourself, and never reply to the customer. Your write-up is for the support team, who decide what to send.",
                         "templating": "hog"
                     },
                     "title": {
@@ -204,7 +204,7 @@
         {
             "id": "has_triage_line",
             "name": "Did the agent pick a category and priority?",
-            "description": "Reads the last 'TRIAGE: <category> | <priority>' line of the write-up. Only a category_ tag and a priority of low, medium or high are applied, so a ticket that tries to trick the agent can't do anything else.",
+            "description": "Reads the 'TRIAGE: <category> | <priority>' line at the start of the write-up. Only a category_ tag and a priority of low, medium or high are applied, so a ticket that tries to trick the agent can't do anything else.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
@@ -216,7 +216,7 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[2]) = 'high'",
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[2]) = 'high'",
                                     "type": "hogql",
                                     "value": null
                                 }
@@ -229,7 +229,7 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[2]) = 'medium'",
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[2]) = 'medium'",
                                     "type": "hogql",
                                     "value": null
                                 }
@@ -242,7 +242,7 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[2]) = 'low'",
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[2])[1])[2]) = 'low'",
                                     "type": "hogql",
                                     "value": null
                                 }
@@ -269,7 +269,7 @@
                     },
                     "tags": {
                         "value": [
-                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[-1])[1])[1])}"
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[2])[1])[1])}"
                         ],
                         "templating": "hog"
                     },
@@ -301,7 +301,7 @@
                     },
                     "tags": {
                         "value": [
-                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[-1])[1])[1])}"
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[2])[1])[1])}"
                         ],
                         "templating": "hog"
                     },
@@ -333,7 +333,7 @@
                     },
                     "tags": {
                         "value": [
-                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[-1])[1])[1])}"
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[2])[1])[1])}"
                         ],
                         "templating": "hog"
                     },
@@ -421,7 +421,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "https://app.posthog.com/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
                                     }
                                 ]
                             }
@@ -504,7 +504,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "https://app.posthog.com/support/tickets/{event.properties.ticket_number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{event.properties.ticket_number}"
                                     }
                                 ]
                             }

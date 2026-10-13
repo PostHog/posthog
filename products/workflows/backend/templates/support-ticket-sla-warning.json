@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-e3b7-5f9a28c4d1e6",
     "name": "Ticket SLA: warn before a breach",
-    "description": "Posts to Slack 1 hour before a ticket's SLA deadline, if the ticket is still open and the deadline hasn't moved.",
+    "description": "Posts to Slack 1 hour before a ticket's SLA deadline, if the ticket is still open and the deadline hasn't moved. Each deadline is only warned about once.",
     "scope": "global",
     "tags": ["support", "support SLAs", "slack"],
     "version": 1,
@@ -98,6 +98,11 @@
         },
         {
             "from": "slack_warn",
+            "to": "mark_warned",
+            "type": "continue"
+        },
+        {
+            "from": "mark_warned",
             "to": "exit_node",
             "type": "continue"
         }
@@ -160,7 +165,7 @@
         {
             "id": "get_ticket",
             "name": "Get ticket",
-            "description": "Load the ticket's deadline and status.",
+            "description": "Load the ticket's deadline and status, and remember the deadline.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -173,9 +178,15 @@
                     }
                 }
             },
-            "output_variable": {
-                "key": "ticket"
-            }
+            "output_variable": [
+                {
+                    "key": "ticket"
+                },
+                {
+                    "key": "sla_deadline",
+                    "result_path": "sla"
+                }
+            ]
         },
         {
             "id": "has_sla",
@@ -212,7 +223,7 @@
             "filters": null,
             "config": {
                 "delay_until": {
-                    "expression": "variables.ticket.sla",
+                    "expression": "variables.sla_deadline",
                     "offset": "-1h"
                 },
                 "max_delay_duration": "30d"
@@ -236,12 +247,12 @@
                 }
             },
             "output_variable": {
-                "key": "ticket_now"
+                "key": "ticket"
             }
         },
         {
             "id": "still_due",
-            "name": "Same deadline and still open?",
+            "name": "Same deadline, still open, not warned yet?",
             "description": "If the deadline changed, a newer run of this workflow handles it.",
             "type": "conditional_branch",
             "on_error": null,
@@ -249,12 +260,12 @@
             "config": {
                 "conditions": [
                     {
-                        "name": "Same deadline, still open",
+                        "name": "Same deadline, still open, not warned yet",
                         "filters": {
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.ticket_now.sla is not null and variables.ticket_now.sla = variables.ticket.sla and variables.ticket_now.status not in ('pending', 'on_hold', 'resolved')",
+                                    "key": "variables.ticket.sla is not null and variables.ticket.sla = variables.sla_deadline and variables.ticket.status not in ('pending', 'on_hold', 'resolved') and not has(variables.ticket.tags, concat('sla_warned_', toString(toInt(toUnixTimestamp(toDateTime(variables.sla_deadline))))))",
                                     "type": "hogql",
                                     "value": null
                                 }
@@ -295,7 +306,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":hourglass_flowing_sand: Ticket *#{variables.ticket_now.number}* is due in 1 hour\nAssignee: {variables.ticket_now.assignee.user.email ?? variables.ticket_now.assignee.role.name ?? 'unassigned'}"
+                                    "text": ":hourglass_flowing_sand: Ticket *#{variables.ticket.number}* is due in 1 hour\nAssignee: {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'}"
                                 }
                             },
                             {
@@ -307,7 +318,7 @@
                                             "type": "plain_text",
                                             "text": "View ticket"
                                         },
-                                        "url": "https://app.posthog.com/support/tickets/{variables.ticket_now.number}"
+                                        "url": "{splitByString('/workflows/', source.url)[1]}/support/tickets/{variables.ticket.number}"
                                     }
                                 ]
                             }
@@ -315,7 +326,33 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Ticket #{variables.ticket_now.number} is due in 1 hour",
+                        "value": "Ticket #{variables.ticket.number} is due in 1 hour",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "mark_warned",
+            "name": "Mark the deadline as warned",
+            "description": "Tags the ticket sla_warned_<deadline>, so the same deadline is only handled once even if several runs wait for it. To keep tags tidy, you can remove these when tickets are resolved.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_warned_{toString(toInt(toUnixTimestamp(toDateTime(variables.sla_deadline))))}"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
                         "templating": "hog"
                     }
                 }

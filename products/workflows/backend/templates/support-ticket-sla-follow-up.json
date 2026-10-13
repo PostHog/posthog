@@ -126,7 +126,7 @@
         {
             "id": "get_ticket",
             "name": "Get ticket",
-            "description": "Load the ticket's current status.",
+            "description": "Load the ticket's current status and tags.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -171,8 +171,8 @@
         },
         {
             "id": "tier",
-            "name": "Which plan is the customer on?",
-            "description": "Example tiers using the person property 'plan'. Change the property and values to match your plans, or pick a group property to tier by company. Tickets that match no tier get the default SLA.",
+            "name": "Which tier is the ticket?",
+            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. On a team reply or a status change, the person on the event is your teammate, not the customer, so the customer's plan can't be read here. Tickets without a tier tag get the default SLA.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
@@ -184,10 +184,9 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "plan",
-                                    "type": "person",
-                                    "value": ["enterprise"],
-                                    "operator": "exact"
+                                    "key": "has(variables.ticket.tags, 'tier_enterprise')",
+                                    "type": "hogql",
+                                    "value": null
                                 }
                             ]
                         }
@@ -198,10 +197,9 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "plan",
-                                    "type": "person",
-                                    "value": ["pro"],
-                                    "operator": "exact"
+                                    "key": "has(variables.ticket.tags, 'tier_pro')",
+                                    "type": "hogql",
+                                    "value": null
                                 }
                             ]
                         }
@@ -213,7 +211,7 @@
         {
             "id": "sla_tier_1",
             "name": "Set SLA: 1 working day",
-            "description": "Enterprise: next update due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here.",
+            "description": "Enterprise: next update due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here. Tagged sla_follow_up, so a reply from the customer replaces this deadline.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -239,6 +237,14 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
                     }
                 }
             },
@@ -247,7 +253,7 @@
         {
             "id": "sla_tier_2",
             "name": "Set SLA: 2 working days",
-            "description": "Pro: next update due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here.",
+            "description": "Pro: next update due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here. Tagged sla_follow_up, so a reply from the customer replaces this deadline.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -273,6 +279,14 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
                     }
                 }
             },
@@ -281,7 +295,7 @@
         {
             "id": "sla_default",
             "name": "Set SLA: 3 working days",
-            "description": "Everyone else: next update due within 24 working hours (3 working days at 9:00-17:00). Set your working hours and timezone here.",
+            "description": "Everyone else: next update due within 24 working hours (3 working days at 9:00-17:00). Set your working hours and timezone here. Tagged sla_follow_up, so a reply from the customer replaces this deadline.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -306,6 +320,14 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": ["sla_follow_up"],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
                         "templating": "hog"
                     }
                 }

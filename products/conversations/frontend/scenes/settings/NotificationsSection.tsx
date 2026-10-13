@@ -35,8 +35,8 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         templateId: '01a12fb6-3cfe-0000-5d45-25a5b3a944e0',
     },
     {
-        title: 'New ticket → acknowledge by email',
-        description: 'Email the customer to confirm you have their ticket when it comes in by email or the widget.',
+        title: 'New ticket → acknowledge',
+        description: 'Reply on email and widget tickets to confirm you have them, so the customer can reply straight back.',
         trigger: '$conversation_ticket_created',
         templateId: '01a1352a-0c41-0000-6b1e-2f4e8a6d71c3',
     },
