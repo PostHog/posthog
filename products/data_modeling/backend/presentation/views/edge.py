@@ -1,9 +1,6 @@
 from typing import Any
-from uuid import UUID
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import filters, serializers, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -21,7 +18,6 @@ def _connects_a_metric(edge: Edge) -> bool:
 class EdgeSerializer(serializers.ModelSerializer):
     source_id = serializers.UUIDField(read_only=True, help_text="ID of the upstream node.")
     target_id = serializers.UUIDField(read_only=True, help_text="ID of the downstream node.")
-    dag_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Edge
@@ -29,21 +25,15 @@ class EdgeSerializer(serializers.ModelSerializer):
             "id",
             "source_id",
             "target_id",
-            "dag",
-            "dag_name",
             "properties",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
-            "dag_name",
             "created_at",
             "updated_at",
         ]
-
-    def get_dag_name(self, edge: Edge) -> str:
-        return edge.dag.name
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # System-managed DAGs (e.g. Revenue Analytics) own their edges; the internal sync path
@@ -51,9 +41,6 @@ class EdgeSerializer(serializers.ModelSerializer):
         # editing managed edges or moving any edge into a managed DAG via the API.
         if self.instance is not None and self.instance.dag.is_managed:
             raise serializers.ValidationError("Edges belonging to a system-managed DAG cannot be modified.")
-        target_dag = attrs.get("dag")
-        if target_dag is not None and target_dag.is_managed:
-            raise serializers.ValidationError("Edges cannot be created in or moved into a system-managed DAG.")
         if self.instance is not None and _connects_a_metric(self.instance):
             raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
         return attrs
@@ -63,26 +50,19 @@ class EdgePagination(PageNumberPagination):
     page_size = 5000
 
 
-@extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="dag",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Return only the edges of this DAG.",
-            )
-        ]
-    )
-)
-class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EdgeViewSet(
+    MetricNodeVisibilityMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     scope_object = "INTERNAL"
     queryset = Edge.objects.select_related("dag").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
-    filter_backends = [filters.SearchFilter]
-    search_fields = ["dag__name"]
     ordering = "-created_at"
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -96,13 +76,4 @@ class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         instance.delete()
 
     def safely_get_queryset(self, queryset):
-        qs = self._exclude_hidden_edges(queryset.filter(team_id=self.team_id))
-        dag_id = self.request.query_params.get("dag")
-        if dag_id:
-            try:
-                UUID(dag_id)
-            except ValueError:
-                dag_id = None
-            else:
-                qs = qs.filter(dag_id=dag_id)
-        return qs.order_by(self.ordering)
+        return self._exclude_hidden_edges(queryset.filter(team_id=self.team_id)).order_by(self.ordering)
