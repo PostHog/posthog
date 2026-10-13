@@ -486,6 +486,14 @@ class SESProvider:
         # NOTE: For sesv1, domain Identity creation is done through verification
         self.verify_email_domain(domain, mail_from_subdomain, team_id)
 
+        # Bounces and complaints already reach the SES webhook through the configuration sets,
+        # so a forwarding failure must not fail the add-domain request. The backfill command
+        # disable_ses_feedback_forwarding repairs a missed identity.
+        try:
+            self.disable_feedback_forwarding(domain)
+        except (ClientError, BotoCoreError):
+            logger.exception("Failed to disable SES feedback forwarding for '%s'", domain)
+
         # Create a tenant for the domain if not exists
         try:
             self.ses_v2_client.create_tenant(
@@ -509,6 +517,14 @@ class SESProvider:
                 logger.exception(
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
+
+    def disable_feedback_forwarding(self, domain: str) -> None:
+        """
+        Stop SES from emailing bounce and complaint notices to the sender address.
+        Sends set that address as FeedbackForwardingEmailAddress, which is often a monitored inbox.
+        SES keeps forwarding anyway when a send has no configuration set that publishes bounces and complaints.
+        """
+        self.ses_v2_client.put_email_identity_feedback_attributes(EmailIdentity=domain, EmailForwardingEnabled=False)
 
     def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
         # Validate the domain contains valid characters for a domain name

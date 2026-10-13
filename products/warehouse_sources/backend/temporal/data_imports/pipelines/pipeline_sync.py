@@ -307,6 +307,47 @@ def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -
     return None if table.name == companion_name != table_name else table
 
 
+def find_orphan_table(schema: ExternalDataSchema, source: ExternalDataSource) -> DataWarehouseTable | None:
+    """A live table with the schema's table name that no schema owns.
+
+    Two schema names can resolve to one table name, so the table must have no owning schema.
+    """
+    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+    return DataWarehouseTable.objects.filter(
+        team_id=schema.team_id,
+        name=build_table_name(source, names.table_storage_name),
+        external_data_source_id=source.id,
+        deleted=False,
+        externaldataschema__isnull=True,
+    ).first()
+
+
+def relink_orphan_table(
+    schema: ExternalDataSchema, source: ExternalDataSource, logger: FilteringBoundLogger
+) -> DataWarehouseTable | None:
+    """Link an unlinked schema to its orphan table before extraction. Returns the schema's table.
+
+    The extract side treats a schema with no table as a first sync, and the loader then rebuilds
+    the table from empty. An orphan holds the rows of earlier runs, so the run must merge into it.
+    """
+    # A cdc_only schema links to its `_cdc` companion, so a table with the consolidated name is not its own.
+    if schema.table_id is not None or (schema.is_cdc and schema.cdc_table_mode == "cdc_only"):
+        return schema.table
+
+    orphan = find_orphan_table(schema, source)
+    if orphan is None:
+        return None
+
+    schema.table = orphan
+    schema.save(update_fields=["table", "updated_at"])
+    logger.warning(
+        "Relinked an orphaned table to its schema before extraction",
+        table_id=str(orphan.id),
+        schema_id=str(schema.id),
+    )
+    return orphan
+
+
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
@@ -387,15 +428,8 @@ async def validate_schema_and_update_table(
 
             if table_created is None:
                 # The ServerException handler below can leave a created table unlinked, so look for
-                # that orphan before the skip decides no table exists. Two schema names can resolve
-                # to one table name, so require that no schema owns the row.
-                table_created = DataWarehouseTable.objects.filter(
-                    team_id=team_id,
-                    name=table_name,
-                    external_data_source_id=job.pipeline.id,
-                    deleted=False,
-                    externaldataschema__isnull=True,
-                ).first()
+                # that orphan before the skip decides no table exists.
+                table_created = find_orphan_table(external_data_schema, job.pipeline)
                 if table_created is not None:
                     logger.debug(f"Found existing table {table_created.id} - reusing it for schema {_schema_id}")
 

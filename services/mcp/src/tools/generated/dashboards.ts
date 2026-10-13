@@ -68,6 +68,9 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_titles !== undefined) {
+            body['group_titles'] = params.group_titles
+        }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
         }
@@ -620,6 +623,9 @@ const dashboardUpdate = (): ToolBase<
         }
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
+        }
+        if (params.group_titles !== undefined) {
+            body['group_titles'] = params.group_titles
         }
         if (params.tiles !== undefined) {
             body['tiles'] = params.tiles

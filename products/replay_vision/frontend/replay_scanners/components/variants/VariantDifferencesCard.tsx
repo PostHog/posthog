@@ -129,7 +129,7 @@ export function VariantDifferencesCard({
                                 <span className="text-muted">
                                     {`(${Object.entries(difference.counts)
                                         .map(([key, count]) => {
-                                            const outOf = analysisCount(key)
+                                            const outOf = difference.read?.[key] ?? analysisCount(key)
                                             return outOf != null ? `${key} ${count} of ${outOf}` : `${key} ${count}`
                                         })
                                         .join(', ')})`}

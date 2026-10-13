@@ -10,7 +10,7 @@ from typing import Any, Optional, cast
 import pytest
 
 from parameterized import parameterized
-from websockets.exceptions import InvalidMessage
+from websockets.exceptions import ConnectionClosedError, InvalidMessage
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
@@ -265,9 +265,17 @@ class TestFramer:
             client.connect()
         assert exc_info.value.retryable
 
-    def test_client_wraps_handshake_eof_as_retryable(self) -> None:
+    @parameterized.expand(
+        [
+            ("eof_before_response", InvalidMessage("did not receive a valid HTTP response")),
+            # Raised when the TLS/TCP connection drops mid-handshake (e.g. a transient SSL
+            # error) after the HTTP upgrade itself succeeds.
+            ("dropped_mid_handshake", ConnectionClosedError(None, None)),
+        ]
+    )
+    def test_client_wraps_handshake_failure_as_retryable(self, _name: str, raised: Exception) -> None:
         def connect_fn(*args: Any, **kwargs: Any) -> Any:
-            raise InvalidMessage("did not receive a valid HTTP response")
+            raise raised
 
         client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=connect_fn)
         with pytest.raises(FramerAPIError) as exc_info:

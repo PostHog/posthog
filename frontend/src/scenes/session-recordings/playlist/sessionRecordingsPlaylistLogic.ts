@@ -321,6 +321,18 @@ const handleLoadCollectionRecordings = (shortId: string): void => {
  * @param filters - The filters to check.
  * @returns True if the filters are valid, false otherwise.
  */
+// Device keys and $ip are event properties, $geoip_* and custom keys are person properties, other $ keys are session properties.
+export function overviewPropertyFilterType(
+    propertyKey: string
+): PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session {
+    if (propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')) {
+        return PropertyFilterType.Person
+    }
+    return ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name', '$ip'].includes(propertyKey)
+        ? PropertyFilterType.Event
+        : PropertyFilterType.Session
+}
+
 export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
     if (!filters || typeof filters !== 'object') {
         return false
@@ -1632,16 +1644,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return
                 }
 
-                // Determine property filter type
-                // For recordings: $browser, $os, $device_type, etc are Event properties
-                // $geoip_* and custom properties (no $) are Person properties
-                // Everything else with $ is Session property
-                const filterType =
-                    propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
-                        ? PropertyFilterType.Person
-                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
-                          ? PropertyFilterType.Event
-                          : PropertyFilterType.Session
+                const filterType = overviewPropertyFilterType(propertyKey)
 
                 // Create property filter object
                 const filter = {
@@ -1688,13 +1691,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return
                 }
 
-                // Determine property filter type
-                const filterType =
-                    propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
-                        ? PropertyFilterType.Person
-                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
-                          ? PropertyFilterType.Event
-                          : PropertyFilterType.Session
+                const filterType = overviewPropertyFilterType(propertyKey)
 
                 const currentGroup = values.filters.filter_group
                 const firstNestedGroup = currentGroup.values[0]
@@ -1703,10 +1700,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return
                 }
 
-                // Check if filter with exact (key, value) exists - if so, remove it
+                // Check if filter with exact (type, key, value) exists - if so, remove it
                 const exactMatchIndex = firstNestedGroup.values.findIndex((filter) => {
-                    if ('key' in filter && 'value' in filter && 'operator' in filter) {
+                    if ('key' in filter && 'value' in filter && 'type' in filter && 'operator' in filter) {
                         return (
+                            filter.type === filterType &&
                             filter.key === propertyKey &&
                             filter.value === propertyValue &&
                             filter.operator === PropertyOperator.Exact
@@ -1736,8 +1734,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 } else {
                     // Check if filter with same key but different value exists
                     const sameKeyIndex = firstNestedGroup.values.findIndex((filter) => {
-                        if ('key' in filter && 'operator' in filter) {
-                            return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+                        if ('key' in filter && 'type' in filter && 'operator' in filter) {
+                            return (
+                                filter.type === filterType &&
+                                filter.key === propertyKey &&
+                                filter.operator === PropertyOperator.Exact
+                            )
                         }
                         return false
                     })
@@ -1785,6 +1787,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
 
                 actions.setFilters({ filter_group: newGroup })
+                // capture the key only, because values such as $ip can be personal data
+                posthog.capture('recording overview property filter toggled', {
+                    property_key: propertyKey,
+                    action: exactMatchIndex !== -1 ? 'removed' : 'applied',
+                })
 
                 // Show toast notification
                 const filterLabel = formatPropertyLabel(

@@ -4,10 +4,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 from temporalio.exceptions import CancelledError
 
 from posthog.models import Organization, Team
 
+from products.cdp.backend.facade.models import HogFunction
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
@@ -520,6 +523,254 @@ class TestUpdateExternalJobStatus:
 
         schema = ExternalDataSchema.objects.get(id=schema.id)
         assert schema.sync_type_config == {"failure_streak": {"runs": 7, "last_failed_at": last_failed_at}}
+
+
+FAILED_EVENT = "$data_warehouse_sync_failed"
+RECOVERED_EVENT = "$data_warehouse_sync_recovered"
+COMPLETED_EVENT = "$data_warehouse_sync_completed"
+BILLING_EVENT = "$data_warehouse_billing_limit_reached"
+STREAK_OF_TWO = {"failure_streak": {"runs": 2, "last_failed_at": "2026-01-01T00:00:00+00:00"}}
+
+
+class TestSyncAlertEvents:
+    @pytest.fixture(autouse=True)
+    def _clear_subscriber_cache(self):
+        cache.clear()
+
+    @staticmethod
+    def _finalize(team, job, status, **kwargs) -> list[dict]:
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.alerts.produce_internal_event"
+            ) as mock_produce,
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=status,
+                logger=MagicMock(),
+                latest_error=kwargs.pop("latest_error", "boom") if status == ExternalDataJobStatus.FAILED else None,
+                **kwargs,
+            )
+        assert all(call.kwargs["team_id"] == team.pk for call in mock_produce.call_args_list)
+        return [
+            {"event": call.kwargs["event"].event, **call.kwargs["event"].properties}
+            for call in mock_produce.call_args_list
+        ]
+
+    @staticmethod
+    def _subscribe(team, event_name: str) -> None:
+        HogFunction.objects.create(
+            team=team,
+            type="internal_destination",
+            enabled=True,
+            hog="return event",
+            filters={"source": "internal-events", "events": [{"id": event_name, "type": "events"}]},
+        )
+
+    @pytest.mark.parametrize(
+        "schema_status,sync_type_config,status,counts_as_source_failure,subscribed_to_completed,expected",
+        [
+            pytest.param(None, {}, ExternalDataJobStatus.FAILED, True, False, [FAILED_EVENT], id="first-failure"),
+            pytest.param(
+                ExternalDataSchemaStatus.FAILED,
+                STREAK_OF_TWO,
+                ExternalDataJobStatus.FAILED,
+                True,
+                False,
+                [],
+                id="repeat-failure-is-silent",
+            ),
+            pytest.param(None, {}, ExternalDataJobStatus.FAILED, False, False, [], id="non-source-failure-is-silent"),
+            pytest.param(
+                None,
+                {"cdc_broken": {"reason": "slot_missing"}},
+                ExternalDataJobStatus.FAILED,
+                True,
+                False,
+                [],
+                id="cdc-halted-schema-is-silent",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.FAILED,
+                STREAK_OF_TWO,
+                ExternalDataJobStatus.COMPLETED,
+                True,
+                False,
+                [RECOVERED_EVENT],
+                id="recovered-after-failures",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.FAILED,
+                STREAK_OF_TWO,
+                ExternalDataJobStatus.COMPLETED,
+                True,
+                True,
+                [RECOVERED_EVENT, COMPLETED_EVENT],
+                id="recovered-and-completed-with-subscriber",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.FAILED,
+                {},
+                ExternalDataJobStatus.COMPLETED,
+                True,
+                False,
+                [],
+                id="completed-after-non-source-failure-is-not-a-recovery",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+                {},
+                ExternalDataJobStatus.COMPLETED,
+                True,
+                False,
+                [RECOVERED_EVENT],
+                id="recovered-after-billing-limit",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.COMPLETED,
+                {},
+                ExternalDataJobStatus.COMPLETED,
+                True,
+                False,
+                [],
+                id="completed-without-subscriber-is-not-produced",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.COMPLETED,
+                {},
+                ExternalDataJobStatus.COMPLETED,
+                True,
+                True,
+                [COMPLETED_EVENT],
+                id="completed-with-subscriber",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.COMPLETED,
+                {},
+                ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+                True,
+                False,
+                [BILLING_EVENT],
+                id="billing-limit-reached",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+                {},
+                ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+                True,
+                False,
+                [],
+                id="repeat-billing-limit-is-silent",
+            ),
+            pytest.param(
+                ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+                {},
+                ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW,
+                True,
+                False,
+                [BILLING_EVENT],
+                id="billing-limit-kind-changed",
+            ),
+        ],
+    )
+    def test_terminal_run_produces_alert_events(
+        self, schema_status, sync_type_config, status, counts_as_source_failure, subscribed_to_completed, expected
+    ):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.status = schema_status
+        schema.sync_type_config = sync_type_config
+        schema.save()
+        if subscribed_to_completed:
+            self._subscribe(team, COMPLETED_EVENT)
+
+        produced = self._finalize(team, job, status, counts_as_source_failure=counts_as_source_failure)
+
+        assert [event["event"] for event in produced] == expected
+
+    def test_a_repeated_terminal_write_for_the_same_job_produces_no_second_event(self):
+        team, _source, _schema, job = _create_org_team_source_schema_job()
+
+        first = self._finalize(team, job, ExternalDataJobStatus.FAILED)
+        second = self._finalize(team, job, ExternalDataJobStatus.FAILED)
+
+        assert [event["event"] for event in first] == [FAILED_EVENT]
+        assert second == []
+
+    def test_failed_event_properties(self):
+        team, source, schema, job = _create_org_team_source_schema_job()
+        source.prefix = "billing_"
+        source.save()
+        schema.label = "Charges"
+        schema.save()
+
+        with patch("django.conf.settings.SITE_URL", "https://app.example.com"):
+            produced = self._finalize(team, job, ExternalDataJobStatus.FAILED)
+
+        job.refresh_from_db()
+        assert job.finished_at is not None
+        source_url = f"https://app.example.com/project/{team.pk}/data-management/sources/managed-{source.id}/syncs"
+        assert produced == [
+            {
+                "event": FAILED_EVENT,
+                "source_id": str(source.id),
+                "source_type": "Stripe",
+                "source_prefix": "billing",
+                "schema_id": str(schema.id),
+                "schema_name": "Charges",
+                "job_id": str(job.id),
+                "status": ExternalDataSchemaStatus.FAILED,
+                "kind": "job_failed",
+                "error": "boom",
+                "rows_synced": 100,
+                "paused": False,
+                "failed_runs_in_a_row": 1,
+                "source_url": source_url,
+                "schema_url": f"{source_url}?schema=Charge",
+                "finished_at": job.finished_at.isoformat(),
+            }
+        ]
+
+    def test_failed_event_error_masks_the_stored_credentials_of_the_source(self):
+        team, source, _schema, job = _create_org_team_source_schema_job()
+        source.job_inputs = {"stripe_secret_key": "sk_live_stored_credential"}
+        source.save()
+
+        produced = self._finalize(
+            team,
+            job,
+            ExternalDataJobStatus.FAILED,
+            latest_error="401 for key sk_live_stored_credential at https://api.example.com?api_key=other_secret_value",
+        )
+
+        assert produced[0]["error"] == "401 for key *** at https://api.example.com?api_key=***"
+
+    def test_a_produce_error_does_not_fail_the_status_update(self):
+        team, _source, _schema, job = _create_org_team_source_schema_job()
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.alerts.produce_internal_event",
+                side_effect=RuntimeError("kafka down"),
+            ),
+        ):
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJobStatus.FAILED,
+                logger=MagicMock(),
+                latest_error="boom",
+            )
+
+        assert updated.status == ExternalDataJobStatus.FAILED
 
 
 class TestFinalizeQueueSweep:

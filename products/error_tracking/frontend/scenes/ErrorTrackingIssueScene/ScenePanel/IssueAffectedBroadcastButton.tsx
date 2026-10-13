@@ -13,7 +13,7 @@ export function IssueAffectedBroadcastButton(props: IssueAffectedBroadcastLogicP
         <>
             <ButtonPrimitive fullWidth onClick={openModal} data-attr="issue-panel-email-affected">
                 <IconSend />
-                Email the people affected
+                Email people affected
             </ButtonPrimitive>
             <IssueAffectedBroadcastModal {...props} />
         </>

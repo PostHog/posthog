@@ -72,9 +72,11 @@ from products.autoresearch.backend.dataset.labeling import (
     TrainingSampleTooLarge,
     build_inference_anchors_sql,
     build_inference_features_sql,
+    build_prediction_coverage_sql,
     build_random_t0_labeler_sql,
     build_training_features_sql,
     rolling_selection,
+    scored_lookback_days,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import (
@@ -655,6 +657,49 @@ def count_inference_anchors(
         what="Anchor count",
         query_context=query_context,
     )
+
+
+def measure_prediction_coverage(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    cutoff_ts: int,
+    eligible: int,
+    user: User | None = None,
+) -> dict[str, Any]:
+    """
+    How much of the inference population has a champion score at ``cutoff_ts``, and how old the scores are.
+
+    ``eligible`` is the population count the run measured. It sets the same prediction window that the
+    rolling ranking reads, so ``never_scored`` holds the people that the next rolling run scores first.
+    """
+    lookback = scored_lookback_days(eligible=eligible, cadence_days=pipeline.cadence_days)
+    sql, values = build_prediction_coverage_sql(
+        lookback_days=_feature_lookback_days(pipeline),
+        inference_population=pipeline.inference_population,
+        cutoff_ts=cutoff_ts,
+        pipeline_id=str(pipeline.pk),
+        scored_lookback_days=lookback,
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
+    )
+    population, with_score, *ages = _count_rows(
+        team=team, sql=sql, values=values, user=user, what="Prediction coverage", query_context=BATCH_QUERY
+    )
+    population, with_score = int(population), int(with_score)
+    # With nobody scored, ClickHouse returns nan or 0 for the ages, and neither is an age.
+    avg, p50, p90, max_age = (round(float(age), 2) if with_score else None for age in ages)
+    return {
+        "population": population,
+        "with_score": with_score,
+        "never_scored": population - with_score,
+        "age_days_avg": avg,
+        "age_days_p50": p50,
+        "age_days_p90": p90,
+        "age_days_max": max_age,
+        "lookback_days": lookback,
+    }
 
 
 def _count(

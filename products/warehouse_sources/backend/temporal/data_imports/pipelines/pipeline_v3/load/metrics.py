@@ -50,6 +50,19 @@ DELTA_REPARTITION_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+# Unlabelled by table. A rate above zero says a swap is moving files, and the rate is its speed. The
+# per-table counts, the total and the ETA are in the `repartition: swap progress` log line.
+DELTA_REPARTITION_SWAP_FILES_TOTAL = Counter(
+    "warehouse_load_delta_repartition_swap_files_total",
+    "Files the repartition swap handled, by action",
+    labelnames=["action"],
+)
+
+DELTA_REPARTITION_SWAP_BYTES_TOTAL = Counter(
+    "warehouse_load_delta_repartition_swap_bytes_total",
+    "Bytes of the files the repartition swap copied into the live table folder",
+)
+
 DELTA_REPARTITION_SKIP_TOTAL = Counter(
     "warehouse_load_delta_repartition_skip_total",
     "Tables over the partition-size budget that the controller skipped, by reason",
