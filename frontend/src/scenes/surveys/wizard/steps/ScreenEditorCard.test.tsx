@@ -16,6 +16,6 @@ describe('ScreenEditorCard', () => {
             </ScreenEditorCard>
         )
 
-        expect(screen.getByRole('switch', { name: title })).toBeInTheDocument()
+        expect(screen.getByLabelText(title)).toHaveAttribute('role', 'switch')
     })
 })
