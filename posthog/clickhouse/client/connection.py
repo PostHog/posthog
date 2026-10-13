@@ -418,7 +418,7 @@ def get_kwargs_for_client(
         return {
             **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
             "host": settings.CLICKHOUSE_NATIVE_EVENTS_HOST,
-            "verify": settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY,
+            "verify": settings.CLICKHOUSE_VERIFY,
         }
     if workload == Workload.LOGS:
         logs_kwargs = {

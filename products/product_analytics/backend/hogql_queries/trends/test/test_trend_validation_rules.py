@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -12,12 +14,14 @@ from posthog.schema import (
     DataWarehouseNode,
     DateRange,
     EventsNode,
+    HogQLQueryModifiers,
     MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
 )
 
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
@@ -412,3 +416,25 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         runner = TrendsQueryRunner(query=query, team=self.team)
 
         self.assertEqual(len(runner.series), 150)
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_actor_options_execute_on_the_selected_cluster(self, native: bool) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
+        )
+        with (
+            patch(
+                "posthog.models.event.new_events_schema.get_instance_setting",
+                side_effect=lambda key: [self.team.pk] if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS" else False,
+            ),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()
+        assert result.breakdown == []
+        execute.assert_called_once()
+        assert execute.call_args.kwargs["workload"] == (Workload.NATIVE_EVENTS if native else Workload.DEFAULT)
+        assert ("events_json" in execute.call_args.args[0]) is native

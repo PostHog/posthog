@@ -91,7 +91,7 @@ def test_connection_pool_creation_with_team_id(settings):
 
 def test_native_events_pool_is_separate_from_legacy_pool(settings):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
-    settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY = True
+    settings.CLICKHOUSE_VERIFY = True
     settings.CLICKHOUSE_PER_TEAM_SETTINGS = {}
     legacy = get_pool(Workload.ONLINE, team_id=44)
     native = get_pool(Workload.NATIVE_EVENTS, team_id=44)
@@ -104,7 +104,7 @@ def test_native_events_pool_is_separate_from_legacy_pool(settings):
 @pytest.mark.parametrize("team_override", [False, True])
 def test_native_events_route_preserves_resolved_credentials(settings, readonly, team_override):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
-    settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY = True
+    settings.CLICKHOUSE_VERIFY = True
     settings.CLICKHOUSE_PER_TEAM_SETTINGS = (
         {"44": {"host": "legacy.example.com", "user": "team-user", "password": "example"}} if team_override else {}
     )
@@ -322,11 +322,11 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
     )
 
 
-@pytest.mark.parametrize("native_verify", [False, True])
-def test_native_http_pool_enforces_its_verification_policy(settings, monkeypatch, native_verify):
+@pytest.mark.parametrize("verify", [False, True])
+def test_native_http_pool_uses_existing_clickhouse_verification_policy(settings, monkeypatch, verify):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
-    settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY = native_verify
-    settings.QUERYSERVICE_VERIFY = not native_verify
+    settings.CLICKHOUSE_VERIFY = verify
+    settings.QUERYSERVICE_VERIFY = not verify
     settings.CLICKHOUSE_USE_HTTP = True
     connection._clickhouse_http_pool_mgr.cache_clear()
     try:
@@ -334,6 +334,6 @@ def test_native_http_pool_enforces_its_verification_policy(settings, monkeypatch
             with connection.get_client_from_pool(Workload.NATIVE_EVENTS):
                 pass
         manager = client.call_args.kwargs["pool_mgr"]
-        assert manager.connection_pool_kw["cert_reqs"] == ("CERT_REQUIRED" if native_verify else "CERT_NONE")
+        assert manager.connection_pool_kw["cert_reqs"] == ("CERT_REQUIRED" if verify else "CERT_NONE")
     finally:
         connection._clickhouse_http_pool_mgr.cache_clear()
