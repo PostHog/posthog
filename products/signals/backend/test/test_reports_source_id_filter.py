@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -41,7 +43,9 @@ class TestReportsSourceIdFilter(APIBaseTest):
 
     def test_filters_to_reports_the_source_record_contributed_to(self) -> None:
         with (
-            patch(VIEWS_FETCH, return_value={TICKET_ID: [str(self.linked.id)]}) as fetch,
+            patch(
+                VIEWS_FETCH, return_value={TICKET_ID: {str(self.linked.id): datetime(2026, 1, 1, tzinfo=UTC)}}
+            ) as fetch,
             patch(VIEWS_FETCH_BY_PRODUCT) as fetch_by_product,
         ):
             response = self.client.get(self._url(f"source_id={TICKET_ID}&source_product=conversations"))

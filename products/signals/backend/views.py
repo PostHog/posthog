@@ -3,7 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any, cast
 
@@ -1466,8 +1466,13 @@ class SignalReportViewSet(
                 }
             )
         by_source = fetch_live_report_ids_for_source_ids(self.team, source_ids, product)
-        report_ids = {report_id for ids in by_source.values() for report_id in ids}
-        return queryset.filter(id__in=report_ids)
+        linked_at_by_report: dict[str, datetime] = {}
+        for links in by_source.values():
+            for report_id, linked_at in links.items():
+                current = linked_at_by_report.get(report_id)
+                linked_at_by_report[report_id] = linked_at if current is None else min(current, linked_at)
+        self._source_linked_at_map = linked_at_by_report
+        return queryset.filter(id__in=list(linked_at_by_report))
 
     def _apply_signal_report_scout_filter(self, queryset):
         scout_filter = self.request.query_params.get("scout")
@@ -2544,6 +2549,7 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "source_linked_at_map": getattr(self, "_source_linked_at_map", {}),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

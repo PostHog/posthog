@@ -607,3 +607,43 @@ class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
         assert sorted(call.kwargs["document_id"] for call in emit.call_args_list) == ["a", "b", "c"]
         assert all(call.kwargs["content"] == "" for call in emit.call_args_list)
         assert all(call.kwargs["metadata"]["deleted"] is True for call in emit.call_args_list)
+
+
+class TestReportsListSourceLinkedAt(_SignalEmbeddingsTestBase):
+    def test_link_time_stays_at_the_first_ticket_signal_when_other_signals_join_later(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED, title="old")
+        report_id = str(report.id)
+        linked = self.base.replace(microsecond=0)
+        self._emit_version(
+            document_id="ticket-first",
+            report_id=report_id,
+            source_product="conversations",
+            source_id="ticket-1",
+            inserted_at=linked,
+        )
+        self._emit_version(
+            document_id="ticket-resnapshot",
+            report_id=report_id,
+            source_product="conversations",
+            source_id="ticket-1",
+            inserted_at=linked + timedelta(hours=1),
+        )
+        self._emit_version(
+            document_id="unrelated",
+            report_id=report_id,
+            source_product="error_tracking",
+            source_id="issue-9",
+            inserted_at=linked + timedelta(days=1),
+        )
+        report.title = "updated by the unrelated signal"
+        report.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/signals/reports/"
+            "?source_id=ticket-1&source_product=conversations&include_all_statuses=true"
+        )
+
+        assert response.status_code == 200
+        [row] = response.json()["results"]
+        assert row["id"] == report_id
+        assert datetime.fromisoformat(row["source_linked_at"]) == linked

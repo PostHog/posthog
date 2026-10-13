@@ -73528,6 +73528,11 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
+      /**
+         * When the record named by the `source_id` filter first linked to this report. Later signals from other sources do not change it. Null when the list has no `source_id` filter.
+         * @nullable
+         */
+      readonly source_linked_at: string | null;
     }
 
     export interface PaginatedSignalReportListList {

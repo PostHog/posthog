@@ -66,7 +66,7 @@ import {
 import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
-import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -273,7 +273,7 @@ export interface supportTicketSceneLogicValues {
     hasUnsavedChanges: boolean
     latestAiDraftId: string | null
     latestAiMessage: ChatMessage | null
-    linkedReports: SignalReportApi[]
+    linkedReports: SignalReportListApi[]
     linkedReportsLoading: boolean
     messageSending: boolean
     messages: CommentType[]
@@ -359,12 +359,12 @@ export interface supportTicketSceneLogicActions {
         errorObject?: any
     }
     loadLinkedReportsSuccess: (
-        linkedReports: SignalReportApi[],
+        linkedReports: SignalReportListApi[],
         payload?: {
             value: true
         }
     ) => {
-        linkedReports: SignalReportApi[]
+        linkedReports: SignalReportListApi[]
         payload?: {
             value: true
         }
@@ -701,9 +701,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             },
         ],
         linkedReports: [
-            [] as SignalReportApi[],
+            [] as SignalReportListApi[],
             {
-                loadLinkedReports: async (): Promise<SignalReportApi[]> => {
+                loadLinkedReports: async (): Promise<SignalReportListApi[]> => {
                     const ticketUuid = values.ticket?.id
                     if (!ticketUuid) {
                         return []

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ThreadReportEntry } from './ThreadReports'
 
@@ -16,7 +16,7 @@ export default meta
 
 type Story = StoryObj<typeof ThreadReportEntry>
 
-function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
+function makeReport(overrides: Partial<SignalReportListApi>): SignalReportListApi {
     return {
         id: '019f9582-93e7-77c1-8912-4f541d70cb13',
         status: 'ready',
@@ -26,7 +26,7 @@ function makeReport(overrides: Partial<SignalReportApi>): SignalReportApi {
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/73646',
         implementation_pr_merged: false,
         ...overrides,
-    } as SignalReportApi
+    } as SignalReportListApi
 }
 
 function Thread({ children }: { children: React.ReactNode }): JSX.Element {
