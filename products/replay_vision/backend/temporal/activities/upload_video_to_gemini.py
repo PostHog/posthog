@@ -1,9 +1,10 @@
-"""Upload the rasterized session MP4 to Gemini and wait for it to be ACTIVE, unless the scan sends it inline."""
+"""Upload the rasterized session MP4 to Gemini and wait for it to be ACTIVE."""
 
 import time
 import asyncio
 import tempfile
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -13,11 +14,12 @@ from google.genai import (
 )
 from temporalio import activity
 
+from posthog.storage import object_storage
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.gemini_client import replay_gateway_enabled
+from products.replay_vision.backend.gemini_client import replay_gateway_client, replay_gateway_enabled
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import (
@@ -29,7 +31,6 @@ from products.replay_vision.backend.temporal.gemini import (
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
-from products.replay_vision.backend.temporal.video_asset import MAX_INLINE_VIDEO_BYTES, read_asset_video_bytes
 
 logger = structlog.get_logger(__name__)
 
@@ -73,25 +74,35 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     if not await sync_to_async(is_ai_data_processing_approved)(asset.team_id):
         raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
-    video_bytes = await read_asset_video_bytes(asset)
-    # The gateway serves no Files API, so the scan sends the bytes inline. A video over the inline bound uploads
-    # directly, because the gateway rejects every turn that carries it.
-    if replay_gateway_enabled(asset.team_id):
-        if len(video_bytes) <= MAX_INLINE_VIDEO_BYTES:
-            return UploadedVideo(file_uri="", mime_type=asset.export_format, gemini_file_name="", inline_video=True)
-        logger.warning(
-            "replay_vision.upload_video_to_gemini.inline_too_large_uploading_directly",
-            size_bytes=len(video_bytes),
-            limit_bytes=MAX_INLINE_VIDEO_BYTES,
+    video_bytes: bytes | None
+    if asset.content:
+        video_bytes = bytes(asset.content)
+    elif asset.content_location:
+        video_bytes = await sync_to_async(object_storage.read_bytes, thread_sensitive=False)(asset.content_location)
+    else:
+        raise ScannerFailureError(
+            f"ExportedAsset {inputs.asset_id} has neither content nor content_location",
+            kind=FailureKind.INTERNAL_ERROR,
         )
-    return await upload_to_files_api(video_bytes, asset.export_format, workflow_id)
+    if not video_bytes:
+        raise ScannerFailureError(
+            f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
+        )
 
-
-async def upload_to_files_api(video_bytes: bytes, mime_type: str, workflow_id: str) -> UploadedVideo:
-    """Upload the video to the Gemini Files API, track it for the cleanup sweep, and wait until it is ACTIVE."""
-    raw_client = RawGenAIClient(api_key=gemini_api_key())
-    # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
-    uploaded_file = await asyncio.to_thread(_write_and_upload, raw_client, video_bytes, mime_type, workflow_id)
+    files: Any
+    if replay_gateway_enabled(asset.team_id) and (gateway := replay_gateway_client()) is not None:
+        # The gateway stores the file in Replay Vision's own Google project, where the sweep below finds it.
+        uploaded_file = await asyncio.to_thread(
+            gateway.upload_file, video_bytes, mime_type=asset.export_format, display_name=workflow_id
+        )
+        files = gateway.files
+    else:
+        raw_client = RawGenAIClient(api_key=gemini_api_key())
+        # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
+        uploaded_file = await asyncio.to_thread(
+            _write_and_upload, raw_client, video_bytes, asset.export_format, workflow_id
+        )
+        files = raw_client.files
 
     if uploaded_file.name is None:
         # Non-retryable: a retry would re-upload before the cleanup sweep can reap the unnamed file Gemini may have created.
@@ -107,7 +118,7 @@ async def upload_to_files_api(video_bytes: bytes, mime_type: str, workflow_id: s
     except Exception:
         logger.exception("replay_vision.upload_video_to_gemini.track_failed_rolling_back")
         try:
-            await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=gemini_file_name)
+            await sync_to_async(files.delete, thread_sensitive=False)(name=gemini_file_name)
         except Exception:
             logger.exception("replay_vision.upload_video_to_gemini.rollback_delete_failed")
         raise
@@ -121,7 +132,7 @@ async def upload_to_files_api(video_bytes: bytes, mime_type: str, workflow_id: s
                 kind=FailureKind.PROVIDER_TRANSIENT,
             )
         await asyncio.sleep(0.5)
-        uploaded_file = await sync_to_async(raw_client.files.get, thread_sensitive=False)(name=gemini_file_name)
+        uploaded_file = await sync_to_async(files.get, thread_sensitive=False)(name=gemini_file_name)
 
     final_state = uploaded_file.state.name if uploaded_file.state else None
     if final_state != "ACTIVE":
@@ -144,7 +155,7 @@ async def upload_to_files_api(video_bytes: bytes, mime_type: str, workflow_id: s
 
     return UploadedVideo(
         file_uri=uploaded_file.uri,
-        mime_type=uploaded_file.mime_type or mime_type,
+        mime_type=uploaded_file.mime_type or asset.export_format,
         gemini_file_name=gemini_file_name,
     )
 

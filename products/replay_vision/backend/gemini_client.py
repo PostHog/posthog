@@ -1,13 +1,19 @@
 """Replay Vision's Gemini client: the AI gateway when enabled for the team, else Google directly with our key."""
 
+import inspect
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
+from django.conf import settings
+
+import httpx
 from google.genai import errors, types
 
 from posthog.llm.gateway_client import (
+    AIGatewayConfig,
     ai_gateway_headers,
+    anthropic_gateway_base_url,
     build_gemini_client,
     resolve_ai_gateway_config,
     team_distinct_id,
@@ -20,9 +26,19 @@ GATEWAY_FLAG = "replay-vision-ai-gateway"
 _DirectClientT = TypeVar("_DirectClientT")
 
 
+def resolve_replay_gateway_config() -> AIGatewayConfig | None:
+    """The gateway with Replay Vision's own key, whose team the gateway binds to Replay Vision's Google project.
+
+    None while the key is unset, so Replay Vision stays direct without the shared key's misconfiguration warning.
+    """
+    if not settings.REPLAY_VISION_AI_GATEWAY_API_KEY:
+        return None
+    return resolve_ai_gateway_config(api_key=settings.REPLAY_VISION_AI_GATEWAY_API_KEY)
+
+
 def replay_gateway_enabled(team_id: int) -> bool:
-    """Whether the team's Gemini calls go through the gateway: the env pair is set and the flag is on."""
-    if resolve_ai_gateway_config() is None:
+    """Whether the team's Gemini calls go through the gateway: Replay Vision's key is set and the flag is on."""
+    if resolve_replay_gateway_config() is None:
         return False
     # Local evaluation only: a scan makes many calls, and a flag outage must leave them direct and fast.
     return feature_enabled_or_false(
@@ -133,21 +149,74 @@ class _AsyncGatewayModels(_GatewayModelsBase):
         return assemble_stream(chunks)
 
 
+class _RefusalRemap:
+    """An SDK surface whose calls raise the gateway's refusals the way generate calls do."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._inner, name)
+        if inspect.iscoroutinefunction(attr):
+
+            async def call_async(*args: Any, **kwargs: Any) -> Any:
+                with _retry_gateway_refusals():
+                    return await attr(*args, **kwargs)
+
+            return call_async
+        if callable(attr):
+
+            def call(*args: Any, **kwargs: Any) -> Any:
+                with _retry_gateway_refusals():
+                    return attr(*args, **kwargs)
+
+            return call
+        return attr
+
+
 class _GatewayAio:
     def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
         self._client = client
         self.models = _AsyncGatewayModels(client, base_properties)
+        self.caches = _RefusalRemap(client.caches)
+        self.files = _RefusalRemap(client.files)
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
 
-class GatewayGeminiClient:
-    """The gateway client with the analytics wrapper's call shape, so call sites stay the same in both modes."""
+# Bounds one upload through the gateway, which then runs Google's upload.
+_UPLOAD_TIMEOUT_S = 600.0
 
-    def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
+
+class GatewayGeminiClient:
+    """The gateway client with the analytics wrapper's call shape, so call sites stay the same in both modes.
+
+    Files and caches live in Replay Vision's own Google project: the gateway binds Replay Vision's key to it.
+    """
+
+    def __init__(self, client: Any, base_properties: Mapping[str, Any], gateway: AIGatewayConfig | None = None) -> None:
         self.models = _GatewayModels(client, base_properties)
         self.aio = _GatewayAio(client.aio, base_properties)
+        self.files = _RefusalRemap(client.files)
+        self._gateway = gateway
+
+    def upload_file(self, data: bytes, *, mime_type: str, display_name: str) -> types.File:
+        """Store `data` in Replay Vision's Files API; the gateway runs Google's resumable upload."""
+        if self._gateway is None:
+            raise ValueError("upload_file needs the gateway config the client was built with")
+        with _retry_gateway_refusals(), httpx.Client(trust_env=False, timeout=_UPLOAD_TIMEOUT_S) as http:
+            response = http.post(
+                f"{anthropic_gateway_base_url(self._gateway.url)}/v1beta/files:upload",
+                content=data,
+                headers={
+                    "x-goog-api-key": self._gateway.api_key,
+                    "Content-Type": mime_type,
+                    "X-Goog-Upload-Display-Name": display_name,
+                },
+            )
+            errors.APIError.raise_for_response(response)
+        return types.File.model_validate(response.json()["file"])
 
 
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:
@@ -254,6 +323,20 @@ def replay_gemini_client(
     """
     if not replay_gateway_enabled(team_id):
         return direct()
+    gateway = replay_gateway_client(properties=properties, distinct_id=distinct_id, timeout_ms=timeout_ms)
+    return gateway if gateway is not None else direct()
+
+
+def replay_gateway_client(
+    *,
+    properties: Mapping[str, Any] | None = None,
+    distinct_id: str | None = None,
+    timeout_ms: int | None = None,
+) -> GatewayGeminiClient | None:
+    """The gateway client on Replay Vision's own key, or None while that key is unset. Skips the flag."""
+    gateway = resolve_replay_gateway_config()
+    if gateway is None:
+        return None
     base_properties = dict(properties or {})
     client = build_gemini_client(
         ai_product=AI_PRODUCT,
@@ -261,7 +344,8 @@ def replay_gemini_client(
         distinct_id=distinct_id,
         privacy_mode=True,
         timeout_ms=timeout_ms,
+        gateway=gateway,
     )
     if client is None:
-        return direct()
-    return GatewayGeminiClient(client, base_properties)
+        return None
+    return GatewayGeminiClient(client, base_properties, gateway)

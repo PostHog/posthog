@@ -252,15 +252,18 @@ class AIGatewayConfig:
     api_key: str = field(repr=False)
 
 
-def resolve_ai_gateway_config() -> AIGatewayConfig | None:
+def resolve_ai_gateway_config(api_key: str | None = None) -> AIGatewayConfig | None:
     """Return the validated AIGatewayConfig for the internal Go ai-gateway, or None.
+
+    ``api_key`` replaces ``AI_GATEWAY_API_KEY`` for a caller with its own gateway credential.
 
     None when neither env var is set (the caller uses its normal path), and ALSO when the config
     is half-applied or the URL is malformed: that logs a warning and returns None so the caller
     falls back to the current flow rather than failing the call (the fallback comes out once
     rollout completes).
     """
-    url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
+    url = settings.AI_GATEWAY_URL
+    api_key = settings.AI_GATEWAY_API_KEY if api_key is None else api_key
     if not (url or api_key):
         return None
     misconfig = _gateway_misconfig(url, api_key)
@@ -554,14 +557,16 @@ def build_gemini_client(
     distinct_id: str | None = None,
     privacy_mode: bool = False,
     timeout_ms: int | None = None,
+    gateway: AIGatewayConfig | None = None,
 ) -> genai.Client | None:
     """Return a plain ``google.genai.Client`` routed through the Go ai-gateway.
 
     Return None when the gateway pair is unset or malformed; the caller then keeps its direct Google client.
     The client skips the posthoganalytics wrapper because the gateway captures the generation itself.
-    The gateway refuses ``cachedContent`` and ``fileData``, so media goes inline.
+    ``gateway`` overrides the shared config for a caller with its own credential. The gateway serves files and
+    caches only to a team bound to its own Google key; for every other team, media goes inline.
     """
-    gateway = resolve_ai_gateway_config()
+    gateway = gateway or resolve_ai_gateway_config()
     if gateway is None:
         return None
     headers = (
