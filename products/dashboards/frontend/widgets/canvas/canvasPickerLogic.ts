@@ -16,8 +16,8 @@ export type CanvasPickerLogicProps = { pickerKey: string }
 export interface canvasPickerLogicValues {
     currentProjectId: number | string // teamLogic
     canvasOptions: CanvasApi[]
-    canvasOptionsLoading: boolean
     canvasOptionsFailed: boolean
+    canvasOptionsLoading: boolean
     hasLoadedOptions: boolean
     search: string
     selectedCanvas: CanvasApi | null
@@ -31,9 +31,6 @@ export interface canvasPickerLogicActions {
     }
     ensureSelectedLoaded: (canvasId: string) => {
         canvasId: string
-    }
-    retryLoadOptions: () => {
-        value: true
     }
     loadOptions: ({ debounce }?: { debounce: boolean }) => {
         debounce: boolean
@@ -76,6 +73,9 @@ export interface canvasPickerLogicActions {
         payload?: {
             canvasId: string
         }
+    }
+    retryLoadOptions: () => {
+        value: true
     }
     setSearch: (search: string) => {
         search: string
