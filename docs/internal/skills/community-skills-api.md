@@ -16,9 +16,7 @@ Route: registered in `products/skills/backend/routes.py` as `community_skills` u
 
 - Web-app session auth only (`scope_object = "INTERNAL"`); the endpoint is **not** exposed for
   personal-API-key scoping, since the catalog is instance-global.
-- Gated by `CommunitySkillFeatureFlagPermission`, which requires `llm-analytics-community-skills` alone.
-  Skills went GA in June 2026 and the `llm-analytics-skills` flag was removed with it, so there is no base-product flag left to check.
-  The flag is evaluated with the organization **and** project group so a per-project rollout matches in-app evaluation, and `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` is honored for self-hosted.
+- No feature flag gates the endpoint. The `llm-analytics-community-skills` flag was removed after it rolled out to all users.
 - `install` and `vote` additionally require resource-level `editor` access on `llm_skill`, and are
   rate-limited by a burst + sustained throttle.
 
@@ -132,9 +130,6 @@ The publish request must include the retrieved row's `id` as `expected_skill_id`
 `version` as `expected_version`. The API returns `409` if either value differs from the latest row.
 After a conflict, retrieve the skill again and require new consent before another publish request.
 
-- Gated by `CommunityPublishFeatureFlagPermission`, which applies the same
-  `llm-analytics-community-skills` check as the browse endpoints to this action alone. Skills is GA,
-  so the flag cannot sit on the viewset.
 - Throttled at 6/hour and 20/day, **keyed by team rather than by credential**. `_ensure_web_authenticated`
   also accepts a personal API key, and the inherited throttle key prefers the key hash, so one member
   with several keys would otherwise get a fresh budget with each of them. The API-shaped

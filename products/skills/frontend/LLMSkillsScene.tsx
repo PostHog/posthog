@@ -9,7 +9,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -17,7 +16,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -471,15 +469,13 @@ export function LLMSkillsScene(): JSX.Element {
         activeTabDescription,
         githubLogin,
     } = useValues(llmSkillsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
     const showScoutOrigin = activeCategory === 'scout'
-    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
     // Discovery CTA: when a project has no skills of its own yet, point first-timers at the community catalog.
-    const showCommunityDiscovery = communitySkillsEnabled && !skillsLoading && skills.count === 0 && !filters.search
+    const showCommunityDiscovery = !skillsLoading && skills.count === 0 && !filters.search
 
     const openPublishDialog = (skill: LLMSkillListApi): void => {
         openPublishToCommunityDialog({ skillName: skill.name, githubLogin, onPublish: publishToCommunity })
