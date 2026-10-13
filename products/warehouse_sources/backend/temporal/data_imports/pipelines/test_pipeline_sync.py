@@ -499,18 +499,35 @@ class TestValidateSchemaAndUpdateTable:
         assert table.row_count == 150
 
     @pytest.mark.parametrize(
-        "table_exists,sync_type,live_row_count,expected_row_count",
+        "table_exists,sync_type,live_row_count,expected_row_count,counts_files",
         [
-            pytest.param(False, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, id="first_sync_full_refresh"),
-            pytest.param(False, ExternalDataSchema.SyncType.INCREMENTAL, 1_200, 1_200, id="first_sync_incremental"),
-            pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, id="later_full_refresh"),
             pytest.param(
-                True, ExternalDataSchema.SyncType.FULL_REFRESH, None, 200, id="full_refresh_falls_back_to_run_count"
+                False, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, False, id="first_sync_full_refresh"
+            ),
+            pytest.param(
+                False, ExternalDataSchema.SyncType.INCREMENTAL, 1_200, 1_200, False, id="first_sync_incremental"
+            ),
+            pytest.param(True, ExternalDataSchema.SyncType.FULL_REFRESH, 1_200, 1_200, False, id="later_full_refresh"),
+            pytest.param(
+                True,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                200,
+                False,
+                id="full_refresh_falls_back_to_run_count",
+            ),
+            pytest.param(
+                True,
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                5_000,
+                True,
+                id="incremental_falls_back_to_file_count",
             ),
         ],
     )
     def test_stores_the_delta_log_count_and_never_counts_the_files_of_a_full_refresh(
-        self, team, table_exists, sync_type, live_row_count, expected_row_count
+        self, team, table_exists, sync_type, live_row_count, expected_row_count, counts_files
     ):
         schema, job = self._schema_and_job(team)
         schema.sync_type = sync_type
@@ -520,7 +537,7 @@ class TestValidateSchemaAndUpdateTable:
 
         with (
             patch.object(DataWarehouseTable, "get_columns", return_value={}),
-            patch.object(DataWarehouseTable, "get_count") as get_count,
+            patch.object(DataWarehouseTable, "get_count", return_value=5_000) as get_count,
         ):
             async_to_sync(validate_schema_and_update_table)(
                 run_id=str(job.id),
@@ -532,7 +549,7 @@ class TestValidateSchemaAndUpdateTable:
                 live_row_count=live_row_count,
             )
 
-        get_count.assert_not_called()
+        assert get_count.called is counts_files
         schema.refresh_from_db()
         assert schema.table is not None
         assert schema.table.row_count == expected_row_count
