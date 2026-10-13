@@ -1,6 +1,6 @@
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
+from urllib.parse import unquote
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -8,6 +8,15 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly import fastly
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fastly import (
     FASTLY_BASE_URL,
@@ -25,33 +34,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fas
     _flatten_usage_metrics,
     _next_cursor,
     _usage_metrics_window,
-    fastly_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.settings import ENDPOINTS, FASTLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.source import FastlySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fastly import FastlySourceConfig
 
 
-def _fake_response(payload: Any, next_url: str | None = None) -> MagicMock:
-    response = MagicMock()
-    response.json.return_value = payload
-    response.links = {"next": {"url": next_url}} if next_url else {}
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(FastlySource(), FastlySourceConfig(api_key="token"))
 
 
-class _FakeResumableManager:
-    def __init__(self, state: FastlyResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[FastlyResumeConfig] = []
+def _drive(
+    endpoint: str,
+    pages: dict[str, Any],
+    *,
+    resume_state: FastlyResumeConfig | None = None,
+    **inputs: Any,
+) -> DriveResult:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        url = unquote(request.url)
+        if url not in pages:
+            raise UnexpectedRequest(f"No Fastly response for {url}")
+        payload = pages[url]
+        if isinstance(payload, ScriptedResponse):
+            return payload
+        if isinstance(payload, tuple):
+            body, next_url = payload
+            headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+            return ScriptedResponse(json=body, headers=headers)
+        return ScriptedResponse(json=payload)
 
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> FastlyResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: FastlyResumeConfig) -> None:
-        self.saved.append(data)
+    return _driver().run(endpoint, answer, resume_state=resume_state, **inputs)
 
 
 class TestBuildUrl:
@@ -76,24 +90,22 @@ class TestActiveVersionNumber:
     )
     def test_active_version_number(self, _name: str, versions: list[dict], expected: int | None) -> None:
         session = MagicMock()
-        with patch.object(fastly, "_fetch", return_value=_fake_response(versions)):
+        response = MagicMock()
+        response.json.return_value = versions
+        with patch.object(fastly, "_fetch", return_value=response):
             assert _active_version_number(session, "SVC", {}, MagicMock()) == expected
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False)])
     def test_validate_credentials_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(fastly, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("token") is expected
+        assert [request.path for request in network.requests_log] == ["/current_user"]
+        assert network.requests_log[0].headers["fastly-key"] == "token"
 
     def test_validate_credentials_swallows_exceptions(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(fastly, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             assert validate_credentials("token") is False
 
 
@@ -101,24 +113,16 @@ class TestTokenRedaction:
     # The token rides in the custom `Fastly-Key` header, which the transport's name-based scrubber
     # doesn't know about — both entry points must pass it as a redact value or it leaks into samples.
     def test_validate_credentials_redacts_token(self) -> None:
-        make_session = MagicMock(return_value=MagicMock())
-        with patch.object(fastly, "make_tracked_session", make_session):
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("secret-token")
-        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert network.session_options[0]["redact_values"] == ("secret-token",)
 
     def test_get_rows_redacts_token(self) -> None:
-        make_session = MagicMock(return_value=MagicMock())
-        pages = {f"{FASTLY_BASE_URL}/current_user": {"id": "U1"}}
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
-            return _fake_response(pages[url])
-
-        with (
-            patch.object(fastly, "_fetch", side_effect=fake_fetch),
-            patch.object(fastly, "make_tracked_session", make_session),
-        ):
-            list(get_rows("secret-token", "current_user", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
-        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        result = SourceDriver(FastlySource(), FastlySourceConfig(api_key="secret-token")).run(
+            "current_user", [ScriptedResponse(json={"id": "U1"})]
+        )
+        assert result.rows == [{"id": "U1"}]
+        assert result.session_options[0]["redact_values"] == ("secret-token",)
 
 
 class TestFetchRetries:
@@ -173,48 +177,13 @@ class TestFetchRetries:
         assert session.get.call_count == 5
 
 
-def _http_error(status_code: int) -> requests.HTTPError:
-    response = MagicMock()
-    response.status_code = status_code
-    return requests.HTTPError(f"{status_code} Client Error", response=response)
-
-
-def _collect(
-    endpoint: str,
-    manager: _FakeResumableManager,
-    pages: dict[str, Any],
-    incremental_start: int | None = None,
-) -> list[dict]:
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
-        payload = pages[url]
-        if isinstance(payload, Exception):
-            raise payload
-        if isinstance(payload, tuple):
-            body, next_url = payload
-            return _fake_response(body, next_url)
-        return _fake_response(payload)
-
-    rows: list[dict] = []
-    with (
-        patch.object(fastly, "_fetch", side_effect=fake_fetch),
-        patch.object(fastly, "make_tracked_session", return_value=MagicMock()),
-    ):
-        for batch in get_rows(
-            api_key="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            incremental_start=incremental_start,
-        ):
-            rows.extend(batch)
-    return rows
-
-
 class TestGetRowsObject:
     def test_single_object_is_wrapped_in_a_list(self) -> None:
         pages = {f"{FASTLY_BASE_URL}/current_user": {"id": "U1", "login": "a@b.com"}}
-        rows = _collect("current_user", _FakeResumableManager(), pages)
-        assert rows == [{"id": "U1", "login": "a@b.com"}]
+        result = _drive("current_user", pages)
+        assert result.raised is None
+        assert result.rows == [{"id": "U1", "login": "a@b.com"}]
+        assert result.items == [[{"id": "U1", "login": "a@b.com"}]]
 
 
 class TestGetRowsServiceList:
@@ -223,18 +192,23 @@ class TestGetRowsServiceList:
             f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], f"{FASTLY_BASE_URL}/service?page=2"),
             f"{FASTLY_BASE_URL}/service?page=2": ([{"id": "S2"}], None),
         }
-        manager = _FakeResumableManager()
-        rows = _collect("services", manager, pages)
+        result = _drive("services", pages)
 
-        assert rows == [{"id": "S1"}, {"id": "S2"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "S1"}, {"id": "S2"}]
+        assert result.params("per_page") == ["100", None]
+        assert result.params("page") == [None, "2"]
         # State is saved once, after yielding page 1 (which has a next page), pointing at page 2.
-        assert [s.next_url for s in manager.saved] == [f"{FASTLY_BASE_URL}/service?page=2"]
+        assert result.saved_states == [FastlyResumeConfig(next_url=f"{FASTLY_BASE_URL}/service?page=2")]
 
     def test_resumes_from_saved_next_url(self) -> None:
         pages = {f"{FASTLY_BASE_URL}/service?page=2": ([{"id": "S2"}], None)}
-        manager = _FakeResumableManager(FastlyResumeConfig(next_url=f"{FASTLY_BASE_URL}/service?page=2"))
-        rows = _collect("services", manager, pages)
-        assert rows == [{"id": "S2"}]
+        result = _drive(
+            "services", pages, resume_state=FastlyResumeConfig(next_url=f"{FASTLY_BASE_URL}/service?page=2")
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "S2"}]
+        assert result.params("page") == ["2"]
 
 
 class TestGetRowsVersionListFanOut:
@@ -244,9 +218,10 @@ class TestGetRowsVersionListFanOut:
             f"{FASTLY_BASE_URL}/service/S2/version": [{"service_id": "S2", "number": 2}],
         }
         # Bookmarked at S2 — S1 is already synced, so only S2 is (re-)processed.
-        manager = _FakeResumableManager(FastlyResumeConfig(service_id="S2"))
-        rows = _collect("service_versions", manager, pages)
-        assert rows == [{"service_id": "S2", "number": 2}]
+        result = _drive("service_versions", pages, resume_state=FastlyResumeConfig(service_id="S2"))
+        assert result.raised is None
+        assert result.rows == [{"service_id": "S2", "number": 2}]
+        assert result.paths == ["/service", "/service/S2/version"]
 
 
 class TestGetRowsVersionResourceFanOut:
@@ -260,8 +235,10 @@ class TestGetRowsVersionResourceFanOut:
             # Only the active version (2) is read for the resource.
             f"{FASTLY_BASE_URL}/service/S1/version/2/backend": [{"name": "origin", "version": 2}],
         }
-        rows = _collect("service_backends", _FakeResumableManager(), pages)
-        assert rows == [{"name": "origin", "version": 2, "service_id": "S1"}]
+        result = _drive("service_backends", pages)
+        assert result.raised is None
+        assert result.rows == [{"name": "origin", "version": 2, "service_id": "S1"}]
+        assert result.paths[-1] == "/service/S1/version/2/backend"
 
     def test_service_without_versions_is_skipped_but_bookmark_advances(self) -> None:
         # A versionless service yields no rows, but its bookmark must still advance so resume doesn't
@@ -272,11 +249,11 @@ class TestGetRowsVersionResourceFanOut:
             f"{FASTLY_BASE_URL}/service/S2/version": [{"number": 1, "active": True}],
             f"{FASTLY_BASE_URL}/service/S2/version/1/backend": [{"name": "origin", "version": 1}],
         }
-        manager = _FakeResumableManager()
-        rows = _collect("service_backends", manager, pages)
+        result = _drive("service_backends", pages)
 
-        assert rows == [{"name": "origin", "version": 1, "service_id": "S2"}]
-        assert [s.service_id for s in manager.saved] == ["S1", "S2"]
+        assert result.raised is None
+        assert result.rows == [{"name": "origin", "version": 1, "service_id": "S2"}]
+        assert [state.service_id for state in result.saved_states] == ["S1", "S2"]
 
 
 class TestNextCursor:
@@ -329,9 +306,10 @@ class TestGetRowsVersionResourceChildFanOut:
             f"{FASTLY_BASE_URL}/service/S1/acl/A1/entries?per_page=100": [{"id": "E1", "ip": "1.2.3.4"}],
             f"{FASTLY_BASE_URL}/service/S1/acl/A2/entries?per_page=100": [{"id": "E2", "ip": "5.6.7.8"}],
         }
-        rows = _collect("acl_entries", _FakeResumableManager(), pages)
+        result = _drive("acl_entries", pages)
 
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": "E1", "ip": "1.2.3.4", "service_id": "S1", "acl_id": "A1"},
             {"id": "E2", "ip": "5.6.7.8", "service_id": "S1", "acl_id": "A2"},
         ]
@@ -347,11 +325,13 @@ class TestGetRowsVersionResourceChildFanOut:
             ),
             f"{FASTLY_BASE_URL}/service/S1/dictionary/D1/items?page=2": ([{"item_key": "b", "item_value": "2"}], None),
         }
-        rows = _collect("dictionary_items", _FakeResumableManager(), pages)
+        result = _drive("dictionary_items", pages)
 
-        assert [row["item_key"] for row in rows] == ["a", "b"]
+        assert result.raised is None
+        assert [row["item_key"] for row in result.rows] == ["a", "b"]
+        assert result.params("page")[-2:] == [None, "2"]
         # A dictionary item has no id, so the key needs both parents to stay unique table-wide.
-        assert all(row["service_id"] == "S1" and row["dictionary_id"] == "D1" for row in rows)
+        assert all(row["service_id"] == "S1" and row["dictionary_id"] == "D1" for row in result.rows)
 
     def test_write_only_dictionary_is_not_requested(self) -> None:
         # Fastly refuses to list the items of a write-only dictionary, which would abort the sync.
@@ -364,8 +344,10 @@ class TestGetRowsVersionResourceChildFanOut:
             ],
             f"{FASTLY_BASE_URL}/service/S1/dictionary/D2/items?per_page=100": [{"item_key": "a"}],
         }
-        rows = _collect("dictionary_items", _FakeResumableManager(), pages)
-        assert [row["dictionary_id"] for row in rows] == ["D2"]
+        result = _drive("dictionary_items", pages)
+        assert result.raised is None
+        assert [row["dictionary_id"] for row in result.rows] == ["D2"]
+        assert "/service/S1/dictionary/D1/items" not in result.paths
 
     def test_repeated_next_link_stops_instead_of_looping(self) -> None:
         self_referencing = f"{FASTLY_BASE_URL}/service/S1/acl/A1/entries?per_page=100"
@@ -375,8 +357,9 @@ class TestGetRowsVersionResourceChildFanOut:
             f"{FASTLY_BASE_URL}/service/S1/version/1/acl": [{"id": "A1"}],
             self_referencing: ([{"id": "E1"}], self_referencing),
         }
-        with pytest.raises(FastlyPaginationError):
-            _collect("acl_entries", _FakeResumableManager(), pages)
+        result = _drive("acl_entries", pages)
+        assert isinstance(result.raised, FastlyPaginationError)
+        assert result.paths.count("/service/S1/acl/A1/entries") == 1
 
     def test_parent_without_an_id_is_skipped(self) -> None:
         pages = {
@@ -384,7 +367,10 @@ class TestGetRowsVersionResourceChildFanOut:
             f"{FASTLY_BASE_URL}/service/S1/version": [{"number": 1, "active": True}],
             f"{FASTLY_BASE_URL}/service/S1/version/1/acl": [{"name": "no-id-here"}],
         }
-        assert _collect("acl_entries", _FakeResumableManager(), pages) == []
+        result = _drive("acl_entries", pages)
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 3
 
 
 class TestGetRowsBillingList:
@@ -395,10 +381,14 @@ class TestGetRowsBillingList:
                 "meta": {},
             },
         }
-        manager = _FakeResumableManager(
-            FastlyResumeConfig(cursor="CUR2", cursor_request="/billing/v3/invoices?limit=200")
+        result = _drive(
+            "invoices",
+            pages,
+            resume_state=FastlyResumeConfig(cursor="CUR2", cursor_request="/billing/v3/invoices?limit=200"),
         )
-        assert _collect("invoices", manager, pages) == [{"invoice_id": "2"}]
+        assert result.raised is None
+        assert result.rows == [{"invoice_id": "2"}]
+        assert result.params("cursor") == ["CUR2"]
 
     def test_repeated_cursor_stops_instead_of_looping(self) -> None:
         # A cursor pointing back at the page just read would re-fetch and re-yield it forever.
@@ -412,12 +402,16 @@ class TestGetRowsBillingList:
                 "meta": {"next_cursor": "CUR2"},
             },
         }
-        with pytest.raises(FastlyPaginationError):
-            _collect("invoices", _FakeResumableManager(), pages)
+        result = _drive("invoices", pages)
+        assert isinstance(result.raised, FastlyPaginationError)
+        assert result.rows == [{"invoice_id": "1"}, {"invoice_id": "2"}]
+        assert result.params("cursor") == [None, "CUR2"]
 
     def test_non_dict_payload_yields_nothing(self) -> None:
         pages: dict[str, Any] = {f"{FASTLY_BASE_URL}/billing/v3/invoices?limit=200": []}
-        assert _collect("invoices", _FakeResumableManager(), pages) == []
+        result = _drive("invoices", pages)
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestGetRowsBillingUsageMetrics:
@@ -443,33 +437,28 @@ class TestGetRowsBillingUsageMetrics:
                 }
             },
         }
-        manager = _FakeResumableManager()
-        rows = _collect("billing_usage_metrics", manager, pages)
+        result = _drive("billing_usage_metrics", pages)
 
-        assert [row["service_id"] for row in rows] == ["S1", "S2"]
-        assert [s.cursor for s in manager.saved] == ["CUR2"]
+        assert result.raised is None
+        assert [row["service_id"] for row in result.rows] == ["S1", "S2"]
+        assert result.params("cursor") == [None, "CUR2"]
+        assert [state.cursor for state in result.saved_states] == ["CUR2"]
 
 
 class TestFastlySourceResponse:
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = fastly_source(
-            api_key="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == FASTLY_ENDPOINTS[endpoint].primary_keys
 
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_partitions_on_a_stable_key(self, endpoint: str) -> None:
-        response = fastly_source(
-            api_key="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+        response = result.response
+        assert response is not None
         if FASTLY_ENDPOINTS[endpoint].partition_key is None:
             assert response.partition_mode is None
             assert response.partition_keys is None
@@ -494,27 +483,14 @@ class TestFastlySourceResponse:
     def test_full_refresh_sends_no_watermark(self) -> None:
         # The watermark is only read when the run is actually incremental; a full refresh has to ask
         # for the API's own default window instead of resending the last cursor.
-        seen: list[str] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
-            seen.append(url)
-            return _fake_response({"data": {}})
-
-        response = fastly_source(
-            api_key="token",
-            endpoint="historical_stats",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+        result = _driver().run(
+            "historical_stats",
+            [ScriptedResponse(json={"data": {}})],
             should_use_incremental_field=False,
             db_incremental_field_last_value=1_700_000_000,
         )
-        with (
-            patch.object(fastly, "_fetch", side_effect=fake_fetch),
-            patch.object(fastly, "make_tracked_session", return_value=MagicMock()),
-        ):
-            list(cast(Iterable[Any], response.items()))
-
-        assert seen == [f"{FASTLY_BASE_URL}/stats?by=day"]
+        assert result.raised is None
+        assert result.urls == [f"{FASTLY_BASE_URL}/stats?by=day"]
 
 
 class TestGetRowsPlainList:
@@ -527,7 +503,11 @@ class TestGetRowsPlainList:
     )
     def test_unpaginated_array_is_yielded_as_one_batch(self, _name: str, payload: Any, expected: list) -> None:
         pages = {f"{FASTLY_BASE_URL}/datacenters": payload}
-        assert _collect("pops", _FakeResumableManager(), pages) == expected
+        result = _drive("pops", pages)
+        assert result.raised is None
+        assert result.rows == expected
+        if expected:
+            assert result.items == [expected]
 
 
 class TestFlattenJsonApi:
@@ -574,23 +554,28 @@ class TestGetRowsJsonApiList:
             },
             second: {"data": [{"id": "SA2", "attributes": {"permission": "read_only"}}], "links": {}},
         }
-        manager = _FakeResumableManager()
-        rows = _collect("service_authorizations", manager, pages)
+        result = _drive("service_authorizations", pages)
 
-        assert rows == [{"id": "SA1", "service_id": "S1"}, {"id": "SA2", "permission": "read_only"}]
-        assert [state.next_url for state in manager.saved] == [second]
+        assert result.raised is None
+        assert result.rows == [{"id": "SA1", "service_id": "S1"}, {"id": "SA2", "permission": "read_only"}]
+        assert result.params("page[size]") == ["100", "100"]
+        assert result.params("page[number]") == [None, "2"]
+        assert [state.next_url for state in result.saved_states] == [second]
 
     def test_resumes_from_the_saved_page_url(self) -> None:
         second = f"{FASTLY_BASE_URL}/service-authorizations?page[number]=2&page[size]=100"
         pages = {second: {"data": [{"id": "SA2"}], "links": {}}}
-        manager = _FakeResumableManager(FastlyResumeConfig(next_url=second))
-        assert _collect("service_authorizations", manager, pages) == [{"id": "SA2"}]
+        result = _drive("service_authorizations", pages, resume_state=FastlyResumeConfig(next_url=second))
+        assert result.raised is None
+        assert result.rows == [{"id": "SA2"}]
+        assert result.params("page[number]") == ["2"]
 
     def test_repeated_next_link_stops_instead_of_looping(self) -> None:
         first = f"{FASTLY_BASE_URL}/service-authorizations?page[size]=100"
         pages = {first: {"data": [{"id": "SA1"}], "links": {"next": "/service-authorizations?page[size]=100"}}}
-        with pytest.raises(FastlyPaginationError):
-            _collect("service_authorizations", _FakeResumableManager(), pages)
+        result = _drive("service_authorizations", pages)
+        assert isinstance(result.raised, FastlyPaginationError)
+        assert len(result.requests) == 1
 
     @parameterized.expand([("absolute", "https://evil.example.com/x"), ("scheme_relative", "//evil.example.com/x")])
     def test_off_host_next_link_is_refused(self, _name: str, next_link: str) -> None:
@@ -598,13 +583,16 @@ class TestGetRowsJsonApiList:
         # hand that host the customer's Fastly credential.
         first = f"{FASTLY_BASE_URL}/service-authorizations?page[size]=100"
         pages = {first: {"data": [{"id": "SA1"}], "links": {"next": next_link}}}
-        with pytest.raises(FastlyPaginationError):
-            _collect("service_authorizations", _FakeResumableManager(), pages)
+        result = _drive("service_authorizations", pages)
+        assert isinstance(result.raised, FastlyPaginationError)
+        assert [request.origin for request in result.requests] == [FASTLY_BASE_URL]
 
     def test_off_host_resume_url_is_refused(self) -> None:
-        manager = _FakeResumableManager(FastlyResumeConfig(next_url="https://evil.example.com/x"))
-        with pytest.raises(FastlyPaginationError):
-            _collect("service_authorizations", manager, {})
+        result = _drive(
+            "service_authorizations", {}, resume_state=FastlyResumeConfig(next_url="https://evil.example.com/x")
+        )
+        assert isinstance(result.raised, FastlyPaginationError)
+        assert result.requests == []
 
 
 class TestGetRowsStatsList:
@@ -612,12 +600,21 @@ class TestGetRowsStatsList:
         pages = {
             f"{FASTLY_BASE_URL}/stats?by=day&from=1700000000": {"data": {"S1": [{"start_time": 1700086400}]}},
         }
-        rows = _collect("historical_stats", _FakeResumableManager(), pages, incremental_start=1_700_000_000)
-        assert rows == [{"start_time": 1700086400, "service_id": "S1"}]
+        result = _drive(
+            "historical_stats",
+            pages,
+            incremental_field="start_time",
+            db_incremental_field_last_value=1_700_000_000,
+        )
+        assert result.raised is None
+        assert result.rows == [{"start_time": 1700086400, "service_id": "S1"}]
+        assert result.params("from") == ["1700000000"]
 
     @parameterized.expand([("not_a_dict", {"data": []}), ("no_data", {"status": "error"})])
     def test_unusable_payloads_yield_nothing(self, _name: str, payload: dict) -> None:
-        assert _collect("historical_stats", _FakeResumableManager(), {f"{FASTLY_BASE_URL}/stats?by=day": payload}) == []
+        result = _drive("historical_stats", {f"{FASTLY_BASE_URL}/stats?by=day": payload})
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestBucketTimeline:
@@ -677,22 +674,24 @@ class TestGetRowsOriginInspector:
         # Only some services carry the paid upgrade; the rest must not fail the whole table.
         pages = {
             f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
-            self._url("S1"): _http_error(status_code),
+            self._url("S1"): ScriptedResponse(status=status_code),
             self._url("S2"): {
                 "meta": {"start": "2026-09-01T00:00:00Z", "downsample": "day"},
                 "data": [{"dimensions": {"host": "c"}, "values": [{"responses": 3}]}],
             },
         }
-        rows = _collect("origin_inspector", _FakeResumableManager(), pages)
-        assert [row["service_id"] for row in rows] == ["S2"]
+        result = _drive("origin_inspector", pages)
+        assert result.raised is None
+        assert [row["service_id"] for row in result.rows] == ["S2"]
+        assert result.paths == ["/service", "/metrics/origins/services/S1", "/metrics/origins/services/S2"]
 
     def test_other_errors_still_fail_the_sync(self) -> None:
         pages = {
             f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
-            self._url("S1"): _http_error(401),
+            self._url("S1"): ScriptedResponse(status=401),
         }
-        with pytest.raises(requests.HTTPError):
-            _collect("origin_inspector", _FakeResumableManager(), pages)
+        result = _drive("origin_inspector", pages)
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_incremental_run_sends_the_watermark_as_start(self) -> None:
         pages = {
@@ -702,8 +701,15 @@ class TestGetRowsOriginInspector:
                 "data": [{"dimensions": {"host": "a"}, "values": [{"responses": 1}]}],
             },
         }
-        rows = _collect("origin_inspector", _FakeResumableManager(), pages, incremental_start=1_700_000_000)
-        assert [row["host"] for row in rows] == ["a"]
+        result = _drive(
+            "origin_inspector",
+            pages,
+            incremental_field="start_time",
+            db_incremental_field_last_value=1_700_000_000,
+        )
+        assert result.raised is None
+        assert [row["host"] for row in result.rows] == ["a"]
+        assert result.params("start")[-1] == "1700000000"
 
     def test_repeated_cursor_stops_instead_of_looping(self) -> None:
         meta = {"start": "2026-09-01T00:00:00Z", "downsample": "day", "next_cursor": "CUR2"}
@@ -712,5 +718,6 @@ class TestGetRowsOriginInspector:
             self._url("S1"): {"meta": meta, "data": []},
             self._url("S1", cursor="CUR2"): {"meta": meta, "data": []},
         }
-        with pytest.raises(FastlyPaginationError):
-            _collect("origin_inspector", _FakeResumableManager(), pages)
+        result = _drive("origin_inspector", pages)
+        assert isinstance(result.raised, FastlyPaginationError)
+        assert result.params("cursor") == [None, None, "CUR2"]

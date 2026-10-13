@@ -1,8 +1,13 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justsift import (
     JustSiftSourceConfig,
 )
@@ -46,24 +51,22 @@ class TestJustSiftSource:
             (401, False, "Invalid Sift API token"),
             (403, False, "Invalid Sift API token"),
             (500, False, "Sift returned HTTP 500"),
-            (0, False, "Could not connect to Sift: boom"),
+            (0, False, "Could not connect to Sift"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.justsift.source.check_access")
     def test_validate_credentials(
         self,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_check: mock.MagicMock,
     ) -> None:
-        message = (
-            "Sift returned HTTP 500" if status == 500 else ("Could not connect to Sift: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        answer = ConnectionError("boom") if status == 0 else ScriptedResponse(status=status)
+        with scripted_network(always(answer)) as network:
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+
         assert is_valid is expected_valid
         assert returned == expected_message
+        assert {request.path for request in network.requests_log} == {"/v1/search/people"}
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.justsift.source.justsift_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_justsift_source: mock.MagicMock) -> None:
@@ -80,7 +83,8 @@ class TestJustSiftSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Sift schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Sift schema 'not_a_table'"
+        assert result.requests == []

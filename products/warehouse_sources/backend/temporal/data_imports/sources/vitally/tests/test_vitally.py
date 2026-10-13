@@ -5,6 +5,11 @@ from unittest.mock import MagicMock, Mock, patch
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
 )
@@ -25,17 +30,6 @@ def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
     response.json.return_value = json_data
     response.raise_for_status = Mock()
     return response
-
-
-def _make_session(responses: list[Mock]) -> MagicMock:
-    session = MagicMock()
-    session.__enter__.return_value = session
-    session.__exit__.return_value = False
-    session.send.side_effect = responses
-    # prepare_request returns its argument unchanged so the paginator's url updates
-    # propagate to the next send() call.
-    session.prepare_request.side_effect = lambda r: r
-    return session
 
 
 FEATURE_REQUEST_DEFINITION = {
@@ -104,45 +98,34 @@ class TestListCustomObjectDefinitions:
             pytest.param([{"results": [], "next": None}], [], 1, id="empty_results"),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_returns_definitions(self, mock_session_factory, pages, expected_defs, expected_call_count):
-        session = _make_session([_make_response(page) for page in pages])
-        mock_session_factory.return_value = session
-
-        defs = list_custom_object_definitions("secret", "EU", None)
+    def test_returns_definitions(self, pages, expected_defs, expected_call_count):
+        with scripted_network([ScriptedResponse(json=page) for page in pages]) as network:
+            defs = list_custom_object_definitions("secret", "EU", None)
 
         assert defs == expected_defs
-        assert session.send.call_count == expected_call_count
+        assert len(network.requests_log) == expected_call_count
+        assert {request.path for request in network.requests_log} == {"/resources/customObjects"}
+        assert [request.param("from") for request in network.requests_log[1:]] == [page["next"] for page in pages[:-1]]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_raises_on_http_error(self, mock_session_factory):
-        bad = _make_response({}, status_code=401)
-        bad.raise_for_status.side_effect = RuntimeError("401 Unauthorized")
-        mock_session_factory.return_value = _make_session([bad])
-
-        with pytest.raises(RuntimeError, match="401 Unauthorized"):
-            list_custom_object_definitions("secret", "EU", None)
+    def test_raises_on_http_error(self):
+        with scripted_network(always(ScriptedResponse(status=401, json={}))):
+            with pytest.raises(HTTPError, match="401"):
+                list_custom_object_definitions("secret", "EU", None)
 
 
 class TestGetMessages:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self, mock_session_factory):
+    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self):
         # A non-2xx conversations list response carries an error body with no "results" key.
         # Previously get_messages indexed json["results"] directly, surfacing a misleading
         # KeyError('results'); now raise_for_status lets the real HTTP error through.
-        bad = _make_response({"message": "Unauthorized"}, status_code=401)
-        bad.raise_for_status.side_effect = HTTPError("401 Client Error: Unauthorized", response=bad)
-        mock_session_factory.return_value = _make_session([bad])
+        with scripted_network(always(ScriptedResponse(status=401, json={"message": "Unauthorized"}))):
+            with pytest.raises(HTTPError, match="401"):
+                list(get_messages("secret", "EU", None, None, False, MagicMock()))
 
-        with pytest.raises(HTTPError, match="401"):
-            list(get_messages("secret", "EU", None, None, False, MagicMock()))
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_handles_missing_results_key_without_keyerror(self, mock_session_factory):
+    def test_handles_missing_results_key_without_keyerror(self):
         # Defensive: a 200 response that omits "results" must end pagination cleanly, not KeyError.
-        mock_session_factory.return_value = _make_session([_make_response({"next": None})])
-
-        assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
+        with scripted_network([ScriptedResponse(json={"next": None})]):
+            assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
 
 
 class TestGetCustomObjectRecordsResource:

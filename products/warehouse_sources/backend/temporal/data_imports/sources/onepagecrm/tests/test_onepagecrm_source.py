@@ -1,8 +1,11 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepagecrm import (
     OnepagecrmSourceConfig,
 )
@@ -53,21 +56,20 @@ class TestOnepagecrmSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source.onepagecrm_source")
-    def test_source_for_pipeline_drops_watermark_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "contacts"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = 1700000000
+    def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "contacts",
+            [ScriptedResponse(json={"data": {"contacts": []}})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1700000000,
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("sort_by") == ["created_at"]
+        assert result.params("modified_since") == [None]
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown OnePageCRM schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown OnePageCRM schema 'not_a_table'"
