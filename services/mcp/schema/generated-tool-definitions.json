@@ -2802,6 +2802,20 @@
             "readOnlyHint": true
         }
     },
+    "conversations-tickets-compose-create": {
+        "description": "Create a new outbound email ticket and send its first message to the recipient. The message IS EMAILED to the customer in full, from a support email channel with a verified domain. Omit email_config_id to send from the team's default support channel. Use it to reach a customer who has no ticket, or who cannot read replies on an existing widget ticket. To answer an existing ticket, use conversations-tickets-reply-create instead. An identical request sent again within a short window returns the same ticket and sends no second email. Returns the new ticket's id and ticket_number.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Start an email ticket with a customer",
+        "title": "Start an email ticket with a customer",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-tickets-list": {
         "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
         "category": "Conversations",
