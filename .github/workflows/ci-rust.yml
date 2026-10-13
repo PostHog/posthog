@@ -80,6 +80,9 @@ jobs:
                         - '.github/actions/setup-protoc/**'
                         - '.github/actions/setup-sccache/**'
                         - 'posthog/management/commands/setup_test_environment.py'
+                        # setup_test_environment builds the ClickHouse test database from these
+                        - 'posthog/clickhouse/schema/**'
+                        - 'bin/clickhouse-schema'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'

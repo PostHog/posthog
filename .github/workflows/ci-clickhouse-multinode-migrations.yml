@@ -1,21 +1,6 @@
 name: ClickHouse Multinode Migration Smoke
 
 on:
-    push:
-        branches:
-            - master
-    pull_request:
-        paths:
-            - 'posthog/clickhouse/migrations/**'
-            - 'posthog/settings/data_stores.py'
-            - 'posthog/clickhouse/cluster.py'
-            - 'posthog/clickhouse/client/migration_tools.py'
-            - 'docker/clickhouse/config.d/multinode/**'
-            - 'docker-compose.multinode-clickhouse.yml'
-            - 'tools/infra-scripts/clickhouse-multinode/**'
-            - 'posthog/clickhouse/hcl/**'
-            - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
-            - '.github/actions/setup-uv/**'
     workflow_dispatch:
 
 concurrency:

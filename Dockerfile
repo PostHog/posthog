@@ -287,6 +287,28 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
+FROM debian:bookworm-slim AS fetch-clickhouse-schema-tools
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# OpenTofu and the ClickHouse provider that bin/clickhouse-schema runs, so that a self-hosted
+# deploy does not download them when it applies the schema.
+COPY bin/clickhouse-schema bin/clickhouse-schema
+COPY posthog/clickhouse/schema/provider-version.txt posthog/clickhouse/schema/provider-version.txt
+COPY posthog/clickhouse/schema/checksums.txt posthog/clickhouse/schema/checksums.txt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "ca-certificates" \
+    "curl" \
+    "unzip" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    CLICKHOUSE_SCHEMA_CACHE_DIR=/opt/clickhouse-schema bin/clickhouse-schema install
+
+
+#
+# ---------------------------------------------------------
+#
 # Same digest as the posthog-build stage, so the interpreter matches the one the wheels were built against.
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
 WORKDIR /code
@@ -385,6 +407,9 @@ COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_trans
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
 COPY --from=node-scripts-build --chown=posthog:posthog /code/products/canvas/packages/canvas_builder /code/products/canvas/packages/canvas_builder
+
+COPY --from=fetch-clickhouse-schema-tools --chown=posthog:posthog /opt/clickhouse-schema /opt/clickhouse-schema
+ENV CLICKHOUSE_SCHEMA_CACHE_DIR=/opt/clickhouse-schema
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/

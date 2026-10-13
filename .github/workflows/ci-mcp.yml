@@ -120,6 +120,9 @@ jobs:
                         - 'rust/persons_migrations/**'
                         # ClickHouse UDF copied in integration test setup
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
+                        # ClickHouse schema that migrate_clickhouse applies in integration test setup
+                        - 'posthog/clickhouse/schema/**'
+                        - bin/clickhouse-schema
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
                         - '.github/actions/setup-protoc/**'

@@ -50,3 +50,5 @@ To make sure that your new ClickHouse migration is A-OK – both above points h
 ### Declarative schema rollout
 
 The OpenTofu catalogue in `posthog/clickhouse/schema/` is being introduced alongside Python migrations. During the foundation stage, normal migration, local setup and test commands still use Python. Apply the new catalogue only to an isolated database or an explicitly adopted infrastructure canary. Ownership cutover and removal of the legacy tooling happen in separate pull requests.
+
+The ownership cutover switches local, test and Hobby setup to OpenTofu. Cloud deployment hooks stop applying ClickHouse schema; infrastructure owns it. Merge the cutover only after the canary migration succeeds and every cloud object has a verified owner. Legacy definitions remain dormant until cleanup.

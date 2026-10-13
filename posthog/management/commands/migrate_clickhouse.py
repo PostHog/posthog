@@ -4,7 +4,7 @@ import datetime
 from textwrap import indent
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from cachetools import cached
 from infi.clickhouse_orm import Database
@@ -12,45 +12,55 @@ from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import ClickHouseCredentials, default_client
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.clickhouse.managed_schema import ClickHouseDatabase
+from posthog.run_mode import run_mode
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER, CLICKHOUSE_PASSWORD_FILE
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
 
 
 class Command(BaseCommand):
-    help = "Migrate clickhouse"
+    help = "Create or update the ClickHouse schema of a single-cluster install, and load its reference data"
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--upto",
-            default=99_999,
-            type=int,
-            help="Database state will be brought to the state after that migration.",
-        )
-        parser.add_argument(
-            "--fake",
-            action="store_true",
-            help="Mark migrations as run without actually running them.",
-        )
-        parser.add_argument(
             "--check",
             action="store_true",
-            help="Exits with a non-zero status if unapplied migrations exist.",
+            help="Exits with a non-zero status if the database differs from the declared schema.",
         )
         parser.add_argument(
             "--plan",
             action="store_true",
-            help="Shows a list of the migration actions that will be performed.",
-        )
-        parser.add_argument(
-            "--print-sql",
-            action="store_true",
-            help="Only use with --plan. Also prints SQL for each migration to be applied.",
+            help="Shows the changes that would bring the database to the declared schema.",
         )
 
     def handle(self, *args, **options):
-        self.migrate(CLICKHOUSE_HTTP_URL, options)
+        if run_mode().is_deployed_cloud:
+            # Cloud clusters get their schema from the infrastructure repository, which maps it onto the nodes.
+            # Deploy hooks still call this command, so it succeeds without doing anything.
+            self.stdout.write("Skipping: the ClickHouse schema of this deployment is not applied by the app")
+            return
+
+        database = ClickHouseDatabase()
+        if not database.is_single_node():
+            # A cloud pod whose CLOUD_DEPLOYMENT is missing resolves to HOBBY, so the run mode alone cannot protect
+            # a production cluster. Every install this command manages runs ClickHouse on one node.
+            self.stderr.write(
+                "Skipping: ClickHouse has remote cluster hosts, and this command manages single-node installs only"
+            )
+            return
+        if options["check"] or options["plan"]:
+            has_changes, plan = database.plan_schema(kafka=True)
+            self.stdout.write(plan)
+            if has_changes and options["check"]:
+                raise CommandError("The ClickHouse schema is not up to date")
+            return
+
+        database.create()
+        database.apply_schema(kafka=True)
+        database.seed()
+        self.stdout.write(self.style.SUCCESS("ClickHouse schema is up to date"))
 
     def migrate(self, host, options):
         # Read-only --check and --plan finish in seconds, so they use the short-lived

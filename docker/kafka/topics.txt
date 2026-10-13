@@ -8,9 +8,8 @@
 #     holds a thread and repeats the request for as long as the server runs, which writes a
 #     "Can't get assignment" warning every time and floods clickhouse-server.log.
 #
-# posthog/clickhouse/test/test_schema.py checks that every topic a Kafka table in schema.py
-# consumes appears below. Topics that only a migration creates have no such guard, so add
-# them here by hand.
+# posthog/test/repo_invariants/test_local_kafka_consumers.py checks that every topic a Kafka
+# table in posthog/clickhouse/schema consumes appears below.
 clickhouse_ai_events_json
 clickhouse_app_metrics
 clickhouse_app_metrics2
@@ -18,6 +17,7 @@ clickhouse_billing_usage_records
 clickhouse_document_embeddings
 clickhouse_error_tracking_fingerprint_issue_state
 clickhouse_error_tracking_issue_fingerprint
+clickhouse_error_tracking_issue_fingerprint_embeddings
 clickhouse_events_json
 clickhouse_flag_evaluations
 clickhouse_groups
