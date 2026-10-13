@@ -43,6 +43,7 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
             uniqueKey={`HomeTab.${currentTeamId}.${chartKey}`}
             context={{
                 insightProps: {
+                    loadPriority: 0,
                     dashboardItemId: homeTabChartInsightId(currentTeamId, chartKey),
                     dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
                     query: option.query,
