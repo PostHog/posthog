@@ -60,15 +60,45 @@ If the newest remaining run has another conclusion, find the first preceding run
 Expand the page from 10 to 40 only when the first page does not contain that preceding failure or the evidence gate needs an older green/red boundary.
 If no run remains, report the missing evidence instead of choosing a different lane.
 
-## Evidence budget
+## Read the failure through the PostHog MCP server
 
-For an active failing lane, use `posthog:engineering-analytics-run-failure-logs` first when it is available.
-It returns every failed job's thinned error region in one request.
-If it is unavailable or has expired data, use one `gh run view --log-failed` fallback.
-Read a full job log only when the thinned output does not contain the first causal error.
+The run has the `posthog` MCP server attached, and it holds the failure evidence for GitHub Actions and for Depot CI.
+The server exposes one tool, `exec`.
+Every `posthog:<name>` entry in this file is a command for `exec`, so it never appears in your tool list.
+Run `info <name>` once to read its schema, then `call <name> <json>`.
 
-Use at most one additional cross-run or attribution lookup per lane.
-Choose it from the verdict evidence you still need:
+For an active failing lane, read the failed jobs first:
+
+```text
+call engineering-analytics-run-failure-logs {"run_id": <run-id>, "ci_engine": "github_actions"}
+```
+
+It returns the thinned error region of every failed job in one request.
+The causal evidence is in lines such as `FAIL`, `FAILED`, `panicked at`, `AssertionError`, and `##[error]`.
+
+If the answer has `logs_available: false`, or the region does not hold the first causal error, save the log with `gh` and search the file.
+A failed-job log is several megabytes, and a printed log pushes the error out of the output you can read:
+
+```bash
+gh run view <run-id> --repo PostHog/posthog --log-failed > /tmp/failed.log
+grep -nE 'FAIL|panicked at|Error|error:|assert|Traceback|exit code|##\[error\]' /tmp/failed.log | tail -n 80
+grep -n -A 30 '<failing test name>' /tmp/failed.log | head -n 120
+```
+
+The first search names the failing tests, and the second search reads the assertion of one test.
+Save `gh run view <run-id> --repo PostHog/posthog --log --job <job-id>` the same way when `--log-failed` does not hold the error.
+
+When the failure names a test, read the test's Trunk record from the warehouse.
+Use the newest row for each name:
+
+```text
+call execute-sql {"query": "SELECT name, quarantined, failure_rate_last_24h, failure_rate_last_7d, pull_requests_impacted_last_7d, status, synced_through FROM trunkio.failingtests WHERE name ILIKE '%<test name>%' ORDER BY synced_through DESC LIMIT 5"}
+```
+
+`status` holds Trunk's classification (`broken`, `flaky`, or `healthy`) and the time it changed.
+Use it with the failure rates as corroboration for the flaky-test and real-regression gates.
+
+Choose any further lookup from the verdict evidence you still need:
 
 | Tool                                            | Use it for                                             |
 | ----------------------------------------------- | ------------------------------------------------------ |
@@ -78,13 +108,17 @@ Choose it from the verdict evidence you still need:
 | The parent's job base-rate query                | transient infrastructure versus a standing outage      |
 | GitHub compare or commit history                | a first-bad boundary or candidate regression           |
 
-For an infrastructure signature, spend this lookup on the parent's base-rate check unless a status page already confirms an outage.
+For an infrastructure signature, run the parent's base-rate query with `call execute-sql` unless a status page already confirms an outage.
 If the rate is unavailable, classify the infrastructure evidence but do not call it transient; name the missing rate as an evidence gap.
-If a needed MCP tool is exposed, inspect its schema once before calling it.
-Do not spend a tool call searching for a missing optional tool; use the `gh` fallback.
-Do not call every tool, repeat a failed access path, or inspect commit history for an infrastructure verdict.
-Stop as soon as the verdict gate and next action are supported.
-After one thinned-log fallback and one corroborating lookup, report any material gap instead of continuing to search.
+Do not inspect commit history for an infrastructure verdict.
+
+## How far to go
+
+Stop as soon as the verdict gate and the next action are supported.
+Until then, continue: a path that fails is a reason to take the next path, not a verdict.
+The paths are the MCP failure logs, the filtered `gh` log, and the test's record.
+A missing CLI or credential is not an evidence gap when another path reads the same evidence.
+Say that you could not determine the cause only after each path failed to show the first causal error, and name what each path returned.
 Do not ask for clarification during this run.
 
 ## Recovered fast path
@@ -111,9 +145,53 @@ These identify the incident without proving it is still active; the first-step l
 A name with a `(scheduled)` suffix is not a separate workflow.
 It is the cron-triggered master run of the workflow before the suffix, which the alerter tracks apart from that workflow's master-push runs because the two run different jobs.
 `Backend CI (scheduled)` means the hourly full test matrices, which run on Depot CI, so GitHub has no `schedule` runs for it and the `gh api` lookup above does not apply.
-Its run ID is a Depot run ID and its URL is on depot.dev.
-List that lane with `python3 .github/scripts/depot_scheduled_runs.py gate-runs`, which prints the newest hourly runs in the same shape, and read a failed run with `depot ci diagnose --run <run-id>`.
-Apply the same six-hour freshness bound to the first entry.
+Its run ID is a Depot run ID, ten characters such as `b1c2d3f4g5`, and its URL is on depot.dev.
+The task sandbox has no `depot` CLI and no Depot credentials, and this lane needs neither.
+
+Depot posts the gate verdict of each hourly run as a check on the master commit that it tested.
+List the newest verdicts with one query:
+
+```bash
+gh api graphql -f query='
+{
+  repository(owner: "PostHog", name: "posthog") {
+    ref(qualifiedName: "master") {
+      target {
+        ... on Commit {
+          history(first: 60) {
+            nodes {
+              oid
+              checkSuites(first: 5, filterBy: {appId: 219785}) {
+                nodes {
+                  checkRuns(first: 3, filterBy: {checkName: "Backend CI on Depot / Django Tests Pass on Depot"}) {
+                    nodes { status conclusion startedAt detailsUrl }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}' --jq '[.data.repository.ref.target.history.nodes[] | {headSha: .oid} + (.checkSuites.nodes[].checkRuns.nodes[])]'
+```
+
+The entries are newest first, and `status` and `conclusion` are in upper case.
+Apply the same six-hour freshness bound to the `startedAt` of the first entry.
+
+Read a failed Depot run with the same MCP command as a GitHub run.
+The command takes the run ID as a number, and a Depot run ID is that number in base 30:
+
+```bash
+python3 -c "import sys, functools; print(functools.reduce(lambda n, c: n * 30 + '0123456789bcdfghjklmnpqrstvwxz'.index(c), sys.argv[1], 0))" <depot-run-id>
+```
+
+```text
+call engineering-analytics-run-failure-logs {"run_id": <number>, "ci_engine": "depot_ci"}
+```
+
+The failed gate job prints a `Failing backend & product tests` table with one row for each test: its shard and its error message.
 
 ## Verdict gates
 

@@ -33,7 +33,7 @@ Configure the "Create AI task" step with:
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Instructions              | The alert fields as data, then: read `.agents/skills/debugging-ci-failures/references/master-red-incident.md` and its parent `SKILL.md`, and answer the incident as they prescribe. |
 | Repository                | `PostHog/posthog`                                                                                                                                                                   |
-| Model                     | `gpt-5.6-sol`                                                                                                                                                                       |
+| Model                     | `claude-opus-5-5` with reasoning effort `high`. Set the effort explicitly, because a run created without one can start at `low`.                                                    |
 | Connectors                | none                                                                                                                                                                                |
 | PostHog MCP scopes        | `read_only`                                                                                                                                                                         |
 | Max parallel tasks        | 1                                                                                                                                                                                   |
