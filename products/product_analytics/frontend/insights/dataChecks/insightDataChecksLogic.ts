@@ -3,6 +3,7 @@ import type { LogicWrapper } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -15,8 +16,21 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import type { DateRange, InsightQueryNode, Node } from '~/queries/schema/schema-general'
-import { isEventsNode, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
+import type {
+    BreakdownFilter,
+    DateRange,
+    EventsNode,
+    HogQLQueryModifiers,
+    InsightQueryNode,
+    Node,
+} from '~/queries/schema/schema-general'
+import {
+    isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
 import type { InsightLogicProps, InsightModel } from '~/types'
 
 import { insightsDataChecksCreate } from 'products/product_analytics/frontend/generated/api'
@@ -34,15 +48,18 @@ export interface DataChecksQuery {
     kind: NodeKind.InsightVizNode
     source: {
         kind: InsightQueryNode['kind']
-        series: { kind: NodeKind.EventsNode; event?: string | null }[]
+        series: Pick<EventsNode, 'kind' | 'event' | 'properties' | 'math' | 'math_group_type_index'>[]
         dateRange?: DateRange
         properties?: unknown
         filterTestAccounts?: boolean
+        aggregation_group_type_index?: number | null
+        breakdownFilter?: Pick<BreakdownFilter, 'breakdown_type' | 'breakdown'>
+        modifiers?: HogQLQueryModifiers
     }
 }
 
 // A failed run is a value and not a loader error, so a check that fails in the background shows no error toast.
-export type DataChecksRun = { ok: true; result: InsightDataChecksApi } | { ok: false }
+export type DataChecksRun = { ok: true; result: InsightDataChecksApi } | { ok: false; denied: boolean }
 
 /** `unavailable`: the checks do not apply here. `checking`: the chart or the checks are still loading. */
 export type InsightDataChecksStatus = 'unavailable' | 'checking' | 'failed' | InsightDataChecksStatusEnumApi
@@ -223,8 +240,8 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                             query,
                         } as unknown as InsightDataChecksRequestApi)
                         run = { ok: true, result }
-                    } catch {
-                        run = { ok: false }
+                    } catch (error) {
+                        run = { ok: false, denied: error instanceof ApiError && error.status === 403 }
                     }
                     // A newer run started while this one ran, so that run owns the result.
                     return values.requestedQuery === query ? run : values.dataChecksRun
@@ -242,7 +259,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     }),
     selectors({
         // The server only checks insights whose series are all events, so no request goes out for the rest.
-        // Trimmed and compared by value, so a change of chart type or breakdown is not a new query.
+        // Trimmed and compared by value, so a change of chart type is not a new query.
         checkedQuery: [
             (s) => [s.query, s.featureFlags],
             (query: Node | null, featureFlags: FeatureFlagsSet): DataChecksQuery | null => {
@@ -253,14 +270,33 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 if (!isInsightQueryWithSeries(source) || !source.series.length || !source.series.every(isEventsNode)) {
                     return null
                 }
+                // A trends chart broken down by cohort reads only the people in those cohorts.
+                const breakdownFilter = isTrendsQuery(source) ? source.breakdownFilter : null
                 return {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: source.kind,
-                        series: source.series.map((series) => ({ kind: NodeKind.EventsNode, event: series.event })),
+                        series: source.series.map(({ event, properties, math, math_group_type_index }) => ({
+                            kind: NodeKind.EventsNode,
+                            event,
+                            properties,
+                            math,
+                            math_group_type_index,
+                        })),
                         dateRange: source.dateRange,
                         properties: source.properties,
                         filterTestAccounts: source.filterTestAccounts,
+                        aggregation_group_type_index: isFunnelsQuery(source)
+                            ? source.aggregation_group_type_index
+                            : undefined,
+                        breakdownFilter:
+                            breakdownFilter?.breakdown_type === 'cohort'
+                                ? {
+                                      breakdown_type: breakdownFilter.breakdown_type,
+                                      breakdown: breakdownFilter.breakdown,
+                                  }
+                                : undefined,
+                        modifiers: source.modifiers,
                     },
                 }
             },
@@ -286,7 +322,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 if (dataChecksRunLoading || !dataChecksRun || requestedQuery !== checkedQuery) {
                     return 'checking'
                 }
-                return dataChecksRun.ok ? dataChecksRun.result.status : 'failed'
+                if (dataChecksRun.ok) {
+                    return dataChecksRun.result.status
+                }
+                return dataChecksRun.denied ? 'unavailable' : 'failed'
             },
         ],
         checks: [
