@@ -50840,6 +50840,11 @@ export namespace Schemas {
     export interface ExternalDataSourceRevenueAnalyticsConfig {
       enabled?: boolean;
       include_invoiceless_charges?: boolean;
+      /**
+         * Stripe product IDs to leave out of revenue analytics, for example a prepaid credit product.
+         * @items.maxLength 255
+         */
+      excluded_product_ids?: string[];
     }
 
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
