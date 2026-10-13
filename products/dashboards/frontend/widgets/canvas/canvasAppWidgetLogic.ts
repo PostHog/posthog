@@ -1,4 +1,16 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,8 +37,10 @@ export interface canvasAppWidgetLogicValues {
     artifactUrl: string | null
     buildId: string | null
     capabilities: CanvasCapabilitiesApi | null
+    frameKey: number
     hostProps: CanvasHostLogicProps
     renderState: CanvasAppRenderState
+    runtimeError: string | null
     view: CanvasViewResponseApi | null
     viewFailed: boolean
     viewFailureStatus: number | null
@@ -49,6 +63,12 @@ export interface canvasAppWidgetLogicActions {
     ) => {
         view: CanvasViewResponseApi
         payload?: any
+    }
+    reloadFrame: () => {
+        value: true
+    }
+    setRuntimeError: (message: string) => {
+        message: string
     }
 }
 
@@ -89,6 +109,11 @@ export const canvasAppWidgetLogic = kea<canvasAppWidgetLogicType>([
         values: [teamLogic, ['currentProjectId']],
     })),
 
+    actions({
+        setRuntimeError: (message: string) => ({ message }),
+        reloadFrame: true,
+    }),
+
     loaders(({ props, values }) => ({
         view: [
             null as CanvasViewResponseApi | null,
@@ -115,6 +140,18 @@ export const canvasAppWidgetLogic = kea<canvasAppWidgetLogicType>([
                     typeof errorObject?.status === 'number' ? errorObject.status : null,
             },
         ],
+        // The last error the published app threw while rendering. The frame keeps showing, so the tile
+        // surfaces it on top with a reload instead of leaving a silently broken app.
+        runtimeError: [
+            null as string | null,
+            {
+                setRuntimeError: (_, { message }) => message,
+                reloadFrame: () => null,
+                loadViewSuccess: () => null,
+            },
+        ],
+        // Bumped to remount the frame when the viewer reloads the app after an error.
+        frameKey: [0, { reloadFrame: (state) => state + 1 }],
     }),
 
     selectors(({ props }) => ({
