@@ -33,11 +33,8 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
 
-from products.review_hog.backend.reviewer.tools.github_client import (
-    GitHubAPIError,
-    github_api_request,
-    is_app_bot_author,
-)
+from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request, matches_app_bot
 from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPARE_FILES_CAP, PRParser
 
 logger = logging.getLogger(__name__)
@@ -114,6 +111,8 @@ class PushGateDecision:
     probability: float | None = None
     model: str | None = None
     own_commits: int | None = None
+    # Lines the new own commits change in code files, summed per commit. Set only when the gate read every file.
+    own_code_lines: int | None = None
 
 
 @frozen
@@ -121,6 +120,13 @@ class _ChangedFile:
     filename: str
     changes: int
     patch: str | None
+
+
+@frozen
+class _CommitFiles:
+    files: list[_ChangedFile]
+    # GitHub lists at most one page of files per commit, so a full page may hide more files.
+    complete: bool
 
 
 @frozen
@@ -152,7 +158,12 @@ def _rule_enabled(reason: SkipReason) -> bool:
 
 
 def _matched(
-    reason: SkipReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
+    reason: SkipReason,
+    *,
+    own_commits: int | None = None,
+    probability: float | None = None,
+    model: str | None = None,
+    own_code_lines: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=_rule_enabled(reason),
@@ -161,11 +172,17 @@ def _matched(
         probability=probability,
         model=model,
         own_commits=own_commits,
+        own_code_lines=own_code_lines,
     )
 
 
 def _runs(
-    reason: RunReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
+    reason: RunReason,
+    *,
+    own_commits: int | None = None,
+    probability: float | None = None,
+    model: str | None = None,
+    own_code_lines: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=False,
@@ -174,6 +191,7 @@ def _runs(
         probability=probability,
         model=model,
         own_commits=own_commits,
+        own_code_lines=own_code_lines,
     )
 
 
@@ -201,6 +219,17 @@ def _own_lines(files: list[_ChangedFile]) -> dict[str, list[_ChangedLine]] | Non
 def _same_full_diff(previous: _PRDiff, current: _PRDiff) -> bool:
     previous_lines = _own_lines(previous.files)
     return previous_lines is not None and previous_lines == _own_lines(current.files)
+
+
+def _is_own_commit(commit: dict[str, Any], app_login: str | None) -> bool:
+    # Anyone can put the app's noreply email on a commit, so only a GitHub-verified commit with the
+    # app as both author and committer counts. Those are the commits the app creates through the API.
+    verified = bool(((commit.get("commit") or {}).get("verification") or {}).get("verified"))
+    return (
+        verified
+        and matches_app_bot(commit.get("author"), app_login)
+        and matches_app_bot(commit.get("committer"), app_login)
+    )
 
 
 class PushGate:
@@ -234,6 +263,7 @@ class PushGate:
         if comparison is None:
             return None
         commits: list[dict[str, Any]] = comparison.get("commits") or []
+        app_login = posthog_app_login()
         files = _changed_files(comparison)
         if comparison.get("total_commits", 0) > len(commits) or len(files) >= GITHUB_COMPARE_FILES_CAP:
             return None
@@ -241,24 +271,28 @@ class PushGate:
             commit_shas=[commit["sha"] for commit in commits],
             merge_shas={commit["sha"] for commit in commits if len(commit.get("parents") or []) > 1},
             files=files,
-            reviewhog_shas={commit["sha"] for commit in commits if is_app_bot_author(commit.get("author"))},
+            reviewhog_shas={commit["sha"] for commit in commits if _is_own_commit(commit, app_login)},
         )
 
-    def _commit_files(self, shas: list[str]) -> list[_ChangedFile] | None:
+    def _commit_files(self, shas: list[str]) -> _CommitFiles | None:
         files: list[_ChangedFile] = []
+        complete = True
         for sha in shas:
             commit = self._get(f"/commits/{sha}", endpoint="/commits/{ref}")
             if commit is None:
                 return None
-            files.extend(_changed_files(commit))
-        return files
+            commit_files = _changed_files(commit)
+            complete = complete and len(commit_files) < GITHUB_COMPARE_FILES_CAP
+            files.extend(commit_files)
+        return _CommitFiles(files=files, complete=complete)
 
-    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int) -> PushGateDecision:
+    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int, lines_known: bool) -> PushGateDecision:
+        lines = sum(file.changes for file in code_files) if lines_known else None
         if any(file.patch is None for file in code_files):
-            return _runs("interdiff_too_large", own_commits=own_commits)
+            return _runs("interdiff_too_large", own_commits=own_commits, own_code_lines=lines)
         state = "\n\n".join(f"--- {file.filename}\n{file.patch}" for file in code_files)
         if len(state) > MAX_STATE_CHARS:
-            return _runs("interdiff_too_large", own_commits=own_commits)
+            return _runs("interdiff_too_large", own_commits=own_commits, own_code_lines=lines)
         try:
             client = build_system_one_client(
                 model=PUSH_GATE_MODEL,
@@ -269,19 +303,24 @@ class PushGate:
             result = client.decide(state=state, questions={_QUESTION_ID: _ALTERS_QUESTION})
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("Push gate could not reach System One: %s", type(error).__name__)
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            return _runs("system_one_unavailable", own_commits=own_commits, own_code_lines=lines)
         answer = result.answers[_QUESTION_ID]
         if not isinstance(answer, NoulAnswer):
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            return _runs("system_one_unavailable", own_commits=own_commits, own_code_lines=lines)
         if answer.probability < SYSTEM_ONE_SKIP_BELOW:
             return _matched(
                 "system_one_below_threshold",
                 own_commits=own_commits,
                 probability=answer.probability,
                 model=result.model,
+                own_code_lines=lines,
             )
         return _runs(
-            "system_one_above_threshold", own_commits=own_commits, probability=answer.probability, model=result.model
+            "system_one_above_threshold",
+            own_commits=own_commits,
+            probability=answer.probability,
+            model=result.model,
+            own_code_lines=lines,
         )
 
     def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
@@ -312,7 +351,7 @@ class PushGate:
         own_files = self._commit_files(own_shas)
         if own_files is None:
             return _runs("compare_unavailable", own_commits=len(own_shas))
-        code_files = [file for file in own_files if not _NON_CODE_FILE.search(file.filename)]
+        code_files = [file for file in own_files.files if not _NON_CODE_FILE.search(file.filename)]
         if not code_files:
-            return _matched("docs_only", own_commits=len(own_shas))
-        return self._ask_system_one(code_files, own_commits=len(own_shas))
+            return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0 if own_files.complete else None)
+        return self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)

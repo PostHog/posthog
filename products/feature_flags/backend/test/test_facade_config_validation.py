@@ -96,7 +96,7 @@ def without(document: dict[str, Any], key: str) -> dict[str, Any]:
     return {name: value for name, value in document.items() if name != key}
 
 
-def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str]]:
+def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str | None]]:
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_config(document, limits=limits)
     return [(error.code, error.attr) for error in exc_info.value.errors]

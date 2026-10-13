@@ -704,6 +704,50 @@ class TestFinalDataBatch:
         mock_mark_completed.assert_not_called()
 
 
+class TestStagedCursorWaitsForTheFinalBatch:
+    # A descending source stages the newest value of its run from the first batch. Promoting it on a
+    # batch before the final one moves the watermark above rows that are not loaded yet.
+
+    @parameterized.expand([("mid_run_batch", False, 0), ("final_batch", True, 1)])
+    def test_a_staged_cursor_is_promoted_only_by_the_final_batch(
+        self, _name: str, is_final_batch: bool, promotions: int
+    ) -> None:
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        with ExitStack() as stack:
+            for target in (
+                "posthoganalytics",
+                "mark_batch_as_processed",
+                "_trigger_post_import_workflow",
+                "_trigger_ducklake_register_data_imports",
+                "transaction",
+                "release_v3_pipeline_lock",
+            ):
+                stack.enter_context(patch(f"{_PROCESSOR}.{target}"))
+            stack.enter_context(patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock))
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
+            )
+            stack.enter_context(patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]})))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            mock_writer_cls = stack.enter_context(patch(f"{_PROCESSOR}.DeltaWriter"))
+            mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+            mock_helper_cls = stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef"))
+            mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+            mock_job_cls = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            mock_update = stack.enter_context(patch(f"{_PROCESSOR}.update_external_job_status"))
+            mock_update.return_value.status = mock_job_cls.Status.COMPLETED
+            mock_schema_objects = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataSchema.objects"))
+
+            process_message(_message(is_final_batch=is_final_batch, run_uuid="wfrun-1-a2"))
+
+        promote = mock_schema_objects.get.return_value.promote_staged_incremental_values
+        assert promote.call_count == promotions
+        if promotions:
+            promote.assert_called_with("wfrun-1-a2", merge_source_cursors=ANY)
+
+
 def _set_messages(count: int, *, sync_type: str = "full_refresh", final: bool = True) -> list[dict[str, Any]]:
     return [
         _message(

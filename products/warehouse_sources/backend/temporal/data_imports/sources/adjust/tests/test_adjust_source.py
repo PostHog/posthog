@@ -1,16 +1,18 @@
+from datetime import date
+
 import pytest
 from unittest import mock
 
-import requests
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adjust import (
-    AdjustCredentialsError,
-    AdjustRetryableError,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.adjust import adjust
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.source import AdjustSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adjust import AdjustSourceConfig
-
-_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adjust.source"
 
 
 class TestAdjustSource:
@@ -38,46 +40,48 @@ class TestAdjustSource:
         )
         assert any(key in observed_error for key in self.source.get_retryable_errors())
 
-    @mock.patch(f"{_SOURCE_MODULE}.validate_adjust_credentials")
-    def test_validate_credentials_success(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = True
+    def test_validate_credentials_success(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
 
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-        mock_validate.assert_called_once_with("adjust-token", "abc123")
+        assert network.requests_log[0].headers["authorization"] == "Bearer adjust-token"
+        assert network.requests_log[0].param("app_token__in") == "abc123"
 
-    @mock.patch(f"{_SOURCE_MODULE}.validate_adjust_credentials")
-    def test_validate_credentials_surfaces_the_specific_rejection(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.side_effect = AdjustCredentialsError("Adjust rejected the API token.")
-
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials_surfaces_the_specific_rejection(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]):
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert message == "Adjust rejected the API token."
+        assert message == (
+            "Adjust rejected the API token. Check that you pasted a valid Adjust API token from "
+            "your account settings in the Adjust dashboard."
+        )
 
     @pytest.mark.parametrize(
-        "raised",
-        [AdjustRetryableError("status=503"), requests.ConnectionError("boom"), requests.ReadTimeout("slow")],
+        "response",
+        [ScriptedResponse(status=503), ConnectionResetError("boom"), TimeoutError("slow")],
     )
-    @mock.patch(f"{_SOURCE_MODULE}.validate_adjust_credentials")
-    def test_transient_failures_are_not_reported_as_bad_credentials(
-        self, mock_validate: mock.MagicMock, raised: Exception
-    ) -> None:
-        mock_validate.side_effect = raised
+    def test_transient_failures_are_not_reported_as_bad_credentials(self, response: ScriptedResponse | OSError) -> None:
+        def answer(_request: RecordedRequest) -> ScriptedResponse:
+            if isinstance(response, OSError):
+                raise response
+            return response
 
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network(answer):
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert message is not None
         assert "temporary rate-limit or network issue" in message
 
-    @mock.patch(f"{_SOURCE_MODULE}.adjust_source")
-    def test_source_for_pipeline_drops_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "daily_report"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-06-01"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+    def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
+        with mock.patch.object(adjust, "_today", return_value=date(2024, 6, 30)):
+            result = SourceDriver(self.source, self.config).run(
+                "daily_report",
+                always(ScriptedResponse(json={"rows": []})),
+                db_incremental_field_last_value="2024-06-01",
+            )
 
         # A full refresh must not inherit a stale watermark and silently skip history.
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("date_period") == "2022-07-01:2022-07-30"

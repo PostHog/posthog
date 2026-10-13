@@ -1,12 +1,14 @@
-from posthog.test.base import APIBaseTest
+from django.test import SimpleTestCase
+
+from posthog.models import Team, User
 
 from products.posthog_ai.backend.services.system_prompt.prompt import POSTHOG_AI_SYSTEM_PROMPT
 from products.posthog_ai.backend.services.system_prompt.service import ClaudeCodeSystemPrompt, PromptService
 
 
-class TestPostHogAISystemPrompt(APIBaseTest):
+class TestPostHogAISystemPrompt(SimpleTestCase):
     def _build(self) -> ClaudeCodeSystemPrompt:
-        return PromptService(self.team, self.user).build()
+        return PromptService(Team(id=1), User(id=1)).build()
 
     def test_build_returns_preset_append_suffix(self):
         # The object form makes the agent-server append to Claude Code's prompt (a suffix), rather

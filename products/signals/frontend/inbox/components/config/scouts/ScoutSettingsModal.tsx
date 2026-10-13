@@ -49,6 +49,7 @@ export function ScoutSettingsModal({
                 deleting={deletingScoutIds.includes(config.id)}
                 updating={updatingScoutIds.includes(config.id)}
                 onUnsavedChange={setHasUnsavedInput}
+                surface={surface}
             />
         </LemonModal>
     )

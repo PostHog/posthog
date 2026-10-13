@@ -281,22 +281,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # User is not an org admin/owner
                 pass
 
-            from products.access_control.backend.models.access_control import AccessControl
-
-            # Check if the team has an access control row that applies to the entire resource
-            team_access_controls = AccessControl.objects.filter(
-                team_id=item["id"],
-                resource="project",
-                resource_id=str(item["id"]),
-                organization_member=None,
-                role=None,
-            )
-
-            # If no access controls exist, continue (team can be accessed by anyone in the organization)
-            if not team_access_controls.exists():
-                continue
-
-            # Team is restricted, check if user has sufficient access
             user_access_control = UserAccessControl(user=self.context["request"].user, team=team)
             access_level = user_access_control.access_level_for_object(team)
             if access_level == "none":

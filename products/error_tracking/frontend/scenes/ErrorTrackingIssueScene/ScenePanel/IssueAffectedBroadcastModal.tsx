@@ -31,7 +31,7 @@ export function IssueAffectedBroadcastModal(props: IssueAffectedBroadcastLogicPr
         <LemonModal
             isOpen={isModalOpen}
             onClose={closeModal}
-            title="Email the people affected"
+            title="Email people affected"
             width={480}
             footer={
                 <>
