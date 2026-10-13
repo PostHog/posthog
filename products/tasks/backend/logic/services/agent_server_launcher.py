@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import bind_exception_context
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
@@ -50,6 +51,7 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
+    ExecutionResult,
     SandboxBase,
     build_agent_runtime_env_prefix,
     build_agent_server_capability_probe,
@@ -71,6 +73,8 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 # The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
 STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
+AGENTSH_CAPTURE_LOG_CHARS = 4000
+AGENTSH_CAPTURE_STDERR_CHARS = 1000
 # The agent-server reads this fd once at boot and closes it, so processes it starts never see the
 # token. The launch shell opens the file on fd 3 and deletes it before the server starts.
 CODEX_RUN_TOKEN_FD = 3
@@ -282,6 +286,16 @@ def _health_duration_ms(stdout: str) -> int | None:
             except ValueError:
                 return None
     return None
+
+
+def _bind_agentsh_failure_context(setup_result: ExecutionResult, agentsh_log: ExecutionResult) -> None:
+    # The activity interceptor captures the raised error again, without its context.
+    # Ambient properties reach that capture, so its issue shows why agentsh failed.
+    bind_exception_context(
+        agentsh_setup_exit_code=setup_result.exit_code,
+        agentsh_setup_stderr=setup_result.stderr.strip()[-AGENTSH_CAPTURE_STDERR_CHARS:],
+        agentsh_log_tail=agentsh_log.stdout.strip()[-AGENTSH_CAPTURE_LOG_CHARS:],
+    )
 
 
 class AgentServerLaunchMixin(SandboxBase):
@@ -915,6 +929,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 result.stderr.strip()[:1000],
                 agentsh_log.stdout.strip()[:2000],
             )
+            _bind_agentsh_failure_context(result, agentsh_log)
             raise SandboxExecutionError(
                 "Failed to start agentsh daemon",
                 {
@@ -936,6 +951,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 session_check.stderr.strip()[:1000],
                 agentsh_log.stdout.strip()[:2000],
             )
+            _bind_agentsh_failure_context(result, agentsh_log)
             raise SandboxExecutionError(
                 "Failed to create agentsh session",
                 {
