@@ -17,7 +17,7 @@ The repo root workspace excludes it, so run everything from here.
 cd products/mobile
 pnpm install          # Node 24.13.0 (see .node-version), pnpm 10
 pnpm ios              # build the dev client, open it in the iOS simulator and start Metro
-pnpm web              # Expo web in the browser, used for render checks
+pnpm web              # Expo web in the browser, used for render checks; copies CanvasKit to public/ first
 pnpm android          # build the dev client and open it in an Android emulator
 pnpm start            # Metro only, for a dev client that is already installed
 ```
