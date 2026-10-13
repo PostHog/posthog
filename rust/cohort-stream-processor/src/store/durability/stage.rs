@@ -94,7 +94,8 @@ impl ValidatedStage {
 
     /// Fsyncs the staged files, writes the marker, renames the stage onto `live`, then fsyncs the
     /// parent. A kill at any point leaves either the stage, which the next boot deletes, or a
-    /// published store with its marker. `plan` is the window check that admitted the candidate.
+    /// published store with its marker. `plan` says which slices the restore keeps. Build it after
+    /// the stage validates, because the broker can delete positions while the candidate downloads.
     pub fn publish(
         self,
         manifest: OffsetManifest,
@@ -501,6 +502,17 @@ mod tests {
         assert!(
             !committed.get(),
             "an expired follower position stops the finish before any commit"
+        );
+        let unreadable = |_: &[(&InputTopic, u16)]| -> KafkaResult<Vec<i64>> {
+            Err(KafkaError::OffsetFetch(RDKafkaErrorCode::RequestTimedOut))
+        };
+        assert!(matches!(
+            published.finish(&owned, unreadable, commit),
+            Err(FinishError::Watermarks(_))
+        ));
+        assert!(
+            !committed.get(),
+            "a failed watermark read stops the finish before any commit"
         );
 
         let refused = || Err(KafkaError::OffsetFetch(RDKafkaErrorCode::RequestTimedOut));

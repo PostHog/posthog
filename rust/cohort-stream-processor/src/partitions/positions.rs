@@ -344,3 +344,21 @@ impl InputGroups {
         std::iter::once(&self.events).chain(self.followers.iter().map(|follower| &follower.0))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rdkafka::ClientConfig;
+
+    #[test]
+    fn an_empty_request_reads_nothing_from_the_broker() {
+        let unreachable: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:1")
+            .create()
+            .unwrap();
+        assert_eq!(
+            list_offsets(&unreachable, &[], Offset::Beginning).unwrap(),
+            Vec::<i64>::new()
+        );
+    }
+}

@@ -578,7 +578,8 @@ impl<W: ReplayWindow> Restore<'_, W> {
         let plan = RestorePlan::check(manifest, self.window, self.partition_count)
             .map_err(RestoreBlocked::Positions)?;
         if !plan.resumes_any() {
-            // Older candidates are further out of the window, so retrying cannot help.
+            // Older candidates hold older positions, which the broker deletes first, so retrying
+            // cannot help.
             return Ok(Admission::Rejected(Unusable::NothingToReplay));
         }
         Ok(Admission::Replays(plan))
@@ -599,7 +600,7 @@ impl<W: ReplayWindow> Restore<'_, W> {
                 return Ok(failed(&checkpoint_id, err));
             }
         };
-        // Checked again because a download can outlast part of the window the first check saw.
+        // Checked again because the broker can delete positions while the candidate downloads.
         let plan = match self.replay_plan(&manifest)? {
             Admission::Replays(plan) => plan,
             Admission::Rejected(reason) => return Ok(Verdict::Unusable(reason)),
@@ -708,6 +709,7 @@ mod tests {
     use async_trait::async_trait;
     use envconfig::Envconfig;
     use rdkafka::error::KafkaResult;
+    use rdkafka::types::RDKafkaErrorCode;
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
@@ -719,11 +721,15 @@ mod tests {
 
     const EVENTS: &str = "cohort_stream_events";
 
-    struct OpenWindow(BTreeSet<InputTopic>);
+    /// Every partition holds `[low, i64::MAX]`, and a `None` low fails the read.
+    struct FixedWindow {
+        inputs: BTreeSet<InputTopic>,
+        low: Option<i64>,
+    }
 
-    impl ReplayWindow for OpenWindow {
+    impl ReplayWindow for FixedWindow {
         fn inputs(&self) -> &BTreeSet<InputTopic> {
-            &self.0
+            &self.inputs
         }
 
         fn watermarks(
@@ -731,12 +737,22 @@ mod tests {
             _topic: &InputTopic,
             partition_count: u16,
         ) -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
-            Ok((0..partition_count).map(|p| (p, (0, i64::MAX))).collect())
+            let low = self
+                .low
+                .ok_or(KafkaError::OffsetFetch(RDKafkaErrorCode::RequestTimedOut))?;
+            Ok((0..partition_count).map(|p| (p, (low, i64::MAX))).collect())
         }
     }
 
-    fn window() -> OpenWindow {
-        OpenWindow(BTreeSet::from([InputTopic::new(EVENTS)]))
+    fn window_at(low: Option<i64>) -> FixedWindow {
+        FixedWindow {
+            inputs: BTreeSet::from([InputTopic::new(EVENTS)]),
+            low,
+        }
+    }
+
+    fn window() -> FixedWindow {
+        window_at(Some(0))
     }
 
     fn failure() -> Verdict {
@@ -904,11 +920,11 @@ mod tests {
             }
         }
 
-        async fn prepare(&self) -> Result<BootStore, RestoreBlocked> {
+        async fn prepare(&self, window: &impl ReplayWindow) -> Result<BootStore, RestoreBlocked> {
             prepare_store(
                 &self.config,
                 Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
-                &window(),
+                window,
                 Utc::now(),
                 &mut HashSet::new(),
             )
@@ -1010,7 +1026,7 @@ mod tests {
         let mut search = Search::default();
 
         let outcome = boot
-            .restore(&mut HashSet::new())
+            .restore(&window(), &mut HashSet::new())
             .search_s3(&importer, 10, Utc::now(), &mut search)
             .await
             .unwrap();
@@ -1030,25 +1046,42 @@ mod tests {
         std::fs::create_dir(&stage).unwrap();
         std::fs::write(stage.join("000001.sst"), b"torn").unwrap();
 
-        assert!(matches!(boot.prepare().await, Ok(BootStore::Reopened)));
+        assert!(matches!(
+            boot.prepare(&window()).await,
+            Ok(BootStore::Reopened)
+        ));
         assert!(!stage.exists());
     }
 
     #[tokio::test]
-    async fn a_local_checkpoint_publishes_and_stays_pending_on_the_next_boot() {
+    async fn a_local_checkpoint_stays_pending_and_each_boot_checks_its_window_again() {
         let boot = Boot::new();
         boot.local_checkpoint();
 
-        let Ok(BootStore::Restored(published)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(published)) = boot.prepare(&window()).await else {
             panic!("a fresh local checkpoint restores");
         };
         assert_eq!(published.source().label(), "local");
         assert!(boot.live().join(MARKER_FILENAME).is_file());
 
-        let Ok(BootStore::Restored(resumed)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(resumed)) = boot.prepare(&window()).await else {
             panic!("a store with a marker resumes its restore instead of reopening");
         };
         assert_eq!(resumed.plan(), published.plan());
+
+        // The checkpoint resumes the events at 42.
+        let Ok(BootStore::Restored(expired)) = boot.prepare(&window_at(Some(43))).await else {
+            panic!("a pending restore resumes whatever the window holds");
+        };
+        assert_eq!(expired.plan().resets().count(), 1);
+        assert!(matches!(
+            boot.prepare(&window_at(None)).await,
+            Err(RestoreBlocked::Positions(_))
+        ));
+        assert!(
+            boot.live().join(MARKER_FILENAME).is_file(),
+            "a window that cannot be read keeps the published store for the next round",
+        );
     }
 
     #[tokio::test]
@@ -1061,7 +1094,7 @@ mod tests {
         }));
         std::fs::write(boot.live().join(MARKER_FILENAME), b"{\"version\": 1").unwrap();
 
-        let Ok(BootStore::Restored(pending)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(pending)) = boot.prepare(&window()).await else {
             panic!("the store with an unreadable marker is replaced by a restore");
         };
         assert_eq!(pending.source().label(), "local");
@@ -1078,7 +1111,7 @@ mod tests {
         let torn = boot.local_checkpoint();
         std::fs::remove_file(boot.lineage_dir().join(&torn.id).join(METADATA_FILENAME)).unwrap();
 
-        let Ok(BootStore::Restored(pending)) = boot.prepare().await else {
+        let Ok(BootStore::Restored(pending)) = boot.prepare(&window()).await else {
             panic!("the newest complete attempt restores");
         };
         assert_eq!(pending.source().checkpoint_id(), newest.id);
