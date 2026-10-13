@@ -6,7 +6,7 @@ import {
   OAUTH_SCOPE_VERSION,
 } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthService } from "./auth";
+import { AuthService, type FetchLike } from "./auth";
 import type {
   AuthOrgProjectPreferenceRecord,
   AuthPreferenceRecord,
@@ -220,7 +220,10 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(extraFetchOrigins: string[] = []): AuthService {
+  function createService(
+    extraFetchOrigins: string[] = [],
+    fetchImpl?: FetchLike,
+  ): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
@@ -231,6 +234,7 @@ describe("AuthService", () => {
       mockLogger,
       null,
       extraFetchOrigins,
+      fetchImpl,
     );
   }
 
@@ -2460,18 +2464,7 @@ describe("AuthService", () => {
         "fetch",
         vi.fn().mockRejectedValue(new TypeError("fetch failed")),
       );
-      service = new AuthService(
-        preferencePort,
-        sessionPort,
-        oauthFlow as unknown as IAuthOAuthFlowService,
-        connectivity,
-        identityCipher,
-        mockPowerManager as unknown as IPowerManager,
-        mockLogger,
-        null,
-        [],
-        injectedFetch,
-      );
+      service = createService([], injectedFetch);
 
       await service.initialize();
 
