@@ -1,5 +1,6 @@
+import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import type { StoredLogEntry } from "@posthog/shared";
-import { isIdleResumeTurnComplete } from "@posthog/shared";
+import { isIdleResumeTurnComplete, isRasterImageFile } from "@posthog/shared";
 
 export type ToolStatus = "pending" | "running" | "completed" | "failed";
 
@@ -9,9 +10,22 @@ export interface PlanEntry {
   priority?: string;
 }
 
+// A photo the person sent, stored as a run artifact.
+export interface PhotoRef {
+  runId: string;
+  artifactId: string;
+  name: string;
+}
+
 export type Block =
-  // images: local photo URIs, shown until the chat reloads.
-  | { kind: "user"; id: string; text: string; images?: string[] }
+  | {
+      kind: "user";
+      id: string;
+      text: string;
+      // Local picker URIs, shown until the sent photos are known.
+      images?: string[];
+      photos?: PhotoRef[];
+    }
   | { kind: "agent"; id: string; text: string; complete: boolean }
   | { kind: "thought"; id: string; text: string; at: number }
   | {
@@ -95,6 +109,36 @@ function entryTime(entry: StoredLogEntry): number {
 
 function last(blocks: Block[]): Block | undefined {
   return blocks[blocks.length - 1];
+}
+
+type PromptBlock = Parameters<typeof extractPromptDisplayContent>[0][number];
+
+// iOS photo names can end in .HEIC, which React Native renders.
+function isPhotoName(name: string): boolean {
+  return isRasterImageFile(name) || /\.hei[cf]$/i.test(name);
+}
+
+export function promptPhotos(prompt: PromptBlock[]): {
+  text: string;
+  texts: string[];
+  photos: PhotoRef[];
+} {
+  // An upstream retry resends every block of the prompt as hidden, photo links
+  // too, so hidden blocks must not add the photos again.
+  const visible = prompt.filter(
+    (block) =>
+      !(block._meta as { ui?: { hidden?: boolean } } | undefined)?.ui?.hidden,
+  );
+  const { text, attachments } = extractPromptDisplayContent(visible);
+  const texts = visible.flatMap((block) =>
+    block.type === "text" && block.text ? [block.text] : [],
+  );
+  const photos = attachments.flatMap((attachment) =>
+    attachment.cloudArtifact && isPhotoName(attachment.label)
+      ? [{ ...attachment.cloudArtifact, name: attachment.label }]
+      : [],
+  );
+  return { text, texts, photos };
 }
 
 export function closeOpenAgent(blocks: Block[]): void {
@@ -184,6 +228,31 @@ export function foldEntries(
         | { requestId?: string }
         | undefined;
       if (params?.requestId) result.resolvedRequestIds.push(params.requestId);
+      continue;
+    }
+    // Only the prompt request links the attachments for every agent, so a turn
+    // with photos is built from it and the text echo that follows is skipped.
+    if (method === "session/prompt") {
+      const prompt = (entry.notification?.params as { prompt?: unknown })
+        ?.prompt;
+      if (!Array.isArray(prompt)) continue;
+      const { text, texts, photos } = promptPhotos(prompt as PromptBlock[]);
+      if (!photos.length) continue;
+      if (localEchoes.has(text)) {
+        const index = blocks.findLastIndex(
+          (block) => block.kind === "user" && block.text === text,
+        );
+        const sent = blocks[index];
+        if (sent?.kind === "user" && !sent.photos) {
+          blocks[index] = { ...sent, photos };
+        }
+        if (!text) localEchoes.delete(text);
+        continue;
+      }
+      result.externalUserMessages += 1;
+      closeOpenAgent(blocks);
+      blocks.push({ kind: "user", id: nextId("user"), text, photos });
+      for (const chunk of texts) localEchoes.add(chunk);
       continue;
     }
     if (method !== "session/update") continue;

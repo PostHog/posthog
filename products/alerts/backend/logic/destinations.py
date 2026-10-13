@@ -15,7 +15,6 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
@@ -31,6 +30,11 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.cdp.backend.facade.api import create_hog_functions
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.internal_events import (
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
 
 logger = structlog.get_logger(__name__)
 

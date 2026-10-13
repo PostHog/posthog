@@ -15,11 +15,12 @@ import {
     getBIShelfEditorKey,
     getBIValuePillLabel,
     getBIValueSortKey,
-    isDateTimeBIField,
     isNumericBIField,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIExpressionPopover } from 'products/business_intelligence/frontend/components/BIExpressionPopover'
 import { BIPill } from 'products/business_intelligence/frontend/components/BIPill'
+
+import { BIShelfDropTarget } from './BIShelfDropTarget'
 
 type ExpressionTarget = 'field' | 'aggregation'
 
@@ -34,11 +35,15 @@ export function BIFieldPill({
     const { config, activeExpressionEditorId, activeExpressionEditorTarget, sortOptions } = useValues(biEditorLogic)
     const {
         addFieldToShelf,
+        convertMeasureToDimension,
+        duplicateField,
+        editCalculatedField,
         editCalculatedMeasure,
         moveFieldToShelf,
         removeFieldFromShelf,
         setActiveExpressionEditorId,
         setFieldDateBucket,
+        setFieldDatePart,
         setFieldExpression,
         setSort,
         setValueAggregation,
@@ -85,20 +90,51 @@ export function BIFieldPill({
                   })),
               }
             : null,
-        isDateTimeBIField(field)
+        ['date', 'datetime'].includes(field.type)
             ? {
-                  title: 'Date',
+                  title: 'Timeline (keeps the year)',
                   items: DATE_BUCKET_OPTIONS.map((option) => ({
                       label: option.label,
-                      active: (field.dateBucket ?? null) === option.value,
+                      active: !field.datePart && (field.dateBucket ?? null) === option.value,
                       onClick: () => setFieldDateBucket(shelf, index, option.value),
+                  })),
+              }
+            : null,
+        ['date', 'datetime'].includes(field.type)
+            ? {
+                  title: 'Date part (combines years)',
+                  items: (
+                      [
+                          ['month', 'Month of year'],
+                          ['quarter', 'Quarter of year'],
+                          ['day_of_week', 'Day of week'],
+                      ] as const
+                  ).map(([part, label]) => ({
+                      label,
+                      active: field.datePart === part,
+                      onClick: () => setFieldDatePart(shelf, index, part),
                   })),
               }
             : null,
         {
             items: [
-                !isCalculatedMeasure ? { label: 'Edit field expression', onClick: () => setEditing('field') } : null,
-                value?.aggregation === 'custom'
+                { label: 'Duplicate', onClick: () => duplicateField(shelf, index) },
+                isMeasure
+                    ? {
+                          label: value?.shelf === 'columns' ? 'Move to rows' : 'Move to columns',
+                          onClick: () =>
+                              moveFieldToShelf('values', index, value?.shelf === 'columns' ? 'rows' : 'columns'),
+                      }
+                    : null,
+                field.localDefinition?.kind === 'expression'
+                    ? {
+                          label: 'Edit calculated field',
+                          onClick: () => editCalculatedField({ ...field, id: field.localFieldId ?? field.id }),
+                      }
+                    : !isCalculatedMeasure
+                      ? { label: 'Edit field expression', onClick: () => setEditing('field') }
+                      : null,
+                value?.aggregation === 'custom' && field.localDefinition?.kind !== 'expression'
                     ? { label: 'Edit calculated measure', onClick: () => editCalculatedMeasure(index) }
                     : null,
                 sortKey
@@ -123,7 +159,7 @@ export function BIFieldPill({
                     ? {
                           label: 'Convert to dimension',
                           disabledReason: isCalculatedMeasure ? 'Calculated measures aggregate each group' : undefined,
-                          onClick: () => moveFieldToShelf('values', index, 'rows'),
+                          onClick: () => convertMeasureToDimension(index),
                       }
                     : { label: 'Convert to measure', onClick: () => moveFieldToShelf(shelf, index, 'values') },
                 !isMeasure
@@ -161,7 +197,7 @@ export function BIFieldPill({
                 }
             }}
         >
-            <span className="inline-flex min-w-0 max-w-[min(18rem,100%)]">
+            <BIShelfDropTarget shelf={shelf} index={index} className="inline-flex min-w-0 max-w-[min(18rem,100%)]">
                 <LemonMenu items={items} placement="bottom-start">
                     <BIPill
                         kind={isMeasure ? 'measure' : 'dimension'}
@@ -173,7 +209,7 @@ export function BIFieldPill({
                         data-attr={`bi-editor-${shelf}-pill`}
                     />
                 </LemonMenu>
-            </span>
+            </BIShelfDropTarget>
         </BIExpressionPopover>
     )
 }
