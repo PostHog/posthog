@@ -1949,10 +1949,9 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         loadExperimentSuccess: async ({ experiment, payload }) => {
-            const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
-            // eslint-disable-next-line no-unused-expressions
-            experiment && actions.reportExperimentViewed(experiment, duration)
             if (experiment) {
+                const duration = experiment.start_date ? dayjs().diff(experiment.start_date, 'second') : null
+                actions.reportExperimentViewed(experiment, duration)
                 actions.loadExperimentHealth('experiment_load')
             }
 
@@ -2821,7 +2820,10 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
                     if (trigger === 'experiment_update') {
-                        // A metric edit and its save follow each other closely, and one request covers both.
+                        // A local edit and its save follow each other, so one request covers both when the save
+                        // returns within 300 ms. After a slower save this request may read the state before the
+                        // save, and only a save response whose inputs differ from the edit reloads the findings,
+                        // as metrics do because the server recomputes their fingerprints.
                         await breakpoint(300)
                     }
                     cache.healthCheckInputs = healthCheckInputs(values.experiment)

@@ -36,10 +36,10 @@ export interface HealthDebugInput {
 }
 
 const NO_FINDING = 'no finding'
-const NOT_SENT = 'not sent'
+const NOT_LOADED = 'not loaded'
 
 export function describeServerHealth(health: ExperimentHealthApi | null): string {
-    return health ? `${health.findings.length} findings` : 'not loaded: the health request is pending or failed'
+    return health ? `${health.findings.length} findings` : `${NOT_LOADED}: the health request is pending or failed`
 }
 
 export function describePanel(panelFindings: HealthPanelFinding[] | null): string {
@@ -60,11 +60,11 @@ function warningLabel(warning: ExperimentWarning | null): string {
 }
 
 function serverResult(
-    health: ExperimentHealthApi | null | undefined,
+    health: ExperimentHealthApi | null,
     matches: (code: ExperimentHealthFindingApi['code']) => boolean
 ): string {
     if (!health) {
-        return NOT_SENT
+        return NOT_LOADED
     }
     const finding = health.findings.find((candidate) => matches(candidate.code))
     if (!finding) {

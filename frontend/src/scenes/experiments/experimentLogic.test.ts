@@ -50,6 +50,13 @@ jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
 const RUNNING_EXP_ID = 45
 const RUNNING_FUNNEL_EXP_ID = 46
 
+const setHealthFindingsFlag = (enabled: boolean): void => {
+    featureFlagLogic.actions.setFeatureFlags(
+        enabled ? [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] : [],
+        enabled ? { [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS]: true } : {}
+    )
+}
+
 describe('experimentLogic', () => {
     let logic: ReturnType<typeof experimentLogic.build>
     // Transform null to undefined where needed
@@ -2293,13 +2300,6 @@ describe('experimentLogic', () => {
         // The fixture holds legacy metrics, and a legacy experiment never shows the health panel.
         const newEngineMetrics = { metrics: [], metrics_secondary: [], saved_metrics: [] }
 
-        const setHealthFindingsFlag = (enabled: boolean): void => {
-            featureFlagLogic.actions.setFeatureFlags(
-                enabled ? [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] : [],
-                enabled ? { [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS]: true } : {}
-            )
-        }
-
         it.each<{
             desc: string
             overrides: Partial<Experiment>
@@ -2681,9 +2681,7 @@ describe('experimentLogic', () => {
         })
 
         it('reports every use of a finding action', () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS], {
-                [FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS]: true,
-            })
+            setHealthFindingsFlag(true)
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             logic.actions.setExperiment({
                 ...experiment,
