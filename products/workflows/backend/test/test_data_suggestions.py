@@ -1,4 +1,5 @@
-from typing import Any
+import uuid
+from typing import Any, get_args
 
 from unittest.mock import MagicMock, patch
 
@@ -8,20 +9,23 @@ from parameterized import parameterized
 
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 
+from products.messaging.backend.facade.api import EmailTemplateContent
+from products.workflows.backend.facade.contracts import DataSuggestionsStatus, LifecycleStage, OutlineKind
+from products.workflows.backend.presentation.views.workflow_data_suggestions import (
+    DataSuggestionsStatus as DataSuggestionsStatusChoices,
+    DataSuggestionStage,
+    DataSuggestionStepKind,
+)
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
+from products.workflows.backend.services.data_suggestions.llm import strict_schema
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
     PlannedWorkflow,
     WorkflowIdea,
-    _strict_schema,
 )
-from products.workflows.backend.services.data_suggestions.ranking import (
-    LifecycleStage,
-    select_prompt_events,
-    suggestion_score,
-)
+from products.workflows.backend.services.data_suggestions.ranking import select_prompt_events, suggestion_score
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed, classify_event_stages
 
 IDEA = WorkflowIdea(
@@ -29,7 +33,6 @@ IDEA = WorkflowIdea(
     description="Nudge people to upgrade while their trial is running.",
     reason="trial_started fires every day.",
     trigger_event="trial_started",
-    stage="trial",
     step_outline=["email", "delay", "email"],
 )
 
@@ -108,6 +111,12 @@ class TestDataSuggestions(SimpleTestCase):
             ),
             ("step no path reaches", {}, plan(step("a"), step("b", type="delay", duration="1d"))),
             ("branch without paths", {}, plan(step("check", type="conditional_branch"))),
+            ("wait with no event", {}, plan(step("wait", type="wait_until_event"))),
+            (
+                "wait on an event the project does not send",
+                {},
+                plan(step("wait", type="wait_until_event", wait_event="made_up_event")),
+            ),
             (
                 "split that does not add up to 100",
                 {},
@@ -174,24 +183,19 @@ class TestDataSuggestions(SimpleTestCase):
         assert slack_inputs["text"]["value"] == "Trial user needs help"
 
     def test_plan_schema_only_offers_connected_channels(self) -> None:
-        schema = _strict_schema(PlannedWorkflow, frozenset({"sms", "push"}))
+        schema = strict_schema(PlannedWorkflow, frozenset({"sms", "push"}))
         step_types = schema["$defs"]["PlannedStep"]["properties"]["type"]["enum"]
         assert "email" in step_types
         assert "sms" not in step_types
         assert "push" not in step_types
         assert schema["$defs"]["PlannedStep"]["additionalProperties"] is False
 
-    def test_build_workflow_leaves_a_wait_on_an_unknown_event_blank(self) -> None:
-        built = build_workflow(
-            IDEA,
-            plan(step("wait", type="wait_until_event", wait_event="made_up_event", wait_event_next=None)),
-            context(),
-        )
-        assert built is not None
-        assert built.workflow["actions"][1]["config"]["events"] == []
-
     def test_build_workflow_reuses_a_saved_template(self) -> None:
-        saved = {"subject": "Saved subject", "html": "<p>saved</p>", "text": "saved", "design": {"body": {}}}
+        saved = EmailTemplateContent(
+            id=uuid.uuid4(),
+            name="Trial welcome",
+            email={"subject": "Saved subject", "html": "<p>saved</p>", "text": "saved", "design": {"body": {}}},
+        )
         built = build_workflow(IDEA, plan(step(email_template_id="tpl-1")), context(email_templates={"tpl-1": saved}))
         assert built is not None
         assert built.uses_saved_template
@@ -204,7 +208,11 @@ class TestDataSuggestions(SimpleTestCase):
             IDEA, plan(step("first", next="second"), step("second", email_subject="Second")), context()
         )
         assert built is not None
-        assert built.step_types == ("email", "delay", "email")
+        assert [action["type"] for action in built.workflow["actions"][1:4]] == [
+            "function_email",
+            "delay",
+            "function_email",
+        ]
         assert built.workflow["actions"][2]["config"] == {"delay_duration": "1d"}
         assert edges(built)[1:3] == [
             ("action_0_email", "action_1_delay", "continue", None),
@@ -251,7 +259,17 @@ class TestDataSuggestions(SimpleTestCase):
     def test_build_workflow_cleans_model_copy(self, _name: str, written: str, expected: str) -> None:
         built = build_workflow(IDEA.model_copy(update={"name": written}), plan(step()), context())
         assert built is not None
-        assert built.name == expected
+        assert built.workflow["name"] == expected
+
+    @parameterized.expand(
+        [
+            ("stage", DataSuggestionStage, LifecycleStage),
+            ("step kind", DataSuggestionStepKind, OutlineKind),
+            ("status", DataSuggestionsStatusChoices, DataSuggestionsStatus),
+        ]
+    )
+    def test_api_choices_match_the_values_the_service_returns(self, _name: str, choices: Any, literal: Any) -> None:
+        assert set(choices.values) == set(get_args(literal))
 
     def test_select_prompt_events_keeps_quiet_lifecycle_events_and_drops_noise(self) -> None:
         counts = {"query executed": 9000, "page scrolled": 5000, "user_signed_up": 40, "rare_click": 2}

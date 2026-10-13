@@ -637,6 +637,37 @@ class EmailDesignRenderFailed(Exception):
     pass
 
 
+# pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
+LifecycleStage = Literal["signup", "onboarding", "trial", "purchase", "churn_risk", "failure", "support", "other"]
+# The step chips a suggestion card shows.
+OutlineKind = Literal["email", "sms", "push", "slack", "webhook", "delay", "wait_until", "branch", "split", "action"]
+DataSuggestionsStatus = Literal["ready", "ai_not_approved", "unavailable"]
+
+
+@frozen
+class DataSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    trigger_event: str
+    weekly_count: int
+    stage: LifecycleStage
+    step_outline: tuple[OutlineKind, ...]
+
+
+@frozen
+class DataSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[DataSuggestion, ...]
+
+
+@frozen
+class BuiltSuggestion:
+    workflow: dict[str, Any]
+    uses_saved_template: bool
+
+
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
 

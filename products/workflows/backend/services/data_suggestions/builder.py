@@ -6,6 +6,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.facade.api import EmailTemplateContent
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
@@ -15,9 +16,9 @@ from products.workflows.backend.services.data_suggestions.planner import (
     WorkflowIdea,
 )
 
-# Liquid and Hog tags in model-written copy would render against the recipient's person data.
 logger = structlog.get_logger(__name__)
 
+# Liquid and Hog tags in model-written copy would render against the recipient's person data.
 _TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{[^{}]*\}", re.DOTALL)
 _EXIT_ID = "exit_node"
 _DEFAULT_MAX_WAIT = "3d"
@@ -35,18 +36,13 @@ class BuildContext:
     allowed_events: frozenset[str]
     step_template_ids: frozenset[str]
     channels: frozenset[Channel]
-    email_templates: dict[str, dict]
+    email_templates: dict[str, EmailTemplateContent]
     sender: EmailSender | None
     slack_integration_id: int | None
 
 
 @frozen
 class BuiltWorkflow:
-    name: str
-    description: str
-    reason: str
-    trigger_event: str
-    step_types: tuple[str, ...]
     uses_saved_template: bool
     workflow: dict[str, Any]
 
@@ -119,16 +115,10 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
         {"id": _EXIT_ID, "name": "Exit", "description": "", "type": "exit", "config": {"reason": "Default exit"}}
     )
 
-    name = clean_copy(idea.name)[:50]
     return BuiltWorkflow(
-        name=name,
-        description=clean_copy(idea.description),
-        reason=clean_copy(idea.reason),
-        trigger_event=idea.trigger_event,
-        step_types=tuple(step.type for step in steps),
         uses_saved_template=uses_saved_template,
         workflow={
-            "name": name,
+            "name": clean_copy(idea.name)[:50],
             "description": clean_copy(idea.description),
             "trigger": trigger_config,
             "actions": actions,
@@ -254,9 +244,14 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
         case "wait_until_time_window":
             return _action(step, action_id, "wait_until_time_window", {"timezone": None, "day": "any", "time": "any"})
         case "wait_until_event":
-            return _action(step, action_id, "wait_until_condition", _wait_config(step, context))
+            # A wait with no event never resolves and acts as a plain delay, and enabling does not catch it.
+            # An event the project does not send is a made-up name.
+            if not step.wait_event or step.wait_event not in context.allowed_events:
+                return None
+            return _action(step, action_id, "wait_until_condition", _wait_config(step))
         case "conditional_branch":
-            conditions = [{"filters": {}, "name": clean_copy(branch.label)[:60]} for branch in step.branches or []]
+            # Empty filters match everyone. Null filters make enabling fail until the team sets each condition.
+            conditions = [{"filters": None, "name": clean_copy(branch.label)[:60]} for branch in step.branches or []]
             return _action(step, action_id, "conditional_branch", {"conditions": conditions})
         case "random_split":
             branches = step.branches or []
@@ -279,32 +274,22 @@ def _slack_config(step: PlannedStep, context: BuildContext) -> dict[str, Any]:
     return {"template_id": "template-slack", "inputs": inputs}
 
 
-def _wait_config(step: PlannedStep, context: BuildContext) -> dict[str, Any]:
-    # An event the project does not send is a made-up name, so the wait is left for the team to set.
-    events = (
-        [
-            {
-                "name": step.wait_event,
-                "filters": {"events": [{"id": step.wait_event, "name": step.wait_event, "type": "events", "order": 0}]},
-            }
-        ]
-        if step.wait_event and step.wait_event in context.allowed_events
-        else []
-    )
+def _wait_config(step: PlannedStep) -> dict[str, Any]:
+    event = {"id": step.wait_event, "name": step.wait_event, "type": "events", "order": 0}
     return {
         "condition": {"filters": None},
-        "events": events,
+        "events": [{"name": step.wait_event, "filters": {"events": [event]}}],
         "max_wait_duration": step.duration or _DEFAULT_MAX_WAIT,
     }
 
 
 def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) -> dict[str, Any] | None:
     if step.email_template_id:
-        content = context.email_templates.get(step.email_template_id)
-        if content is None:
+        template = context.email_templates.get(step.email_template_id)
+        if template is None:
             return None
-        body = {key: content.get(key) for key in ("subject", "html", "text", "design")}
-        name = content.get("subject") or "Email"
+        body = {key: template.email.get(key) for key in ("subject", "html", "text", "design")}
+        name = template.email.get("subject") or "Email"
     else:
         if not (step.email_subject and step.email_heading and step.email_paragraphs):
             return None
