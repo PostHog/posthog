@@ -15,7 +15,7 @@ import type {
 } from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
-import { formatSeriesNames, seriesColor } from './metricsSeries'
+import { formatSeriesNamesParts, seriesColor } from './metricsSeries'
 import { type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 // The side panel next to the chart: per-series totals, or the raw emissions
@@ -28,6 +28,8 @@ export const SAMPLES_LIMIT = 50
 // One row of the Series tab: a series with its headline numbers.
 export interface MetricsSeriesRow {
     name: string
+    /** One `key=value` label per entry, for the expanded row. */
+    nameParts: string[]
     color: string
     latest: number
     total: number
@@ -254,13 +256,14 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
         seriesRows: [
             (s) => [s.queryResults, s.metricName],
             (queryResults: MetricsViewerSeries[], metricName: string): MetricsSeriesRow[] => {
-                const names = formatSeriesNames(queryResults, metricName)
+                const nameParts = formatSeriesNamesParts(queryResults, metricName)
                 return queryResults.map((series, index) => {
                     // Null points are gaps (unrepresentable buckets) — skip them
                     // rather than counting them as zero.
                     const values = series.points.map((point) => point.value).filter((value) => value !== null)
                     return {
-                        name: names[index],
+                        name: nameParts[index].join(', '),
+                        nameParts: nameParts[index],
                         color: seriesColor(index),
                         latest: values.length ? values[values.length - 1] : 0,
                         total: values.reduce((sum, value) => sum + value, 0),

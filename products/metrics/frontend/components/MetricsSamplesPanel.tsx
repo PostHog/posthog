@@ -1,6 +1,9 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCollapse, IconExpand } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -111,6 +114,7 @@ function SeriesTab(): JSX.Element {
     const { seriesRows } = useValues(metricsSamplesLogic)
     const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
     const { seriesRowExpanded } = useActions(metricsUsageTrackingLogic)
+    const [expandedNames, setExpandedNames] = useState<string[]>([])
 
     return (
         <LemonTable
@@ -119,26 +123,57 @@ function SeriesTab(): JSX.Element {
             size="small"
             rowKey={(row: MetricsSeriesRow) => row.name}
             emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
-            expandable={{
-                expandedRowRender: (row) => <div className="p-2 text-xs font-mono break-words">{row.name}</div>,
-                onRowExpand: () => seriesRowExpanded(),
-            }}
             columns={[
+                {
+                    key: 'toggle',
+                    width: 0,
+                    render: (_, row) => {
+                        const isExpanded = expandedNames.includes(row.name)
+                        return (
+                            <LemonButton
+                                noPadding
+                                active={isExpanded}
+                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                                title={isExpanded ? 'Show less' : 'Show full series name'}
+                                onClick={() => {
+                                    if (isExpanded) {
+                                        setExpandedNames(expandedNames.filter((name) => name !== row.name))
+                                    } else {
+                                        setExpandedNames([...expandedNames, row.name])
+                                        seriesRowExpanded()
+                                    }
+                                }}
+                                data-attr="metrics-series-row-toggle"
+                            />
+                        )
+                    },
+                },
                 {
                     title: 'Series',
                     key: 'series',
-                    render: (_, row) => (
-                        <span className="flex items-center gap-1.5">
-                            <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                // Dynamic per-series colour can't be a Tailwind class.
-                                style={{ backgroundColor: getColorVar(row.color) }}
-                            />
-                            <span className="truncate max-w-40" title={row.name}>
-                                {row.name}
+                    render: (_, row) => {
+                        const isExpanded = expandedNames.includes(row.name)
+                        return (
+                            <span className={clsx('flex gap-1.5', isExpanded ? 'items-start' : 'items-center')}>
+                                <span
+                                    className={clsx('w-2 h-2 rounded-full shrink-0', isExpanded && 'mt-1.5')}
+                                    // Dynamic per-series colour can't be a Tailwind class.
+                                    style={{ backgroundColor: getColorVar(row.color) }}
+                                />
+                                {isExpanded ? (
+                                    <span className="flex flex-col max-w-40 wrap-anywhere">
+                                        {row.nameParts.map((part, index) => (
+                                            <span key={index}>{part}</span>
+                                        ))}
+                                    </span>
+                                ) : (
+                                    <span className="truncate max-w-40" title={row.name}>
+                                        {row.name}
+                                    </span>
+                                )}
                             </span>
-                        </span>
-                    ),
+                        )
+                    },
                 },
                 {
                     title: 'Latest',
