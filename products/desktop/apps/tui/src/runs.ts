@@ -606,22 +606,21 @@ export class CloudRuns {
       this.context().then(
         ({ apiHost, teamId }) => {
           if (settled) return;
-          // An open watcher still streams the run's previous life, and stops when that stream ends, so it starts
-          // over from the resumed run. Without one, a new watch also serves the panes that lost theirs.
-          if (this.engine.isWatching(taskId, runId)) {
-            void this.engine.retry(taskId, runId);
-          } else {
-            opened = true;
-            // From the stream's start, not its latest entry: the sandbox asks for its plan's token once, as a live
-            // frame, and a stream opened after that frame never sees it. The engine dedupes the replayed entries.
-            this.engine.watch({
-              taskId,
-              runId,
-              apiHost,
-              teamId,
-              resumeFromEntryCount: 0,
-            });
-          }
+          // The wait holds a reference of its own, so a pane leaving the chat cannot close the stream under it.
+          // A fresh watch reads from the stream's start, not its latest entry: the sandbox asks for its plan's
+          // token once, as a live frame, and a stream opened after that frame never sees it. The engine dedupes
+          // the replayed entries. An open watcher still streams the run's previous life, and stops when that
+          // stream ends, so it starts over from the resumed run.
+          const open = this.engine.isWatching(taskId, runId);
+          opened = true;
+          this.engine.watch({
+            taskId,
+            runId,
+            apiHost,
+            teamId,
+            resumeFromEntryCount: 0,
+          });
+          if (open) void this.engine.retry(taskId, runId);
         },
         (error: unknown) =>
           finish(error instanceof Error ? error : new Error(String(error))),

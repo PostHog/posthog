@@ -116,13 +116,18 @@ describe("CloudRuns.agentRestarted", () => {
     },
   );
 
-  it("restarts a watcher still streaming the run's previous life, and leaves it open for the panes", async () => {
+  it("restarts a watcher still streaming the run's previous life, holding it with a reference of its own until the agent is back", async () => {
     const { engine, runs } = setup();
     engine.isWatching.mockReturnValue(true);
     const restarted = runs.agentRestarted("t1", "r1", since);
     await vi.waitFor(() =>
       expect(engine.retry).toHaveBeenCalledWith("t1", "r1"),
     );
+    // The pane that opened the watcher may leave before the sandbox asks for its token; the hold keeps the stream.
+    expect(engine.watch).toHaveBeenCalledWith(
+      expect.objectContaining({ ...base, resumeFromEntryCount: 0 }),
+    );
+    expect(engine.unwatch).not.toHaveBeenCalled();
 
     engine.emit(CloudTaskEvent.Update, {
       taskId: "t1",
@@ -132,8 +137,7 @@ describe("CloudRuns.agentRestarted", () => {
     });
 
     await restarted;
-    expect(engine.watch).not.toHaveBeenCalled();
-    expect(engine.unwatch).not.toHaveBeenCalled();
+    expect(engine.unwatch).toHaveBeenCalledTimes(1);
   });
 
   it("gives up when the run fails to come back", async () => {

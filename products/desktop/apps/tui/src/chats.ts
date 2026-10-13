@@ -335,7 +335,16 @@ export class PiChats {
       pendingUserMessage: prompt,
       ...pendingArtifacts(artifactIds),
     });
-    if (continued.latest_run) this.designate(continued.latest_run.id, harness);
+    if (continued.latest_run) {
+      this.designate(continued.latest_run.id, harness);
+      // The new sandbox asks for the plan's token the same way a first run's does.
+      if (harness !== "pi")
+        this.agentRestarted?.(
+          task.id,
+          continued.latest_run.id,
+          Date.now(),
+        ).catch(() => {});
+    }
     return continued;
   }
 }
