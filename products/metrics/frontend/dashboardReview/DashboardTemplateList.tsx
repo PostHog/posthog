@@ -21,7 +21,9 @@ const STATUS_OPTIONS: { value: ReviewStatusFilter; label: string }[] = [
 ]
 
 export function DashboardTemplateList(): JSX.Element {
-    const { templates, templatesLoading, statusFilter } = useValues(metricsDashboardReviewSceneLogic)
+    const { templates, templatesLoading, statusFilter, analysisStartedLoading } = useValues(
+        metricsDashboardReviewSceneLogic
+    )
     const { setStatusFilter, analyzeProject } = useActions(metricsDashboardReviewSceneLogic)
 
     return (
@@ -35,6 +37,7 @@ export function DashboardTemplateList(): JSX.Element {
                         type="secondary"
                         size="small"
                         onClick={analyzeProject}
+                        loading={analysisStartedLoading}
                         tooltip="Look for new groups of metrics in this project, and generate dashboards for them."
                         data-attr="metrics-dashboard-review-analyze"
                     >

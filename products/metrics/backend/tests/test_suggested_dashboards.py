@@ -85,15 +85,14 @@ class TestSuggestedDashboards(SimpleTestCase):
         assert match.is_strong is strong
 
     def test_build_tiles_drops_panels_without_data_and_fills_their_row(self) -> None:
-        built = build_tiles(
-            [
-                _panel("orders", "orders_total", x=0, w=4),
-                _panel("missing", "missing_total", x=4, w=4),
-                _panel("queue", "queue_depth", x=8, w=4),
-                _panel("latency", "request_duration_seconds", y=4, w=12, kind="MetricsHistogramQuery"),
-            ],
-            CATALOG,
-        )
+        panels = [
+            _panel("orders", "orders_total", x=0, w=4),
+            _panel("missing", "missing_total", x=4, w=4),
+            _panel("queue", "queue_depth", x=8, w=4),
+            _panel("latency", "request_duration_seconds", y=4, w=12, kind="MetricsHistogramQuery"),
+        ]
+        built = build_tiles(panels, CATALOG)
+        kept_in_place = build_tiles(panels, CATALOG, refill=False)
 
         assert built.dropped == ("missing",)
         insights = [tile for tile in built.tiles if isinstance(tile, NewInsightTile)]
@@ -104,6 +103,11 @@ class TestSuggestedDashboards(SimpleTestCase):
         ]
         assert insights[0].query["clauses"][0]["metricType"] == "sum"
         assert insights[2].query["metricType"] == "histogram"
+        assert [
+            (tile.name, tile.layout.x, tile.layout.w)
+            for tile in kept_in_place.tiles
+            if isinstance(tile, NewInsightTile)
+        ] == [("orders", 0, 4), ("queue", 8, 4), ("latency", 0, 12)]
 
     def test_build_tiles_keeps_the_columns_of_a_tile_beside_a_taller_one(self) -> None:
         built = build_tiles(
@@ -145,10 +149,16 @@ class TestSuggestedDashboards(SimpleTestCase):
                     tile_id=2, layout=TileLayout(x=6, y=0, w=6, h=4), name="Trend", query={"kind": "InsightVizNode"}
                 ),
                 DashboardTileSnapshot(tile_id=3, layout=TileLayout(x=0, y=4, w=12, h=1), body="## Notes"),
+                DashboardTileSnapshot(tile_id=4, layout=None, name="Added", query=metrics_query),
             ]
         )
 
-        assert [(panel.title, panel.text) for panel in panels] == [("Orders", None), ("", "## Notes")]
+        assert [(panel.title, panel.text) for panel in panels] == [
+            ("Orders", None),
+            ("", "## Notes"),
+            ("Added", None),
+        ]
+        assert (panels[2].layout.x, panels[2].layout.y) == (0, 5)
         assert panels[0].query is not None
         assert "metricType" not in panels[0].query["clauses"][0]
         assert "dateRange" not in panels[0].query

@@ -207,7 +207,6 @@ def _convert(drafts: Sequence[DraftPanel], team: Team, catalog: MetricCatalog) -
 
 def _store_panels(template: MetricsDashboardTemplate, record: GenerationRecord, converted: _Converted) -> None:
     template.panels = [panel.model_dump(mode="json") for panel in converted.panels]
-    template.metric_names = template_metric_names(converted.panels) or template.metric_names
     record.draft_panels = list(converted.accepted)
     record.dropped_panels = list(converted.dropped)
 
@@ -240,7 +239,7 @@ def draft_template(template_id: str) -> int:
     _store_panels(template, record, converted)
     record.attributes = attributes.keys
     record.attribute_values = attributes.values
-    _save_record(template, record, "name", "description", "panels", "metric_names")
+    _save_record(template, record, "name", "description", "panels")
     return len(converted.panels)
 
 
@@ -361,7 +360,6 @@ def check_preview(template_id: str, round_number: int, *, revise: bool) -> bool:
                 template,
                 record,
                 "panels",
-                "metric_names",
                 "preview_team_id",
                 "preview_dashboard_id",
                 "preview_unbuilt_keys",
@@ -387,7 +385,18 @@ def finish_generation(template_id: str, *, error: str | None = None) -> None:
         if error:
             # Nobody reviews a failed template, so its preview would stay in the project for good.
             drop_preview(template)
-        _save_record(template, record, "status", "preview_team_id", "preview_dashboard_id", "preview_unbuilt_keys")
+        else:
+            # The requested names stay during the rounds, so that a revision can use any of them.
+            template.metric_names = template_metric_names(template_panels(template.panels)) or template.metric_names
+        _save_record(
+            template,
+            record,
+            "status",
+            "metric_names",
+            "preview_team_id",
+            "preview_dashboard_id",
+            "preview_unbuilt_keys",
+        )
     _capture_generated(template, record)
 
 

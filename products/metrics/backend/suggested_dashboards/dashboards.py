@@ -95,7 +95,8 @@ def _fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
     return placed
 
 
-def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog) -> BuiltTiles:
+def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refill: bool = True) -> BuiltTiles:
+    """The tiles of the panels that the team can fill. With `refill`, the rows of dropped panels spread out again."""
     kept: list[tuple[TemplatePanel, dict[str, Any] | None]] = []
     dropped: list[TemplatePanel] = []
     for panel in panels:
@@ -111,7 +112,7 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog) -> Buil
             dropped.append(panel)
         else:
             kept.append((panel, query))
-    layouts = _fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped else {}
+    layouts = _fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped and refill else {}
     tiles: list[NewInsightTile | NewTextTile] = []
     for index, (panel, query) in enumerate(kept):
         layout = layouts.get(index, panel.layout).clamped(
@@ -139,9 +140,10 @@ def create_dashboard(
     catalog: MetricCatalog,
     idempotency_key: str,
     unlisted: bool = False,
+    refill: bool = True,
 ) -> tuple[CreatedDashboard | None, BuiltTiles]:
     """Create the dashboard as the user. Returns no dashboard when no panel has data in this team."""
-    built = build_tiles(panels, catalog)
+    built = build_tiles(panels, catalog, refill=refill)
     if not any(isinstance(tile, NewInsightTile) for tile in built.tiles):
         return None, built
     created = create_dashboard_with_tiles(
@@ -161,8 +163,14 @@ def create_dashboard(
 def panels_from_tiles(snapshots: Sequence[DashboardTileSnapshot]) -> list[TemplatePanel]:
     """Template panels from the tiles of a dashboard that a person or PostHog AI changed. Unknown tiles are left out."""
     panels: list[TemplatePanel] = []
+    # A tile that PostHog AI adds has no saved box yet. It goes below the others, two to a row.
+    bottom = max((snapshot.layout.y + snapshot.layout.h for snapshot in snapshots if snapshot.layout), default=0)
+    unplaced = 0
     for index, snapshot in enumerate(snapshots):
-        layout = snapshot.layout or TileLayout(x=0, y=index * 4, w=6, h=4)
+        layout = snapshot.layout
+        if layout is None:
+            layout = TileLayout(x=(unplaced % 2) * 6, y=bottom + (unplaced // 2) * 4, w=6, h=4)
+            unplaced += 1
         box = GridLayout(x=layout.x, y=layout.y, w=layout.w, h=layout.h)
         if snapshot.query is not None:
             if snapshot.query.get("kind") not in ("MetricsQuery", "MetricsHistogramQuery"):

@@ -160,8 +160,11 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         template = _template(
             "generated-queue", "pending_review", *QUEUE_METRICS[:2], "unknown_total", source="generated"
         )
+        # One row of three. The preview must not widen the others into the gap of P2.
+        for index, panel in enumerate(template.panels):
+            panel["layout"].update(x=4 * index, w=4)
         template.source_team_id = self.team.id
-        template.save(update_fields=["source_team_id"])
+        template.save(update_fields=["source_team_id", "panels"])
 
         preview = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/preview/")
         preview_id = preview.json()["dashboard_id"]
@@ -174,7 +177,12 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert approved.status_code == status.HTTP_200_OK
         assert approved.json()["status"] == "approved"
         assert "Queue depth now" in approved.json()["panel_titles"]
-        assert "P2" in approved.json()["panel_titles"]
+        template.refresh_from_db()
+        assert [(panel["title"], panel["layout"]["x"], panel["layout"]["y"]) for panel in template.panels] == [
+            ("Queue depth now", 0, 0),
+            ("P1", 4, 0),
+            ("P2", 8, 0),
+        ]
         assert Dashboard.objects_including_soft_deleted.get(id=preview_id).deleted
         self.start_analysis.assert_called_once_with(self.team.id, force=True)
 
@@ -189,7 +197,8 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
     ) -> None:
         template = _template("generated-queue", "generating", *metrics, source="generated")
         template.source_team_id = self.team.id
-        template.save(update_fields=["source_team_id"])
+        template.metric_names = [*metrics, "queue_requested_total"]
+        template.save(update_fields=["source_team_id", "metric_names"])
 
         with patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture") as background:
             finish_generation(str(template.id))
@@ -202,14 +211,24 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert event["groups"]["project"] == str(self.team.uuid)
         template.refresh_from_db()
         assert template.status == expected_status
+        # A finished template lists only the metrics of its panels. A failed one keeps the request.
+        assert template.metric_names == (metrics or ["queue_requested_total"])
 
-    @parameterized.expand([("curated", "approved", "curated"), ("still_generating", "generating", "generated")])
-    def test_a_template_that_cannot_be_rejected(self, _name: str, template_status: str, source: str) -> None:
+    @parameterized.expand(
+        [
+            ("rejecting_a_curated_one", "reject", "approved", "curated"),
+            ("rejecting_one_still_generating", "reject", "generating", "generated"),
+            ("approving_a_withdrawn_curated_one", "approve", "rejected", "curated"),
+        ]
+    )
+    def test_a_template_that_cannot_be_reviewed(
+        self, _name: str, action: str, template_status: str, source: str
+    ) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
-        template = _template(f"reject-{_name}", template_status, "orders_total", source=source)
+        template = _template(f"review-{_name}", template_status, "orders_total", source=source)
 
-        response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/reject/")
+        response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/{action}/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         template.refresh_from_db()

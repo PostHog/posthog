@@ -66,6 +66,8 @@ def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) 
         catalog=catalog,
         idempotency_key=f"metrics-template-review:{template.id}:{uuid.uuid4()}",
         unlisted=True,
+        # The panels keep their boxes, so the ones that the preview leaves out can go back in place on approve.
+        refill=False,
     )
     if created is None:
         raise NoPanelsWithData("This project sends none of the metrics of this dashboard.")
@@ -83,16 +85,21 @@ def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) 
     return created.id
 
 
+def _overlaps(a: GridLayout, b: GridLayout) -> bool:
+    return a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
+
+
 def _restore_unbuilt(
     edited: list[TemplatePanel], original: list[TemplatePanel], unbuilt: set[str]
 ) -> list[TemplatePanel]:
-    """The edited panels, with the panels that the preview could not show added again below them.
+    """The edited panels, with the panels that the preview could not show added again.
 
     A reviewer can remove a panel from the preview, but cannot see or remove a panel that the preview left
     out. Such a panel stays in the template.
     """
     missing = [panel for panel in original if panel.key in unbuilt]
-    if missing:
+    # The preview kept the gaps of the missing panels. Unless the reviewer filled them, they go back in place.
+    if any(_overlaps(panel.layout, other.layout) for panel in missing for other in edited):
         bottom = max((panel.layout.y + panel.layout.h for panel in edited), default=0)
         shift = bottom - min(panel.layout.y for panel in missing)
         missing = [
@@ -111,6 +118,8 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
     """Approve the template. Changes made on its preview dashboard, by hand or with PostHog AI, become the template."""
     with transaction.atomic():
         locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
+        if locked.source == MetricsDashboardTemplate.Source.CURATED:
+            raise TemplateNotReviewable("A curated dashboard comes from the code. Add its file to bring it back.")
         if locked.status not in (
             MetricsDashboardTemplate.Status.PENDING_REVIEW,
             MetricsDashboardTemplate.Status.REJECTED,
