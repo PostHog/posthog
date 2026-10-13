@@ -5,6 +5,8 @@ from django.conf import settings
 
 from posthog.run_mode import run_mode
 
+CONSUMER_GROUP_AI_EVENTS_WS = "clickhouse_ai_events_ws"
+
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
