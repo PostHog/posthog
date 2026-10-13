@@ -81,9 +81,13 @@ const WAREHOUSE_ONLY_FIELDS = [
     'data_warehouse_join_key',
 ] as const
 
-// Fields that only the events node defines. A series picked from the API can carry `limit` or
-// `orderBy`, and every other node schema forbids them, so they cannot survive a switch away from an event.
+// Fields only an events node defines. The actions and data warehouse node schemas forbid unknown
+// keys, so a query fails when one of these is left on a series that stopped being an event.
 const EVENTS_ONLY_FIELDS = ['event', 'limit', 'orderBy'] as const
+
+// A multiplier and a revenue currency describe one math property, so they cannot carry over to
+// another property. Otherwise the query would scale and currency-convert the wrong value.
+const PROPERTY_MATH_SETTINGS = ['math_multiplier', 'math_property_revenue_currency'] as const
 
 // math_property names a column or property on the entity the series aggregates, so it cannot
 // survive an entity switch. Property-value math (sum, avg, percentiles) is dropped with it —
@@ -94,6 +98,9 @@ function dropStaleMath(node: Record<string, any>): void {
     }
     node.math_property = undefined
     node.math_property_type = undefined
+    PROPERTY_MATH_SETTINGS.forEach((field) => {
+        node[field] = undefined
+    })
 }
 
 function toLocalSeries(series: SeriesNode[]): LocalSeries[] {
@@ -383,13 +390,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     if (typeof custom_name !== 'undefined') {
                         next.custom_name = custom_name
                     }
-                    if (kind !== NodeKind.EventsNode) {
+
+                    if (isWarehouseSeriesNodeKind(kind)) {
                         EVENTS_ONLY_FIELDS.forEach((field) => {
                             delete next[field]
                         })
-                    }
-
-                    if (isWarehouseSeriesNodeKind(kind)) {
                         applySeriesKey(next, kind, typeof key === 'undefined' ? seriesNodeKey(current) : key)
                         dataWarehousePopoverFields.forEach(({ key: fieldKey }) => {
                             const value = extra[fieldKey]
@@ -442,6 +447,10 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
 
                     if (kind === NodeKind.EventsNode) {
                         delete next.id
+                    } else {
+                        EVENTS_ONLY_FIELDS.forEach((field) => {
+                            delete next[field]
+                        })
                     }
                     if (previousKind === NodeKind.GroupNode) {
                         delete next.nodes
@@ -458,7 +467,15 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 replaceAt(index, (node) => ({ ...node, properties }) as SeriesNode)
             },
             updateSeriesMath: ({ index, math }) => {
-                replaceAt(index, (node) => ({ ...node, ...math }) as SeriesNode)
+                replaceAt(index, (node) => {
+                    const next: Record<string, any> = { ...node, ...math }
+                    if (next.math_property !== node.math_property) {
+                        PROPERTY_MATH_SETTINGS.forEach((field) => {
+                            next[field] = undefined
+                        })
+                    }
+                    return next as SeriesNode
+                })
             },
             updateSeriesOptional: ({ index, optionalInFunnel }) => {
                 replaceAt(index, (node) => ({ ...node, optionalInFunnel }) as SeriesNode)
