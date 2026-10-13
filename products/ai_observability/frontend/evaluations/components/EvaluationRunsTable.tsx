@@ -13,7 +13,7 @@ import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimest
 import { EVALUATION_RUNS_QUERY_LIMIT, evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
+import { EvaluationRun, EvaluationRunsFilter, SentimentEvaluationRunsFilter } from '../types'
 import { EvaluationRunsFilters } from './EvaluationRunsFilters'
 
 const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: string }[] = [
@@ -63,9 +63,10 @@ export function EvaluationRunsTable(): JSX.Element {
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
 
     // Pass and fail counts come from the stats query, so the total matches the header over the whole range.
-    const matchingRunsTotal: number | undefined = runsSummary
-        ? { all: runsSummary.total, pass: runsSummary.successful, fail: runsSummary.failed }[evaluationRunsFilter]
-        : undefined
+    const filterTotals: Partial<Record<EvaluationRunsFilter, number>> = runsSummary
+        ? { all: runsSummary.total, pass: runsSummary.successful, fail: runsSummary.failed }
+        : {}
+    const matchingRunsTotal = filterTotals[evaluationRunsFilter]
     // A filter is hiding rows when the evaluation has runs but none match the current filter.
     const filterHidesRuns = evaluationRunsFilter !== 'all' && filteredEvaluationRuns.length === 0
     // LemonTable drops its empty state as soon as it has rows, so a failed refresh over rows that
