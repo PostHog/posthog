@@ -172,14 +172,15 @@ tools:
 
 
             Only event series are checked. The `status` is `unsupported` for a SQL insight, for a series built on an
-            action or a data warehouse table, and for an insight that still stores legacy `filters`. It is `no_events`
-            when no event matches the insight.
+            action or a data warehouse table, for an insight that still stores legacy `filters`, and when a property
+            of the project is hidden from you. It is `no_events` when no event matches the insight.
 
 
             Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix`
             when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to
             true on the query with `insight-update`. A large insight is checked on a sample: when `sample_rate` is below
-            1, `events_checked` and the `events` of each check count the sample only.
+            1, `events_checked` and the `events` of each check count the sample only. The internal users check reads a
+            smaller sample of its own, so its `events` is an estimate on the same scale.
         agent_note: >
             When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its
             share of the events, and offer the fix. Do not change the insight or the project's filter settings before
@@ -452,8 +453,9 @@ tools:
 
 
             Pass the `query` in the shape an insight stores it. Only event series of a trends, funnel, stickiness, or
-            lifecycle query are checked. The `status` is `unsupported` for a SQL query and for a series built on an
-            action or a data warehouse table, and `no_events` when no event matches the query.
+            lifecycle query are checked. The `status` is `unsupported` for a SQL query, for a series built on an
+            action or a data warehouse table, and when a property of the project is hidden from you. It is `no_events`
+            when no event matches the query.
 
 
             ```json
@@ -467,7 +469,8 @@ tools:
             Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix`
             when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to
             true on the query. A large query is checked on a sample: when `sample_rate` is below 1, `events_checked` and
-            the `events` of each check count the sample only.
+            the `events` of each check count the sample only. The internal users check reads a smaller sample of its
+            own, so its `events` is an estimate on the same scale.
         agent_note: >
             When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its
             share of the events, and offer the fix. Do not change the query or the project's filter settings before the
