@@ -1,3 +1,5 @@
+import type { ReportPriority } from '@/model/types'
+
 import { ApiError, apiJson, projectPath } from './client'
 
 // Shapes follow `products/signals/backend/serializers.py` and `report_read_state.py`, keeping the fields the app reads.
@@ -228,6 +230,27 @@ export function putReportReviewers(reportId: string, content: SuggestedReviewerW
     return apiJson<ReportArtefactApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/reviewers/`), {
         method: 'PUT',
         json: { content },
+    })
+}
+
+/** `SignalReportArtefactWriteResponseSerializer`: the stored row, without the actor fields of the read shape. */
+export interface ReportArtefactWriteApi {
+    id: string
+    report_id: string
+    type: string
+    content: unknown
+    created_at: string
+    task_id: string | null
+}
+
+/** `PriorityAssessment` requires a non-empty explanation. */
+export const MANUAL_PRIORITY_EXPLANATION = 'Priority set by hand from the PostHog mobile app'
+
+/** `POST signals/reports/{id}/artefacts/` with a `priority_judgment`: the newest one is the report's priority. */
+export function postPriorityJudgment(reportId: string, priority: ReportPriority): Promise<ReportArtefactWriteApi> {
+    return apiJson<ReportArtefactWriteApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/artefacts/`), {
+        method: 'POST',
+        json: { artefact_type: 'priority_judgment', content: { priority, explanation: MANUAL_PRIORITY_EXPLANATION } },
     })
 }
 

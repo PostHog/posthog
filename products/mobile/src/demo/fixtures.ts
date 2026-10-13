@@ -11,6 +11,7 @@ import type {
     MetricView,
     Person,
     ReportChartView,
+    ReportOwner,
     ReportView,
     TaskRunView,
     WorkView,
@@ -291,7 +292,29 @@ function chartsFor(briefing: DemoBriefing, anchor: Date): ReportChartView[] {
     })
 }
 
+/** Fact rows the report screen shows in its byline and chips, so they stay out of the facts list. */
+const META_FACT_KEYS: ReadonlySet<string> = new Set(['Source', 'Since', 'Owner'])
+
+function factRow(briefing: DemoBriefing, key: string): DemoBriefing['facts'][number] | undefined {
+    return briefing.facts.find(([rowKey]) => rowKey === key)
+}
+
+// Since rows carry a detail after " · " ("Mon 7:15 AM · peak 310 an hour"); the byline keeps only the moment.
+function sinceFor(briefing: DemoBriefing): string | undefined {
+    const title = factRow(briefing, 'Since')?.[1]
+    return title ? (title.split(' · ')[0] ?? title) : undefined
+}
+
+function ownerFor(briefing: DemoBriefing): ReportOwner {
+    const row = factRow(briefing, 'Owner')
+    if (!row || row[3] === 'alert') {
+        return { kind: 'none' }
+    }
+    return { kind: row[3] === 'agent' ? 'agent' : 'user', name: row[1] }
+}
+
 function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
+    const since = sinceFor(briefing)
     const task = taskFor(briefing)
     return {
         id: briefing.id,
@@ -302,13 +325,18 @@ function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
         headline: { number: briefing.headNum, rest: briefing.headRest },
         lede: briefing.lede,
         evidence: evidenceFor(briefing),
-        facts: briefing.facts.map(([key, title, sub, tone]) => ({ key, title, tone, ...(sub ? { sub } : {}) })),
+        ...(since ? { since } : {}),
+        owner: ownerFor(briefing),
+        facts: briefing.facts
+            .filter(([key]) => !META_FACT_KEYS.has(key))
+            .map(([key, title, sub, tone]) => ({ key, title, tone, ...(sub ? { sub } : {}) })),
         observation: observationFor(briefing, anchor),
         supportingMetrics: supportingFor(briefing, anchor),
         charts: chartsFor(briefing, anchor),
         activity: activityFor(briefing, anchor),
         work: workFor(briefing),
         ...(task ? { task } : {}),
+        ...(briefing.priority ? { priority: briefing.priority } : {}),
         reviewers: [],
         prompt: briefing.prompt ?? briefing.title,
         contextNote: briefing.contextNote,

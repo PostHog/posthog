@@ -59,6 +59,8 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `ObservationCard` | `features/report/metrics/ObservationCard.tsx` | White card: "Observation" eyebrow, title, caption, 28pt mono value, chart, then the window and filter count with Open insight |
 | `ImpactMetrics` | `features/report/metrics/ImpactMetrics.tsx` | "Impact" eyebrow over a two-column grid of tiles: 20pt mono value, title, and the window or measured time. A tile with a link opens the insight |
 | `ReportCharts` | `features/report/metrics/ReportCharts.tsx` | "Charts" eyebrow over one card per chart: title, caption, the chart when the app can draw it, and Open insight |
+| `ReportContextMenu` | `features/inbox/ReportContextMenu.tsx` | Inbox row long-press menu on `FloatingCard`; nav menu width; opens 8pt below the row, or above it when the bottom bar is in the way (`contextMenuPlacement.ts`) |
+| `ReportMeta` | `features/report/ReportMeta.tsx` | Byline under the lede (source glyph and label · "Since …"), then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
 | `TimelineItem`, `RichText` | `ui/` | Activity entry with node, connector, `**bold**` text, via chip and time |
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
 | `BlurEdge` | `ui/BlurEdge.tsx` | Masked blur of the content under floating top chrome |
@@ -72,16 +74,21 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 - **Inbox**: header with Refresh and More, rows, pull to refresh, floating nav pill (Home selected,
   Chat, Products) and the Chat button. Chat in the pill opens the chat sheet, like the button.
   Products opens the project's product library in the web app, and is dimmed in demo mode.
-  Loading, empty and error states are separate screens.
-- **Nav menu**: project name, Inbox (selected), Settings, Sign out.
-- **Report**: top chrome, headline, lede, evidence (trace, quotes, replay), facts, the observation card,
-  impact tiles, charts, activity, and the action bar.
+  A long press on a row (or the screen reader's "Show report actions") opens a menu with Reassign,
+  Snooze, Chat and, for an unread report, Mark as read; each does what the report's action pill
+  does, without leaving the inbox. Loading, empty and error states are separate screens.
+- **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
+- **Report**: top chrome, headline, lede, the byline with the Owner and Priority chips (`ReportMeta`),
+  evidence (trace, quotes, replay), facts, the observation card, impact tiles, charts,
+  activity, and the action bar.
 - **Action bar** (`actionBarStateFor`): `idle` (Hand off to PostHog + chevron),
   `handed` (dark "PostHog is on it" card), `decision` (NEEDS YOUR DECISION card, collapsible),
   `decided` (dark card with the answer and Undo), `pr_ready` (READY FOR REVIEW card with one
   full-width Review PR button), `resolved` (action pill only). The Reassign / Snooze / Chat pill
   shows in every state.
-- **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card,
+- **Overlays**: hand-off sheet, snooze sheet (with a custom time picker), Assignee card, Priority sheet (P0 to P4),
+  Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover and a simple thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
-- **Sign-in** and **Settings**: minimal, built from the same tokens.
+- **Sign-in** and **Settings**: minimal, built from the same tokens. Settings keeps its Back chip on blurred floating chrome; the
+  large title scrolls up into the chrome beside the chip, shrinking to section-header size (`SettingsChrome`, `collapsingTitle`).

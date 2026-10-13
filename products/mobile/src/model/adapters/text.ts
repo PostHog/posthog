@@ -40,11 +40,6 @@ export function displayTitle(title: string | null | undefined, fallback: string)
     return description || trimmed || fallback
 }
 
-export function humanize(value: string): string {
-    const words = value.replace(/[-_]+/g, ' ').trim().toLowerCase()
-    return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
 const AMOUNT = String.raw`[+\-−]?[$€£]?\d[\d,]*(?:\.\d+)?(?:[kKmMbB]|ms|s|%|x)?`
 
 // The token must end at a space, so "5xx errors" and "v1.2" are not numbers.

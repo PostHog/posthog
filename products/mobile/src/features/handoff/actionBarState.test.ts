@@ -15,6 +15,7 @@ function report(work: WorkView, task?: TaskRunView): ReportView {
         headline: { rest: 'Headline' },
         lede: '',
         evidence: [],
+        owner: { kind: 'none' },
         facts: [],
         supportingMetrics: [],
         charts: [],

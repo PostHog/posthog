@@ -1,9 +1,13 @@
 export type AnalyticsEvent =
     | 'mobile_signed_in'
     | 'mobile_inbox_opened'
+    | 'mobile_inbox_report_menu_opened'
+    | 'mobile_inbox_report_menu_action'
     | 'mobile_report_opened'
     | 'mobile_report_chart_scrubbed'
     | 'mobile_report_insight_opened'
+    | 'mobile_report_chip_pressed'
+    | 'mobile_report_priority_changed'
     | 'mobile_report_handed_off'
     | 'mobile_decision_answered'
     | 'mobile_report_snoozed'
@@ -11,6 +15,8 @@ export type AnalyticsEvent =
     | 'mobile_report_marked_read'
     | 'mobile_chat_sent'
     | 'mobile_products_opened'
+    | 'mobile_project_picker_opened'
+    | 'mobile_project_switched'
     | 'mobile_push_opened'
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>

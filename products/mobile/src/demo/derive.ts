@@ -1,17 +1,16 @@
-import type { Fact, InboxItem, ReportView } from '@/model/types'
+import type { InboxItem, ReportView } from '@/model/types'
 
 import { DEMO_AGENT, demoDecisionMeta } from './briefings'
-import type { DemoMutableState } from './demoMode'
+import type { DemoLogEntry, DemoMutableState } from './demoMode'
 import { DEMO_PEOPLE, type DemoFixture, type DemoFixtures } from './fixtures'
 
-export type DemoView = Pick<DemoMutableState, 'handed' | 'decisions' | 'snoozed' | 'read' | 'reviewers' | 'log'>
+export type DemoView = Pick<
+    DemoMutableState,
+    'handed' | 'decisions' | 'snoozed' | 'read' | 'reviewers' | 'priorities' | 'log'
+>
 
-function ownerAfterHandOff(facts: Fact[]): Fact[] {
-    return facts.map((fact) =>
-        fact.key === 'Owner'
-            ? { key: fact.key, title: DEMO_AGENT.name, sub: 'Picked up just now', tone: 'agent' }
-            : fact
-    )
+function lastIndexOfTag(log: DemoLogEntry[], tag: DemoLogEntry['tag']): number {
+    return log.map((entry) => entry.tag).lastIndexOf(tag)
 }
 
 export function deriveDemoReport(view: DemoView, fixture: DemoFixture): ReportView {
@@ -19,16 +18,15 @@ export function deriveDemoReport(view: DemoView, fixture: DemoFixture): ReportVi
     const id = base.id
     const handedAt = view.handed[id]
     const reviewerIds = view.reviewers[id]
+    const log = view.log[id] ?? []
+    const priority = view.priorities[id] ?? base.priority
     const report: ReportView = {
         ...base,
-        activity: [...base.activity, ...(view.log[id] ?? []).map(({ tag: _tag, ...event }) => event)],
+        ...(priority ? { priority } : {}),
+        activity: [...base.activity, ...log.map(({ tag: _tag, ...event }) => event)],
     }
-    if (reviewerIds) {
-        report.reviewers = DEMO_PEOPLE.filter((person) => reviewerIds.includes(person.uuid)).map(
-            ({ uuid, name, email }) => ({ uuid, name, email })
-        )
-    }
-    if (handedAt && base.work.state !== 'done') {
+    const handed = Boolean(handedAt) && base.work.state !== 'done'
+    if (handed) {
         report.task = {
             taskId: `${id}-handoff-task`,
             runId: `${id}-handoff-run`,
@@ -36,7 +34,17 @@ export function deriveDemoReport(view: DemoView, fixture: DemoFixture): ReportVi
             stage: fixture.briefing.handedStage,
         }
         report.work = { state: 'working', assignee: { kind: 'task', name: DEMO_AGENT.name } }
-        report.facts = ownerAfterHandOff(base.facts)
+        report.owner = { kind: 'agent', name: DEMO_AGENT.name }
+    }
+    if (reviewerIds) {
+        report.reviewers = DEMO_PEOPLE.filter((person) => reviewerIds.includes(person.uuid)).map(
+            ({ uuid, name, email }) => ({ uuid, name, email })
+        )
+        // Whichever of hand-off and reassign came last owns the report, as the log records them in order.
+        if (!handed || lastIndexOfTag(log, 'reviewers') > lastIndexOfTag(log, 'handoff')) {
+            const first = DEMO_PEOPLE.find((person) => person.uuid === reviewerIds[0])
+            report.owner = first ? { kind: 'user', name: first.name } : { kind: 'none' }
+        }
     }
     return report
 }

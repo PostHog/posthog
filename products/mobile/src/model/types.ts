@@ -241,6 +241,9 @@ export type ReportStatus =
 
 export type ReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
 
+/** Who owns the report now. `agent` covers PostHog's own tasks and external agents such as Claude Code. */
+export type ReportOwner = { kind: 'none' } | { kind: 'user' | 'agent'; name: string }
+
 export interface ReportView {
     id: string
     status?: ReportStatus
@@ -256,6 +259,10 @@ export interface ReportView {
     headline: Headline
     lede: string
     evidence: EvidenceBlock[]
+    /** When the report started, as display text ("Mon 3:05 PM", "Today 9:04 AM", "Just now"). */
+    since?: string
+    owner: ReportOwner
+    /** The facts that are not shown elsewhere on the screen, such as Impact. */
     facts: Fact[]
     observation?: MetricView
     supportingMetrics: MetricView[]
@@ -306,6 +313,7 @@ export interface ReportActionsPending {
     answer: boolean
     snooze: boolean
     reviewers: boolean
+    priority: boolean
 }
 
 export interface ReportActions {
@@ -315,6 +323,7 @@ export interface ReportActions {
     snooze: (choice: SnoozeChoice) => Promise<void>
     /** Replaces the reviewers with the given user uuids. An empty list clears them. */
     setReviewers: (uuids: string[]) => Promise<void>
+    setPriority: (priority: ReportPriority) => Promise<void>
     markRead: () => Promise<void>
     pending: ReportActionsPending
 }

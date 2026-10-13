@@ -1,6 +1,9 @@
-import type { ComponentType, ReactElement } from 'react'
+import { type ComponentType, type ReactElement, useEffect, useState } from 'react'
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 
+import { useAuthStore } from '@/auth/authStore'
+import { ProjectSheet } from '@/features/projects/ProjectSheet'
+import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
@@ -64,38 +67,66 @@ export function NavMenu({
     const { width: windowWidth } = useWindowDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
     const width = Math.round(windowWidth * 0.75) + 22
+    const [pickingProject, setPickingProject] = useState(false)
+
+    useEffect(() => {
+        if (!visible) {
+            setPickingProject(false)
+        }
+    }, [visible])
+
+    const openPicker = (): void => {
+        track('mobile_project_picker_opened')
+        setPickingProject(true)
+    }
+    const switchProject = (projectId: number): void => {
+        useAuthStore.getState().selectProject(projectId)
+        onClose()
+    }
+
     return (
-        <FloatingCard
-            visible={visible}
-            onClose={onClose}
-            transformOrigin="top right"
-            accessibilityLabel="Menu"
-            testID="nav-menu"
-            style={[styles.card, { top: topOffset(insets, 60), width }]}
-        >
-            <View style={styles.header}>
-                <Text style={styles.project} numberOfLines={1}>
-                    {projectName}
-                </Text>
-                <ChevronUpDownIcon size={14} color={colors.tertiary} />
-            </View>
-            <View style={styles.divider} />
-            {confirmingSignOut ? (
-                <SignOutConfirm
-                    pending={signOutPending}
-                    onCancel={onCancelSignOut}
-                    onConfirm={onConfirmSignOut}
-                    style={styles.confirm}
-                    testIDPrefix="nav"
-                />
-            ) : (
-                <>
-                    <MenuRow label="Inbox" Icon={InboxIcon} selected onPress={onClose} testID="nav-inbox" />
-                    <MenuRow label="Settings" Icon={SettingsIcon} onPress={onSettings} testID="nav-settings" />
-                    <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
-                </>
-            )}
-        </FloatingCard>
+        <>
+            <FloatingCard
+                visible={visible && !pickingProject}
+                onClose={onClose}
+                transformOrigin="top right"
+                accessibilityLabel="Menu"
+                testID="nav-menu"
+                style={[styles.card, { top: topOffset(insets, 60), width }]}
+            >
+                <Pressable44
+                    onPress={openPicker}
+                    disabled={signOutPending}
+                    accessibilityLabel={projectName}
+                    accessibilityHint="Switch project"
+                    pressedBackground={colors.sunken}
+                    style={styles.header}
+                    testID="nav-project"
+                >
+                    <Text style={styles.project} numberOfLines={1}>
+                        {projectName}
+                    </Text>
+                    <ChevronUpDownIcon size={14} color={colors.tertiary} />
+                </Pressable44>
+                <View style={styles.divider} />
+                {confirmingSignOut ? (
+                    <SignOutConfirm
+                        pending={signOutPending}
+                        onCancel={onCancelSignOut}
+                        onConfirm={onConfirmSignOut}
+                        style={styles.confirm}
+                        testIDPrefix="nav"
+                    />
+                ) : (
+                    <>
+                        <MenuRow label="Inbox" Icon={InboxIcon} selected onPress={onClose} testID="nav-inbox" />
+                        <MenuRow label="Settings" Icon={SettingsIcon} onPress={onSettings} testID="nav-settings" />
+                        <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
+                    </>
+                )}
+            </FloatingCard>
+            <ProjectSheet visible={visible && pickingProject} onClose={onClose} onSelect={switchProject} />
+        </>
     )
 }
 
@@ -114,6 +145,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 8,
         paddingHorizontal: 14,
+        borderRadius: radii.menuRow,
     },
     project: {
         fontSize: 18,

@@ -15,12 +15,13 @@ import {
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { DEMO_PEOPLE } from '@/demo/fixtures'
+import { useDemoReportQuery } from '@/demo/hooks'
 import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
-import { githubOnlyReviewers } from '@/model/adapters/report'
+import { githubOnlyReviewers, reviewersFromArtefacts } from '@/model/adapters/report'
 import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
-import type { Person, QueryState } from '@/model/types'
+import type { Person, QueryState, Reviewer } from '@/model/types'
 
 /** `SignalReportArtefactWriteSerializer.MAX_ENTRIES`. GitHub-only reviewers count toward it. */
 export const MAX_REVIEWERS = 10
@@ -96,6 +97,27 @@ export function useGithubOnlyReviewerCount(reportId: string): number {
         select: (data) => githubOnlyReviewers(data.results).length,
     })
     return mode === 'live' ? (count.data ?? 0) : 0
+}
+
+function selectReviewers(data: PaginatedApi<ReportArtefactApi>): Reviewer[] {
+    return reviewersFromArtefacts(data.results)
+}
+
+// Reads only the work log, so a caller outside the report screen gets the reviewers without the report's refetches.
+export function useReportReviewers(reportId: string): Reviewer[] | undefined {
+    const mode = useDataMode()
+    const scope = useProjectScope()
+    const demo = useDemoReportQuery(reportId)
+    const live = useQuery({
+        queryKey: reportKeys.artefacts(scope, reportId),
+        queryFn: ({ signal }) => fetchReportArtefacts(reportId, signal),
+        enabled: mode === 'live' && scope !== null,
+        select: selectReviewers,
+    })
+    if (mode === 'demo') {
+        return demo.data?.reviewers
+    }
+    return mode === 'live' ? live.data : undefined
 }
 
 export function useSetReviewersAction(reportId: string): AsyncAction<[string[]]> {

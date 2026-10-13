@@ -98,10 +98,6 @@ export function isErrorSource(value: string): boolean {
     return ERROR_SOURCES.has(value)
 }
 
-export function isAuthorSource(value: string): boolean {
-    return AUTHOR_SOURCES.has(value)
-}
-
 export function primarySource(sources: readonly string[]): SourceProduct {
     const subject = sources.find((source) => !AUTHOR_SOURCES.has(source))
     return toSourceProduct(subject ?? sources[0])

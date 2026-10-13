@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { MCP_VIA } from '@/model/agent'
-import type { ActivityEvent, DecisionAnswer } from '@/model/types'
+import type { ActivityEvent, DecisionAnswer, ReportPriority } from '@/model/types'
 
 import { DEMO_AGENT, DEMO_USER_NAME } from './briefings'
 import { DEMO_PEOPLE } from './fixtures'
@@ -13,7 +13,7 @@ const REFRESH_MS = 450
 /** Builds made with EXPO_PUBLIC_DEMO_MODE=1 start in demo mode, so a simulator or preview build needs no account. */
 const DEMO_FROM_ENV = process.env.EXPO_PUBLIC_DEMO_MODE === '1'
 
-export type DemoLogTag = 'handoff' | 'decision' | 'snooze' | 'reviewers'
+export type DemoLogTag = 'handoff' | 'decision' | 'snooze' | 'reviewers' | 'priority'
 
 export interface DemoLogEntry extends ActivityEvent {
     tag: DemoLogTag
@@ -27,6 +27,7 @@ export interface DemoMutableState {
     snoozed: Record<string, string>
     read: Record<string, true>
     reviewers: Record<string, string[]>
+    priorities: Record<string, ReportPriority>
     log: Record<string, DemoLogEntry[]>
     isRefreshing: boolean
 }
@@ -46,6 +47,7 @@ export interface DemoModeState extends DemoMutableState {
     undoAnswer: (reportId: string) => void
     snooze: (reportId: string, labels: DemoSnoozeLabels) => void
     setReviewers: (reportId: string, uuids: string[]) => void
+    setPriority: (reportId: string, priority: ReportPriority) => void
     markRead: (reportId: string) => void
 }
 
@@ -57,6 +59,7 @@ function freshState(): DemoMutableState {
         snoozed: {},
         read: {},
         reviewers: {},
+        priorities: {},
         log: {},
         isRefreshing: false,
     }
@@ -139,6 +142,15 @@ export const useDemoMode = create<DemoModeState>()(
                 set((state) => ({
                     reviewers: { ...state.reviewers, [reportId]: uuids },
                     log: appendLog(state.log, reportId, entry('reviewers', reviewerSentence(uuids))),
+                })),
+            setPriority: (reportId, priority) =>
+                set((state) => ({
+                    priorities: { ...state.priorities, [reportId]: priority },
+                    log: appendLog(
+                        state.log,
+                        reportId,
+                        entry('priority', `${DEMO_USER_NAME} changed priority to **${priority}**`)
+                    ),
                 })),
             markRead: (reportId) =>
                 set((state) => (state.read[reportId] ? state : { read: { ...state.read, [reportId]: true } })),

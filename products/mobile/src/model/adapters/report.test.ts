@@ -188,11 +188,10 @@ describe('report view adapter', () => {
                 url: 'https://us.example.com/project/2/replay/sess-1?t=3',
             },
         ])
+        expect(view.since).toBe('Mon 7:21 AM')
+        expect(view.owner).toEqual({ kind: 'agent', name: 'PostHog' })
         expect(view.facts).toEqual([
-            { key: 'Source', title: 'Error tracking scout', sub: 'Error, Session replay', tone: 'default' },
-            { key: 'Since', title: 'Mon 7:21 AM', sub: '12 signals · last seen today 11:40 AM', tone: 'default' },
             { key: 'Impact', title: '612 affected users', sub: 'Across 51 organizations', tone: 'default' },
-            { key: 'Owner', title: 'PostHog', sub: 'Picked up 9:12 AM', tone: 'agent' },
         ])
         expect(view.activity.map((event) => event.text)).toEqual([
             'PostHog created the report',
@@ -283,11 +282,7 @@ describe('report view adapter', () => {
                 url: 'https://us.example.com/project/2/replay/sess-9',
             },
         ])
-        expect(view.facts.find((fact) => fact.key === 'Owner')).toEqual({
-            key: 'Owner',
-            title: 'Nobody assigned',
-            tone: 'alert',
-        })
+        expect(view.owner).toEqual({ kind: 'none' })
         expect(view.task).toBeUndefined()
         expect(view.canAct).toBe(true)
     })

@@ -18,9 +18,11 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import { BottomBar } from './BottomBar'
+import type { RowAnchor } from './contextMenuPlacement'
 import { useInboxItems } from './hooks'
 import { INBOX_HEADER_BOTTOM, InboxHeader } from './InboxHeader'
 import { InboxRow } from './InboxRow'
+import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
 import { NavMenu } from './NavMenu'
 
 function keyFor(item: InboxItem): string {
@@ -39,6 +41,7 @@ export function InboxScreen(): ReactElement {
     const signOut = useSignOutAction()
     const [menuOpen, setMenuOpen] = useState(false)
     const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+    const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
 
     useEffect(() => {
         track('mobile_inbox_opened')
@@ -54,6 +57,7 @@ export function InboxScreen(): ReactElement {
     }, [query.isLoading])
 
     const openReport = useCallback((reportId: string) => router.push(`/report/${reportId}`), [router])
+    const openRowMenu = useCallback((item: InboxItem, anchor: RowAnchor) => setRowMenu({ item, anchor }), [])
     const refresh = (): void => {
         void query.refetch()
     }
@@ -86,8 +90,10 @@ export function InboxScreen(): ReactElement {
     const contentTop = topOffset(insets, INBOX_HEADER_BOTTOM)
 
     const renderItem = useCallback(
-        ({ item }: { item: InboxItem }) => <InboxRow item={item} now={now} onOpen={openReport} />,
-        [now, openReport]
+        ({ item }: { item: InboxItem }) => (
+            <InboxRow item={item} now={now} onOpen={openReport} onLongPress={openRowMenu} />
+        ),
+        [now, openReport, openRowMenu]
     )
 
     const empty = query.isLoading ? (
@@ -146,6 +152,7 @@ export function InboxScreen(): ReactElement {
                 onCancelSignOut={() => setConfirmingSignOut(false)}
                 onConfirmSignOut={() => void signOut.run()}
             />
+            <InboxRowActions target={rowMenu} onClose={() => setRowMenu(null)} />
         </View>
     )
 }
