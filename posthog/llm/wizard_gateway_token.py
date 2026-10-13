@@ -155,7 +155,8 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
 
 
 # Remote-config flags in the PostHog internal project. The prompt payload is
-# {"version": 4, "text": "..."}; the allowlist payload is
+# {"version": 4, "text": "..."} (the version is the operator's label and nothing
+# reads it); the allowlist payload is
 # {"models": [...], "efforts": [...], "programs": [...]}. A flag that is off,
 # unreadable or out of contract never refuses a mint: no readable prompt mints an
 # unpinned token, and no readable allowlist falls back to the defaults below. An
@@ -210,11 +211,9 @@ WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (
 @frozen
 class WizardSystemPrompt:
     """The operator prompt a token carries. `text` goes to the gateway only, in
-    the mint body, and is never logged or returned to the wizard; `version` is
-    the one field the wizard sees."""
+    the mint body, and is never logged or returned to the wizard."""
 
     text: str = dataclasses.field(repr=False)
-    version: int
 
 
 @frozen
@@ -282,18 +281,15 @@ def _policy_payload(
 
 
 def _parse_system_prompt(raw: dict) -> WizardSystemPrompt | None:
-    version = raw.get("version")
+    # The payload may carry a `version` for the operator's own bookkeeping. Nothing reads it.
     text = raw.get("text")
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        _reject_system_prompt("version must be an integer of 1 or more")
-        return None
     if not isinstance(text, str) or not text or _ABORT_MARKER not in text:
         _reject_system_prompt("text must be non-empty and hold the abort marker")
         return None
     if len(text.encode("utf-8")) > _MAX_PROMPT_BYTES:
         _reject_system_prompt(f"text is over {_MAX_PROMPT_BYTES} bytes")
         return None
-    return WizardSystemPrompt(text=text, version=version)
+    return WizardSystemPrompt(text=text)
 
 
 def _reject_system_prompt(problem: str) -> None:

@@ -930,9 +930,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
         assert body["allowed_efforts"] == ["none", "low"]
         assert body["system_prompt"] == self.PROMPT_TEXT
-        # The client gets the version and never the text.
-        assert response.json()["system_prompt_version"] == 4
-        assert "system_prompt" not in response.json()
+        # The client gets no prompt metadata at all: no text, no version.
+        assert not any("prompt" in key for key in response.json())
         assert self.PROMPT_TEXT not in response.content.decode()
         # One read per flag per request, however many places use the policy.
         assert len(self._flag_reads(WIZARD_SYSTEM_PROMPT_FLAG)) == 1
@@ -991,8 +990,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         body = mock_post.call_args.kwargs["json"]
         assert "system_prompt" not in body
-        assert "system_prompt" not in response.json()
-        assert "system_prompt_version" not in response.json()
+        assert not any("prompt" in key for key in response.json())
         # The allowlist is untouched.
         assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
 

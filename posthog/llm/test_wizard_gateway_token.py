@@ -59,7 +59,7 @@ POLICY = WizardGatewayPolicy(
     models=("OpenAI/GPT-5.6-Luna", "gpt-5.6-luna", " Claude-Sonnet-5 "),
     efforts=("none", "high"),
     programs=("integration", "audit"),
-    prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4),
+    prompt=WizardSystemPrompt(text=PROMPT_TEXT),
 )
 
 PROMPT_PAYLOAD = {"version": 4, "text": PROMPT_TEXT}
@@ -527,7 +527,7 @@ class TestWizardGatewayPolicy:
             models=("OpenAI/GPT-5.6-Luna", "claude-sonnet-5"),
             efforts=("none", "high"),
             programs=("integration", "audit"),
-            prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4),
+            prompt=WizardSystemPrompt(text=PROMPT_TEXT),
         )
         assert sorted(call.args[0] for call in read.call_args_list) == sorted(
             [WIZARD_GATEWAY_ALLOWLIST_FLAG, WIZARD_SYSTEM_PROMPT_FLAG]
@@ -589,6 +589,20 @@ class TestWizardGatewayPolicy:
         for model in WIZARD_DEFAULT_MODELS:
             assert normalize_model(model) == model, model
 
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"text": PROMPT_TEXT},
+            {"version": 4, "text": PROMPT_TEXT},
+            {"version": "not a number", "text": PROMPT_TEXT},
+            {"version": None, "text": PROMPT_TEXT},
+        ],
+    )
+    def test_a_version_in_the_payload_is_tolerated_and_ignored(self, payload):
+        with self._flags(prompt=payload):
+            policy = _policy()
+        assert policy.prompt == WizardSystemPrompt(text=PROMPT_TEXT)
+
     def test_the_prompt_text_stays_out_of_a_repr(self):
         assert PROMPT_TEXT not in repr(POLICY)
         assert PROMPT_TEXT not in repr(POLICY.prompt)
@@ -597,7 +611,7 @@ class TestWizardGatewayPolicy:
         with self._flags(prompt=json.dumps(PROMPT_PAYLOAD), allowlist=json.dumps(ALLOWLIST_PAYLOAD)):
             policy = _policy()
         assert policy.prompt is not None
-        assert policy.prompt.version == 4
+        assert policy.prompt.text == PROMPT_TEXT
         assert policy.programs == ("integration", "audit")
 
     @staticmethod
@@ -613,10 +627,6 @@ class TestWizardGatewayPolicy:
             ("not json", True),
             ([], True),
             ({"version": 4}, True),
-            ({"text": PROMPT_TEXT}, True),
-            ({"version": 0, "text": PROMPT_TEXT}, True),
-            ({"version": True, "text": PROMPT_TEXT}, True),
-            ({"version": "4", "text": PROMPT_TEXT}, True),
             ({"version": 4, "text": ""}, True),
             ({"version": 4, "text": 7}, True),
             ({"version": 4, "text": "no marker here"}, True),
