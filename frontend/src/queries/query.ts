@@ -1,5 +1,5 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
@@ -60,6 +60,41 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
         }
 
         document.addEventListener('visibilitychange', onVisibilityChange)
+        signal?.addEventListener('abort', onAbort)
+    })
+}
+
+function waitForPollingReady(signal?: AbortSignal): Promise<void> {
+    const isReady = (): boolean =>
+        (typeof navigator === 'undefined' || navigator.onLine !== false) &&
+        (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+
+    if (signal?.aborted) {
+        return Promise.reject(new DOMException('Aborted', 'AbortError'))
+    }
+    if (isReady()) {
+        return Promise.resolve()
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+            window.removeEventListener('online', onReady)
+            document.removeEventListener('visibilitychange', onReady)
+            signal?.removeEventListener('abort', onAbort)
+        }
+        const onReady = (): void => {
+            if (isReady()) {
+                cleanup()
+                resolve()
+            }
+        }
+        const onAbort = (): void => {
+            cleanup()
+            reject(new DOMException('Aborted', 'AbortError'))
+        }
+
+        window.addEventListener('online', onReady)
+        document.addEventListener('visibilitychange', onReady)
         signal?.addEventListener('abort', onAbort)
     })
 }
@@ -169,18 +204,17 @@ export async function pollForResults(
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void
 ): Promise<QueryStatus> {
-    // Measured only across time spent actually polling (page visible), not raw wall-clock time -
-    // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
-    // ever getting a chance to poll, and the query "times out" despite never really being tried.
+    // A hidden or offline tab must not consume the polling deadline while it cannot poll.
     let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await waitForPageVisible(methodOptions?.signal)
+        await waitForPollingReady(methodOptions?.signal)
         const iterationStart = performance.now()
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
         activeElapsedMs += performance.now() - iterationStart
+        await waitForPollingReady(methodOptions?.signal)
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
@@ -191,6 +225,9 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
+            if (e instanceof NetworkError && e.reason === 'offline') {
+                continue
+            }
             // Parse error message to extract clean message and code if present
             const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
