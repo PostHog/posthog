@@ -51,7 +51,3 @@ class DestinationEligibility:
     hog_function_id: UUID
     template_id: str | None
     hold_backs: tuple[DestinationHoldBack, ...]
-
-    @property
-    def native_coverable(self) -> bool:
-        return not self.hold_backs

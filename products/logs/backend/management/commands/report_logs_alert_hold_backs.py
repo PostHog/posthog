@@ -15,9 +15,10 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         reasons: Counter[str] = Counter()
         for held in held_back_destinations(team_id=options["team_id"]):
-            reasons.update(str(reason) for reason in held.hold_backs)
+            hold_backs = held.destination.hold_backs
+            reasons.update(str(reason) for reason in hold_backs)
             self.stdout.write(
-                f"team={held.team_id} alert={held.alert_id} destination={held.hog_function_id} "
-                f"template={held.template_id} reasons={','.join(held.hold_backs)}"
+                f"team={held.team_id} alert={held.alert_id} destination={held.destination.hog_function_id} "
+                f"template={held.destination.template_id} reasons={','.join(hold_backs)}"
             )
         self.stdout.write(f"Held back by reason: {dict(reasons) or 'none'}")

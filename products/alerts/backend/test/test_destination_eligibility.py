@@ -7,8 +7,6 @@ from parameterized import parameterized
 
 from products.alerts.backend.facade.contracts import DestinationHoldBack
 from products.alerts.backend.facade.destinations import classify_alert_destinations
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
-from products.alerts.backend.logic.destination_eligibility import _ADDRESS_INPUT_KEYS
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -25,10 +23,6 @@ SLACK_INPUTS: dict[str, Any] = {
     "channel": {"value": "C-1"},
     "text": {"value": "Log alert is firing"},
 }
-
-
-def test_every_native_template_names_where_it_sends() -> None:
-    assert set(_ADDRESS_INPUT_KEYS) == set(SPEC_BY_TEMPLATE_ID)
 
 
 def _with(inputs: dict[str, Any], key: str, value: Any) -> dict[str, Any]:

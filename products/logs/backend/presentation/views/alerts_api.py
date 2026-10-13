@@ -54,6 +54,7 @@ from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCou
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
+    LOGS_ALERT_EVENT_IDS,
     LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
     LOGS_DESTINATION_TYPES,
 )
@@ -83,7 +84,6 @@ from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfig
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
-LOGS_ALERT_EVENT_IDS: Final = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
 # argocd for internal dogfood projects whose observability needs exceed the
 # customer-facing cap; the cap's correctness assumptions (bounded N+1 in list,

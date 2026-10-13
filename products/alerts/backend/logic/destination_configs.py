@@ -116,7 +116,7 @@ def pagerduty_links(spec: EventKindSpec) -> list[dict[str, str]]:
     return [{"href": action.url, "text": action.label} for action in spec_actions(spec)]
 
 
-def _input_value(inputs: dict[str, Any], key: str) -> Any:
+def input_value(inputs: dict[str, Any], key: str) -> Any:
     entry = inputs.get(key)
     return entry.get("value") if isinstance(entry, dict) else None
 
@@ -128,6 +128,8 @@ class DestinationSpec(ABC):
     type: ClassVar[DestinationType]
     template_id: ClassVar[str]
     required_fields: ClassVar[tuple[str, ...]]
+    # The inputs that say where a destination sends. Native delivery reads them.
+    address_input_keys: ClassVar[frozenset[str]]
 
     def validate(self, data: AlertDestinationData) -> None:
         """Raise `AlertDestinationValidationError` when the payload cannot become a destination of this type."""
@@ -171,6 +173,7 @@ class DestinationSpec(ABC):
 class SlackDestination(DestinationSpec):
     type = DestinationType.SLACK
     template_id = "template-slack"
+    address_input_keys = frozenset({"slack_workspace", "channel"})
     required_fields = ("slack_workspace_id", "slack_channel_id")
 
     def build_name(self, data: AlertDestinationData) -> str:
@@ -192,8 +195,8 @@ class SlackDestination(DestinationSpec):
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
         data: AlertDestinationData = {"type": self.type}
-        slack_workspace_id = _input_value(inputs, "slack_workspace")
-        slack_channel_id = _input_value(inputs, "channel")
+        slack_workspace_id = input_value(inputs, "slack_workspace")
+        slack_channel_id = input_value(inputs, "channel")
         if isinstance(slack_workspace_id, int):
             data["slack_workspace_id"] = slack_workspace_id
         if isinstance(slack_channel_id, str):
@@ -209,7 +212,7 @@ class _WebhookUrlDestination(DestinationSpec):
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
         data: AlertDestinationData = {"type": self.type}
-        webhook_url = _input_value(inputs, self.url_input_key)
+        webhook_url = input_value(inputs, self.url_input_key)
         if isinstance(webhook_url, str):
             data["webhook_url"] = webhook_url
         return data
@@ -227,6 +230,7 @@ class WebhookDestination(_WebhookUrlDestination):
     type = DestinationType.WEBHOOK
     template_id = "template-webhook"
     url_input_key = "url"
+    address_input_keys = frozenset({"url"})
 
     def build_name(self, data: AlertDestinationData) -> str:
         return f"Webhook {url_hostname(data['webhook_url'])}"
@@ -249,6 +253,7 @@ class DiscordDestination(_WebhookUrlDestination):
     type = DestinationType.DISCORD
     template_id = "template-discord"
     url_input_key = "webhookUrl"
+    address_input_keys = frozenset({"webhookUrl"})
 
     def build_name(self, data: AlertDestinationData) -> str:
         return "Discord"
@@ -270,6 +275,7 @@ class TeamsDestination(_WebhookUrlDestination):
     type = DestinationType.TEAMS
     template_id = "template-microsoft-teams"
     url_input_key = "webhookUrl"
+    address_input_keys = frozenset({"webhookUrl"})
 
     def build_name(self, data: AlertDestinationData) -> str:
         return "Microsoft Teams"
@@ -293,6 +299,7 @@ class PagerDutyDestination(DestinationSpec):
 
     type = DestinationType.PAGERDUTY
     template_id = "template-pagerduty"
+    address_input_keys = frozenset({"routing_key", "severity", "region"})
     required_fields = ("pagerduty_routing_key",)
 
     def validate(self, data: AlertDestinationData) -> None:
@@ -342,14 +349,14 @@ class PagerDutyDestination(DestinationSpec):
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
         data: AlertDestinationData = {"type": self.type}
-        routing_key = _input_value(inputs, "routing_key")
+        routing_key = input_value(inputs, "routing_key")
         # Without the key two PagerDuty destinations cannot be told apart, so a config that
         # lacks it reads as unreadable rather than as "the same as every other one".
         if not isinstance(routing_key, str) or not routing_key:
             return data
         data["pagerduty_routing_key"] = routing_key
-        severity = _input_value(inputs, "severity")
-        region = _input_value(inputs, "region")
+        severity = input_value(inputs, "severity")
+        region = input_value(inputs, "region")
         if isinstance(severity, str):
             data["pagerduty_severity"] = severity
         if isinstance(region, str):

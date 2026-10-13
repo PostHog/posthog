@@ -13,9 +13,10 @@ from __future__ import annotations
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
+from uuid import UUID
 
 from products.alerts.backend.facade.contracts import DestinationEligibility, DestinationHoldBack
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
+from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, WebhookDestination, input_value
 from products.alerts.backend.logic.destinations import owned_alert_destinations_qs
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
@@ -25,15 +26,6 @@ from products.cdp.backend.models.hog_functions.hog_function_revision import HogF
 EDIT_TRACKING_STARTED: Final = datetime(2026, 8, 4, tzinfo=UTC)
 # A function is saved in the moments after it is built. A later save means a person changed it.
 RESAVED_AFTER: Final = timedelta(seconds=60)
-
-# Where each template sends. Native delivery reads these, so a change to them is not an edit.
-_ADDRESS_INPUT_KEYS: Final[dict[str, frozenset[str]]] = {
-    "template-slack": frozenset({"slack_workspace", "channel"}),
-    "template-webhook": frozenset({"url"}),
-    "template-microsoft-teams": frozenset({"webhookUrl"}),
-    "template-discord": frozenset({"webhookUrl"}),
-    "template-pagerduty": frozenset({"routing_key", "severity", "region"}),
-}
 
 _WEBHOOK_INPUT_HOLD_BACKS: Final = {
     "body": DestinationHoldBack.WEBHOOK_BODY,
@@ -52,13 +44,13 @@ def classify_alert_destinations(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
         ).order_by("created_at", "id")
     )
-    first_snapshots: dict[Any, dict[str, Any]] = {}
-    for revision in (
-        HogFunctionRevision.objects.for_team(team_id)
+    first_snapshots: dict[UUID, dict[str, Any]] = {
+        revision.hog_function_id: revision.content
+        for revision in HogFunctionRevision.objects.for_team(team_id)
         .filter(hog_function_id__in=[function.id for function in functions])
         .order_by("hog_function_id", "version")
-    ):
-        first_snapshots.setdefault(revision.hog_function_id, revision.content)
+        .distinct("hog_function_id")
+    }
     return tuple(
         DestinationEligibility(
             hog_function_id=function.id,
@@ -80,7 +72,7 @@ def _hold_backs(function: HogFunction, first_snapshot: dict[str, Any] | None) ->
     if function.mappings:
         found.append(DestinationHoldBack.MAPPINGS)
     # A secret input is not in `inputs` or in a snapshot, so it is read where it is stored.
-    if template_id == "template-webhook" and _input_value(function.encrypted_inputs or {}, "signing_secret"):
+    if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "signing_secret"):
         found.append(DestinationHoldBack.WEBHOOK_SIGNING)
 
     if first_snapshot is None:
@@ -103,27 +95,23 @@ def _input_hold_backs(
     template_id: str, inputs: dict[str, Any], first_inputs: dict[str, Any]
 ) -> list[DestinationHoldBack]:
     found: list[DestinationHoldBack] = []
+    is_webhook = template_id == WebhookDestination.template_id
     for key in sorted(set(inputs) | set(first_inputs)):
-        if key in _ADDRESS_INPUT_KEYS.get(template_id, frozenset()):
+        if key in SPEC_BY_TEMPLATE_ID[template_id].address_input_keys:
             continue
-        value, first_value = _input_value(inputs, key), _input_value(first_inputs, key)
-        if template_id == "template-webhook" and key == "headers":
+        value, first_value = input_value(inputs, key), input_value(first_inputs, key)
+        if is_webhook and key == "headers":
             # Native delivery sends plain added headers. Only a templated value is lost.
             if value != first_value and _has_template(value):
                 found.append(DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER)
             continue
         if value == first_value:
             continue
-        if template_id == "template-webhook" and key in _WEBHOOK_INPUT_HOLD_BACKS:
+        if is_webhook and key in _WEBHOOK_INPUT_HOLD_BACKS:
             found.append(_WEBHOOK_INPUT_HOLD_BACKS[key])
         else:
             found.append(DestinationHoldBack.MESSAGE)
     return found
-
-
-def _input_value(inputs: dict[str, Any], key: str) -> Any:
-    entry = inputs.get(key)
-    return entry.get("value") if isinstance(entry, dict) else entry
 
 
 def _has_template(headers: Any) -> bool:
