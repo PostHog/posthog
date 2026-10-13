@@ -40,6 +40,14 @@ INTERESTING_CHANGES = [
 ]
 
 
+def _first_millisecond_after(moment: datetime) -> datetime:
+    """Bookmarks carry millisecond precision, so a change counts as newer only from the next whole millisecond.
+
+    A bound on the bare column lets Postgres range-scan the created_at index.
+    """
+    return moment.replace(microsecond=moment.microsecond // 1000 * 1000) + timedelta(milliseconds=1)
+
+
 class MyNotificationsSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
@@ -154,11 +162,11 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         WHERE team_id = %s
                         AND scope = 'Notebook'
                         AND (user_id != %s OR user_id IS NULL)
-                        AND date_trunc('millisecond', created_at) > %s
+                        AND created_at >= %s
                         ORDER BY created_at DESC) AS inner_q) AS counted_q
             WHERE row_number = 1
             """,
-            [self.team_id, user.pk, since],
+            [self.team_id, user.pk, _first_millisecond_after(since)],
         )
         return [row.id for row in rows]
 
@@ -216,10 +224,8 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
             if last_read_date and unread:
-                # truncate created_at to millisecond precision to match last_read precision
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                other_peoples_changes = other_peoples_changes.extra(
-                    where=["date_trunc('millisecond', created_at) > %s"], params=[last_read_date]
+                other_peoples_changes = other_peoples_changes.filter(
+                    created_at__gte=_first_millisecond_after(last_read_date)
                 )
 
         with timer("query_for_data"):

@@ -4,6 +4,7 @@ from typing import Any, Optional
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.my_notifications import NOTIFICATION_HISTORY_WINDOW
@@ -352,7 +353,13 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(FuzzyInt(28, 28)):
                 self.client.get(f"/api/projects/{self.team.id}/my_notifications")
 
-    def test_microsecond_precision_mismatch(self):
+    @parameterized.expand(
+        [
+            ("bookmark_in_same_millisecond", "2023-08-17T04:36:50.000000Z", []),
+            ("bookmark_in_previous_millisecond", "2023-08-17T04:36:49.999999Z", ["2023-08-17T04:36:50.000123Z"]),
+        ]
+    )
+    def test_microsecond_precision_mismatch(self, _name: str, bookmark: str, expected_unread: list[str]) -> None:
         self.client.force_login(self.user)
 
         # get all unread
@@ -375,15 +382,12 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
             "2023-08-17T03:06:25.000123Z",
         ]
 
-        # mark where we have read up to but zero out the microseconds
         bookmark_response = self.client.post(
             f"/api/projects/{self.team.id}/my_notifications/bookmark",
-            {"bookmark": "2023-08-17T04:36:50.000000Z"},
+            {"bookmark": bookmark},
         )
         assert bookmark_response.status_code == status.HTTP_204_NO_CONTENT
 
-        # verify that all of the notifications are now marked as read
         changes = self.client.get(f"/api/projects/{self.team.id}/my_notifications?unread=true")
         assert changes.status_code == status.HTTP_200_OK
-        assert changes.json()["last_read"] == "2023-08-17T04:36:50Z"
-        assert changes.json()["results"] == []
+        assert [c["created_at"] for c in changes.json()["results"]] == expected_unread
