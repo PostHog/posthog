@@ -42,7 +42,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         activityRowsLoading,
         harnessRows,
         harnessRowsLoading,
-        modelRows,
         kpis,
         kpisLoading,
         users,
@@ -167,7 +166,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         interval={interval}
                         colorOf={modelColorOf}
                     />
-                    {modelRowsLoading && modelRows.length === 0 ? (
+                    {leaderboardModelRows.length === 0 && (facetsLoading || modelRowsLoading) ? (
                         <Card title="Share of calls by model" className="min-w-0">
                             <Skeleton className="h-48 w-full" />
                         </Card>
