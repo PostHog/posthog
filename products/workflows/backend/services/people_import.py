@@ -24,8 +24,10 @@ from products.workflows.backend.facade.contracts import PeopleImportSummary
 MAX_PEOPLE_IMPORT_ROWS = 50_000
 # Person properties are stored per person, so one row must not grow a profile without bound.
 MAX_PEOPLE_IMPORT_ROW_BYTES = 4096
-# Keeps each email lookup to one bounded HogQL query.
-EMAIL_LOOKUP_CHUNK_SIZE = 1000
+# Bounds each HogQL email lookup, so a full file takes five queries.
+EMAIL_LOOKUP_CHUNK_SIZE = 10_000
+# Bounds each personhog lookup of distinct IDs.
+PERSON_LOOKUP_CHUNK_SIZE = 1000
 
 _STORAGE_FOLDER = "workflows_people_imports"
 _HEADER_SEPARATORS = re.compile(r"[^a-z0-9]+")
@@ -162,8 +164,8 @@ def _distinct_ids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
 
 def _existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
     found: set[str] = set()
-    for start in range(0, len(distinct_ids), EMAIL_LOOKUP_CHUNK_SIZE):
-        found.update(get_persons_mapped_by_distinct_id(team_id, distinct_ids[start : start + EMAIL_LOOKUP_CHUNK_SIZE]))
+    for start in range(0, len(distinct_ids), PERSON_LOOKUP_CHUNK_SIZE):
+        found.update(get_persons_mapped_by_distinct_id(team_id, distinct_ids[start : start + PERSON_LOOKUP_CHUNK_SIZE]))
     return found
 
 
