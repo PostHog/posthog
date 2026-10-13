@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, TableNode
+from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, SavedQuery, TableNode
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import (
@@ -568,3 +568,27 @@ class TestProposeIncrementalConfig(SimpleTestCase):
         self, _name: str, query: str, column_types: dict[str, str], expected: Optional[IncrementalConfig]
     ) -> None:
         assert propose_incremental_config(query, column_types) == expected
+
+    def test_a_moving_window_inside_a_view_the_query_reads_blocks_the_proposal(self) -> None:
+        database = Database()
+        database._add_views(
+            TableNode(
+                children={
+                    "last_week": TableNode(
+                        name="last_week",
+                        table=SavedQuery(
+                            id="last_week",
+                            name="last_week",
+                            query="SELECT timestamp FROM events WHERE timestamp >= now() - INTERVAL 7 DAY",
+                            fields={"timestamp": DateTimeDatabaseField(name="timestamp")},
+                        ),
+                    )
+                }
+            )
+        )
+
+        proposed = propose_incremental_config(
+            GROUPED.replace("FROM events", "FROM last_week"), {"day": "DateTime", "c": "UInt64"}, database=database
+        )
+
+        assert proposed is None

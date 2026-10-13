@@ -139,6 +139,11 @@ def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
         raise serializers.ValidationError({"dag_id": _MOVE_REFUSALS[e.reason]})
 
 
+INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
+    "This view's incremental settings changed while you were editing it. Reload the view and try again."
+)
+
+
 class DataWarehouseSavedQuerySerializer(
     view_state.DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
@@ -548,6 +553,13 @@ class DataWarehouseSavedQuerySerializer(
             if query_changed and not soft_update and locked_instance.query_revision is not None:
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
+
+            if (
+                query_changed
+                and "incremental_config" not in validated_data
+                and locked_instance.incremental_config != instance.incremental_config
+            ):
+                raise serializers.ValidationError(INCREMENTAL_CONFIG_CHANGED_REFUSAL)
 
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()

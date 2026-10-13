@@ -204,6 +204,8 @@ def propose_incremental_config(
         return None
     if not isinstance(node, ast.SelectQuery) or _is_nondeterministic(node):
         return None
+    if any(_is_nondeterministic(select) for select in _resolved_selects(node, database) or []):
+        return None
     grouped_names = _grouped_output_names(node)
     if grouped_names is None:
         return None
