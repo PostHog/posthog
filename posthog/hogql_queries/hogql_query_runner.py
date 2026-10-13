@@ -329,7 +329,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
-        # Encode after SQL evaluation, before either the result cache or API renderer serializes bytes as UTF-8.
+        # ClickHouse returns non-UTF-8 strings (e.g. SHA1 digests) as bytes. The cache and
+        # API JSON encoders decode bytes as UTF-8, so leaving them raw makes queries fail.
+        # Normalize the final rows after pagination, before the shared runner caches them,
+        # so fresh and cached responses use the same Base64 representation. Keep this out
+        # of execute_hogql_query so internal callers retain native database values.
         response.results = _encode_binary_results(response.results)
         return response
 
