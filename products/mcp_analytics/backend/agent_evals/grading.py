@@ -3,71 +3,68 @@ import dataclasses
 from collections.abc import Callable, Coroutine, Mapping
 from typing import Any
 
-from pydantic import TypeAdapter
-
 from posthog.dataclasses import frozen
 
 from products.mcp_analytics.backend.agent_evals.agent_loop import AgentTrial
 from products.mcp_analytics.backend.agent_evals.scenarios import Scenario
 
 EXEC_TOOL = "exec"
-CALL_VERB = "call"
-UNKNOWN_VERB = "unknown"
+# The flags the server's parseCallFlags strips before the inner tool name.
+EXEC_CALL_FLAGS = frozenset({"--json", "--confirm"})
 
 
 @frozen
-class EffectiveCall:
-    verb: str
-    tool: str | None  # None for discovery verbs, which describe a tool without running it
-    is_error: bool
+class Judgment:
+    passed: bool | None  # None: nothing to grade, so it stays out of pass rates
+    score: float | None
+    rationale: str
+
+
+type Grader = Callable[[Scenario, AgentTrial], Coroutine[Any, Any, Judgment]]
 
 
 @frozen
 class Verdict:
     grader: str
-    passed: bool | None  # None: not gradable, so it stays out of pass rates
+    passed: bool | None
     score: float | None
     rationale: str
+    error: str | None = None
 
 
-def verdict(grader: str, passed: bool | None, score: float | None, rationale: str) -> Verdict:
-    return Verdict(grader=grader, passed=passed, score=score, rationale=rationale)
+def called_tools(trial: AgentTrial) -> frozenset[str]:
+    """The tools a trial called, with PostHog's `exec` dispatcher unwrapped to the tool behind `call`.
 
-
-type Grader = Callable[[Scenario, AgentTrial], Coroutine[Any, Any, Verdict]]
-
-
-def effective_calls(trial: AgentTrial) -> tuple[EffectiveCall, ...]:
-    """Mirrors EFFECTIVE_TOOL_SQL: the CLI-mode dispatcher `exec` hides the tool behind `call`."""
-    calls: list[EffectiveCall] = []
+    Discovery verbs such as `learn` or `info` only describe a tool, so they name none. An attempt
+    counts whether or not it errored, because the grader asks whether the agent reached for the tool.
+    """
+    tools: set[str] = set()
     for record in trial.tool_calls:
         if record.name != EXEC_TOOL:
-            calls.append(EffectiveCall(verb=CALL_VERB, tool=record.name, is_error=record.is_error))
-            continue
-        verb, tool = _parse_exec(record.input)
-        calls.append(EffectiveCall(verb=verb, tool=tool, is_error=record.is_error))
-    return tuple(calls)
+            tools.add(record.name)
+        elif target := _exec_call_target(record.input):
+            tools.add(target)
+    return frozenset(tools)
 
 
-def _parse_exec(tool_input: object) -> tuple[str, str | None]:
+def _exec_call_target(tool_input: object) -> str | None:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     words = command.split() if isinstance(command, str) else []
-    if not words:
-        return UNKNOWN_VERB, None
-    if words[0] != CALL_VERB:
-        return words[0], None
-    operands = [word for word in words[1:] if not word.startswith("--")]
-    return (CALL_VERB, operands[0]) if operands else (UNKNOWN_VERB, None)
+    if not words or words[0] != "call":
+        return None
+    operands = words[1:]
+    while operands and operands[0] in EXEC_CALL_FLAGS:
+        operands = operands[1:]
+    return operands[0] if operands else None
 
 
-async def expected_tools_grader(scenario: Scenario, trial: AgentTrial) -> Verdict:
+async def expected_tools_grader(scenario: Scenario, trial: AgentTrial) -> Judgment:
     if not scenario.expected_tools:
-        return verdict("expected_tools", None, None, "scenario lists no expected tools")
-    called = {call.tool for call in effective_calls(trial)}
-    missing = [tool for tool in scenario.expected_tools if tool not in called]
+        return Judgment(passed=None, score=None, rationale="scenario lists no expected tools")
+    missing = [tool for tool in scenario.expected_tools if tool not in called_tools(trial)]
     if missing:
-        return verdict("expected_tools", False, 0.0, f"missing tools: {', '.join(missing)}")
-    return verdict("expected_tools", True, 1.0, "every expected tool was called")
+        return Judgment(passed=False, score=0.0, rationale=f"missing tools: {', '.join(missing)}")
+    return Judgment(passed=True, score=1.0, rationale="every expected tool was called")
 
 
 @frozen
@@ -84,7 +81,7 @@ class GradedReport:
     model: str
     effort: str
     started_at: str
-    graders: tuple[str, ...]
+    grader_models: dict[str, str]
     grades: tuple[TrialGrade, ...]
 
     def to_dict(self) -> dict[str, object]:
@@ -94,34 +91,45 @@ class GradedReport:
 async def grade_trial(scenario: Scenario, trial: AgentTrial, graders: Mapping[str, Grader]) -> TrialGrade:
     """The outcome gate: only an answered trial reaches a grader, because only it has an answer to grade."""
     if trial.outcome == "answered":
-        verdicts = await asyncio.gather(*(grader(scenario, trial) for grader in graders.values()))
+        verdicts = await asyncio.gather(
+            *(_run_grader(name, grader, scenario, trial) for name, grader in graders.items())
+        )
     elif trial.outcome == "mcp_error":
-        verdicts = [verdict(name, None, None, "mcp_error: infrastructure failure") for name in graders]
+        verdicts = [
+            Verdict(grader=name, passed=None, score=None, rationale="mcp_error: infrastructure failure")
+            for name in graders
+        ]
     else:
-        verdicts = [verdict(name, False, None, trial.outcome) for name in graders]
+        verdicts = [Verdict(grader=name, passed=False, score=None, rationale=trial.outcome) for name in graders]
     return TrialGrade(scenario_id=scenario.id, trial=trial.trial, outcome=trial.outcome, verdicts=tuple(verdicts))
 
 
-def parse_trials(raw_trials: object) -> tuple[AgentTrial, ...]:
-    return TypeAdapter(tuple[AgentTrial, ...]).validate_python(raw_trials)
-
-
-def parse_scenarios(raw_scenarios: object) -> tuple[Scenario, ...]:
-    return TypeAdapter(tuple[Scenario, ...]).validate_python(raw_scenarios)
+async def _run_grader(name: str, grader: Grader, scenario: Scenario, trial: AgentTrial) -> Verdict:
+    try:
+        judgment = await grader(scenario, trial)
+    except Exception as error:
+        # One failed call must not discard the verdicts already paid for in the rest of the run.
+        return Verdict(
+            grader=name, passed=None, score=None, rationale="grader failed", error=f"{type(error).__name__}: {error}"
+        )
+    return Verdict(grader=name, passed=judgment.passed, score=judgment.score, rationale=judgment.rationale)
 
 
 def format_grade_summary(report: GradedReport) -> str:
+    graders = tuple(report.grader_models)
     by_scenario: dict[str, list[TrialGrade]] = {}
     for grade in report.grades:
         by_scenario.setdefault(grade.scenario_id, []).append(grade)
-    lines = [f"graded {len(report.grades)} trials with {', '.join(report.graders)}"]
+    lines = [f"graded {len(report.grades)} trials with {', '.join(graders)}"]
     for scenario_id, grades in by_scenario.items():
         rates = []
-        for name in report.graders:
-            passes = [v.passed for g in grades for v in g.verdicts if v.grader == name and v.passed is not None]
-            rates.append(f"{name} {sum(passes)}/{len(passes)}")
+        for name in graders:
+            verdicts = [v for g in grades for v in g.verdicts if v.grader == name]
+            passes = [v.passed for v in verdicts if v.passed is not None]
+            errors = sum(1 for v in verdicts if v.error)
+            rates.append(f"{name} {sum(passes)}/{len(passes)}" + (f" ({errors} errors)" if errors else ""))
         lines.append(f"  {scenario_id}: {', '.join(rates)}")
-    if {"judge", "jev"} <= set(report.graders):
+    if {"judge", "jev"} <= set(graders):
         pairs = [_pair(grade, "judge", "jev") for grade in report.grades]
         compared = [pair for pair in pairs if None not in pair]
         disagreements = sum(1 for first, second in compared if first != second)

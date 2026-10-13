@@ -9,8 +9,7 @@ from anthropic.types import JSONOutputFormatParam
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.typesafe import JEV_LATEST
-from posthog.egress.typesafe.transport import TypeSafeEgressBudgetExhausted
-from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
+from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import (
     SystemOneClient,
     TypeSafeFallback,
@@ -19,7 +18,7 @@ from posthog.llm.system_one_client import (
 )
 
 from products.mcp_analytics.backend.agent_evals.agent_loop import AgentTrial
-from products.mcp_analytics.backend.agent_evals.grading import Grader, Verdict, expected_tools_grader, verdict
+from products.mcp_analytics.backend.agent_evals.grading import Grader, Judgment, expected_tools_grader
 from products.mcp_analytics.backend.agent_evals.scenarios import Scenario
 
 DEFAULT_JUDGE_MODEL = "claude-sonnet-5-5"
@@ -57,26 +56,19 @@ class GraderUnavailable(Exception):
 
 
 def make_judge(client: anthropic.AsyncAnthropic, model: str) -> Grader:
-    async def judge(scenario: Scenario, trial: AgentTrial) -> Verdict:
-        try:
-            response = await client.messages.create(
-                model=model,
-                max_tokens=4096,
-                system=JUDGE_INSTRUCTIONS,
-                messages=[{"role": "user", "content": _judge_prompt(scenario, trial)}],
-                output_config={"format": VERDICT_FORMAT},
-            )
-        except anthropic.APIError as error:
-            return verdict("judge", None, None, f"judge call failed: {error}")
-        text = next((block.text for block in response.content if block.type == "text"), None)
-        try:
-            parsed = json.loads(text) if text else None
-        except json.JSONDecodeError:
-            parsed = None
-        if not isinstance(parsed, dict) or not isinstance(parsed.get("passed"), bool):
-            return verdict("judge", None, None, f"judge returned no verdict (stop_reason {response.stop_reason})")
-        passed = parsed["passed"]
-        return verdict("judge", passed, 1.0 if passed else 0.0, str(parsed.get("rationale", "")))
+    async def judge(scenario: Scenario, trial: AgentTrial) -> Judgment:
+        response = await client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system=JUDGE_INSTRUCTIONS,
+            messages=[{"role": "user", "content": _judge_prompt(scenario, trial)}],
+            output_config={"format": VERDICT_FORMAT},
+        )
+        if response.stop_reason != "end_turn":
+            raise ValueError(f"judge stopped with {response.stop_reason}")
+        text = next(block.text for block in response.content if block.type == "text")
+        parsed = json.loads(text)
+        return Judgment(passed=parsed["passed"], score=1.0 if parsed["passed"] else 0.0, rationale=parsed["rationale"])
 
     return judge
 
@@ -90,20 +82,19 @@ def _judge_prompt(scenario: Scenario, trial: AgentTrial) -> str:
 
 
 def make_jev(client: SystemOneClient) -> Grader:
-    async def jev(scenario: Scenario, trial: AgentTrial) -> Verdict:
+    async def jev(scenario: Scenario, trial: AgentTrial) -> Judgment:
         state = {"request": scenario.intent, "success_criteria": scenario.success_criteria, "answer": trial.final_text}
-        try:
-            result = await asyncio.to_thread(
-                client.decide, state=state, questions={"passed": NoulQuestion(instructions=JEV_INSTRUCTIONS)}
-            )
-        except (SystemOneRequestFailed, SystemOneNotConfigured, TypeSafeEgressBudgetExhausted) as error:
-            return verdict("jev", None, None, f"jev call failed: {error}")
+        # TypeSafe's client is synchronous.
+        result = await asyncio.to_thread(
+            client.decide, state=state, questions={"passed": NoulQuestion(instructions=JEV_INSTRUCTIONS)}
+        )
         answer = result.answers["passed"]
         if not isinstance(answer, NoulAnswer):
-            return verdict("jev", None, None, "jev declined to answer")
-        passed = answer.probability >= JEV_PASS_THRESHOLD
-        return verdict(
-            "jev", passed, answer.probability, f"jev put the probability of success at {answer.probability:.2f}"
+            return Judgment(passed=None, score=None, rationale=f"{result.model} declined to answer")
+        return Judgment(
+            passed=answer.probability >= JEV_PASS_THRESHOLD,
+            score=answer.probability,
+            rationale=f"{result.model} put the probability of success at {answer.probability:.2f}",
         )
 
     return jev
@@ -130,6 +121,8 @@ def _build_jev(settings: GraderSettings) -> Grader:
     return make_jev(client)
 
 
+# jev is opt-in by name: TypeSafe may only receive data PostHog owns, so a run asks for it knowingly.
+DEFAULT_GRADERS = ("expected_tools", "judge")
 GRADERS: dict[str, Callable[[GraderSettings], Grader]] = {
     "expected_tools": lambda _: expected_tools_grader,
     "judge": _build_judge,

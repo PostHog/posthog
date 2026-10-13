@@ -14,6 +14,10 @@ from typing import cast
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from pydantic import TypeAdapter, ValidationError
+
+from posthog.egress.typesafe import JEV_LATEST
+
 from products.mcp_analytics.backend.agent_evals.agent_loop import AgentTrial
 from products.mcp_analytics.backend.agent_evals.grading import (
     GradedReport,
@@ -21,15 +25,15 @@ from products.mcp_analytics.backend.agent_evals.grading import (
     TrialGrade,
     format_grade_summary,
     grade_trial,
-    parse_scenarios,
-    parse_trials,
 )
 from products.mcp_analytics.backend.agent_evals.model_graders import (
+    DEFAULT_GRADERS,
     DEFAULT_JUDGE_MODEL,
     GRADERS,
     GraderSettings,
     GraderUnavailable,
 )
+from products.mcp_analytics.backend.agent_evals.runner import AgentRunReport
 from products.mcp_analytics.backend.agent_evals.scenarios import Scenario
 
 
@@ -40,7 +44,9 @@ class Command(BaseCommand):
         parser.add_argument("--report", type=Path, required=True, help="JSON report written by run_mcp_evals.")
         parser.add_argument("--out", type=Path, required=True, help="Where to write the graded JSON report.")
         parser.add_argument(
-            "--graders", default=",".join(GRADERS), help=f"Comma-separated, from: {', '.join(GRADERS)}."
+            "--graders",
+            default=",".join(DEFAULT_GRADERS),
+            help=f"Comma-separated, from: {', '.join(GRADERS)}. jev runs only when named.",
         )
         parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
         parser.add_argument("--concurrency", type=int, default=4)
@@ -53,17 +59,21 @@ class Command(BaseCommand):
         unknown = sorted(set(names) - set(GRADERS))
         if unknown:
             raise CommandError(f"unknown graders: {', '.join(unknown)}")
+        report_path, out = cast(Path, options["report"]), cast(Path, options["out"])
+        if out.resolve() == report_path.resolve():
+            raise CommandError("--out would overwrite the report being graded")
 
-        raw = json.loads(cast(Path, options["report"]).read_text())
-        trials = parse_trials(raw["trials"])
-        scenarios = {scenario.id: scenario for scenario in parse_scenarios(raw["scenarios"])}
-        missing = sorted({trial.scenario_id for trial in trials} - set(scenarios))
+        try:
+            run = TypeAdapter(AgentRunReport).validate_json(report_path.read_bytes())
+        except ValidationError as invalid:
+            raise CommandError(f"{report_path} is not a run_mcp_evals report: {invalid}") from invalid
+        scenarios = {scenario.id: scenario for scenario in run.scenarios}
+        missing = sorted({trial.scenario_id for trial in run.trials} - set(scenarios))
         if missing:
             raise CommandError(f"report has trials for scenarios it does not record: {', '.join(missing)}")
 
-        grader_settings = GraderSettings(
-            anthropic_api_key=settings.ANTHROPIC_API_KEY or "", judge_model=cast(str, options["judge_model"])
-        )
+        judge_model = cast(str, options["judge_model"])
+        grader_settings = GraderSettings(anthropic_api_key=settings.ANTHROPIC_API_KEY or "", judge_model=judge_model)
         graders: dict[str, Grader] = {}
         for name in names:
             try:
@@ -73,16 +83,15 @@ class Command(BaseCommand):
         if not graders:
             raise CommandError("no grader can run")
 
-        grades = asyncio.run(_grade_all(trials, scenarios, graders, concurrency))
+        models = {"expected_tools": "deterministic", "judge": judge_model, "jev": JEV_LATEST}
         report = GradedReport(
-            server_url=raw["server_url"],
-            model=raw["model"],
-            effort=raw["effort"],
-            started_at=raw["started_at"],
-            graders=tuple(graders),
-            grades=grades,
+            server_url=run.server_url,
+            model=run.model,
+            effort=run.effort,
+            started_at=run.started_at,
+            grader_models={name: models[name] for name in graders},
+            grades=asyncio.run(_grade_all(run.trials, scenarios, graders, concurrency)),
         )
-        out = cast(Path, options["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report.to_dict(), indent=2))
         self.stdout.write(f"{format_grade_summary(report)}\nwrote {out}")
