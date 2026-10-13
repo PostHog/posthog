@@ -2453,6 +2453,36 @@ describe("AuthService", () => {
       });
     });
 
+    it("checks access through the injected fetch when the global fetch fails", async () => {
+      stubAuthFetch();
+      const injectedFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+      );
+      service = new AuthService(
+        preferencePort,
+        sessionPort,
+        oauthFlow as unknown as IAuthOAuthFlowService,
+        connectivity,
+        identityCipher,
+        mockPowerManager as unknown as IPowerManager,
+        mockLogger,
+        null,
+        [],
+        injectedFetch,
+      );
+
+      await service.initialize();
+
+      expect(service.getState().desktopAccess).toEqual({
+        projectId: 42,
+        status: "allowed",
+        reason: null,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
     it("retries after a technical failure", async () => {
       let available = false;
       stubAuthFetch({
