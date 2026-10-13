@@ -170,8 +170,8 @@ export function canvasBuildStatus(
 export interface canvasSceneLogicValues {
     startHandoff: CanvasStartHandoff | null // canvasNewLogic
     blocksCanvasId: string | null // canvasSidePanelLogic
-    currentProjectId: number | null // projectLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentProjectId: number | null // projectLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     user: UserType | null // userLogic
