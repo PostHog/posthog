@@ -372,8 +372,6 @@ Product teams own their definitions and control which operations are exposed as 
 
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
-   For query visualizations, `render-ui` loads data through `app.callServerTool({ name: "exec", arguments: { command: "call --json <tool_name> <json_input>" } })`. This uses the advertised `exec` tool even when the host does not expose individual query tools. The app accepts structured result data or parses the JSON text response, and the host handles authentication through its existing MCP connection. Other visualizations call their tools directly.
-
    #### Custom input schemas
 
    By default, tool input schemas are auto-derived from OpenAPI via Orval.
