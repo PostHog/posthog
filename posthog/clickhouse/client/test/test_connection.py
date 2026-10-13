@@ -123,7 +123,7 @@ def test_native_events_workload_without_host_fails_closed(settings):
 
 def test_bounded_native_client_preserves_ops_identity_and_reads_rotated_token(settings, monkeypatch, tmp_path):
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
-    settings.CLICKHOUSE_NATIVE_EVENTS_VERIFY = False
+    settings.CLICKHOUSE_VERIFY = False
     token = tmp_path / "token"
     creds = ClickHouseCredentials(user="ops-example", password="fallback", password_file=str(token))
     monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.OPS: creds})
