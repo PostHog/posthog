@@ -84,17 +84,16 @@ Access rules can also be changed with MCP write tools. Read the current rule fir
 
 All access control tools take an optional project id and default to the active project.
 
-The organization also has `posthog:org-members-list`, `posthog:roles-list` and
-`posthog:role-members-list`. Do not build the answer on them. A connection whose API key is restricted to
-one project never sees them, because the catalog drops every tool that needs an `organization` scope. The
-tools above already carry every id and name this skill needs.
+Do not depend on `posthog:org-members-list`, `posthog:roles-list` or `posthog:role-members-list`. An API
+key restricted to one project does not see them, and the tools above carry every id and name this skill needs.
 
 ## Workflow
 
-1. **Find the subject id.** Both ids come from the access control tools themselves.
+1. **Find the subject id.**
    - `member_id` is the `organization_membership_id` on an `access-control-members-list` entry. Run that
      tool without `member_id`, then match the person on `user.email`, or on `user.first_name` and
-     `user.last_name`. The membership id is not the user id and not the user uuid.
+     `user.last_name`. The membership id is not the user id and not the user uuid. The matched entry
+     already answers tool-level questions, so step 2 needs no second call.
    - `role_id` is the `role_id` on an `access-control-roles-list` entry. That entry also gives `role_name`.
      The `role_ids` on a member's entry hold the same ids, so the members in a role are the
      `access-control-members-list` entries whose `role_ids` contain that id.
@@ -150,10 +149,8 @@ How to phrase the answer:
 
 - An empty object or property list means no rules of that kind, not no access. The tool-level entry
   still applies.
-- A `member_id` or a `role_id` the organization does not have returns 404 with the message `Not found.` A
-  user uuid passed as `member_id` fails this way, because the two ids look alike. Read the id again from
-  `access-control-members-list` or `access-control-roles-list` before you tell the user the subject does
-  not exist.
+- An unknown `member_id` or `role_id` returns 404 `Not found.`, often because a user uuid was passed as
+  `member_id`. Find the id again as step 1 says before you tell the user the subject does not exist.
 - A project default of `none` does not remove explicit member or role grants. Check the members and roles
   lists to find those grants. Organization admins and owners always bypass project rules.
 - A member missing from `members-list` is not proof of no access. A caller who is not an organization
