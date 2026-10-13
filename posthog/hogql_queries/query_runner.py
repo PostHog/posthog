@@ -1825,9 +1825,12 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     choices: dict[str, bool] = {}
+    base_modifiers: Optional[HogQLQueryModifiers] = None
     while True:
         modifiers = getattr(query, "modifiers", None)
         if modifiers is not None:
+            if base_modifiers is None:
+                base_modifiers = modifiers
             for key in ("useNewEventsSchema", "useNewEventsCluster"):
                 value = getattr(modifiers, key)
                 if key not in choices and value is not None:
@@ -1837,8 +1840,8 @@ def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
             break
         query = source
     if choices:
-        return (modifiers or HogQLQueryModifiers()).model_copy(update=choices)
-    return modifiers
+        return (base_modifiers or HogQLQueryModifiers()).model_copy(update=choices)
+    return base_modifiers
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
