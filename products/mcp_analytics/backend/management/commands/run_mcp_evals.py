@@ -11,6 +11,7 @@ PostHog keeps the active project per token, so one trial's project switch moves 
 """
 
 import os
+import re
 import asyncio
 from pathlib import Path
 from typing import cast, get_args
@@ -79,7 +80,9 @@ class Command(BaseCommand):
             report = asyncio.run(run_agent_evals(config, anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)))
         except Exception as unreachable:
             # Only the catalog session raises here; every trial failure stays inside its trial.
-            raise CommandError(f"could not list the server's tools: {describe_failure(unreachable)}") from unreachable
+            raise CommandError(
+                f"could not list the server's tools: {describe_failure(unreachable, config.headers)}"
+            ) from unreachable
 
         out = cast(Path, options["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -92,8 +95,19 @@ def _headers(raw_headers: list[str], token: str | None) -> dict[str, str]:
     for raw in raw_headers:
         name, separator, value = raw.partition(":")
         if not separator or not name.strip():
-            raise CommandError(f"--header must look like 'Name: value', got '{raw}'")
-        headers[name.strip()] = value.strip()
+            raise CommandError("--header must look like 'Name: value'")
+        headers[name.strip()] = _header_value(name.strip(), value)
     if token and not any(name.lower() == "authorization" for name in headers):
-        headers["Authorization"] = f"Bearer {token}"
+        headers["Authorization"] = f"Bearer {_header_value(TOKEN_ENV, token)}"
     return headers
+
+
+def _header_value(source: str, value: str) -> str:
+    # Checked here so the HTTP client never rejects it, because its error would quote the value.
+    value = value.strip()
+    if _CONTROL_CHARACTERS.search(value):
+        raise CommandError(f"{source} contains a control character")
+    return value
+
+
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")

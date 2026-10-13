@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
-from mcp.types import CallToolResult, ImageContent, TextContent
+from mcp.types import CallToolResult, ImageContent, ListToolsResult, TextContent
 from parameterized import parameterized
 
 from products.mcp_analytics.backend.agent_evals import runner
@@ -56,8 +56,8 @@ class TestRunnerBoundaries(SimpleTestCase):
             ),
         ]
     )
-    def test_recorded_failures_carry_no_url_credentials(self, _name: str, message: str, expected: str) -> None:
-        assert runner.describe_failure(ConnectionError(message)) == expected
+    def test_recorded_failures_carry_no_credentials(self, _name: str, message: str, expected: str) -> None:
+        assert runner.describe_failure(ConnectionError(message), {"Authorization": "Bearer tok123"}) == expected
 
     @parameterized.expand(
         [
@@ -83,7 +83,9 @@ class TestRunnerBoundaries(SimpleTestCase):
     def test_headers(self, _name: str, raw: list[str], token: str | None, expected: dict[str, str]) -> None:
         assert _headers(raw, token) == expected
 
-    @parameterized.expand([("no_separator", "x-posthog-project-id"), ("empty_name", ": 2")])
+    @parameterized.expand(
+        [("no_separator", "x-posthog-project-id"), ("empty_name", ": 2"), ("control_character", "X-Api-Key: a\rb")]
+    )
     def test_a_malformed_header_is_rejected(self, _name: str, raw: str) -> None:
         with self.assertRaises(CommandError):
             _headers([raw], None)
@@ -111,14 +113,19 @@ class TestRunnerBoundaries(SimpleTestCase):
         assert tool_result_text(result) == expected
 
 
+class _EmptyCatalog:
+    async def list_tools(self, cursor: str | None = None) -> ListToolsResult:
+        return ListToolsResult(tools=[])
+
+
 def _session(fail_on: str):
     @asynccontextmanager
-    async def session(config: RunConfig) -> AsyncIterator[tuple[object, None]]:
+    async def session(config: RunConfig) -> AsyncIterator[tuple[_EmptyCatalog, None]]:
         if fail_on == "open":
             raise ExceptionGroup(
                 "unhandled errors in a TaskGroup", [ConnectionError(f"connection refused: {config.url}")]
             )
-        yield object(), None
+        yield _EmptyCatalog(), None
         if fail_on == "close":
             raise ConnectionError("stream closed")
 

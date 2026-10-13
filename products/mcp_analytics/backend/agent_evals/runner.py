@@ -3,7 +3,7 @@ import json
 import time
 import asyncio
 import dataclasses
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -140,6 +140,8 @@ async def _run_scenario(
     try:
         # A session per trial, so state a server keeps per session cannot leak between trials.
         async with _mcp_session(config) as (session, _):
+            # MCP clients list tools in each session; the SDK validates tool results against that list.
+            await _list_all_tools(session)
 
             async def call_tool(name: str, tool_input: object) -> ToolOutcome:
                 if not isinstance(tool_input, dict):
@@ -147,7 +149,7 @@ async def _run_scenario(
                 try:
                     result = await session.call_tool(name, tool_input, read_timeout_seconds=TOOL_CALL_TIMEOUT)
                 except Exception as error:
-                    return ToolOutcome(text=describe_failure(error), is_error=True)
+                    return ToolOutcome(text=describe_failure(error, config.headers), is_error=True)
                 return ToolOutcome(text=tool_result_text(result), is_error=bool(result.isError))
 
             deps = TrialDeps(create_message=create_message, call_tool=call_tool, now_ms=_now_ms)
@@ -163,15 +165,19 @@ async def _run_scenario(
                 turns=0,
                 usage=TrialUsage(),
                 duration_ms=0,
-                error=describe_failure(error),
+                error=describe_failure(error, config.headers),
             )
     assert finished is not None
     return finished
 
 
-def describe_failure(error: Exception) -> str:
-    # HTTP errors quote the request URL, which can carry a token in its query or userinfo.
-    return _URL.sub(lambda match: _without_credentials(match.group(0)), _describe(error))
+def describe_failure(error: Exception, headers: Mapping[str, str]) -> str:
+    # HTTP errors quote the request URL, which can carry a token, and can quote a rejected header value.
+    text = _URL.sub(lambda match: _without_credentials(match.group(0)), _describe(error))
+    for value in headers.values():
+        if value:
+            text = text.replace(value, "[redacted]")
+    return text
 
 
 def _describe(error: Exception) -> str:
