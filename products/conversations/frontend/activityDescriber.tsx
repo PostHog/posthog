@@ -130,6 +130,28 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    cc_participants: function onCcParticipants(change) {
+        const before = (change?.before as string[] | null) ?? []
+        const after = (change?.after as string[] | null) ?? []
+        const added = after.filter((address) => !before.includes(address))
+        const removed = before.filter((address) => !after.includes(address))
+        const description: Description[] = []
+        if (added.length > 0) {
+            description.push(
+                <>
+                    added <strong>{added.join(', ')}</strong> to CC
+                </>
+            )
+        }
+        if (removed.length > 0) {
+            description.push(
+                <>
+                    removed <strong>{removed.join(', ')}</strong> from CC
+                </>
+            )
+        }
+        return description.length > 0 ? { description } : null
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {
