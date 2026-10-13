@@ -213,19 +213,18 @@ def _skip_for_quota(
     return CreateObservationOutput(observation_id=None, was_created=False, scanner_type=scanner.scanner_type)
 
 
-def _try_cached_org_admission(organization_id: UUID, cost: int, cap: OrgCreditCap, ceiling: int) -> bool:
+def _try_cached_org_admission(organization_id: UUID, cost: int, cap: OrgCreditCap, ceiling: int | None) -> bool:
     """The org-level twin of `_try_cached_admission`; also misses when billing changed the limit."""
     fresh_after = timezone.now() - ADMISSION_BUDGET_TTL
-    return bool(
-        ReplayVisionOrgAdmissionBudget.objects.filter(
-            organization_id=organization_id,
-            period_start=cap.period.start,
-            credit_limit=cap.credit_limit,
-            refreshed_at__gte=fresh_after,
-        )
-        .filter(LessThanOrEqual(F("credits_used") + F("credits_since_refresh") + cost, ceiling))
-        .update(credits_since_refresh=F("credits_since_refresh") + cost)
+    budget = ReplayVisionOrgAdmissionBudget.objects.filter(
+        organization_id=organization_id,
+        period_start=cap.period.start,
+        credit_limit=cap.credit_limit,
+        refreshed_at__gte=fresh_after,
     )
+    if ceiling is not None:
+        budget = budget.filter(LessThanOrEqual(F("credits_used") + F("credits_since_refresh") + cost, ceiling))
+    return bool(budget.update(credits_since_refresh=F("credits_since_refresh") + cost))
 
 
 def _admit_within_org_limit(
@@ -234,9 +233,8 @@ def _admit_within_org_limit(
     """Admit `cost` against `ceiling`, the org limit or a free-only scanner's free credits; None on admission, else the refusing state.
 
     One conditional UPDATE on the org's row, so concurrent applies across its scanners cannot overshoot.
+    With no ceiling the admission still records its spend here, so a free-only scanner's check sees it.
     """
-    if ceiling is None:
-        return None
     if _try_cached_org_admission(organization_id, cost, cap, ceiling):
         return None
     locked = ReplayVisionOrgAdmissionBudget.objects.select_for_update().filter(organization_id=organization_id)
@@ -259,8 +257,7 @@ def _admit_within_org_limit(
             ignore_conflicts=True,
         )
         locked.first()
-    quota = quota_state_for_cap(organization_id, cap)
-    quota = replace(quota, credit_limit=ceiling)
+    quota = replace(quota_state_for_cap(organization_id, cap), credit_limit=ceiling)
     admitted = not quota.would_exceed(cost)
     ReplayVisionOrgAdmissionBudget.objects.filter(organization_id=organization_id).update(
         period_start=cap.period.start,

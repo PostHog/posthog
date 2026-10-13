@@ -597,7 +597,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "Credits counted against `credit_limit` for the current billing period: settled receipts plus "
             "in-flight observations, priced from their frozen snapshot model. This "
             "is what the limit gate measures, so it includes work still in progress. It is not the same as "
-            "`credits_this_month`, which counts only succeeded observations."
+            "`credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the "
+            "organization's free credits, this is the organization's usage, not the scanner's own."
         ),
     )
     limit_reached = serializers.SerializerMethodField(
@@ -1099,7 +1100,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
-        limit_changed = "credit_limit" in validated_data and validated_data["credit_limit"] != instance.credit_limit
+        limit_changed = any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("credit_limit", "free_only")
+        )
         # After `before`, so the question is not reported as an edit. A model call, so before the transaction.
         if "scanner_config" in validated_data:
             validated_data.update(

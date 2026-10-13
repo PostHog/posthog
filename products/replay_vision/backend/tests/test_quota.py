@@ -504,15 +504,17 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
 
     @parameterized.expand(
         [
-            ("no_own_cap_free_credits_bind", None, FREE_TIER_MONTHLY_CREDITS, True),
-            ("larger_own_cap_free_credits_bind", 100_000, FREE_TIER_MONTHLY_CREDITS, True),
-            ("tighter_own_cap_binds", 5, 5, True),
+            ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True),
+            ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True),
+            ("tighter_own_cap_binds", 5, 1_000_000, 5, True),
+            ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True),
+            ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True),
         ]
     )
     def test_free_only_scanner_draws_on_the_orgs_free_credits(
-        self, _name: str, own_cap: int | None, expected_limit: int, expected_blocked: bool
+        self, _name: str, own_cap: int | None, org_limit: int | None, expected_limit: int, expected_blocked: bool
     ) -> None:
-        # Another scanner's spend leaves less than one observation of free credits, while billing allows far more.
+        # Another scanner's spend leaves less than one observation of free credits.
         seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 10)
         free = ReplayScanner.objects.create(
             team=self.team,
@@ -523,7 +525,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             credit_limit=own_cap,
             free_only=True,
         )
-        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", org_limit):
             budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
         assert (budget.credit_limit, budget.blocked) == (expected_limit, expected_blocked)
 

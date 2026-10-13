@@ -72044,7 +72044,7 @@ export namespace Schemas {
       readonly credits_this_month: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit: number;
       /** Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, because the organization has used its free credits. True when the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set and `free_only` is false. */
       readonly limit_reached: boolean;
@@ -84069,7 +84069,7 @@ export namespace Schemas {
       readonly credits_this_month?: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month?: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit?: number;
       /** Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, because the organization has used its free credits. True when the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set and `free_only` is false. */
       readonly limit_reached?: boolean;
