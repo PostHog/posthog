@@ -50,6 +50,7 @@ export function EvaluationRunsTable(): JSX.Element {
         runsDateRange,
         runsBackfillId,
         evaluationRunsHasMore,
+        evaluationRunsFilter,
         runsSummary,
     } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns, setRunsDates, loadOlderEvaluationRuns } = useActions(llmEvaluationLogic)
@@ -62,7 +63,7 @@ export function EvaluationRunsTable(): JSX.Element {
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
 
     // A filter is hiding rows when the evaluation has runs but none match the current filter.
-    const filterHidesRuns = evaluationRuns.length > 0 && filteredEvaluationRuns.length === 0
+    const filterHidesRuns = evaluationRunsFilter !== 'all' && filteredEvaluationRuns.length === 0
     // LemonTable drops its empty state as soon as it has rows, so a failed refresh over rows that
     // are already on screen needs its own surface. Without it the spinner just stops and the user
     // reads the stale rows as current.
@@ -203,7 +204,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     <span className="text-muted text-sm">
                         {!evaluationRunsHasMore
                             ? `Showing all ${evaluationRuns.length.toLocaleString()} runs.`
-                            : runsSummary && runsSummary.total > evaluationRuns.length
+                            : evaluationRunsFilter === 'all' && runsSummary && runsSummary.total > evaluationRuns.length
                               ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${runsSummary.total.toLocaleString()} runs.`
                               : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
                     </span>

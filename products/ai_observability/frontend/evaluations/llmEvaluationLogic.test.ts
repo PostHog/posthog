@@ -1289,6 +1289,26 @@ return result`,
                 )
                 queryHogQL.mockRestore()
             })
+
+            it('reloads runs with the filter in the query, so failures past the newest page are reachable', async () => {
+                const queryHogQL = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                queryHogQL.mockClear()
+
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
+                await expectLogic(logic).toDispatchActions(['loadEvaluationRunsSuccess'])
+
+                const runsQuery = queryHogQL.mock.calls.find(([query]) =>
+                    String(query).includes('ORDER BY timestamp DESC')
+                )
+                expect(runsQuery?.[0]).toContain(`NOT (properties.$ai_evaluation_result = 'false')`)
+                queryHogQL.mockRestore()
+            })
         })
     })
 
