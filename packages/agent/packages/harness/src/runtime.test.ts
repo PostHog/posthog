@@ -57,11 +57,11 @@ describe("createHarnessRuntime", () => {
             "<inline:hog-branding>",
             "<inline:posthog-provider>",
             "<inline:current-work>",
-            "<inline:orchestration>",
             "<inline:web-access>",
             "<inline:mcp>",
           ]),
         );
+        expect(extensionPaths).not.toContain("<inline:orchestration>");
       } finally {
         await runtime.dispose();
       }
