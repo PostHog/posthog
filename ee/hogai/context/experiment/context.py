@@ -4,7 +4,11 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.hogql_queries.utils import (
+    get_experiment_stats_method,
+    resolve_bayesian_settings,
+    resolve_frequentist_alpha,
+)
 from products.experiments.backend.models.experiment import Experiment
 
 from .prompts import (
@@ -133,6 +137,11 @@ class ExperimentContext:
         lines: list[str] = []
 
         stats_method = get_experiment_stats_method(experiment)
+        stats_level = (
+            f"{resolve_bayesian_settings(experiment.stats_config).ci_level:.0%}"
+            if stats_method == "bayesian"
+            else f"{1 - resolve_frequentist_alpha(experiment.stats_config):.0%}"
+        )
 
         variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
 
@@ -190,7 +199,7 @@ class ExperimentContext:
 
                         if hasattr(variant, "credible_interval") and variant.credible_interval:
                             ci_low, ci_high = variant.credible_interval[:2]
-                            lines.append(f"  - 95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
+                            lines.append(f"  - {stats_level} credible interval: {ci_low:.1%} - {ci_high:.1%}")
 
                         if hasattr(variant, "delta") and variant.delta is not None:
                             lines.append(f"  - Delta (effect size): {variant.delta:.1%}")
@@ -202,7 +211,7 @@ class ExperimentContext:
 
                         if hasattr(variant, "confidence_interval") and variant.confidence_interval:
                             ci_low, ci_high = variant.confidence_interval[:2]
-                            lines.append(f"  - 95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
+                            lines.append(f"  - {stats_level} confidence interval: {ci_low:.1%} - {ci_high:.1%}")
 
                         if hasattr(variant, "delta") and variant.delta is not None:
                             lines.append(f"  - Delta (effect size): {variant.delta:.1%}")

@@ -17,6 +17,8 @@ import intervalsFrequentistLight from 'public/experiments/how-to-read/intervals-
 import significanceDark from 'public/experiments/how-to-read/significance-dark.png'
 import significanceLight from 'public/experiments/how-to-read/significance-light.png'
 
+import { getExperimentStatsLevel } from 'products/experiments/frontend/experimentStatsConfig'
+
 import { experimentLogic } from '../../experimentLogic'
 
 const SIGNIFICANCE_IMAGES = { light: significanceLight, dark: significanceDark }
@@ -26,9 +28,10 @@ const INTERVAL_IMAGES = {
 }
 
 export function HowToReadTooltip({ visible }: { visible?: boolean } = {}): JSX.Element {
-    const { statsMethod } = useValues(experimentLogic)
+    const { experiment, statsMethod } = useValues(experimentLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = isDarkModeOn ? 'dark' : 'light'
+    const statsLevel = getExperimentStatsLevel(experiment, statsMethod)
 
     return (
         <>
@@ -91,8 +94,8 @@ export function HowToReadTooltip({ visible }: { visible?: boolean } = {}): JSX.E
                             <p className="mb-3">
                                 The bars show{' '}
                                 {statsMethod === ExperimentStatsMethod.Bayesian
-                                    ? '95% credible intervals'
-                                    : '95% confidence intervals'}
+                                    ? `${statsLevel} credible intervals`
+                                    : `${statsLevel} confidence intervals`}
                                 . When an interval doesn't cross the 0% line, the result is significant.
                             </p>
                             <img
