@@ -2100,9 +2100,10 @@ class TestResourceSchemaInvariants:
     def test_incremental_tables_filter_on_a_selected_segments_date(self, alias):
         # `requires_filter` tables are queried with a `segments.date` window and partitioned on
         # `segments_date`. Declaring a different filter field, or not selecting segments.date, breaks
-        # both the incremental window and the partitioning.
+        # both the incremental window and the partitioning. `change_event` is read by its own
+        # `ChangeEventReader` on `change_event.change_date_time` and is not partitioned.
         contents = RESOURCE_SCHEMAS[alias]
-        if "filter_field_names" not in contents:
+        if "filter_field_names" not in contents or alias == "change_event":
             return
         assert contents["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
         assert "segments.date" in contents["field_names"]
