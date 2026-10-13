@@ -23,6 +23,7 @@ from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
+from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
@@ -189,6 +190,19 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 continue
             try:
                 transport = webhook_transports.get() if transport_class is WebhookTransport else transport_class()
+            except DeliveryError as error:
+                # Fails before a send starts, where `deliver` counts its failures, so it is counted here.
+                for _ in transitions:
+                    record_delivery(
+                        team_id=request.team_id,
+                        configuration_id=request.configuration_id,
+                        provider=WebhookTransport.provider,
+                        succeeded=False,
+                    )
+                failures.append(str(error))
+                first_refusal = first_refusal or error
+                continue
+            try:
                 deliver(
                     transport=transport,
                     thread_store=thread_store,

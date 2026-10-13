@@ -340,11 +340,14 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch.dict(f"{_LEGACY_MODULE}._bodies", {SourceKind.LOGS: legacy_body}),
             patch(f"{_WEBHOOK_URL_MODULE}.post_json") as post,
+            patch(f"{_MODULE}.record_delivery") as recorded,
         ):
             if header is None:
                 with pytest.raises(DeliveryError):
                     deliver_evaluation(_request(self.team.id))
                 post.assert_not_called()
+                # Each blocked webhook still counts as a failed delivery.
+                assert [c.kwargs["succeeded"] for c in recorded.call_args_list] == [False, False]
                 # One failed lookup per evaluation, however many webhooks it has.
                 assert flag_reads.count(LEGACY_WEBHOOK_BODY_FLAG) == 1
                 return
