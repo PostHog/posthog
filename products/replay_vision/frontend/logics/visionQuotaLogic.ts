@@ -65,6 +65,7 @@ export interface visionQuotaLogicMeta {
         showStartupCap: (startupCapCredits: number | null) => boolean
         showStartupCapLine: (startupCapCredits: number | null, displayQuota: VisionQuotaApi | null) => boolean
         showUsd: (quota: VisionQuotaApi | null) => boolean
+        freeCreditsLeft: (quota: VisionQuotaApi | null) => number | null
         onFreePlan: (quota: VisionQuotaApi | null) => boolean
         billedCredits: (displayQuota: VisionQuotaApi | null) => number
         billedLimitCredits: (displayQuota: VisionQuotaApi | null) => number

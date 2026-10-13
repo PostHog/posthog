@@ -473,10 +473,10 @@ export interface replayScannerLogicValues {
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
     goalBudgetInput: number | null
-    goalSpendMode: GoalSpendMode
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
+    goalSpendMode: GoalSpendMode
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
     hasUnsavedChanges: boolean
@@ -760,11 +760,11 @@ export interface replayScannerLogicActions {
     setGoalBudgetInput: (budget: number | null) => {
         budget: number | null
     }
-    setGoalSpendMode: (mode: GoalSpendMode) => {
-        mode: GoalSpendMode
-    }
     setGoalDraftInput: (goal: string) => {
         goal: string
+    }
+    setGoalSpendMode: (mode: GoalSpendMode) => {
+        mode: GoalSpendMode
     }
     setObservationBackfillFilter: (value: string | null) => {
         value: string | null
