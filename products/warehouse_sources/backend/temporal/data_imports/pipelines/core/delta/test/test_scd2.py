@@ -1,3 +1,4 @@
+import tempfile
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -7,6 +8,7 @@ import pytest
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
@@ -21,6 +23,34 @@ _TS_TYPE = pa.timestamp("us", tz="UTC")
 
 def _make_writer(delta_uri: str) -> Scd2DeltaWriter:
     return Scd2DeltaWriter(make_local_table_ref(delta_uri), valid_from_column="valid_from", valid_to_column="valid_to")
+
+
+def _make_skip_unchanged_writer(delta_uri: str) -> Scd2DeltaWriter:
+    return Scd2DeltaWriter(
+        make_local_table_ref(delta_uri),
+        valid_from_column="valid_from",
+        valid_to_column="valid_to",
+        row_hash_column="row_hash",
+        row_hash_exclude_columns=["synced_at"],
+    )
+
+
+def _history_batch(rows: list[tuple[str, str, int, datetime]]) -> pa.Table:
+    ids, plans, synced_at, valid_from = zip(*rows)
+    return pa.table(
+        {
+            "id": pa.array(ids),
+            "plan": pa.array(plans),
+            "synced_at": pa.array(synced_at),
+            "valid_from": pa.array(valid_from, type=_TS_TYPE),
+            "valid_to": pa.array([None] * len(rows), type=_TS_TYPE),
+        }
+    )
+
+
+def _versions(delta_table: deltalake.DeltaTable) -> list[tuple[str, str, datetime, datetime | None]]:
+    rows = delta_table.to_pyarrow_table().to_pylist()
+    return sorted((r["id"], r["plan"], r["valid_from"], r["valid_to"]) for r in rows)
 
 
 class TestScd2Write:
@@ -159,3 +189,97 @@ class TestScd2Write:
         tagged = [c["operation"] for c in history if commit_matches(c, metadata)]
         assert tagged == ["WRITE"]
         assert any(c["operation"] == "MERGE" for c in history)
+
+
+class TestScd2SkipUnchanged:
+    @pytest.mark.asyncio
+    async def test_resent_row_makes_no_version_and_changed_row_does(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "scd2_table")
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 2, 1, tzinfo=UTC)
+        writer = _make_skip_unchanged_writer(delta_path)
+        await writer.write(data=_history_batch([("a", "free", 1, ts1), ("b", "free", 1, ts1)]), primary_keys=["id"])
+
+        result = await writer.write(
+            data=_history_batch([("a", "free", 2, ts2), ("b", "pro", 2, ts2), ("c", "free", 2, ts2)]),
+            primary_keys=["id"],
+        )
+
+        assert _versions(result) == [
+            ("a", "free", ts1, None),
+            ("b", "free", ts1, ts2),
+            ("b", "pro", ts2, None),
+            ("c", "free", ts2, None),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_batch_of_only_unchanged_rows_commits_nothing(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "scd2_table")
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        writer = _make_skip_unchanged_writer(delta_path)
+        first = await writer.write(data=_history_batch([("a", "free", 1, ts1)]), primary_keys=["id"])
+        version = first.version()
+
+        result = await writer.write(
+            data=_history_batch([("a", "free", 2, datetime(2026, 2, 1, tzinfo=UTC))]),
+            primary_keys=["id"],
+            commit_metadata={"run_uuid": "r1", "batch_index": "0"},
+        )
+
+        assert result.version() == version
+        assert _versions(result) == [("a", "free", ts1, None)]
+
+    @parameterized.expand(
+        [
+            ("written_without_a_hash", None),
+            ("hashed_under_another_version", "v0:0123456789abcdef"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_current_row_without_a_comparable_hash_is_compared_by_value(
+        self, _name: str, stored_hash: str | None
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            delta_path = str(Path(tmp) / "scd2_table")
+            ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+            ts2 = datetime(2026, 2, 1, tzinfo=UTC)
+            seed = _history_batch([("a", "free", 1, ts1), ("b", "free", 1, ts1)])
+            if stored_hash is not None:
+                seed = seed.append_column("row_hash", pa.array([stored_hash, stored_hash]))
+            deltalake.write_deltalake(delta_path, seed)
+
+            result = await _make_skip_unchanged_writer(delta_path).write(
+                data=_history_batch([("a", "free", 2, ts2), ("b", "pro", 2, ts2)]), primary_keys=["id"]
+            )
+
+            assert _versions(result) == [
+                ("a", "free", ts1, None),
+                ("b", "free", ts1, ts2),
+                ("b", "pro", ts2, None),
+            ]
+
+    @pytest.mark.asyncio
+    async def test_only_leading_unchanged_rows_of_a_key_are_dropped(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "scd2_table")
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 2, 1, tzinfo=UTC)
+        ts3 = datetime(2026, 3, 1, tzinfo=UTC)
+        writer = _make_skip_unchanged_writer(delta_path)
+        await writer.write(data=_history_batch([("a", "free", 1, ts1), ("b", "free", 1, ts1)]), primary_keys=["id"])
+
+        # Key "a" repeats its current row and then changes. Key "b" changes and then goes back.
+        batch = _history_batch(
+            [("a", "free", 2, ts2), ("b", "pro", 2, ts2), ("a", "pro", 3, ts3), ("b", "free", 3, ts3)]
+        )
+        valid_to = pa.array([ts3, ts3, None, None], type=_TS_TYPE)
+        batch = batch.set_column(batch.schema.get_field_index("valid_to"), "valid_to", valid_to)
+
+        result = await writer.write(data=batch, primary_keys=["id"])
+
+        assert _versions(result) == [
+            ("a", "free", ts1, ts3),
+            ("a", "pro", ts3, None),
+            ("b", "free", ts1, ts2),
+            ("b", "free", ts3, None),
+            ("b", "pro", ts2, ts3),
+        ]
