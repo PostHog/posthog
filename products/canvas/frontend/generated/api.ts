@@ -31,8 +31,11 @@ import type {
     CanvasLayoutPublishApi,
     CanvasLayoutPublishResponseApi,
     CanvasLayoutWithComponentsResponseApi,
+    CanvasOperationInvokeApi,
+    CanvasOperationsResponseApi,
     CanvasPromoteApi,
     CanvasPublishCurrentVersionApi,
+    CanvasPublishSkillResponseApi,
     CanvasReportErrorApi,
     CanvasRequestFixApi,
     CanvasRevertApi,
@@ -507,6 +510,69 @@ export const canvasesLayoutPublishCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasLayoutPublishApi),
+    })
+}
+
+export const getCanvasesOperationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/operations/`
+}
+
+/**
+ * List the operations the canvas's live version declares, each with its verb's registry metadata.
+ */
+export const canvasesOperationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasOperationsResponseApi> => {
+    return apiMutator<CanvasOperationsResponseApi>(getCanvasesOperationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesOperationsInvokeUrl = (projectId: string, id: string, operationName: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/operations/${operationName}/invoke/`
+}
+
+/**
+ * Invoke one declared operation as the viewer.
+ *
+ * Runs the operation's verb with its declared payload plus the caller's `arguments`,
+ * through the same pipeline as a direct verb invoke.
+ */
+export const canvasesOperationsInvoke = async (
+    projectId: string,
+    id: string,
+    operationName: string,
+    canvasOperationInvokeApi?: CanvasOperationInvokeApi,
+    options?: RequestInit
+): Promise<CanvasActionResultApi> => {
+    return apiMutator<CanvasActionResultApi>(getCanvasesOperationsInvokeUrl(projectId, id, operationName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasOperationInvokeApi),
+    })
+}
+
+export const getCanvasesOperationsPublishSkillCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/operations/publish_skill/`
+}
+
+/**
+ * Publish the canvas's declared operations as a team skill agents can load.
+ *
+ * The skill name is stable per canvas, so republishing after a change creates a new version.
+ */
+export const canvasesOperationsPublishSkillCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanvasPublishSkillResponseApi> => {
+    return apiMutator<CanvasPublishSkillResponseApi>(getCanvasesOperationsPublishSkillCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

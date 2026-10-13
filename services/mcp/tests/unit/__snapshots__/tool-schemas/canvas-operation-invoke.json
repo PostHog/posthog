@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "arguments": {
+            "additionalProperties": {},
+            "description": "Values for the operation's declared `inputs`, keyed by payload field name.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "id": {
+            "description": "ID of the canvas that declares the operation.",
+            "type": "string"
+        },
+        "operation_name": {
+            "description": "The operation's declared name, exactly as listed by canvas-operations-list.",
+            "pattern": "^[a-z0-9-]+$",
+            "type": "string"
+        }
+    },
+    "required": ["id", "operation_name"],
+    "type": "object"
+}

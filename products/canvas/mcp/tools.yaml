@@ -356,6 +356,70 @@ tools:
             channel_id:
                 description: ID of the visible destination space.
                 required: true
+    canvas-operation-invoke:
+        operation: canvases_operations_invoke
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Invoke a canvas operation
+        description: >
+            Run one operation a canvas declares, by name, as the authenticated user: the operation's verb executes with
+            its declared payload plus the `arguments` you pass for its `inputs`, exactly as a viewer's click would, with
+            the user's own permissions and an activity log entry. Arguments outside the operation's `inputs` are
+            refused. The credential must also hold the verb's own write scope (listed per operation by
+            canvas-operations-list). Confirm with the user before invoking an operation marked destructive. Returns
+            `{verb, result}`; a 409 with `change_request_id` means an approval policy took the change.
+        param_overrides:
+            id:
+                description: ID of the canvas that declares the operation.
+            operation_name:
+                description: The operation's declared name, exactly as listed by canvas-operations-list.
+            arguments:
+                description: Values for the operation's declared `inputs`, keyed by payload field name.
+    canvas-operations-list:
+        operation: canvases_operations_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvas operations
+        description: >
+            List the named operations a canvas's live version declares: each binds a registered verb to a fixed payload
+            and names the `inputs` a caller supplies, with the verb's destructive and paid-compute flags and the scopes
+            an API key needs. Read this before canvas-operation-invoke, and to decide whether a canvas is worth
+            publishing as a skill with canvas-operations-publish-skill. A canvas with no operations returns an empty
+            list; its verbs are still reachable through canvas-action-invoke.
+        param_overrides:
+            id:
+                description: ID of the canvas whose declared operations to list.
+    canvas-operations-publish-skill:
+        operation: canvases_operations_publish_skill_create
+        enabled: true
+        scopes:
+            - canvas:write
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish canvas operations as a skill
+        description: >
+            Write (or republish) a team skill that documents a canvas's declared operations and the exact MCP calls that
+            run them, so any agent in the project can discover and use them. The skill name is stable per canvas, also
+            after a rename; each call publishes a new version, so do not retry a call that succeeded. Fails with 409
+            when the canvas's live version declares no operations, when a skill of that name exists that this canvas did
+            not publish, or when a concurrent publish won. Do this when the user asks to expose a canvas's operations to
+            agents, after the canvas is published.
+        param_overrides:
+            id:
+                description: ID of the canvas whose operations to publish as a skill.
     canvas-promote-create:
         operation: canvases_promote_create
         enabled: true

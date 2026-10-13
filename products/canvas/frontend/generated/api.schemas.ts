@@ -713,6 +713,40 @@ export const CanvasStateScopeEnumApi = {
     Shared: 'shared',
 } as const
 
+/**
+ * Fixed verb arguments the operation always sends, keyed by the verb's payload fields.
+ */
+export type CanvasOperationDeclarationApiPayload = { [key: string]: unknown }
+
+/**
+ * One named operation a canvas exposes to agents: a verb with a fixed payload and the inputs a caller supplies.
+ */
+export interface CanvasOperationDeclarationApi {
+    /**
+     * Operation name: lowercase letters, digits, and single hyphens, e.g. 'enable-beta'.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * What invoking the operation does for a person, in one or two sentences.
+     * @maxLength 400
+     */
+    description: string
+    /**
+     * Registered verb the operation runs; it must also be in capabilities.posthog.actions.
+     * @maxLength 64
+     */
+    verb: string
+    /** Fixed verb arguments the operation always sends, keyed by the verb's payload fields. */
+    payload?: CanvasOperationDeclarationApiPayload
+    /**
+     * Payload fields the caller supplies at invoke time. Any other argument is refused.
+     * @maxItems 16
+     * @items.maxLength 64
+     */
+    inputs?: string[]
+}
+
 export interface CanvasPostHogCapabilitiesApi {
     /**
      * @maxItems 100
@@ -737,6 +771,11 @@ export interface CanvasPostHogCapabilitiesApi {
      */
     actions?: string[]
     agentRequests?: boolean
+    /**
+     * Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.
+     * @maxItems 20
+     */
+    operations?: CanvasOperationDeclarationApi[]
 }
 
 export interface CanvasNetworkCapabilitiesApi {
@@ -1389,6 +1428,59 @@ export interface CanvasLayoutPublishApi {
      * @nullable
      */
     expected_current_version_id?: string | null
+}
+
+/**
+ * One declared operation, paired with the metadata of the verb it runs.
+ */
+export interface CanvasOperationApi {
+    /** The operation's declared name. */
+    name: string
+    /** What the operation does, from the canvas's declaration. */
+    description: string
+    /** The registered verb the operation runs. */
+    verb: string
+    /** Payload fields the caller supplies in `arguments`. */
+    inputs: string[]
+    /** True when the verb disables or stops something. */
+    destructive: boolean
+    /** True when the verb starts paid agent compute. */
+    starts_cloud_run: boolean
+    /** API scopes a scoped credential needs to invoke this operation. */
+    required_scopes: string[]
+}
+
+/**
+ * The operations a canvas's live version declares.
+ */
+export interface CanvasOperationsResponseApi {
+    /** Declared operations, in declaration order. */
+    operations: CanvasOperationApi[]
+}
+
+/**
+ * Values for the operation's declared `inputs`. Keys outside `inputs` are refused.
+ */
+export type CanvasOperationInvokeApiArguments = { [key: string]: unknown }
+
+/**
+ * Payload for invoking one declared operation.
+ */
+export interface CanvasOperationInvokeApi {
+    /** Values for the operation's declared `inputs`. Keys outside `inputs` are refused. */
+    arguments?: CanvasOperationInvokeApiArguments
+}
+
+/**
+ * The team skill that documents a canvas's operations for agents.
+ */
+export interface CanvasPublishSkillResponseApi {
+    /** Name of the team skill, stable per canvas. */
+    skill_name: string
+    /** Version just published; republishing increments it. */
+    version: number
+    /** The skill's one-line description. */
+    description: string
 }
 
 /**
