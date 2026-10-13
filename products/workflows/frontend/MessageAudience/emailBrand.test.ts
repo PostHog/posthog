@@ -140,4 +140,32 @@ describe('applyEmailBrand', () => {
 
         expect(await loadEmailBrand('1', messageDraftEmail(draftMessage({ kind: 'issue_fixed' })))).toBeNull()
     })
+
+    it('drops the template preheader and keeps draft text as text', () => {
+        const brand: EmailBrand = {
+            ...BRAND,
+            design: {
+                ...BRAND.design,
+                body: {
+                    ...BRAND.design.body,
+                    values: { ...BRAND.design.body.values, preheaderText: 'Old campaign teaser' },
+                },
+            },
+            html: BRAND.html.replace(
+                '<body style="background-color:#fdf6e3">',
+                '<body style="background-color:#fdf6e3"><div style="display:none;max-height:0px;overflow:hidden;">Old campaign teaser</div>'
+            ),
+        }
+        const draft = {
+            ...draftMessage({ kind: 'issue_fixed' }),
+            paragraphs: ['<img src="https://example.com/pixel">'],
+        }
+
+        const branded = applyEmailBrand(messageDraftEmail(draft), brand)!
+
+        expect(branded.design.body.values.preheaderText).toEqual('')
+        expect(branded.html).not.toContain('Old campaign teaser')
+        expect(branded.html).not.toContain('<img src="https://example.com/pixel">')
+        expect(branded.html).toContain('&lt;img')
+    })
 })

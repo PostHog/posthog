@@ -35,6 +35,21 @@ function visibleEverywhere(content: DesignContent): boolean {
     return !content.values?.hideDesktop && !content.values?.hideMobile
 }
 
+/** The inbox preview text belongs to the template's own campaign, so the draft must not inherit it. */
+function clearPreheader(doc: Document, design: Record<string, any>): void {
+    const preheader = String(design.body?.values?.preheaderText ?? '').trim()
+    if (!preheader) {
+        return
+    }
+    design.body.values.preheaderText = ''
+    for (const element of Array.from(doc.body.querySelectorAll('div, span'))) {
+        const hidden = /display\s*:\s*none/i.test(element.getAttribute('style') ?? '')
+        if (hidden && element.textContent?.trim() === preheader) {
+            element.remove()
+        }
+    }
+}
+
 function designContents(design: Record<string, any>): DesignContent[][] | null {
     const rows = design?.body?.rows
     if (!Array.isArray(rows)) {
@@ -149,6 +164,7 @@ export function applyEmailBrand(
         }
     })
     design.counters = { ...design.counters, u_content_text: (design.counters?.u_content_text ?? 0) + paragraphs.length }
+    clearPreheader(doc, design)
 
     return { html: `<!DOCTYPE html>${doc.documentElement.outerHTML}`, design }
 }
