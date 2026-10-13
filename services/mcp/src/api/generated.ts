@@ -15479,6 +15479,20 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    /**
+     * * `realized` - Realized
+     * * `training` - Training
+     * * `fixed` - Fixed
+     */
+    export type BaseRateSourceEnum = typeof BaseRateSourceEnum[keyof typeof BaseRateSourceEnum];
+
+
+    export const BaseRateSourceEnum = {
+      Realized: 'realized',
+      Training: 'training',
+      Fixed: 'fixed',
+    } as const;
+
     export interface UserBasicInfo {
       id: number;
       first_name: string;
@@ -23921,6 +23935,10 @@ export namespace Schemas {
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
+      /**
+         * Person UUIDs to add to a new static cohort.
+         * @maxItems 1000
+         */
       _create_static_person_ids?: string[];
     }
 
@@ -68748,19 +68766,25 @@ export namespace Schemas {
     }
 
     export interface PredictionSegmentThresholds {
-      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed. */
       likely_threshold: number;
-      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed. */
       possible_threshold: number;
       /** How many times the base rate a score must reach to be in the Likely segment. */
       likely_lift: number;
       /**
-         * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+         * The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the fraction of the champion's training population that did it. Null when base_rate_source is fixed.
          * @nullable
          */
       base_rate: number | null;
       /** Number of checked prediction dates the base rate pools. */
       base_rate_dates: number;
+      /** Where the cut points come from. realized: the checked dates hold enough positives. training: no realized base rate yet, so the champion's training population sets it. fixed: neither is available, so fixed cut points apply.
+       *
+       * * `realized` - Realized
+       * * `training` - Training
+       * * `fixed` - Fixed */
+      base_rate_source: BaseRateSourceEnum;
       /**
          * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
          * @nullable
@@ -78508,6 +78532,10 @@ export namespace Schemas {
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
+      /**
+         * Person UUIDs to add to a new static cohort.
+         * @maxItems 1000
+         */
       _create_static_person_ids?: string[];
     }
 
