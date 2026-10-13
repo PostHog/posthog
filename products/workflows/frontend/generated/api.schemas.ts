@@ -2148,6 +2148,7 @@ export interface EmailDraftApi {
      * * `model_error` - The model call failed
      * * `invalid_output` - The model returned an unusable draft */
     template_reason: EmailDraftFallbackReasonEnumApi | null
+}
 
 export type PeopleImportCreateApiRowsItem = { [key: string]: string }
 
