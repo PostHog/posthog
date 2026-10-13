@@ -49,6 +49,24 @@ class NotifiedAlert:
     filters: dict
 
 
+_NOTIFICATION_FOR: dict[AlertSignalAction, NotificationAction] = {
+    action: notification for notification, (action, _) in _ACTION_WEIGHT.items()
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class PlatformAlertSignal:
+    """One alert the platform announced as firing or auto-disabled, for which logs emits a signal.
+
+    Crosses the Temporal activity boundary, so every field is a primitive.
+    """
+
+    alert_id: str
+    action: AlertSignalAction
+    result_count: int | None
+    consecutive_failures: int
+
+
 def signal_action_and_weight(notification: NotificationAction) -> tuple[AlertSignalAction, float] | None:
     """Map a NotificationAction to (action label, weight), or None if not signalable."""
     return _ACTION_WEIGHT.get(notification)
@@ -114,3 +132,39 @@ async def emit_alert_state_change_signal(team: Team, na: NotifiedAlert) -> bool:
     except Exception:
         logger.exception("Failed to emit logs alert signal", alert_id=na.alert_id, action=na.action)
         return False
+
+
+def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal]) -> list[NotifiedAlert]:
+    """The signal facts for alerts the platform announced, read from their logs alert rows.
+
+    An alert whose logs row is gone gets no signal, the way the logs stack sends none for it.
+    """
+    from products.logs.backend.models import (
+        LogsAlertConfiguration,  # noqa: PLC0415 - keeps models off the workflow import path
+    )
+
+    alerts = {
+        str(alert.id): alert
+        for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=[s.alert_id for s in signals])
+    }
+    notified: list[NotifiedAlert] = []
+    for signal in signals:
+        alert = alerts.get(signal.alert_id)
+        if alert is None:
+            continue
+        notified.append(
+            NotifiedAlert(
+                alert_id=signal.alert_id,
+                team_id=team_id,
+                alert_name=alert.name,
+                action=signal.action,
+                weight=_ACTION_WEIGHT[_NOTIFICATION_FOR[signal.action]][1],
+                threshold_count=alert.threshold_count,
+                threshold_operator=alert.threshold_operator,
+                window_minutes=alert.window_minutes,
+                result_count=signal.result_count,
+                consecutive_failures=signal.consecutive_failures,
+                filters=alert.filters,
+            )
+        )
+    return notified

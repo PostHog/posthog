@@ -875,10 +875,15 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
     heartbeats, and per-emit isolation — mirrors the data_imports signal pipeline.
     Returns the number of signals successfully emitted.
     """
-    if not input.notified:
+    return await emit_notified_alert_signals(input.notified)
+
+
+async def emit_notified_alert_signals(notified: list[NotifiedAlert]) -> int:
+    """Emits one signal per alert, for whichever logs alerting path notified it. Never raises."""
+    if not notified:
         return 0
 
-    team_ids = {na.team_id for na in input.notified}
+    team_ids = {na.team_id for na in notified}
     teams = await database_sync_to_async_pool(_load_teams_for_signals)(team_ids)
 
     semaphore = asyncio.Semaphore(EMIT_SIGNAL_CONCURRENCY)
@@ -901,7 +906,7 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
                 temporalio.activity.heartbeat()
             return ok
 
-    results = await asyncio.gather(*(_bounded(na) for na in input.notified))
+    results = await asyncio.gather(*(_bounded(na) for na in notified))
     return sum(1 for ok in results if ok)
 
 
