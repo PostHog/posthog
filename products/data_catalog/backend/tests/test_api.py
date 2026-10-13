@@ -146,15 +146,24 @@ class TestMetricAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["definition_kind"] == "MarkdownDefinition"
 
-    def test_list_is_team_scoped(self) -> None:
+    @parameterized.expand(
+        [
+            ("unfiltered", "", ["mine", "unrelated"]),
+            ("search", "activation revenue", ["mine"]),
+            ("natural_language", "what is our activation", ["mine"]),
+            ("stop_words", "what is our", []),
+        ]
+    )
+    def test_list_is_team_scoped(self, name: str, search: str, expected: list[str]) -> None:
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
-        self.client.post(self.url, {"name": "mine", "description": "d"}, format="json")
-        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", description="d")
+        self.client.post(self.url, {"name": "mine", "description": "activation"}, format="json")
+        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", description="activation")
 
-        names = [row["name"] for row in self.client.get(self.url).json()["results"]]
-        assert names == ["mine"]
+        self.client.post(self.url, {"name": "unrelated", "description": "retention"}, format="json")
+        names = [row["name"] for row in self.client.get(self.url, {"search": search}).json()["results"]]
+        assert sorted(names) == expected
 
     @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
     def test_metrics_referencing_denied_tables_are_hidden(self, create_database: MagicMock) -> None:

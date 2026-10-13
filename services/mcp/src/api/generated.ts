@@ -121092,6 +121092,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type DataCatalogMetricsListParams = {
@@ -121103,6 +121107,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type DataCatalogMetricsRunCreateParams = {
@@ -121141,6 +121149,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     /**
      * Filter by proposed/accepted/rejected.
      */
