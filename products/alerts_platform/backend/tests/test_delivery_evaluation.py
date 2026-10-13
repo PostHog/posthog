@@ -7,14 +7,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models.scoping import team_scope
-
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -84,18 +81,19 @@ def _request(
     *,
     sends_messages: bool = True,
     incident_actions: dict[str, IncidentAction] | None = None,
-    configuration_id: str = "01936a2e-0000-7000-8000-000000000001",
+    owned_by_platform: bool = False,
 ) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=team_id,
-        configuration_id=configuration_id,
+        configuration_id="cfg-1",
         evaluation_key="eval-1",
         destination_alert_id="legacy-1",
         event_ids_by_kind={"firing": FIRING_EVENT, "resolved": RESOLVED_EVENT},
         sends_messages=sends_messages,
         incident_actions=incident_actions or {},
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
+        owned_by_platform=owned_by_platform,
     )
 
 
@@ -140,7 +138,7 @@ class TestDeliverEvaluation(APIBaseTest):
         transports: dict[DestinationType, type] | None = None,
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
-        configuration_id: str | None = None,
+        owned_by_platform: bool = False,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
@@ -167,7 +165,7 @@ class TestDeliverEvaluation(APIBaseTest):
                     self.team.id,
                     sends_messages=sends_messages,
                     incident_actions=incident_actions,
-                    **({"configuration_id": configuration_id} if configuration_id else {}),
+                    owned_by_platform=owned_by_platform,
                 )
             )
 
@@ -310,24 +308,15 @@ class TestDeliverEvaluation(APIBaseTest):
         assert flag.call_args.args[0] == LIVE_DELIVERY_FLAG
         assert flag.call_args.kwargs["groups"]["project"] == str(self.team.id)
 
-    @parameterized.expand([("source", False), ("platform", True)])
+    @parameterized.expand([("owned_by_the_source", False), ("owned_by_the_platform", True)])
     def test_a_flag_that_cannot_be_read_silences_only_alerts_the_source_still_delivers(
-        self, owner: str, delivers: bool
+        self, _name: str, delivers: bool
     ) -> None:
-        with team_scope(self.team.id):
-            configuration = platform_testing.create_configuration(
-                team_id=self.team.id,
-                name="API errors",
-                source_kind="logs",
-                check_interval_minutes=5,
-                owner=owner,
-            )
-
         outcome = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
             {FIRING_EVENT: [_group(SLACK)]},
             live=RuntimeError("flags unreachable"),
-            configuration_id=str(configuration.id),
+            owned_by_platform=delivers,
         )
 
         assert (outcome.live, len(RecordingTransport.sends)) == (delivers, int(delivers))

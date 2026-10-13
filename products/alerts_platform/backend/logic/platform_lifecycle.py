@@ -134,6 +134,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
         firing_started_at=alert.firing_started_at if alert else None,
+        owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
     )
 
 
