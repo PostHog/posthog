@@ -74,7 +74,7 @@ In the following cancelled runs, an unstarted job received a `cancelled` check w
 
 ## Finding one event's Depot run
 
-Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
+Check times and `pull_requests` did not pick out the Depot run in these cases, so while GitHub Actions relayed Depot's verdict (until October 2026) the event went into a check name: the Depot wait job's name ended with `(PR <number>, event <pull_request.updated_at>)`, Depot renders expressions in job names into the check name, and the relay built the same name from the GitHub run's payload, read that check, took the Depot workflow id from its `details_url`, and read the gate check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate. The relay is gone; the technique stays here because a check name is the one place Depot carries an event identity.
 
 ### Racing events
 
@@ -82,15 +82,15 @@ Two events of one commit that arrive within a second or two race the concurrency
 
 - PR 106429: GitHub Actions cancelled the run of the newer event (15:17:40Z) and kept the older one (15:17:39Z). Depot kept 15:17:40Z and cancelled Depot run `rtl932mrbc` with "Cancelled due to the workflow concurrency policy".
 - PR 106435: GitHub Actions kept the newer event (15:17:41Z). Depot kept the older one (15:17:40Z) and cancelled `nzb661zql2`.
-- Neither cancelled Depot run posted a wait check, so each surviving GitHub relay found no run for its event and failed after the grace period, although Depot's run for the other event passed on the same commit.
+- Neither cancelled Depot run posted a wait check, so each surviving GitHub relay of the time found no run for its event and failed after the grace period, although Depot's run for the other event passed on the same commit.
 
-GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other, 52 of them 0 to 2 seconds apart. GitHub kept the older run in 6 pairs, all 0 to 1 second apart. So after its grace period, the relay follows the Depot run of an event of the same pull request up to 2 seconds away (`RACING_EVENT_SECONDS`), newest first.
+GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other, 52 of them 0 to 2 seconds apart. GitHub kept the older run in 6 pairs, all 0 to 1 second apart. The relay therefore followed the Depot run of an event of the same pull request up to 2 seconds away, newest first; a reader that matches one event's run needs the same tolerance.
 
 The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
 
 ### Superseded runs
 
-Depot's concurrency policy keeps the workflow it created last, and a Depot run gets its workflow some time after the run itself, so the policy can keep an older event. Measured 2026-09-29 on 284 `ci-backend.yml` pull request workflows: the workflow followed its run by 55 seconds at the median and 120 seconds at most, and in 11 of 165 consecutive run pairs of one pull request the older run's workflow was created first or in the same second. Two of those cancelled the event that GitHub Actions had handed off, and the relay failed with "Depot CI started no run for this event":
+Depot's concurrency policy keeps the workflow it created last, and a Depot run gets its workflow some time after the run itself, so the policy can keep an older event. Measured 2026-09-29 on 284 `ci-backend.yml` pull request workflows: the workflow followed its run by 55 seconds at the median and 120 seconds at most, and in 11 of 165 consecutive run pairs of one pull request the older run's workflow was created first or in the same second. Two of those cancelled the event that GitHub Actions had handed off, and the relay of the time failed with "Depot CI started no run for this event":
 
 - PR 107856: run `wq9rjmvr7z` for head `056fb05982` was created at 16:09:59Z and got its workflow at 16:11:10Z. Run `0k16ml32s1` for the newer head `b9fbb26201` was created at 16:10:18Z and got its workflow at 16:11:09Z, so Depot cancelled `0k16ml32s1`.
 - PR 108622: two events of `d484f7a101` at 18:29:23Z and 18:29:34Z. GitHub Actions kept the second. Depot kept the first, whose gate passed, and the relay's 2-second racing window did not reach it.
@@ -127,7 +127,7 @@ Depot CI checks out the pull request merge ref (`refs/pull/<n>/merge`) and posts
 
 From Depot's [compatibility page](https://depot.dev/docs/ci/compatibility), not measured here:
 
-- Fork pull requests get no run; Depot lists support as planned. The backend router keeps them on GitHub Actions, see [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
+- Fork pull requests get no run; Depot lists support as planned. A fork pull request is re-created in-repo after review, see [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
 - `environment:` is unsupported, and `uses:` cannot reference a workflow in another repository.
 - `secrets.GITHUB_TOKEN` is a GitHub App installation token, not the Actions token. GitHub Packages rejects it. The rate limit it draws on is the app installation's pool, which is shared across repos and is not the per-repo Actions bucket that `monitor-github-rate-limit.yml` watches.
 - Non-Depot `runs-on` labels are treated as `depot-ubuntu-latest`.

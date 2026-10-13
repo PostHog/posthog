@@ -153,7 +153,7 @@ practice that is most of the queue. So:
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
-  Backend CI is the exception when `CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT` hands the batch to Depot CI: the backend tests then run on Depot, and the `Django Tests Pass` check links that run.
+  Backend CI is the exception: its tests run on Depot CI, and the `Backend CI on Depot / Django Tests Pass on Depot` check links that run.
 - The PR's own checks can be green with the failing job **skipped** or
   narrowed. On the PR, path filters see only that diff and the Django suite runs
   a selected subset; on the queue branch the diff is every carried PR's and the
@@ -224,7 +224,7 @@ has pushed, so an earlier push's failure is still there.
 
 Extract these before classifying:
 
-- Workflow name or file, e.g. `.github/workflows/ci-backend.yml`.
+- Workflow name or file, e.g. `.depot/workflows/ci-backend.yml`.
 - Job name, e.g. `backend-tests (4/10)`.
 - Step name, e.g. `Run pytest`.
 - Failing command and the smallest useful output excerpt.
@@ -247,22 +247,21 @@ token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
 
-#### Backend tests that ran on Depot CI
+#### Backend tests, which run on Depot CI
 
-A PR can route its backend tests to Depot CI.
-Then the GitHub Actions run holds only the relay: `Django Tests Pass` fails with "Backend tests on Depot CI concluded failure", and the GitHub run logs show nothing more.
-A re-run of that job is not read-only: it retries the failed and cancelled Depot jobs and reports the new verdict, so the rule against re-running CI applies to it.
-A run that Depot still shows as running past its job timeouts is stuck. A re-run waits on it, so cancel it with `depot ci cancel` first.
-The log of the `Relay the Depot verdict` step prints the Depot run URL, each failed step with its log lines, and the label that sends the PR back to GitHub Actions.
+Backend CI runs on Depot CI, not GitHub Actions, so `gh run` finds no run for it.
+The required check `Backend CI on Depot / Django Tests Pass on Depot` links the Depot gate job and carries no output.
+The `Backend CI on Depot / Test results` check on the same commit lists the failing tests in its summary; read it with `gh api repos/PostHog/posthog/commits/<sha>/check-runs --jq '.check_runs[] | select(.name == "Backend CI on Depot / Test results") | .output.summary'`.
+A run that Depot still shows as running past its job timeouts is stuck; cancelling or retrying it is not read-only, so the rule against re-running CI applies.
 
 Read more of the failure from Depot with the `depot` CLI, which the flox environment installs.
-Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the Depot run URL in the relay log.
+Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the check's Details URL (`workflows/<workflow>?job=<job>`).
 For logs, artifacts, and test results, load the `depot-ci` skill.
-Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs when you have no relay log.
+Its `references/posthog-check-run-semantics.md` explains what each Depot check means.
 If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overrides the saved login, so a wrong one fails every command.
 Without it, ask the user to run `! depot login --clear`.
 Do not run it yourself: it waits on a browser sign-in.
-If the user has no access to the Depot org, report the relay log's no-Depot retry options instead.
+If the user has no access to the Depot org, report the Test results summary instead.
 
 ## Classification
 
@@ -371,13 +370,12 @@ Excerpt:
   <up to 40 lines, trimmed around the failure>
 
 Classification: <class from the table>
-Shadow run:     <yes | no>
 Likely cause:   <one sentence>
 Local repro:    <exact command, or "none">
 Next action (needs your approval):
   - <push fix | rerun job | update snapshot | none>
 ```
 
-If the classification is `infra / runner` or a shadow run, say so and stop;
+If the classification is `infra / runner`, say so and stop;
 do not propose a code change. For `infra / runner`, include the base rate and
 whether a retry is warranted.

@@ -2,76 +2,58 @@
 # file. Every pull request event, master push, manual run and the hourly master run start
 # here, and the gate job's `Test results` check is the required one.
 #
-# This file began as a copy of a GitHub Actions workflow, and the local actions it uses are
-# mirrors of .github/actions (.github/workflows/ci-depot-action-mirrors.yml keeps those in
-# sync). The notes below record where it differs from the GitHub Actions shape:
+# How this file differs from a GitHub Actions workflow of the same shape:
 # - Depot's own checks carry no output, so the gate posts a `Test results` check with the
 #   failure summary.
-# - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
-# - turbo-discover adds the `origin` remote before its history fetch when it is missing.
-#   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
-# - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
-#   the canonical composites; any deltas are documented in each mirror's header). Every
-#   local action a depot workflow uses needs a mirror even when it is identical to
-#   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
-#   mirror fails the step at setup with "action manifest not found".
-# - permissions: read-only in every job, so the ambient token never writes. Canonical grants
-#   handle-snapshots' and backend-coverage-report's github.token pull-requests:write for their
-#   CI report sections; here those sections post with a posthog-tests token scoped to pull-requests:write (see the header of
-#   .depot/actions/commit-snapshots). check-migrations mints that token before its SQL and
-#   risk steps, and skips each section write when the mint fails, where canonical posts the
-#   sections with github.token. Its Migration risk check token (checks:write only) is minted
-#   after those steps, as in canonical.
-# - Trunk uploads and quarantine verdicts match canonical only when side effects
-#   are enabled. Disabled test steps retain their direct failure verdict.
-# - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
-#   in that job's log. Nothing reads its outputs, so the job and its action pin are
-#   depot-exempt. Its fail-open step and its `no-ci` draft guard belong to that job, so
-#   they need no depot bump either.
-# - Artifact uploads, run-scoped sharding plans, and the failing-test rollup
-#   require side effects, including duration writes. Depot stores these separately
-#   from GitHub Actions.
-# - Hourly scheduled master run: only this workflow has the `schedule` trigger. Every `schedule` arm
-#   here is depot-only: the paths-filter skip, the `!= 'schedule'` gates on the per-commit
-#   checks, the events_json cron in build_django_matrix, the events schema recording and
-#   its upload, and POSTHOG_PYTEST_HARD_EXIT.
+# - Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so every local action this
+#   file uses needs a mirror there, even one identical to .github/actions/<x>; a missing mirror
+#   fails the step at setup with "action manifest not found". The mirrors that differ say why
+#   in their headers, and .github/workflows/ci-depot-action-mirrors.yml keeps the rest identical.
+# - turbo-discover adds the `origin` remote before its history fetch when it is missing: Depot
+#   serves an input-less actions/checkout from a fast clone that has no remote.
+# - permissions are read-only in every job, so the ambient token never writes. The CI report
+#   sections post with a posthog-tests token scoped to pull-requests:write (see the header of
+#   .depot/actions/commit-snapshots). check-migrations mints that token before its SQL and risk
+#   steps and skips each section write when the mint fails; its Migration risk check token
+#   (checks:write only) is minted after those steps.
+# - Every `schedule` arm belongs to the hourly master run: the paths-filter skip, the
+#   `!= 'schedule'` gates on the per-commit checks, the events_json cron in build_django_matrix,
+#   the events schema recording and its upload, and POSTHOG_PYTEST_HARD_EXIT.
+# - The master push runs the per-commit checks and the schema dump; the matrices run on pull
+#   requests, manual runs and the hourly schedule.
 # - The master run's schema dump lands in Depot artifacts and Depot Cache, which GitHub-hosted
-#   runners and fork PRs cannot read. .github/workflows/ci-backend-schema-mirror.yml copies it
-#   into a GitHub artifact and GitHub Actions cache; canonical has no mirror job.
+#   runners and fork PRs cannot read. .github/workflows/ci-backend-schema-mirror.yml copies the
+#   newest dump into a GitHub artifact and GitHub Actions cache every ten minutes.
 # - Superseded-run cancel: Depot's concurrency policy can keep an older event, so each event gets
 #   its own group and `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
 #   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
-# - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
-#   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
-# - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
-#   Actions API by run id, and GitHub has no run for a Depot run id. Here
-#   .github/scripts/capture_depot_running_time.py reads the workflow with `depot ci workflow show`
-#   and DEPOT_CI_CANCEL_TOKEN, then sends the same events with the same property keys and
-#   runner `depot-ci`. Its attempt guard sits on the steps, as canonical's does.
+# - Deterministic-failure self-cancel uses `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN, because
+#   github.token can only cancel GitHub Actions runs.
+# - calculate-running-time: PostHog/posthog-github-action reads a run from the Actions API by run
+#   id, and GitHub has no run for a Depot run id, so .github/scripts/capture_depot_running_time.py
+#   reads the workflow with `depot ci workflow show` and DEPOT_CI_CANCEL_TOKEN and sends the same
+#   events with the same property keys and runner `depot-ci`. Its attempt guard sits on the steps,
+#   because Depot evaluates `github.run_attempt` as empty in a job-level `if`.
 # - The workflow name is part of the required check's name, so renaming it means changing
 #   the ruleset.
-# - events_json variants: the doubled matrices are gated on the test-new-events-schema label
-#   only; canonical also doubles them on workflow_dispatch, but a shadow dispatch runs the
-#   events_json rows instead, so trial runs match PR runs
-# - per-segment split plans (.test_durations.core/.temporal): the restore steps mirror
-#   canonical but miss until the depot timing refresher saves those files to Depot Cache;
-#   shards fall back to the union .test_durations
-# - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
-#   so shared keys with canonical (schema, uv, pnpm) do not collide
-# - hypothesis constants cache: the restore and save steps mirror canonical verbatim, but the
-#   save only fires on master test-matrix runs and the shadow skips those, so the Depot Cache
-#   entry only exists after a master workflow_dispatch. PR shards run cold (they rebuild
-#   the pool, as canonical did before this cache existed) until then: bounded and documented.
-# - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
+# - The doubled events_json matrices are gated on the test-new-events-schema label only; a manual
+#   run runs the events_json rows instead, so trial runs match PR runs.
+# - Per-segment split plans (.test_durations.core/.temporal) restore from Depot Cache and miss
+#   until .github/workflows/ci-backend-update-test-timing.yml saves them there; shards then fall
+#   back to the union .test_durations, and to the committed file after that.
+# - actions/cache reads and writes go to Depot Cache, which Depot GitHub Actions runners share,
+#   not to GitHub Actions cache.
+# - The hypothesis constants cache is saved by master matrix runs only, so PR shards rebuild the
+#   pool until the hourly run has saved it.
+# - GITHUB_TOKEN and OTEL_SERVICE_NAME are ambient on Depot, so the env block neutralizes them.
 # - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
 #   Depot CI job across repos shares, and fails the paths-filter mint outright.
-# - Migration reports post from check-migrations, as in canonical. Do not move them to a
-#   pull_request_target workflow: Depot posts that workflow's job checks on another pull
-#   request's head commit when both events share a base commit. See "pull_request_target
-#   checks" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
+# - Migration reports post from check-migrations. Do not move them to a pull_request_target
+#   workflow: Depot posts that workflow's job checks on another pull request's head commit when
+#   both events share a base commit. See "pull_request_target checks" in
+#   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Workflow-command annotations (::error, ::warning) stay in the Depot job log. Depot CI
 #   does not attach them to the job's GitHub check run. The file annotations from
 #   `hogli lint:migration-deletions` therefore have no GitHub counterpart here; the failing
@@ -79,9 +61,9 @@
 # - `depot ci run` fires with event_name `api`, which the `workflow_dispatch` arms cover.
 #   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
 #   trial a branch with `depot ci dispatch --workflow ci-backend.yml --ref <branch>` instead.
-# - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
-# - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
-#   project name and checkout directory names are not stable across CI providers
+# - Three data-modeling tests are deselected (Depot-only MinIO 403 quarantine).
+# - COMPOSE_PROJECT_NAME is pinned to posthog because bin/wait-for-docker filters by that
+#   project name and checkout directory names are not stable across CI providers.
 # - WAIT_FOR_DOCKER_REGISTRY_MIRROR makes bin/ci-wait-for-docker launch pull Docker Hub
 #   images from mirrors before `compose up`. Token requests to auth.docker.io time out
 #   intermittently from Depot CI sandboxes, and one failed pull leaves the whole stack missing.
@@ -93,33 +75,27 @@
 #   $RUNNER_TEMP/compose-launch.log. Depot ends a step's background processes and closes its
 #   output pipes when the step shell exits, so a plain `&` launch dies before it creates any
 #   container. The wait steps print that log when they fail.
-# - Canonical baseline checkouts and comparisons use PostHog/posthog directly so fork
-#   dispatches compare against the authoritative upstream master branch
-# - Docker Hub login reads vars.DOCKERHUB_USER / secrets.DOCKERHUB_TOKEN directly in the
-#   step `if:` rather than through canonical's env.DOCKERHUB_USERNAME / env.DOCKERHUB_TOKEN,
-#   because Depot never indirects through env:, so canonical's per-job env-scoping
-#   (workflow-level -> job-level, for the gha-workflow-env-secret Semgrep fix) is
-#   depot-exempt. Login is best-effort because these jobs only pull public images and can
-#   fall back to anonymous pulls, which canonical relies on too.
-# - Path-filter persons-SQL is folded into migrations
-# - handle-snapshots sets up Node from .nvmrc for its CI report steps, which canonical runs on
-#   the node that ships with the GitHub-hosted image, and fails with a rebase hint when the PR
-#   head predates .depot/actions/commit-snapshots
-# - Test durations restored from Depot Cache (posthog-test-durations- prefix). Canonical's
-#   .github/workflows/ci-backend-update-test-timing.yml runs on Depot runners and writes
-#   that same cache, so shard counts match GitHub Actions. Committed .test_durations is the
-#   fallback.
-# - The master push runs here, so the per-commit checks and the schema dump have no
-#   `github.event_name != 'push'` guard; the matrices keep theirs, as in canonical.
+# - Baseline checkouts and comparisons use PostHog/posthog directly, so a manual run from a
+#   fork compares against the upstream master branch.
+# - Docker Hub login reads vars.DOCKERHUB_USER / secrets.DOCKERHUB_TOKEN directly in the step
+#   `if:`, because Depot never indirects through env:. Login is best-effort because these jobs
+#   only pull public images and can fall back to anonymous pulls.
+# - One `migrations` paths filter covers the persons SQL migrations too; there is no separate
+#   persons-migration job.
+# - handle-snapshots sets up Node from .nvmrc for its CI report steps, and fails with a rebase
+#   hint when the PR head predates .depot/actions/commit-snapshots.
+# - Test durations restore from Depot Cache (posthog-test-durations- prefix), which
+#   .github/workflows/ci-backend-update-test-timing.yml writes from Depot runners. The committed
+#   .test_durations is the fallback.
 
 # This workflow runs all of our backend django tests.
 #
 # Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
 # .github/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: Backend CI on Depot
-# Depot CI copy of canonical Backend CI. Branch protection requires the gate job's
-# `Backend CI on Depot / Test results` check, posted by the PostHog tests app; the gate's own
-# Depot check only resolves when the job does, so it cannot hold a commit pending.
+# Branch protection requires the gate job's `Backend CI on Depot / Test results` check,
+# posted by the PostHog tests app; the gate's own Depot check only resolves when the job
+# does, so it cannot hold a commit pending.
 # Pull requests, master pushes, manual runs and the hourly master run all start here.
 on:
     push:
@@ -147,7 +123,7 @@ on:
         # or from ready_for_review. Every pull request event, merge-queue PRs included,
         # runs here.
         # The events_json leg runs wherever the legacy tests run, over the paths in
-        # .github/new-events-schema-targets.txt, the same as canonical, so a PR
+        # .github/new-events-schema-targets.txt, so a PR
         # cannot pass here and fail the queue. The `test-new-events-schema` label runs
         # the doubled matrices in place of that leg.
         types: [opened, synchronize, reopened, ready_for_review]
@@ -501,8 +477,7 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
-                        # persons-SQL folded into migrations here (see header deltas):
-                        # depot strips canonical's separate persons-migration job
+                        # The persons SQL migrations share this filter; there is no separate persons-migration job.
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
                       migrations_review:
@@ -1144,10 +1119,8 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
-            # Sequential to mirror canonical. GitHub's native `parallel:` crashes the
-            # Actions runner when two branches write $GITHUB_PATH at once. Depot CI's
-            # `parallel:` is a separate implementation, but the shadow keeps the same
-            # step order so the timing trial measures the same work.
+            # One step after another; see "Put the setup actions in a `parallel:` block" in
+            # docs/internal/ci-things-already-tried.md.
             - name: Set up pnpm and Node
               uses: ./.depot/actions/setup-pnpm
               with:
@@ -1727,7 +1700,7 @@ jobs:
               run: printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli owners:lint --live
 
     # Migration validation.
-    # This job needs Docker + DB. Canonical master is checked out beside the comparison
+    # This job needs Docker + DB. Master is checked out beside the comparison
     # branch so repository switches cannot disturb live Compose bind mounts.
     check-migrations:
         needs: [changes]
@@ -3086,12 +3059,10 @@ jobs:
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped') ||
              fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files != '')
         # increase for tmate testing
-        # 45 to match canonical.
         timeout-minutes: 45
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }}${{ matrix.json-targets && ' json-targets' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        # Match canonical's runner size. The shadow restores the same master-primed
-        # schema cache (turbo-discover key + check-migrations save), so shards skip
-        # migrations exactly like canonical once Depot's cache is warmed by a master run.
+        # Shards restore the master-primed schema cache (turbo-discover key + check-migrations
+        # save), so they skip migrations once a master run has warmed Depot Cache.
         runs-on: depot-ubuntu-24.04
         strategy:
             fail-fast: false
@@ -3162,10 +3133,8 @@ jobs:
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
-            # Sequential to mirror canonical. GitHub's native `parallel:` crashes the
-            # Actions runner when two branches write $GITHUB_PATH at once. Depot CI's
-            # `parallel:` is a separate implementation, but the shadow keeps the same
-            # step order so the timing trial measures the same work.
+            # One step after another; see "Put the setup actions in a `parallel:` block" in
+            # docs/internal/ci-things-already-tried.md.
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -3514,7 +3483,7 @@ jobs:
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
-                  # Mirrors canonical: the coverage report skips narrowed runs, so
+                  # The coverage report skips narrowed runs, so
                   # instrumenting one is pure overhead, and the events_json rows rerun
                   # tests the legacy rows already measure.
                   COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && !matrix.json-targets && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
@@ -3605,7 +3574,7 @@ jobs:
                   elif [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # Sharded only when build_django_matrix sized the segment above one
-                      # shard. One pytest retry mirrors canonical's budget.
+                      # shard. One pytest retry.
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
                           targets="$COMPAT_FILES"
                       elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
@@ -3720,7 +3689,7 @@ jobs:
                   # MinIO on Depot-native CI only — MinIO itself is reachable with the standard test creds
                   # (verified via boto3 LIST/CREATE/HEAD), so root cause is env-specific and not yet
                   # isolated (tracked for follow-up). All three tests below run that materialize path; the
-                  # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
+                  # two timeout tests fail downstream (hogql_table never reached).
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode uses the same single-retry budget as the full run.
@@ -4139,7 +4108,7 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 8
         # !cancelled() collates skipped/failed matrix jobs without reporting failure on a
-        # superseded run (mirrors canonical).
+        # superseded run.
         if: >
             !cancelled()
             || needs.repo-checks.outputs.deterministic_failure == 'true'

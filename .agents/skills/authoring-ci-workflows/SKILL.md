@@ -18,7 +18,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 
 - Copy from a canonical file rather than from memory.
   `ci-paths-filter.yml` is the smallest complete example (triggers, concurrency, timeout, app token, Depot runner);
-  `ci-backend.yml` is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
+  `.depot/workflows/ci-backend.yml` (Backend CI, which runs on Depot CI) is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
 - Related skills — reach for these instead of duplicating them here:
   - `/gating-production-deploys` — any job that pushes a prod image or dispatches a Charts deploy.
   - `/managing-github-actions-secrets` — creating the GitHub App / secret a workflow reads.
@@ -37,14 +37,14 @@ The linters check the shape of an `if:`; `tools/workflow-plan` checks what it do
 It evaluates every job and step condition with GitHub's own expression evaluator against a synthetic draft PR, ready PR, fork PR, merge-queue run, master push, hourly schedule, and manual dispatch, and prints which jobs run:
 
 ```bash
-hogli ci:plan .github/workflows/ci-backend.yml            # one row per job, one column per scenario
-hogli ci:plan .github/workflows/ci-backend.yml --steps changes
+hogli ci:plan .depot/workflows/ci-backend.yml            # one row per job, one column per scenario
+hogli ci:plan .depot/workflows/ci-backend.yml --steps changes
 hogli test:workflows                                       # the pinned expectations, run in ci-lint-workflows
 ```
 
 `tools/workflow-plan/tests/workflows.test.ts` pins the rules in this file as `runs` / `skipped` rows per scenario: drafts skip the product matrix, the queue takes the full one, forks skip telemetry, a `no-ci` draft still reports its gate, the hourly run takes the matrices and skips the PR-only checks, and a superseded run records the gate as `cancelled`.
 Every job in those two workflows that carries an `if:` must be named by at least one row, which a coverage test enforces: add a conditional job and the suite fails until a row says what it should do.
-When you change a condition in `ci-backend.yml` or `ci-frontend.yml`, run the suite and update the row that describes the behavior you changed; when you add a lever to another heavy suite, add rows for it.
+When you change a condition in `.depot/workflows/ci-backend.yml` or `ci-frontend.yml`, run the suite and update the row that describes the behavior you changed; when you add a lever to another heavy suite, add rows for it.
 The planner stubs the paths filter as "everything changed" and knows nothing a `run:` body produces, so a scenario stubs selector outputs by step id.
 It does not model trigger `paths:`, concurrency, or matrix expansion beyond a cell count; see [the README](../../../tools/workflow-plan/README.md).
 
@@ -104,7 +104,7 @@ concurrency:
   Where latest-wins is genuinely right (a cache warmer), say so with `# hogli-lint: allow-master-cancel -- <reason>`.
 - Use `github.ref` as the fallback, never `github.run_id` — `run_id` is unique per run, so it silently gives every push its own group and dedup is lost.
 - Publish-on-push workflows must not let two master pushes race `:latest` / a deploy dispatch.
-  Key the push arm per-SHA (see `ci-backend.yml`):
+  Key the push arm per-SHA (see `.depot/workflows/ci-backend.yml`):
 
   ```yaml
   group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
@@ -204,7 +204,7 @@ Three cases behave in ways the name does not suggest:
 - A **job-level** `continue-on-error: true` posts a `failure` check run even though dependents read `success` and the run goes green. Use step-level `continue-on-error` plus an explicit verdict step instead.
 - A **matrix that expands to zero cells** fails its dependents on GitHub Actions and posts no check run at all. Guard any `fromJSON` matrix with an `if:` that skips the job when the list is empty.
 
-Required contexts are pinned to one app: every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app, so a check run from any other app never satisfies one however exactly the name matches. [`/depot-ci`](../depot-ci/references/posthog-check-run-semantics.md) has the measurements, the rulesets query, and how Depot CI differs.
+Required contexts are pinned to one app: every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app, except Backend CI's `Backend CI on Depot / Django Tests Pass on Depot`, which is pinned to Depot Code Access (`219785`). A check run from another app never satisfies one however exactly the name matches. [`/depot-ci`](../depot-ci/references/posthog-check-run-semantics.md) has the measurements, the rulesets query, and how Depot CI differs.
 
 ## Checkout / clone — sparse first, then shallow
 
@@ -509,9 +509,9 @@ Any _step_ that reads a filter output needs the same `schedule` arm.
 A lane that stops producing runs is invisible to the master-red alerter: it reads run completions, so a dropped cron reads as unreadable and drops out of evaluation rather than paging.
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
 
-Backend CI's hourly run is the one test suite whose cron is on Depot CI: `.depot/workflows/ci-backend.yml` has the `schedule` trigger and `.github/workflows/ci-backend.yml` has none.
-GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter names it in `DEPOT_SCHEDULED_GATING_WORKFLOW`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
-The master run trace reporter reads the same Depot lane. Depot's public API exposes workflow and job timestamps, so those traces omit step and job-queue spans.
+Backend CI runs entirely on Depot CI from `.depot/workflows/ci-backend.yml`: every pull request, the master push and the hourly run.
+GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_backend_runs.py`: the alerter lists it in `DEPOT_WORKFLOWS` and reads both of its lanes from the files that script writes, `ci-backend-update-test-timing.yml` downloads its timing artifacts, and `ci-backend-schema-mirror.yml` copies its newest master schema dump into a GitHub artifact and GitHub Actions cache every ten minutes, for GitHub-hosted jobs and fork pull requests.
+The master run trace reporter reads both Depot lanes. Depot's public API exposes workflow and job timestamps, so those traces omit step and job-queue spans.
 
 ## Backwards-compat with unrebased PRs
 
