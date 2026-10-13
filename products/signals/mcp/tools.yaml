@@ -231,16 +231,15 @@ tools:
         title: List the reports for you
         description: >
             List the open, actionable inbox reports that matter most to the current user, best first. Use this tool to
-            answer "what needs me?" or "what should I look at?" for the person who makes the request. The ranking is
-            the same as the Today briefing and the "For you" list in the PostHog app. Each row has the inbox report
-            fields, plus `rank` (1 is the most important) and `relation`, which tells why the report is in the list:
+            answer "what needs me?" or "what should I look at?" for the person who makes the request. The ranking is the
+            same as the Today briefing and the "For you" list in the PostHog app. Each row has the inbox report fields,
+            plus `rank` (1 is the most important) and `relation`, which tells why the report is in the list:
             `waiting_for_you` (the report waits for the user's input), `claimed` (the user claimed the report),
-            `suggested_reviewer` (the report names the user as a reviewer), or `urgent_unowned` (a P0 report that
-            nobody owns). `count` is the total number of open reports for the user, which can be more than the rows
-            returned. `limit` sets how many rows to return, 1 to 20, default 5. Pass `include_unowned=false` to show
-            only the user's own work, without the P0 reports that nobody owns. To search or filter the full inbox,
-            use inbox-reports-list instead. Read a report's work log with inbox-report-artefacts-list before you act on
-            it.
+            `suggested_reviewer` (the report names the user as a reviewer), or `urgent_unowned` (a P0 report that nobody
+            owns). `count` is the total number of open reports for the user, which can be more than the rows returned.
+            `limit` sets how many rows to return, 1 to 20, default 5. Pass `include_unowned=false` to show only the
+            user's own work, without the P0 reports that nobody owns. To search or filter the full inbox, use
+            inbox-reports-list instead. Read a report's work log with inbox-report-artefacts-list before you act on it.
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_destroy
         enabled: true
