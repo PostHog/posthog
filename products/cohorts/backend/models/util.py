@@ -25,6 +25,7 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
 )
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
@@ -79,6 +80,7 @@ class CohortErrorCode(StrEnum):
     QUERY_SIZE = "query_size"
     VALIDATION_ERROR = "validation_error"
     INVALID_REGEX = "invalid_regex"
+    INVALID_CRITERIA = "invalid_criteria"
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
     FLAG_CHANGED = "flag_changed"
@@ -98,6 +100,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.DATA_LIMIT: "Cohort calculation was terminated for reading too much data. Narrow the matching criteria, for example to a shorter date range.",
     CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
     CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
+    CohortErrorCode.INVALID_CRITERIA: "The matching criteria can't be calculated. Check that each property is valid for its filter type, for example that a person filter doesn't use an event property.",
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
@@ -154,6 +157,8 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
+        case ExposedHogQLError():
+            return CohortErrorCode.INVALID_CRITERIA
 
     code_name = getattr(e, "code_name", "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:

@@ -14,6 +14,7 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
@@ -1225,6 +1226,7 @@ class TestParseErrorCode(BaseTest):
             ("pydantic_validation", "PydanticValidationError", CohortErrorCode.VALIDATION_ERROR),
             ("drf_validation", "DRFValidationError", CohortErrorCode.VALIDATION_ERROR),
             ("value_error", "ValueError", CohortErrorCode.UNKNOWN),
+            ("hogql_query_error", "QueryError", CohortErrorCode.INVALID_CRITERIA),
             ("clickhouse_regex", "ClickHouseRegexError", CohortErrorCode.INVALID_REGEX),
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
             ("clickhouse_too_many_bytes", "ClickHouseTooManyBytesError", CohortErrorCode.DATA_LIMIT),
@@ -1247,6 +1249,7 @@ class TestParseErrorCode(BaseTest):
             "QuerySizeExceeded": ClickHouseQuerySizeExceeded,
             "DRFValidationError": DRFValidationError,
             "ValueError": ValueError,
+            "QueryError": QueryError,
             "Exception": Exception,
         }
 
