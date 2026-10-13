@@ -701,3 +701,51 @@ def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
     until that sweep and only goes dark afterwards.
     """
     return _promote_view_nodes(Node.objects.filter(dag=dag))
+
+
+def stale_managed_view_copies() -> QuerySet[Node]:
+    """Nodes of managed views outside the managed DAG, for views the managed DAG already holds."""
+    managed_saved_query_ids = Node.objects.filter(
+        dag__name=REVENUE_ANALYTICS_DAG_NAME, saved_query__isnull=False
+    ).values("saved_query_id")
+    return Node.objects.filter(
+        saved_query__managed_viewset__isnull=False, saved_query_id__in=managed_saved_query_ids
+    ).exclude(dag__name=REVENUE_ANALYTICS_DAG_NAME)
+
+
+def _user_readers_of(copies: QuerySet[Node]) -> QuerySet[Node]:
+    return (
+        Node.objects.filter(
+            incoming_edges__source__in=copies,
+            saved_query__isnull=False,
+            saved_query__managed_viewset__isnull=True,
+            saved_query__deleted=False,
+        )
+        .select_related("saved_query", "dag")
+        .distinct()
+    )
+
+
+def _repoint_reader(reader: Node) -> None:
+    assert reader.saved_query is not None
+    try:
+        sync_saved_query_to_dag(reader.saved_query, dag=reader.dag, reconcile=False)
+    except Exception:
+        logger.exception("Could not repoint a reader of a stale managed view copy", node_id=str(reader.id))
+
+
+def _delete_unread_copies(team_id: int, dag: DAG, copies: QuerySet[Node]) -> None:
+    unread = copies.filter(dag=dag, outgoing_edges__isnull=True)
+    with transaction.atomic():
+        lock_dag(team_id, dag.id)
+        while unread.exists():
+            delete_nodes(team_id, unread)
+    maybe_reconcile_dag(dag)
+
+
+def retire_stale_managed_view_copies(team_id: int, copy_ids: Iterable[UUID]) -> None:
+    copies = stale_managed_view_copies().filter(team_id=team_id, id__in=list(copy_ids))
+    for reader in _user_readers_of(copies):
+        _repoint_reader(reader)
+    for dag in DAG.objects.filter(id__in=copies.values("dag_id")).order_by("id"):
+        _delete_unread_copies(team_id, dag, copies)
