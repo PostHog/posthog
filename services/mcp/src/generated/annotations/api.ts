@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -180,4 +180,36 @@ export const AnnotationsDestroyParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Lists the changes that can affect production in a time window, newest first: feature flag and experiment edits, error tracking releases, and annotations. Use it to find what changed just before an error spike or a metric drop. Changes the user has no access to are left out.
+ * @summary List recent production changes
+ */
+export const ChangeFeedListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const changeFeedListQueryLimitDefault = 100
+export const changeFeedListQueryLimitMax = 500
+
+export const ChangeFeedListQueryParams = () => zod.object({
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Start of the time window (inclusive), ISO 8601. Defaults to 24 hours before `date_to`.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('End of the time window (inclusive), ISO 8601. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(changeFeedListQueryLimitMax)
+        .default(changeFeedListQueryLimitDefault)
+        .describe('Maximum number of changes to return, newest first. Defaults to 100, at most 500.'),
 })

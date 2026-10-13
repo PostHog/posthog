@@ -1,5 +1,7 @@
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
-import { dateMapping, getDefaultInterval } from 'lib/utils/dateFilters'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping, getDefaultInterval, startOfWeek } from 'lib/utils/dateFilters'
+import { BUCKET_FORMAT, lastBucketIsInProgress, normalizeBucket } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
 import {
@@ -35,6 +37,8 @@ export interface HomeTabStatQuery {
     kind: WebAnalyticsItemKind
     isIncreaseBad?: boolean
     query: TrendsQuery
+    trendQuery?: TrendsQuery
+    trendKey?: HomeTabMetricKey
     summary?: 'daily_average'
     description?: string
 }
@@ -136,6 +140,7 @@ function statQuery(
         title,
         kind,
         isIncreaseBad,
+        trendQuery: trendsQuery(series, dateRange, false),
         query: {
             ...trendsQuery(series, dateRange, compare),
             trendsFilter: { display: ChartDisplayType.BoldNumber },
@@ -176,10 +181,51 @@ export function getHomeTabStatValue(stat: HomeTabStatQuery, result?: TrendResult
     return result?.aggregated_value
 }
 
+export function isHomeTabStatBucketInProgress(
+    result: TrendResult | undefined,
+    interval: IntervalType,
+    timezone: string,
+    weekStartDay?: number | null,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    const buckets = result?.days.map(normalizeBucket) ?? []
+    if (interval === 'week') {
+        const currentBucket = startOfWeek(now.tz(timezone), weekStartDay).format(BUCKET_FORMAT)
+        return buckets.length >= 2 && buckets[buckets.length - 1] === currentBucket
+    }
+    return lastBucketIsInProgress(buckets, timezone, interval, now)
+}
+
 /** Summary metrics for the compact tile row. */
 export function getHomeTabStatQueries(dateRange: DateRange, compare: boolean): HomeTabStatQuery[] {
+    const dailyActiveUsers: HomeTabStatQuery = {
+        key: 'daily_active_users',
+        title: 'Avg. DAU',
+        kind: 'unit',
+        summary: 'daily_average',
+        description:
+            'Average daily unique people with a page or screen view in the selected period, including days with no activity.',
+        query: {
+            ...trendsQuery(activityEvent(BaseMathType.UniqueUsers), dateRange, compare),
+            interval: 'day',
+            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+        },
+    }
+    const activeUsers = statQuery(
+        'active_users',
+        'Active users',
+        'unit',
+        activityEvent(BaseMathType.UniqueUsers),
+        dateRange,
+        compare
+    )
     return [
-        statQuery('active_users', 'Active users', 'unit', activityEvent(BaseMathType.UniqueUsers), dateRange, compare),
+        {
+            ...activeUsers,
+            ...(activeUsers.query.interval === 'day'
+                ? { trendQuery: dailyActiveUsers.query, trendKey: dailyActiveUsers.key }
+                : {}),
+        },
         statQuery('sessions', 'Sessions', 'unit', activityEvent(BaseMathType.UniqueSessions), dateRange, compare),
         statQuery(
             'new_users',
@@ -197,19 +243,7 @@ export function getHomeTabStatQueries(dateRange: DateRange, compare: boolean): H
             dateRange,
             compare
         ),
-        {
-            key: 'daily_active_users',
-            title: 'Avg. DAU',
-            kind: 'unit',
-            summary: 'daily_average',
-            description:
-                'Average daily unique people with a page or screen view in the selected period, including days with no activity.',
-            query: {
-                ...trendsQuery(activityEvent(BaseMathType.UniqueUsers), dateRange, compare),
-                interval: 'day',
-                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-            },
-        },
+        dailyActiveUsers,
     ]
 }
 
