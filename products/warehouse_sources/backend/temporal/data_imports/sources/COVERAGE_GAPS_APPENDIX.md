@@ -5553,10 +5553,10 @@ Diffed against: <https://www.gridly.com/docs/api/>
 - [x] `grids (GET /v1/grids?dbId=)` — lookup resolving the grid that owns each view/record set (high)
 - [x] `databases (GET /v1/databases?projectId=)` — lookup completing the project > database > grid > view hierarchy around synced records (high)
 - [x] `projects (GET /v1/projects)` — top-level lookup for project names/IDs referenced by databases (high)
-- [ ] `record histories (GET /v1/views/{viewId}/records/{recordId}/histories)` — per-cell change history - who changed which localization value and when (medium)
-- [ ] `dependencies (GET /v1/views/{viewId}/dependencies)` — source-to-target column mapping that explains translation status columns (medium)
-- [ ] `branches (GET /v1/branches?gridId=)` — branch metadata needed to interpret records synced from a branched grid (medium)
-- [ ] `automation executions (GET /v1/automations/{id}/executions)` — run history with status and timing - the analytical table for automation reliability (medium)
+- [x] `record histories (GET /v1/views/{viewId}/records/{recordId}/histories)` — per-cell change history - who changed which localization value and when (medium)
+- [x] `dependencies (GET /v1/views/{viewId}/dependencies)` — source-to-target column mapping that explains translation status columns (medium)
+- [x] `branches (GET /v1/branches?gridId=)` — branch metadata needed to interpret records synced from a branched grid (medium)
+- [x] `automation executions (GET /v1/automations/{id}/executions)` — run history with status and timing - the analytical table for automation reliability (medium)
 - [ ] `automations (GET /v1/automations)` — lookup naming the automations whose executions you would analyze (medium)
 - [ ] `glossaries (GET /v1/glossaries)` — terminology lookup joined to localization records (low)
 - [ ] `translation memories (GET /v1/transmems)` — TM inventory for leverage/reuse reporting (low)
@@ -8813,8 +8813,8 @@ Today (1): `items`
 
 Diffed against: <https://api.opinionstage.com/api-docs/api/v2/openapi.yaml>
 
-- [ ] `/api/v2/items/{itemId}/responses` — the actual respondent-level answer data — the entire point of the Public Result API; today only the widget list is synced (high)
-- [ ] `/api/v2/items/{itemId}/questions` — lookup table resolving the question IDs carried on response rows (high)
+- [x] `/api/v2/items/{itemId}/responses` — the actual respondent-level answer data — the entire point of the Public Result API; today only the widget list is synced (high)
+- [x] `/api/v2/items/{itemId}/questions` — lookup table resolving the question IDs carried on response rows (high)
 
 Note: The vendor OpenAPI spec (title 'Public Result API') defines exactly 5 operations: list items, get item, list responses, get response, list questions. PostHog implements only list items. products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py explicitly defers responses and questions as 'fan-out (they require an item id) and are intentionally excluded from v1' — so the gap is known and deliberate, but it is the whole analytical payload.
 
