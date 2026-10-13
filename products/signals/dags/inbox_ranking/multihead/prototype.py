@@ -50,6 +50,7 @@ from products.signals.dags.inbox_ranking.training.calibration import calibration
 from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_examples, example_moments, holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS
+from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
 
 PROTOTYPE_HEADS: tuple[Head, ...] = tuple(HEADS_BY_NAME[name] for name in ("open", "action", "fixed"))
 FEATURE_SET = REPORT_EMBEDDINGS_FEATURE_SET
@@ -80,6 +81,9 @@ class ExampleTable:
         observed = ~np.isnan(self.labels[:, head_index])
         in_holdout = self.holdout[:, head_index]
         return np.flatnonzero(observed & (in_holdout if holdout else ~in_holdout))
+
+    def team_ids(self, rows: np.ndarray) -> np.ndarray:
+        return self.rows["report_team_id"].to_numpy(dtype=object)[rows]
 
 
 def example_table(snapshots: Mapping[datetime.date, Snapshot], extras: Extras, *, holdout_days: int) -> ExampleTable:
@@ -162,6 +166,9 @@ class HeadScore:
     holdout_rows: int
     holdout_positives: int
     auc: float | None
+    # The AUC over pairs inside one team. A model that only learns which teams engage a lot
+    # gains pooled `auc` and none of this.
+    within_team_auc: float | None
     average_precision: float | None
     expected_calibration_error: float | None
 
@@ -172,13 +179,15 @@ class HeadScore:
             "holdout_rows": self.holdout_rows,
             "holdout_positives": self.holdout_positives,
             "auc": self.auc,
+            "within_team_auc": self.within_team_auc,
             "average_precision": self.average_precision,
             "expected_calibration_error": self.expected_calibration_error,
         }
 
 
-def grade(model: str, head: str, outcomes: np.ndarray, scores: np.ndarray) -> HeadScore:
-    """AUC, average precision and ECE, with the same decile cut the training dag grades on."""
+def grade(model: str, head: str, outcomes: np.ndarray, scores: np.ndarray, team_ids: np.ndarray) -> HeadScore:
+    """Pooled and within-team AUC, average precision and ECE, with the same decile cut the training
+    dag grades on."""
     positives = int(outcomes.sum())
     two_classes = 0 < positives < len(outcomes)
     return HeadScore(
@@ -187,6 +196,7 @@ def grade(model: str, head: str, outcomes: np.ndarray, scores: np.ndarray) -> He
         holdout_rows=len(outcomes),
         holdout_positives=positives,
         auc=float(roc_auc_score(outcomes, scores)) if two_classes else None,
+        within_team_auc=within_team_auc(outcomes, scores, team_ids).auc,
         average_precision=float(average_precision_score(outcomes, scores)) if two_classes else None,
         expected_calibration_error=expected_calibration_error(calibration_buckets(outcomes.astype(bool), scores)),
     )
@@ -204,7 +214,15 @@ def champion_recipe_scores(table: ExampleTable, reports: np.ndarray, *, seed: in
             continue
         model = xgb.XGBClassifier(**XGB_PARAMS, random_state=seed)
         model.fit(reports[train], y_train, verbose=False)
-        scores.append(grade(CHAMPION_RECIPE, head.name, y_test, model.predict_proba(reports[test])[:, 1]))
+        scores.append(
+            grade(
+                CHAMPION_RECIPE,
+                head.name,
+                y_test,
+                model.predict_proba(reports[test])[:, 1],
+                table.team_ids(test),
+            )
+        )
     return scores
 
 
@@ -225,7 +243,9 @@ def network_scores(
         if len(test) == 0:
             continue
         predicted = network.predict(inputs, test)[:, head_index]
-        scores.append(grade(name, head.name, table.labels[test, head_index].astype(int), predicted))
+        scores.append(
+            grade(name, head.name, table.labels[test, head_index].astype(int), predicted, table.team_ids(test))
+        )
     return scores, losses
 
 
@@ -286,14 +306,14 @@ def format_scores(scores: Sequence[HeadScore]) -> str:
     def number(value: float | None) -> str:
         return "-" if value is None else f"{value:.3f}"
 
-    header = f"{'head':<8}{'model':<20}{'rows':>8}{'pos':>7}{'auc':>8}{'ap':>8}{'ece':>8}"
+    header = f"{'head':<8}{'model':<20}{'rows':>8}{'pos':>7}{'auc':>8}{'team_auc':>10}{'ap':>8}{'ece':>8}"
     lines = [header, "-" * len(header)]
     order = {name: index for index, name in enumerate((CHAMPION_RECIPE, *ABLATIONS))}
     for head in PROTOTYPE_HEADS:
         for score in sorted((s for s in scores if s.head == head.name), key=lambda s: order.get(s.model, 99)):
             lines.append(
                 f"{score.head:<8}{score.model:<20}{score.holdout_rows:>8}{score.holdout_positives:>7}"
-                f"{number(score.auc):>8}{number(score.average_precision):>8}"
+                f"{number(score.auc):>8}{number(score.within_team_auc):>10}{number(score.average_precision):>8}"
                 f"{number(score.expected_calibration_error):>8}"
             )
     return "\n".join(lines)

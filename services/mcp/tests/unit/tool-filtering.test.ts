@@ -427,6 +427,26 @@ describe('Tool Filtering - API Scopes', () => {
         }
     })
 
+    it('should expose managed warehouse Trino monitoring only with its read scope and feature flag', async () => {
+        const trinoTools = ['managed-warehouse-trino-monitoring-get', 'managed-warehouse-trino-metric-history-get']
+        const enabledOptions = { featureFlags: { 'data-warehouse-scene-trino': true } }
+
+        const authorizedTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), enabledOptions)
+        const wrongScopeTools = await getToolsFromContext(createMockContext(['query:read']), enabledOptions)
+        const duckdbFlagOnlyTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), {
+            featureFlags: { 'data-warehouse-scene': true },
+        })
+        const authorizedToolNames = authorizedTools.map((tool) => tool.name)
+        const wrongScopeToolNames = wrongScopeTools.map((tool) => tool.name)
+        const duckdbFlagOnlyToolNames = duckdbFlagOnlyTools.map((tool) => tool.name)
+
+        for (const toolName of trinoTools) {
+            expect(authorizedToolNames).toContain(toolName)
+            expect(wrongScopeToolNames).not.toContain(toolName)
+            expect(duckdbFlagOnlyToolNames).not.toContain(toolName)
+        }
+    })
+
     it.each([
         ['notebooks-widget-generate', ['notebook:write', 'query:read']],
         ['notebooks-widget-status', ['notebook:read']],
@@ -1069,6 +1089,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'scouts-tool-access',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
+            'data-warehouse-scene-trino',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
