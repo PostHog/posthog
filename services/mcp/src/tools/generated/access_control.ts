@@ -572,7 +572,7 @@ const AccessControlRoleRuleSetSchema = () => {
                 .describe('Project id. If omitted, uses the active project.')
                 .optional(),
             role_id: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['role_id'].describe(
-                'The role id, as `role_id` in access-control-roles-list or `id` in roles-list.'
+                'The role id, as `role_id` in access-control-roles-list.'
             ),
             resource: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['resource'].describe(
                 'The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-roles-list.'
@@ -671,7 +671,7 @@ const accessControlRoleRuleSetExecute = (): ToolBase<
         })
         return withAgentNote(
             result,
-            'Who is in the role is on role-members-list. Verify the result with access-control-roles-list and `role_id`.\n'
+            'The members of the role are the access-control-members-list entries whose `role_ids` contain this id.\nVerify the result with access-control-roles-list and `role_id`.\n'
         )
     },
 })
@@ -725,7 +725,7 @@ const accessControlRolesList = (): ToolBase<
         } as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
-            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and role-members-list gives who is in a role.\n"
+            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and each entry here gives the matching `role_name`.\n"
         )
     },
 })
