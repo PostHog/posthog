@@ -1,6 +1,11 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twilio import (
     TwilioAuthMethodConfig,
     TwilioSourceConfig,
@@ -12,9 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twi
 )
 
 ACCOUNT_SID = "AC00000000000000000000000000000000"
-TWILIO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio.make_tracked_session"
-)
 
 
 def _api_key_config():
@@ -80,28 +82,25 @@ class TestTwilioSource:
             (500, None),
         ],
     )
-    @mock.patch(TWILIO_SESSION_PATCH)
-    def test_get_endpoint_permissions_gates_only_the_keys_table(self, mock_session, status_code, expected_keys_reason):
-        getter = mock_session.return_value.get
-        getter.return_value = mock.MagicMock(status_code=status_code)
-
-        result = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
+    def test_get_endpoint_permissions_gates_only_the_keys_table(self, status_code, expected_keys_reason):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            result = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
 
         assert result["keys"] == expected_keys_reason
         assert {name: reason for name, reason in result.items() if name != "keys"} == dict.fromkeys(
             name for name in ENDPOINTS if name != "keys"
         )
         # Probing every table would add a round-trip per table to an interactive request.
-        assert getter.call_count == 1
+        assert len({request.path for request in network.requests_log}) == 1
 
-    @mock.patch(TWILIO_SESSION_PATCH)
-    def test_get_endpoint_permissions_survives_missing_secrets(self, mock_session):
+    def test_get_endpoint_permissions_survives_missing_secrets(self):
         config = TwilioSourceConfig(account_sid=ACCOUNT_SID, auth_method=TwilioAuthMethodConfig(selection="api_key"))
 
-        result = self.source.get_endpoint_permissions(config, self.team_id, list(ENDPOINTS))
+        with scripted_network([]) as network:
+            result = self.source.get_endpoint_permissions(config, self.team_id, list(ENDPOINTS))
 
         assert result == dict.fromkeys(ENDPOINTS)
-        mock_session.assert_not_called()
+        assert network.requests_log == []
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source.twilio_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_twilio_source):

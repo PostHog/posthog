@@ -141,6 +141,10 @@ class FlagEvaluationsTable(Table):
         "session_id": StringDatabaseField(
             name="session_id", nullable=False, description="Session the evaluation happened in, if the SDK sent one."
         ),
+        # Insight session math reads the events column name.
+        "$session_id": ExpressionField(
+            name="$session_id", expr=ast.Field(chain=["session_id"]), isolate_scope=True, hidden=True
+        ),
         "request_id": StringDatabaseField(
             name="request_id",
             nullable=False,
@@ -207,9 +211,6 @@ def add_events_list_fields_to_flag_evaluations(database: "Database") -> None:
 
     # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the source table.
     # Copying the events join keeps the sessions table version that the team's modifiers chose.
-    flag_evaluations.fields["$session_id"] = ExpressionField(
-        name="$session_id", expr=ast.Field(chain=["session_id"]), isolate_scope=True
-    )
     flag_evaluations.fields["$session_id_uuid"] = ExpressionField(
         name="$session_id_uuid",
         expr=uuid_string_expr_to_uint128_expr(ast.Field(chain=["session_id"])),

@@ -1,9 +1,11 @@
-from unittest.mock import patch
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.roark import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.source import RoarkSource
 
 
@@ -20,9 +22,10 @@ class TestRoarkSource:
         schemas = self.source.get_schemas(RoarkSourceConfig(api_key="k"), self.team_id, names=["call", "chat"])
         assert {s.name for s in schemas} == {"call", "chat"}
 
-    @parameterized.expand([(True, True, None), (False, False, "Invalid Roark API key")])
-    def test_validate_credentials(self, valid: bool, expected_ok: bool, expected_msg: str | None) -> None:
-        with patch.object(source_module, "validate_roark_credentials", return_value=valid):
+    @parameterized.expand([(200, True, None), (401, False, "Invalid Roark API key")])
+    def test_validate_credentials(self, status: int, expected_ok: bool, expected_msg: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             ok, msg = self.source.validate_credentials(RoarkSourceConfig(api_key="k"), self.team_id)
         assert ok is expected_ok
         assert msg == expected_msg
+        assert network.requests_log[0].headers["authorization"] == "Bearer k"

@@ -17,7 +17,11 @@ import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 import { SearchSourceSuggestions } from './SearchSourceSuggestions'
 
-export function SearchPerformanceTab(): JSX.Element {
+export function SearchPerformanceTab({
+    showSourceSuggestions = true,
+}: {
+    showSourceSuggestions?: boolean
+}): JSX.Element {
     const {
         dataWarehouseSources,
         dataWarehouseSourcesLoading,
@@ -27,7 +31,7 @@ export function SearchPerformanceTab(): JSX.Element {
         sourceNotices,
         readySources,
         displayMetrics,
-        hasPaidSources,
+        conversionsDisabledReason,
         search,
         query,
         breakdown,
@@ -36,7 +40,7 @@ export function SearchPerformanceTab(): JSX.Element {
     } = useValues(searchPerformanceLogic)
     const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, clearFilters } =
         useActions(searchPerformanceLogic)
-    const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
+    const loading = !sourcesError && !dataWarehouseSources
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
@@ -69,13 +73,16 @@ export function SearchPerformanceTab(): JSX.Element {
             </div>
             {loading ? (
                 <LemonSkeleton repeat={5} className="h-10" />
-            ) : sourcesError ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSources, loading }}>
+            ) : sourcesError && !dataWarehouseSources ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadSources, loading: dataWarehouseSourcesLoading }}
+                >
                     Could not load your search sources. Try again to view search performance.
                 </LemonBanner>
             ) : (
                 <>
-                    {!hasActiveFilters && <SearchSourceSuggestions />}
+                    {showSourceSuggestions && !hasActiveFilters && <SearchSourceSuggestions />}
                     {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
                             key={sourceId}
@@ -108,10 +115,8 @@ export function SearchPerformanceTab(): JSX.Element {
                                             { value: 'traffic', label: 'Traffic' },
                                             {
                                                 value: 'conversions',
-                                                label: 'Spend and conversions',
-                                                disabledReason: !hasPaidSources
-                                                    ? 'Spend and conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
-                                                    : undefined,
+                                                label: 'Conversions',
+                                                disabledReason: conversionsDisabledReason ?? undefined,
                                             },
                                         ]}
                                     />
@@ -140,9 +145,9 @@ export function SearchPerformanceTab(): JSX.Element {
                                 Top 100 results by clicks, grouped by platform, match type and currency.{' '}
                                 {breakdown === 'keyword' &&
                                     'Paid rows show targeted keywords; organic rows show actual Google queries. '}
-                                Conversions use the ad platform's attribution. Google Search Console does not report
-                                spend or conversions, and can omit low-volume queries. Organic positions are weighted by
-                                impressions. Hover over a change to see its comparison value.
+                                Reported conversions use the ad platform's attribution. Google Search Console does not
+                                report spend or conversions, and can omit low-volume queries. Organic positions are
+                                weighted by impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}

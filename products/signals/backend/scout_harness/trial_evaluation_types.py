@@ -92,7 +92,7 @@ class TrialVariantAggregate(EvaluationDocument):
 
 
 class TrialComparisonOutcome(EvaluationDocument):
-    status: Literal["winner", "tie", "inconclusive"]
+    status: Literal["winner", "tie", "provisional", "inconclusive"]
     variant_ids: list[UUID] = Field(default_factory=list)
     summary: str
 

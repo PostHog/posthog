@@ -1,8 +1,5 @@
-from unittest.mock import patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
     COHERE_API_VERSION_V1,
     COHERE_BASE_URL,
@@ -12,6 +9,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.set
     RETIRED_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
 
 
@@ -57,11 +58,12 @@ class TestCohereSourceClass:
         assert COHERE_BASE_URL == f"https://api.cohere.com/{COHERE_API_VERSION_V1}"
 
     def test_validate_credentials_success(self) -> None:
-        with patch.object(source_module, "validate_cohere_credentials", return_value=True):
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             assert self.source.validate_credentials(_config(), self.team_id) == (True, None)
+        assert network.requests_log[0].path == "/v1/models"
 
     def test_validate_credentials_failure(self) -> None:
-        with patch.object(source_module, "validate_cohere_credentials", return_value=False):
+        with scripted_network([ScriptedResponse(status=401)]):
             ok, error = self.source.validate_credentials(_config(), self.team_id)
         assert ok is False
-        assert error is not None
+        assert error == "Invalid Cohere API key"

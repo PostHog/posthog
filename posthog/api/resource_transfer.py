@@ -230,6 +230,8 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         model = visitor.get_model()
 
+        qs = cast(Any, model).objects.filter(team=team)
+
         resource_type = model_to_resource(model)
         if resource_type is not None:
             ac = UserAccessControl(user=user, team=team)
@@ -237,7 +239,12 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 raise exceptions.PermissionDenied(
                     f"You do not have read access to {visitor.kind} resources in this project"
                 )
-        qs = cast(Any, model).objects.filter(team=team)
+            # Org admins have implicit access to these resource types, as on the list endpoints
+            qs = ac.filter_queryset_by_access_level(
+                qs,
+                include_all_if_admin=resource_type in ("project", "dashboard", "feature_flag"),
+                resource=resource_type,
+            )
 
         query = data.get("q", "").strip()
         if query:

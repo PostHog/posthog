@@ -126,7 +126,8 @@ export const manifest: ProductManifest = {
             kind?: string,
             returnUrl?: string,
             returnLabel?: string,
-            accessMethod?: 'warehouse' | 'direct'
+            accessMethod?: 'warehouse' | 'direct',
+            entryPoint?: string
         ): string => {
             const params = new URLSearchParams()
             if (kind) {
@@ -141,10 +142,15 @@ export const manifest: ProductManifest = {
             if (accessMethod) {
                 params.set('access_method', accessMethod)
             }
+            if (entryPoint) {
+                params.set('entry_point', entryPoint)
+            }
             const queryString = params.toString()
             return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
         },
         warehouseDestinations: (): string => '/data-management/warehouse-destinations',
+        warehouseDestination: (id: string): string =>
+            `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
@@ -157,6 +163,7 @@ export const manifest: ProductManifest = {
             iconType: 'sql_editor',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             href: urls.sqlEditor(),
+            searchKeywords: ['hogql', 'hogsql', 'query editor'],
             sceneKey: 'SQLEditor',
             sceneKeys: ['SQLEditor'],
         },
@@ -166,7 +173,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
             category: ProductItemCategory.UNRELEASED,
             href: urls.dataOps(),
+            searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
+            searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+            alternativeFlags: [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',
@@ -194,7 +204,14 @@ export const manifest: ProductManifest = {
             iconType: 'data_source',
             iconColor: ['var(--color-product-sources-light)', 'var(--color-product-sources-dark)'],
             href: urls.sources(),
-            searchKeywords: ['data warehouse', 'warehouse', 'connectors', 'import data'],
+            searchKeywords: [
+                'data warehouse',
+                'warehouse',
+                'connectors',
+                'import data',
+                'external data',
+                'inbound webhooks',
+            ],
             sceneKey: 'Sources',
             sceneKeys: ['Sources'],
         },

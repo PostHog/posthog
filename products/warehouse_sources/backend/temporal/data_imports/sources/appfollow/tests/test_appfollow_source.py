@@ -1,11 +1,16 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
     APPFOLLOW_V2,
     APPFOLLOW_V3,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source import AppfollowSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfollow import (
     AppfollowSourceConfig,
 )
@@ -43,12 +48,10 @@ class TestAppfollowSource:
         ],
     )
     def test_validate_credentials(self, status, expected_ok):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source.check_credentials",
-            return_value=status,
-        ):
+        script = [ConnectionError("connection reset")] if status is None else always(ScriptedResponse(status=status))
+        with scripted_network(script):
             ok, _ = self.source.validate_credentials(self.config, self.team_id)
-            assert ok is expected_ok
+        assert ok is expected_ok
 
     @pytest.mark.parametrize(
         "api_version,probed_url",
@@ -59,21 +62,13 @@ class TestAppfollowSource:
         ],
     )
     def test_validate_credentials_probes_the_pinned_version(self, api_version, probed_url):
-        session = mock.MagicMock()
-        session.get.return_value.status_code = 200
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.appfollow.make_tracked_session",
-            return_value=session,
-        ):
+        with scripted_network([ScriptedResponse(json={})]) as network:
             ok, _ = self.source.validate_credentials(self.config, self.team_id, api_version=api_version)
         assert ok is True
-        assert session.get.call_args.args[0] == probed_url
+        assert network.requests_log[0].url == probed_url
 
     @pytest.mark.parametrize("pinned", [APPFOLLOW_V2, APPFOLLOW_V3])
     def test_source_for_pipeline_dispatches_on_the_pin(self, pinned):
-        inputs = mock.MagicMock(api_version=pinned, schema_name="reviews", should_use_incremental_field=False)
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source.appfollow_source"
-        ) as appfollow_source:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-        assert appfollow_source.call_args.kwargs["api_version"] == pinned
+        result = SourceDriver(self.source, self.config).run("reviews", [ScriptedResponse(json={})], api_version=pinned)
+        assert result.raised is None
+        assert result.paths == [f"/api/{pinned}/account/apps" if pinned == APPFOLLOW_V2 else "/api/v3/workspaces"]

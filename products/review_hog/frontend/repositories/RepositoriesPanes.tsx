@@ -96,8 +96,8 @@ export function RepositoriesPanes(): JSX.Element {
                         </LemonTag>
                     </span>
                     <span className="text-xs text-secondary">
-                        Highest wins: your repository choice, your default, the repository's exception, the project. A
-                        "you" mark shows where you set your own value.
+                        Decided in this order: your choice for a repository, your default, the repository's exception,
+                        the project rule. A "you" mark shows where you set your own value.
                     </span>
                 </div>
                 <ProjectRuleCell className={`${PANE_LEFT} ${PANE_ROW}`} />

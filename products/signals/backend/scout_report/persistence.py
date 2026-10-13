@@ -424,6 +424,19 @@ def get_scout_report_capture_snapshot(*, team_id: int, report_id: str) -> dict[s
     return document
 
 
+def get_scout_report_decision_contents(*, team_id: int, report_id: str) -> dict[str, JsonValue]:
+    _validate_report_id(report_id)
+    contents: dict[str, JsonValue] = {}
+    for kind, model in (
+        ("actionability_judgment", ActionabilityAssessment),
+        ("priority_judgment", PriorityAssessment),
+    ):
+        assessment = SignalReportArtefact.latest_content(team_id=team_id, report_id=report_id, model=model)
+        if assessment is not None:
+            contents[kind] = assessment.model_dump(mode="json")
+    return contents
+
+
 def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     """Team-scoped existence check for the edit path's pre-judge gate. Validates the id shape the way
     the write paths do, so a malformed id is a caller error rather than an uncaught 500. A cost gate

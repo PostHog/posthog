@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -15,8 +15,27 @@ REPORT_PAGE_SIZE = 400
 DEFAULT_REPORT_DIMENSION = "variables/daterangeday"
 DEFAULT_REPORT_METRICS = "metrics/visits,metrics/visitors,metrics/pageviews"
 
+ANNOTATION_EXPANSIONS = (
+    "name",
+    "description",
+    "dateRange",
+    "color",
+    "applyToAllReports",
+    "scope",
+    "createdDate",
+    "modifiedDate",
+    "modifiedById",
+    "tags",
+    "shares",
+    "approved",
+    "owner",
+    "companyId",
+    "reportSuiteName",
+    "rsid",
+)
 
-@dataclass
+
+@dataclass(frozen=True)
 class AdobeAnalyticsEndpointConfig:
     name: str
     # Path under https://analytics.adobe.io/api/{globalCompanyId}
@@ -27,6 +46,7 @@ class AdobeAnalyticsEndpointConfig:
     data_key: Optional[str] = None
     # Query param used to scope the request to the configured report suite, if any.
     report_suite_param: Optional[str] = None
+    extra_params: dict[str, Any] = field(default_factory=dict)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
 
@@ -62,6 +82,24 @@ ADOBE_ANALYTICS_ENDPOINTS: dict[str, AdobeAnalyticsEndpointConfig] = {
         path="/metrics",
         primary_key=["rsid", "id"],
         report_suite_param="rsid",
+    ),
+    "users": AdobeAnalyticsEndpointConfig(
+        name="users",
+        path="/users",
+        primary_key=["loginId"],
+        data_key="content",
+    ),
+    "annotations": AdobeAnalyticsEndpointConfig(
+        name="annotations",
+        path="/annotations",
+        primary_key=["id"],
+        data_key="content",
+        extra_params={
+            # Without `expansion` Adobe returns only the annotation id, and without `includeType`
+            # only annotations the technical account itself owns.
+            "expansion": ",".join(ANNOTATION_EXPANSIONS),
+            "includeType": "all",
+        },
     ),
     REPORT_ENDPOINT: AdobeAnalyticsEndpointConfig(
         name=REPORT_ENDPOINT,
