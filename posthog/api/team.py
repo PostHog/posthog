@@ -1065,7 +1065,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         required=False,
         help_text=(
             "Whether new email steps and broadcasts start with UTM tags on their links. "
-            "Each email can still change it. Existing emails change only through apply_utm_defaults."
+            "Each email can still change it. Existing emails keep their current values."
         ),
     )
     email_utm_params = EmailUtmParamsField(

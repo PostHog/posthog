@@ -1,16 +1,12 @@
 from collections.abc import Iterable
 from typing import Any
-from uuid import UUID
 
-from posthog.dataclasses import frozen
-
-from products.workflows.backend.facade.contracts import FlowUtmUpdate, TeamUtmDefaults
-from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.facade.contracts import TeamUtmDefaults
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 UTM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_content")
-# Lists the utm_params keys that follow the team default. Bulk updates rewrite only these keys, so a
-# value someone typed into one email survives a change to the team defaults.
+# Lists the utm_params keys that follow the team default, so a value someone typed into one email
+# stays apart from a copied default when the team defaults change.
 UTM_FROM_DEFAULT_KEY = "utm_params_from_default"
 
 
@@ -22,15 +18,6 @@ def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
     if row is None:
         return TeamUtmDefaults(enabled=False, params={})
     return TeamUtmDefaults(enabled=row["email_utm_tags_enabled"], params=clean_utm_params(row["email_utm_params"]))
-
-
-def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
-    # next_run_at can be empty while the scheduler recalculates it, so an active schedule is enough.
-    return set(
-        HogFlowSchedule.objects.filter(team_id=team_id, status=HogFlowSchedule.Status.ACTIVE).values_list(
-            "hog_flow_id", flat=True
-        )
-    )
 
 
 def clean_utm_params(params: Any) -> dict[str, str]:
@@ -102,71 +89,3 @@ def release_edited_keys(
         ]
         if kept != following:
             config[UTM_FROM_DEFAULT_KEY] = kept
-
-
-def apply_defaults_to_email_config(
-    config: dict[str, Any], defaults: TeamUtmDefaults, enable_where_off: bool
-) -> dict[str, Any] | None:
-    """The email step config with the team defaults applied, or None when nothing changes."""
-    following = _keys_following_default(config)
-
-    current = clean_utm_params(config.get("utm_params"))
-    updated = {key: value for key, value in current.items() if key not in following}
-    updated.update({key: value for key, value in defaults.params.items() if key in following})
-
-    enabled = config.get("utm_tags_enabled") is True
-    turn_on = enable_where_off and not enabled
-
-    if updated == current and not turn_on:
-        return None
-    new_config = {**config, "utm_params": updated, UTM_FROM_DEFAULT_KEY: following}
-    if turn_on:
-        new_config["utm_tags_enabled"] = True
-    return new_config
-
-
-@frozen
-class _ActionsUpdate:
-    actions: list[dict[str, Any]] | None
-    emails_updated: int
-    emails_turned_on: int
-
-
-def _apply_to_actions(actions: list[Any], defaults: TeamUtmDefaults, enable_where_off: bool) -> _ActionsUpdate:
-    changed = False
-    updated_count = 0
-    turned_on = 0
-    new_actions: list[dict[str, Any]] = []
-    for action in actions:
-        if not is_email_action(action):
-            new_actions.append(action)
-            continue
-        new_config = apply_defaults_to_email_config(action["config"], defaults, enable_where_off)
-        if new_config is None:
-            new_actions.append(action)
-            continue
-        changed = True
-        updated_count += 1
-        if new_config.get("utm_tags_enabled") is True and action["config"].get("utm_tags_enabled") is not True:
-            turned_on += 1
-        new_actions.append({**action, "config": new_config})
-    return _ActionsUpdate(
-        actions=new_actions if changed else None, emails_updated=updated_count, emails_turned_on=turned_on
-    )
-
-
-def plan_flow_update(
-    actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
-) -> FlowUtmUpdate | None:
-    live = _apply_to_actions(actions, defaults, enable_where_off)
-    draft_actions = draft.get("actions") if isinstance(draft, dict) else None
-    # A staged draft would undo the change on publish, so it gets the same edit.
-    staged = _apply_to_actions(draft_actions, defaults, enable_where_off) if isinstance(draft_actions, list) else None
-    if live.actions is None and (staged is None or staged.actions is None):
-        return None
-    return FlowUtmUpdate(
-        actions=live.actions,
-        draft_actions=staged.actions if staged else None,
-        emails_updated=max(live.emails_updated, staged.emails_updated if staged else 0),
-        emails_turned_on=max(live.emails_turned_on, staged.emails_turned_on if staged else 0),
-    )

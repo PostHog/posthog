@@ -5,14 +5,12 @@ import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
-import { WorkflowsUtmDefaultsApplyDialog } from './WorkflowsUtmDefaultsApplyDialog'
-import { workflowsUtmDefaultsApplyLogic } from './workflowsUtmDefaultsApplyLogic'
+import { workflowsUtmDefaultsSettingsLogic } from './workflowsUtmDefaultsSettingsLogic'
 
 export function WorkflowsUtmDefaultsSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { form, hasUnsavedChanges } = useValues(workflowsUtmDefaultsApplyLogic)
-    const { setDraftEnabled, setDraftParams, saveDefaults, openApplyDialog } =
-        useActions(workflowsUtmDefaultsApplyLogic)
+    const { form, hasUnsavedChanges } = useValues(workflowsUtmDefaultsSettingsLogic)
+    const { setDraftEnabled, setDraftParams, saveDefaults } = useActions(workflowsUtmDefaultsSettingsLogic)
 
     return (
         <div className="flex flex-col gap-2 max-w-160">
@@ -47,17 +45,7 @@ export function WorkflowsUtmDefaultsSettings(): JSX.Element {
                 >
                     Save
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    disabledReason={hasUnsavedChanges ? 'Save your changes first' : undefined}
-                    onClick={openApplyDialog}
-                    data-attr="workflows-utm-defaults-apply-existing"
-                >
-                    Apply to existing emails
-                </LemonButton>
             </div>
-            <WorkflowsUtmDefaultsApplyDialog />
         </div>
     )
 }

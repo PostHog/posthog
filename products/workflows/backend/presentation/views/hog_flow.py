@@ -132,9 +132,7 @@ from products.workflows.backend.facade.activity import (
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.api import (
-    flow_ids_with_active_schedule,
     load_team_utm_defaults,
-    plan_flow_utm_update,
     release_edited_email_utm_keys,
     seed_new_email_steps_with_utm_defaults,
 )
@@ -159,7 +157,6 @@ from products.workflows.backend.facade.contracts import (
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
     StaffPausedError,
-    TeamUtmDefaults,
     Workflow,
     WorkflowAccessDenied,
     WorkflowActor,
@@ -284,7 +281,6 @@ from products.workflows.backend.facade.workflows import (
     workflow_publish_impact,
 )
 from products.workflows.backend.facade.writes import (
-    apply_email_utm_defaults,
     create_workflow,
     destroy_workflow,
     discard_draft,
@@ -415,10 +411,6 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
             )
         }
     )
-
-
-def live_secret_map(instance: WorkflowEditState, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
-    return merge_secret_maps(plaintext_secret_map(instance.actions, template_cache), instance.encrypted_inputs)
 
 
 def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
@@ -914,34 +906,6 @@ def _event_config_has_event_or_action(event_config: dict) -> bool:
     # rule lives in one place (mirrors hasEventOrActionTarget in the matcher consumer).
     filters = event_config.get("filters") or {}
     return bool(filters.get("events") or filters.get("actions"))
-
-
-class ApplyUtmDefaultsRequestSerializer(serializers.Serializer):
-    dry_run = serializers.BooleanField(
-        default=True, help_text="When true, only count the emails the change would update. Nothing is saved."
-    )
-    enable_where_off = serializers.BooleanField(
-        default=False,
-        help_text="Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links.",
-    )
-
-
-class ApplyUtmDefaultsResponseSerializer(serializers.Serializer):
-    emails_updated = serializers.IntegerField(help_text="Email steps that get (or would get) the team defaults.")
-    workflows_updated = serializers.IntegerField(help_text="Workflows and broadcasts that contain those email steps.")
-    active_workflows_updated = serializers.IntegerField(
-        help_text="Of those, the ones that are live, so their next send uses the new values."
-    )
-    emails_turned_on = serializers.IntegerField(help_text="Email steps where UTM tags get (or would get) turned on.")
-    emails_off = serializers.IntegerField(
-        help_text="Email steps in scope that have UTM tags off. enable_where_off turns them on."
-    )
-    workflows_without_access = serializers.IntegerField(
-        help_text="Workflows with emails to update that you can't edit. They keep their old values."
-    )
-    workflows_failed = serializers.IntegerField(
-        help_text="Workflows that could not be saved, for example because they fail validation. They keep their old values."
-    )
 
 
 class BlastRadiusRequestSerializer(serializers.Serializer):
@@ -2950,10 +2914,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
-            # A server-side rewrite of the live actions sets live_secrets_only, so a staged credential
-            # rotation stays in the draft until someone publishes it.
-            secret_map = live_secret_map if self.context.get("live_secrets_only") else existing_secret_map
-            self.context["existing_encrypted_inputs"] = secret_map(instance, template_cache={})
+            self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
@@ -4299,7 +4260,6 @@ class HogFlowViewSet(
         "resume_email_sending",
         "approve_proposal",
         "reject_proposal",
-        "apply_utm_defaults",
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
@@ -5717,107 +5677,6 @@ class HogFlowViewSet(
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
         return Response(res.json())
-
-    @extend_schema(request=ApplyUtmDefaultsRequestSerializer, responses=ApplyUtmDefaultsResponseSerializer)
-    @action(methods=["POST"], detail=False)
-    def apply_utm_defaults(self, request: Request, **kwargs):
-        # Rewrites every workflow in the project, so object-level access to one workflow is not enough.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-            raise exceptions.PermissionDenied("You need edit access to workflows to update their emails.")
-
-        params_serializer = ApplyUtmDefaultsRequestSerializer(data=request.data)
-        params_serializer.is_valid(raise_exception=True)
-        dry_run = params_serializer.validated_data["dry_run"]
-        enable_where_off = params_serializer.validated_data["enable_where_off"]
-
-        defaults = load_team_utm_defaults(self.team_id)
-        pending_schedule_flow_ids = flow_ids_with_active_schedule(self.team_id)
-        flows = HogFlow.objects.filter(team_id=self.team_id).exclude(status=HogFlow.State.ARCHIVED)
-
-        result = {
-            "emails_updated": 0,
-            "workflows_updated": 0,
-            "active_workflows_updated": 0,
-            "emails_turned_on": 0,
-            "emails_off": 0,
-            "workflows_failed": 0,
-            "workflows_without_access": 0,
-        }
-        for flow in flows.iterator():
-            # A broadcast that already went out keeps the links it was sent with.
-            if (
-                flow.origin_product == HogFlow.OriginProduct.BROADCASTS
-                and flow.status != HogFlow.State.DRAFT
-                and flow.id not in pending_schedule_flow_ids
-            ):
-                continue
-            all_on = plan_flow_utm_update(flow.actions or [], flow.draft, defaults, enable_where_off=True)
-            if all_on is None:
-                continue
-            # Edit access to workflows in general can be narrowed on a single workflow.
-            if not self.user_access_control.check_access_level_for_object(flow, "editor"):
-                result["workflows_without_access"] += 1
-                continue
-            result["emails_off"] += all_on.emails_turned_on
-            plan = all_on if enable_where_off else plan_flow_utm_update(flow.actions or [], flow.draft, defaults, False)
-            if plan is None:
-                continue
-            if not dry_run:
-                try:
-                    self._apply_utm_defaults_to_flow(flow, defaults, enable_where_off)
-                except serializers.ValidationError as e:
-                    logger.warning("utm_defaults_apply_failed", hog_flow_id=str(flow.id), error=str(e.detail))
-                    result["workflows_failed"] += 1
-                    continue
-            result["emails_updated"] += plan.emails_updated
-            result["emails_turned_on"] += plan.emails_turned_on
-            result["workflows_updated"] += 1
-            # A change only to the staged draft reaches live sends when someone publishes the draft.
-            if flow.status == HogFlow.State.ACTIVE and plan.actions is not None:
-                result["active_workflows_updated"] += 1
-
-        if not dry_run:
-            self._report_utm_defaults_applied(result, enable_where_off)
-        return Response(ApplyUtmDefaultsResponseSerializer(result).data)
-
-    def _apply_utm_defaults_to_flow(self, flow: HogFlow, defaults: TeamUtmDefaults, enable_where_off: bool) -> None:
-        def validate_live(state: WorkflowEditState, actions: list[dict]) -> dict:
-            serializer = self.get_serializer(
-                state,
-                data={"actions": actions},
-                partial=True,
-                context={**self.get_serializer_context(), "live_secrets_only": True},
-            )
-            serializer.is_valid(raise_exception=True)
-            return serializer.validated_data
-
-        result = apply_email_utm_defaults(
-            team_id=self.team_id,
-            user_id=self._actor_id(),
-            hog_flow_id=flow.id,
-            defaults=defaults,
-            enable_where_off=enable_where_off,
-            validate_live=validate_live,
-        )
-        if result is None:
-            return
-        workflow = self._written_workflow(result)
-        self._log_activity(workflow.id, workflow.name, "updated", previous=result.previous, current=result.current)
-        self._emit_resource_edited(workflow)
-
-    def _report_utm_defaults_applied(self, result: dict[str, int], enable_where_off: bool) -> None:
-        try:
-            report_user_action(
-                self.request.user,
-                "workflow utm defaults applied",
-                {**result, "enable_where_off": enable_where_off, "team_id": str(self.team_id)},
-                team=self.team,
-                request=self.request,
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to capture workflow usage event", event="workflow utm defaults applied", error=str(e)
-            )
 
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)

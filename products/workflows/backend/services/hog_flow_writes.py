@@ -8,7 +8,6 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from products.workflows.backend.facade.contracts import (
-    TeamUtmDefaults,
     WorkflowEditState,
     WorkflowHasNoDraft,
     WorkflowStale,
@@ -18,7 +17,6 @@ from products.workflows.backend.facade.enums import HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
-from products.workflows.backend.services.email_utm_defaults import plan_flow_update
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
 from products.workflows.backend.services.hog_flow_reads import to_edit_state
 from products.workflows.backend.services.hog_flow_secrets import (
@@ -436,38 +434,6 @@ def edit_workflow_content(
         routed_to_draft=route_to_draft,
         schedules_paused=paused,
     )
-
-
-def apply_email_utm_defaults(
-    *,
-    team_id: int,
-    user_id: Optional[int],
-    hog_flow_id: UUID,
-    defaults: TeamUtmDefaults,
-    enable_where_off: bool,
-    validate_live: Callable[[WorkflowEditState, list[dict]], dict],
-) -> Optional[WorkflowWriteResult]:
-    """Rewrite the UTM keys that still follow the team defaults, in the live steps and the staged draft.
-    Returns None when nothing changes."""
-    with transaction.atomic():
-        locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
-        plan = plan_flow_update(locked.actions or [], locked.draft, defaults, enable_where_off)
-        if plan is None:
-            return None
-        before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
-        if plan.draft_actions is not None:
-            locked.draft = {**(locked.draft or {}), "actions": plan.draft_actions}
-            locked.draft_updated_at = timezone.now()
-            locked.save(update_fields=["draft", "draft_updated_at"])
-            unstage_workflow_proposals(team_id=team_id, hog_flow_id=locked.pk)
-        if plan.actions is not None:
-            validated_data = validate_live(to_edit_state(locked), plan.actions)
-            bump = _stage_revision_bump(locked, before_update, validated_data)
-            _save_live(locked, validated_data)
-            if bump:
-                _append_revisions(team_id, user_id, locked, before_update)
-
-    return WorkflowWriteResult(previous=field_values(before_update), current=field_values(locked))
 
 
 def publish_draft(

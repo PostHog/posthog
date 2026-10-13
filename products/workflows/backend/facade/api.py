@@ -11,7 +11,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.workflows.backend.facade.contracts import (
     EmailDomainDnsRecord,
     EmailDomainVerification,
-    FlowUtmUpdate,
     RecentWorkflow,
     TeamUtmDefaults,
     TierDecision,
@@ -288,10 +287,6 @@ def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
     return email_utm_defaults.load_team_utm_defaults(team_id)
 
 
-def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
-    return email_utm_defaults.flow_ids_with_active_schedule(team_id)
-
-
 def seed_new_email_steps_with_utm_defaults(
     actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
 ) -> None:
@@ -305,9 +300,3 @@ def release_edited_email_utm_keys(
     defaults: TeamUtmDefaults,
 ) -> None:
     email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults)
-
-
-def plan_flow_utm_update(
-    actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
-) -> FlowUtmUpdate | None:
-    return email_utm_defaults.plan_flow_update(actions, draft, defaults, enable_where_off)
