@@ -1469,6 +1469,47 @@ describe('runStreamLogic', () => {
             expect(logic.values.pendingPermissionRequest?.requestId ?? null).toBe(shown ? 'mcp-1' : null)
         })
 
+        it.each([
+            { caseName: 'a live', persisted: false },
+            { caseName: 'a persisted', persisted: true },
+        ])('offers a one-shot allow on $caseName Pi MCP request', async ({ persisted }) => {
+            const request = {
+                requestId: 'mcp-1',
+                toolCall: { toolCallId: 'mcp-1', _meta: { posthog: { toolName: 'mcp__linear__create_issue' } } },
+                options: [
+                    { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
+                    { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+                ],
+            }
+            let resolveLogs: (entries: unknown[]) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise<unknown[]>((resolve) => (resolveLogs = resolve)) as any
+            )
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', taskRuntime: 'pi' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+            if (!persisted) {
+                await MockStream.latest().emitMessage(
+                    { type: 'permission_request', event_id: 'b-2', ...request },
+                    '1700-0'
+                )
+            }
+
+            resolveLogs([
+                { type: 'pi_run_started', timestamp: '2026-01-01T00:00:00Z', event_id: 'b-1' },
+                ...(persisted ? [{ ...notification('_posthog/permission_request', request), event_id: 'b-2' }] : []),
+            ])
+            await flushPromises()
+
+            expect(
+                logic.values.pendingPermissionRequest?.options.map(({ optionId, hint }) => [optionId, hint])
+            ).toEqual([
+                ['allow', undefined],
+                ['allow_always', undefined],
+                ['reject', 'Blocks this tool call. The agent keeps working.'],
+            ])
+        })
+
         it('drops a live tool update that the persisted log already covers', () => {
             const persisted = translatePiWireEntry(
                 piEvent(
@@ -5575,14 +5616,16 @@ describe('runStreamLogic', () => {
     })
 
     describe('reset clears notification state', () => {
-        it('clears contextUsage and sdkSession on reset', async () => {
+        it('clears contextUsage, sdkSession and the Pi runtime on reset', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(notification('_posthog/usage_update', { used: { inputTokens: 1 } }))
                 logic.actions.ingestAcpFrame(notification('_posthog/sdk_session', { adapter: 'codex' }))
+                logic.actions.markPiRuntime()
             }).toFinishAllListeners()
 
             expect(logic.values.contextUsage).not.toBeNull()
             expect(logic.values.sdkSession).not.toBeNull()
+            expect(logic.values.piRuntime).toBe(true)
 
             await expectLogic(logic, () => {
                 logic.actions.reset()
@@ -5590,6 +5633,7 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.contextUsage).toBeNull()
             expect(logic.values.sdkSession).toBeNull()
+            expect(logic.values.piRuntime).toBe(false)
         })
     })
 
@@ -5797,9 +5841,7 @@ describe('runStreamLogic', () => {
                     signal: expect.any(AbortSignal),
                 })
                 const sent = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3]
-                if (sent.method === 'pi/rpc') {
-                    expect(sent.id).toBe(sent.params.command.id)
-                }
+                expect(sent.id).toBe(sent.method === 'pi/rpc' ? sent.params.command.id : undefined)
             }
         )
 

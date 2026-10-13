@@ -29,7 +29,6 @@ interface OptionSelectorProps {
     submitLabel?: string
     /** Called when the user clicks "Skip question" */
     onSkip?: () => void
-    /** Render the answer of an options-free question as a multi-line text area */
     multiline?: boolean
 }
 
@@ -48,7 +47,6 @@ export function OptionSelector({
     onSkip,
     multiline = false,
 }: OptionSelectorProps): JSX.Element {
-    // With no options to pick from, the answer can only be typed, so the field is always open.
     const freeTextOnly = allowCustom && options.length === 0
     const isCustomValue = selectedValue !== undefined && !options.some((o) => o.value === selectedValue)
     const [userWantsCustomMode, setUserWantsCustomMode] = useState(isCustomValue)

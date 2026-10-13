@@ -623,7 +623,6 @@ export function foldUsageNotification(existing: ContextUsage | null, params: Pos
 
 const PI_USAGE_TOKEN_FIELDS = ['inputTokens', 'outputTokens', 'cachedReadTokens', 'cachedWriteTokens'] as const
 
-/** Token totals summed over every Pi turn seen, and the context ring from the latest turn. */
 export function foldPiTurnUsage(
     existing: ContextUsage | null,
     turns: Record<string, unknown>[],
@@ -2213,7 +2212,6 @@ export function foldLogFromCheckpoint(
                     }
                     const attachment = userAttachment(block)
                     if (attachment) {
-                        // A Pi attachment names its artifact but not its run, which is the run that logged it.
                         noteAttachment(
                             attachment.artifactId && !attachment.runId && entryRunId
                                 ? { ...attachment, runId: entryRunId }
@@ -3200,17 +3198,18 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
-        // The task id this instance last bootstrapped, so the `ingestAcpFrame` history-derived context
-        // bookkeeping can attribute seen context blocks to the task. Null for an unattached optimistic
-        // stream — those record nothing (their send path marks sent keys directly).
         piRuntime: [
             false,
             {
                 bootstrapRun: (state, { taskRuntime }) =>
                     taskRuntime === undefined ? state : taskRuntime === TaskRuntimeEnumApi.Pi,
                 markPiRuntime: () => true,
+                reset: () => false,
             },
         ],
+        // The task id this instance last bootstrapped, so the `ingestAcpFrame` history-derived context
+        // bookkeeping can attribute seen context blocks to the task. Null for an unattached optimistic
+        // stream — those record nothing (their send path marks sent keys directly).
         bootstrappedTaskId: [
             null as string | null,
             {
@@ -3773,6 +3772,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => {
+        const parseRunPermissionRequest = (
+            frame: PermissionRequestFrame | PosthogPermissionRequestParams,
+            sourceRunId: string | undefined
+        ): PermissionRequestRecord | null => {
+            const record = parsePermissionRequestFrame(frame, sourceRunId)
+            return record && values.piRuntime ? withPiMcpOptions(record) : record
+        }
         const sessionNow = (): RunStreamRecovery | undefined => cache.recoverySession
         const endedKey = (projectId: number, taskId: string, runId: string): string => `${projectId}:${taskId}:${runId}`
         const hasEnded = (session: RunStreamRecovery): boolean =>
@@ -3937,6 +3943,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.rebuildingHistory = true
             cache.rebuildingLog = log
             cache.trackedToolInvocations = undefined
+            cache.piTurnUsage = undefined
             try {
                 let reachedSuccessor = false
                 for (const stored of log.entries) {
@@ -4226,8 +4233,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             actions.markPiRuntime()
                         }
                         parsed = translatePiWireEntry(parsed)
-                    } else if (values.piRuntime && isPermissionRequestFrame(parsed)) {
-                        parsed = withPiMcpOptions(parsed)
                     }
                     if (isNotificationFrame(parsed)) {
                         const marker =
@@ -4277,7 +4282,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             })
                             return
                         }
-                        const record = parsePermissionRequestFrame(parsed, runId)
+                        const record = parseRunPermissionRequest(parsed, runId)
                         if (
                             record &&
                             !values.seenPermissionRequestIds.has(record.requestId) &&
@@ -5066,7 +5071,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
                     }
                     actions.markTurnComplete(isReplay)
-                    // Pi reports usage per turn on its turn end, not as a running total.
                     const turnUsage = notification.params?.usage
                     if (isRecord(turnUsage)) {
                         const turns: Map<string, Record<string, unknown>> = (cache.piTurnUsage ??= new Map())
@@ -5094,7 +5098,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
                 // the agent stays blocked), and a resolution observed here clears the local card.
                 if (isPosthogNotification(notification, '_posthog/permission_request')) {
-                    const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
+                    const record = parseRunPermissionRequest(notification.params ?? {}, entry.source_run_id)
                     if (
                         record &&
                         !values.seenPermissionRequestIds.has(record.requestId) &&
