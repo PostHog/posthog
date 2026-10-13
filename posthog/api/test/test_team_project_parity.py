@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from rest_framework import viewsets
 
@@ -43,7 +43,7 @@ def _extra_action_names(viewset_class: type[viewsets.GenericViewSet]) -> set[str
     return {action.__name__ for action in viewset_class.get_extra_actions()}
 
 
-class TestTeamProjectParity(BaseTest):
+class TestTeamProjectParity(SimpleTestCase):
     def test_detail_serializer_is_a_superset_of_team_serializer(self):
         team_fields = _serializer_field_names(TeamSerializer)
         project_fields = _serializer_field_names(ProjectBackwardCompatSerializer)

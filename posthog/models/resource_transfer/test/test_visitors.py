@@ -1,8 +1,6 @@
 from types import SimpleNamespace
 from typing import Any
 
-from posthog.test.base import BaseTest
-
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -42,7 +40,7 @@ def _experiment_like_resource(**overrides):
     return SimpleNamespace(**base)
 
 
-class TestExtractActionIds(BaseTest):
+class TestExtractActionIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -134,7 +132,7 @@ class TestExtractActionIds(BaseTest):
         assert InsightVisitor._extract_action_ids(filters, query) == expected
 
 
-class TestExtractCohortIds(BaseTest):
+class TestExtractCohortIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -242,7 +240,7 @@ class TestExtractCohortIds(BaseTest):
         assert InsightVisitor._extract_cohort_ids(filters, query) == expected
 
 
-class TestRewriteActionIdInFilters(BaseTest):
+class TestRewriteActionIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -279,7 +277,7 @@ class TestRewriteActionIdInFilters(BaseTest):
         assert InsightVisitor._rewrite_action_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestRewriteActionIdInQuery(BaseTest):
+class TestRewriteActionIdInQuery(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -338,7 +336,7 @@ class TestRewriteActionIdInQuery(BaseTest):
         assert InsightVisitor._rewrite_action_id_in_query(query, old_pk, new_pk) == expected
 
 
-class TestRewriteCohortIdInFilters(BaseTest):
+class TestRewriteCohortIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -399,7 +397,7 @@ class TestRewriteCohortIdInFilters(BaseTest):
         assert InsightVisitor._rewrite_cohort_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestRewriteCohortIdInQuery(BaseTest):
+class TestRewriteCohortIdInQuery(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -487,7 +485,7 @@ class TestRewriteCohortIdInQuery(BaseTest):
         assert InsightVisitor._rewrite_cohort_id_in_query(query, old_pk, new_pk) == expected
 
 
-class TestCohortExtractCohortIds(BaseTest):
+class TestCohortExtractCohortIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -581,7 +579,7 @@ class TestCohortExtractCohortIds(BaseTest):
         assert CohortVisitor._extract_cohort_ids(filters) == expected
 
 
-class TestCohortExtractActionIds(BaseTest):
+class TestCohortExtractActionIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -746,7 +744,7 @@ class TestCohortExtractActionIds(BaseTest):
         assert CohortVisitor._extract_action_ids(filters) == expected
 
 
-class TestCohortRewriteCohortIdInFilters(BaseTest):
+class TestCohortRewriteCohortIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -842,7 +840,7 @@ class TestCohortRewriteCohortIdInFilters(BaseTest):
         assert CohortVisitor._rewrite_cohort_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestCohortRewriteActionIdInFilters(BaseTest):
+class TestCohortRewriteActionIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -1306,7 +1304,7 @@ class TestExperimentSavedMetricVisitorDynamicEdges(SimpleTestCase):
         assert ExperimentSavedMetricVisitor.get_dynamic_edges(metric_list) == []
 
 
-class TestSurveyVisitorConditionsCohorts(BaseTest):
+class TestSurveyVisitorConditionsCohorts(SimpleTestCase):
     @parameterized.expand(
         [
             (
