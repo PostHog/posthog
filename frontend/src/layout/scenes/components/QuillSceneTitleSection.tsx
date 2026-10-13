@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { Button, cn } from '@posthog/quill'
 
-import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
 import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -20,7 +19,6 @@ import { QuillSceneTrail } from './QuillSceneTrail'
 import { SceneDescription } from './SceneDescription'
 import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotFilled } from './SceneMenuBarSlotProvider'
 import { sceneResourceIcon } from './sceneResourceIcon'
-import { SceneTitlePanelButton } from './SceneTitlePanelButton'
 import type { SceneMainTitleProps } from './SceneTitleSection'
 import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
 
@@ -40,13 +38,10 @@ export function QuillSceneTitleSection({
     saveOnBlur = false,
     noPadding = false,
     actions,
-    hideProductSetupButton = false,
     forceBackTo,
     className,
     onGenerateMetadata,
     isGeneratingMetadata,
-    maxToolProps,
-    maxButtonLabel,
     descriptionMaxLength,
     sceneId,
 }: SceneMainTitleProps): JSX.Element {
@@ -148,10 +143,8 @@ export function QuillSceneTitleSection({
                 }
                 actions={
                     <>
-                        {!hideProductSetupButton && <ProductSetupButton />}
                         {actions}
                         {!menuBarShown && <SceneTitleSettingsButton />}
-                        <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
                     </>
                 }
             />

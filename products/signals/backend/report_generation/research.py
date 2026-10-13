@@ -841,6 +841,9 @@ _REPORT_METRICS_GUIDANCE = f"""## Measuring impact
 
 Put reproducible report-level measurements under `metrics`. A metric tells the reader how many people, sessions, occurrences, conversions, errors, milliseconds, or dollars the observation affects. Use at most one `primary` metric for the key observation and `supporting` metrics for the compact impact facts around it. Every metric needs a bounded live query; its saved snapshot is only an optional cached fallback.
 
+- Attach a verified `primary` metric for the main quantitative claim from events, including a single count. A chart is not required. For SQL evidence, run an equivalent supported Trends query before attaching it.
+- Match the claim's filters, population, exclusions, window, and aggregation. Do not use project totals for one issue, event ratios for user funnels, or exposure as confirmed harm.
+- If no useful supported metric can measure the claim, explain why in one short summary sentence. Keep the useful report. Qualitative findings can omit metrics.
 - **Choose the kind by what the reader will ask.**
     - `affected_users` for anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, or a pageview matching a broken URL. One series, `math: "dau"`.
     - `affected_sessions` when the source establishes sessions but not people. Use exactly one event or action series with `math: "unique_session"`. Do not use a formula or group math.
