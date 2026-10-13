@@ -49,6 +49,7 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
     _is_admin_shutdown_error,
     _is_connect_timeout_error,
     _is_dns_resolution_transient_error,
+    _is_executor_shutdown_error,
     _is_retryable_queue_db_error,
     _is_schema_lag_error,
     _is_server_not_ready_error,
@@ -1599,6 +1600,44 @@ def test_is_server_not_ready_error_ignores_non_operational_errors():
     # A generic exception carrying the same phrase must not be misclassified — the
     # SQLSTATE 57P03 refusal only ever surfaces as psycopg.OperationalError.
     assert _is_server_not_ready_error(RuntimeError("the database system is in recovery mode")) is False
+
+
+class TestExecutorShutdownErrorClassification:
+    def test_classifies_executor_shutdown(self) -> None:
+        assert _is_executor_shutdown_error(RuntimeError("cannot schedule new futures after shutdown")) is True
+
+    def test_ignores_other_runtime_errors(self) -> None:
+        assert _is_executor_shutdown_error(RuntimeError("some other failure")) is False
+
+    @pytest.mark.asyncio
+    async def test_unlock_group_does_not_report_executor_shutdown_error(self) -> None:
+        # Reproduces the reported issue: the group's per-group connection is left mid-protocol
+        # by the task's own cancellation, so the first unlock attempt fails with an
+        # OperationalError and _unlock_group falls back to a fresh connection. If the pod is
+        # already mid-teardown, that redial hits the event loop's already-shut-down default
+        # executor (used for DNS resolution) instead of a connection error, and must not page
+        # anyone — the lease simply expires and a surviving pod reclaims it.
+        consumer = _make_consumer()
+        batches = [_make_batch()]
+
+        with (
+            patch.object(
+                consumer._adapter,
+                "unlock",
+                new_callable=AsyncMock,
+                side_effect=psycopg.OperationalError("another command is already in progress"),
+            ),
+            patch.object(
+                consumer,
+                "_connect",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("cannot schedule new futures after shutdown"),
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(_make_healthy_conn(), batches, team_id=1, schema_id="schema-1")
+
+        mock_capture.assert_not_called()
 
 
 class TestPollFailureLiveness:

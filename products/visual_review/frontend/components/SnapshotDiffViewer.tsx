@@ -17,6 +17,7 @@ import type {
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import { QUARANTINE_NUDGE_WINDOW_DAYS, type RecentTolerations, shouldSuggestQuarantine } from '../lib/quarantineNudge'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
 import { QuarantineLiftOnMerge } from './QuarantineLiftOnMerge'
@@ -87,7 +88,6 @@ interface SnapshotDiffViewerProps {
     onCancelLiftOnMerge?: (requestId: string) => void
     commitSha?: string
     prNumber?: number | null
-    repoId?: string | null
     repoFullName?: string | null
     runType?: string
     githubRunId?: string | null
@@ -116,7 +116,6 @@ export function SnapshotDiffViewer({
     onCancelLiftOnMerge,
     commitSha,
     prNumber,
-    repoId,
     repoFullName,
     runType,
     githubRunId,
@@ -530,9 +529,13 @@ export function SnapshotDiffViewer({
                         <h4 className="text-xs font-semibold text-muted mb-2">Identifier</h4>
                         <div className="space-y-2">
                             <div className="text-xs">
-                                {repoId && runType ? (
+                                {repoFullName && runType ? (
                                     <Link
-                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        to={urls.visualReviewSnapshotHistory(
+                                            ...splitRepoFullName(repoFullName),
+                                            runType,
+                                            snapshot.identifier
+                                        )}
                                         className="font-mono text-default break-all"
                                         title="View history"
                                     >
@@ -559,9 +562,13 @@ export function SnapshotDiffViewer({
                             {snapshot.baseline_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Before</span>
-                                    {repoId && runType ? (
+                                    {repoFullName && runType ? (
                                         <Link
-                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            to={urls.visualReviewSnapshotHistory(
+                                                ...splitRepoFullName(repoFullName),
+                                                runType,
+                                                snapshot.identifier
+                                            )}
                                             className="font-mono"
                                             title="View history"
                                         >
@@ -577,9 +584,13 @@ export function SnapshotDiffViewer({
                             {snapshot.current_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">After</span>
-                                    {repoId && runType ? (
+                                    {repoFullName && runType ? (
                                         <Link
-                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            to={urls.visualReviewSnapshotHistory(
+                                                ...splitRepoFullName(repoFullName),
+                                                runType,
+                                                snapshot.identifier
+                                            )}
                                             className="font-mono"
                                             title="View history"
                                         >
@@ -592,10 +603,14 @@ export function SnapshotDiffViewer({
                                     )}
                                 </div>
                             )}
-                            {repoId && runType && (
+                            {repoFullName && runType && (
                                 <div className="pt-1">
                                     <Link
-                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        to={urls.visualReviewSnapshotHistory(
+                                            ...splitRepoFullName(repoFullName),
+                                            runType,
+                                            snapshot.identifier
+                                        )}
                                         className="text-xs"
                                     >
                                         View history →

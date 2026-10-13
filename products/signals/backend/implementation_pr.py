@@ -13,6 +13,7 @@ from django.db.models import F, Lookup, Q
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
@@ -439,7 +440,9 @@ def _close_implementation_pr(
             )
             return False
 
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+        )
         if github is None:
             logger.info(
                 "close_implementation_pr_no_integration", report_id=str(report_id), repository=parsed.repository

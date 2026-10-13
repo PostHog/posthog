@@ -1,78 +1,42 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trello import TrelloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import TRELLO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.trello.source import TrelloSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import (
     TrelloResumeConfig,
     _add_created_at,
     _format_incremental_value,
     _id_to_created_at,
-    trello_source,
     validate_credentials,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the trello module.
-TRELLO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-)
+
+def _json(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
-def _response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(*, can_resume: bool = False, resume_state: TrelloResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[Any, dict[str, Any]]]:
-    """Wire a mock session and capture each request's (url, params) AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[tuple[Any, dict[str, Any]]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append((request.url, dict(request.params or {})))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return trello_source(
-        api_key="key",
-        api_token="token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
+def _run(
+    endpoint: str,
+    script: list[ScriptedResponse],
+    resume_state: TrelloResumeConfig | None = None,
+    **kwargs: Any,
+) -> DriveResult:
+    driver = SourceDriver(TrelloSource(), TrelloSourceConfig(api_key="key", api_token="token"))
+    return driver.run(endpoint, script, resume_state=resume_state, **kwargs)
 
 
 class TestIdToCreatedAt:
@@ -119,16 +83,14 @@ class TestValidateCredentials:
         ]
     )
     def test_status_codes(self, _name: str, status: int, valid: bool, message: str | None) -> None:
-        with mock.patch(TRELLO_SESSION_PATCH) as session:
-            session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        with scripted_network([ScriptedResponse(status=status, json={})]):
             result_valid, result_message = validate_credentials("key", "token")
 
         assert result_valid is valid
         assert result_message == message
 
     def test_request_exception(self) -> None:
-        with mock.patch(TRELLO_SESSION_PATCH) as session:
-            session.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
             valid, message = validate_credentials("key", "token")
 
         assert valid is False
@@ -137,87 +99,71 @@ class TestValidateCredentials:
 
 
 class TestMemberEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_boards_single_request_injects_created_at(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_boards_single_request_injects_created_at(self) -> None:
         boards = [{"id": "5abbe394c78f17ffa9e10843", "name": "A"}, {"id": "5abbe395c78f17ffa9e10843", "name": "B"}]
-        snapshots = _wire(session, [_response(boards)])
 
-        manager = _make_manager()
-        rows = _rows(_source("boards", manager))
+        result = _run("boards", [_json(boards)])
 
-        assert [r["name"] for r in rows] == ["A", "B"]
-        assert all("created_at" in r for r in rows)
+        assert [r["name"] for r in result.rows] == ["A", "B"]
+        assert all("created_at" in r for r in result.rows)
         # Member endpoints are a single request; no resume checkpoints.
-        manager.save_state.assert_not_called()
-        url, params = snapshots[0]
-        assert url == "https://api.trello.com/1/members/me/boards"
-        assert params["limit"] == 1000
+        assert result.saved_states == []
+        assert result.requests[0].url.split("?")[0] == "https://api.trello.com/1/members/me/boards"
+        assert result.requests[0].param("limit") == "1000"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_fails_loud(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "nope"})])
+    def test_non_list_body_fails_loud(self) -> None:
+        result = _run("organizations", [_json({"error": "nope"})])
 
         # A 200 whose body isn't a list means the response shape changed — fail loud rather than
         # wrapping the stray object as a single row.
-        with pytest.raises(ValueError, match="list response body"):
-            _rows(_source("organizations", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
 
 
 class TestActionsIncremental:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_sends_since_and_limit(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response([{"id": "b1"}]),
-                _response([{"id": "a1", "date": "2026-02-01T00:00:00Z"}]),
-            ],
-        )
+    def test_incremental_sends_since_and_limit(self) -> None:
         cutoff = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
 
-        _rows(_source("actions", _make_manager(), db_incremental_field_last_value=cutoff))
-
-        actions_url, actions_params = snapshots[1]
-        assert actions_url == "https://api.trello.com/1/boards/b1/actions"
-        assert actions_params["since"] == "2026-01-15T10:00:00+00:00"
-        assert actions_params["limit"] == 1000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_with_before_cursor(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+        result = _run(
+            "actions",
             [
-                _response([{"id": "b1"}]),
-                _response([{"id": "a1"}, {"id": "a2"}]),  # full page (limit 2) → keep paging
-                _response([{"id": "a3"}]),  # short page → stop
+                _json([{"id": "b1"}]),
+                _json([{"id": "a1", "date": "2026-02-01T00:00:00Z"}]),
             ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
         )
 
-        manager = _make_manager()
+        actions_request = result.requests[1]
+        assert actions_request.url.split("?")[0] == "https://api.trello.com/1/boards/b1/actions"
+        assert actions_request.param("since") == "2026-01-15T10:00:00+00:00"
+        assert actions_request.param("limit") == "1000"
+
+    def test_paginates_with_before_cursor(self) -> None:
         # Drive pagination with a small page size instead of 1000 rows.
         with mock.patch.object(TRELLO_ENDPOINTS["actions"], "page_size", 2):
-            rows = _rows(_source("actions", manager))
+            result = _run(
+                "actions",
+                [
+                    _json([{"id": "b1"}]),
+                    _json([{"id": "a1"}, {"id": "a2"}]),  # full page (limit 2) → keep paging
+                    _json([{"id": "a3"}]),  # short page → stop
+                ],
+            )
 
-        assert [r["id"] for r in rows] == ["a1", "a2", "a3"]
+        assert [r["id"] for r in result.rows] == ["a1", "a2", "a3"]
         # First actions page carries no cursor; the second pages back with before=<oldest of page 1>.
-        assert "before" not in snapshots[1][1]
-        assert snapshots[2][1]["before"] == "a2"
+        assert result.requests[1].param("before") is None
+        assert result.requests[2].param("before") == "a2"
         # Board fully drained → final checkpoint records it completed, nothing in progress.
-        final_state = manager.save_state.call_args_list[-1].args[0].fanout_state
+        final_state = result.saved_states[-1].fanout_state
         assert final_state["completed"] == ["/boards/b1/actions"]
         assert final_state["current"] is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_uses_before_cursor(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "b1"}]), _response([{"id": "a1"}])])
-
-        manager = _make_manager(
-            can_resume=True,
+    def test_resume_uses_before_cursor(self) -> None:
+        result = _run(
+            "actions",
+            [_json([{"id": "b1"}]), _json([{"id": "a1"}])],
             resume_state=TrelloResumeConfig(
                 fanout_state={
                     "completed": [],
@@ -226,9 +172,8 @@ class TestActionsIncremental:
                 }
             ),
         )
-        _rows(_source("actions", manager))
 
-        assert snapshots[1][1]["before"] == "oldest"
+        assert result.requests[1].param("before") == "oldest"
 
 
 class TestTrelloSourceResponse:
@@ -240,7 +185,8 @@ class TestTrelloSourceResponse:
         ]
     )
     def test_source_response_shape(self, endpoint: str, sort_mode: str, primary_key: str) -> None:
-        response = _source(endpoint, _make_manager())
+        response = _run(endpoint, []).response
+        assert response is not None
         assert response.name == endpoint
         assert response.sort_mode == sort_mode
         assert response.primary_keys == [primary_key]
@@ -250,6 +196,7 @@ class TestTrelloSourceResponse:
 
     @parameterized.expand([(name,) for name in TRELLO_ENDPOINTS])
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
+        response = _run(endpoint, []).response
+        assert response is not None
         assert callable(response.items)
         assert response.primary_keys == [TRELLO_ENDPOINTS[endpoint].primary_key]

@@ -6,6 +6,17 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonatypenexus import (
+    SonatypeNexusSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import (
     ENDPOINTS,
     SONATYPE_NEXUS_ENDPOINTS,
@@ -18,11 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
     SonatypeNexusRetryableError,
     _fetch_page,
     _read_bounded,
-    get_rows,
     normalize_host,
-    sonatype_nexus_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source import SonatypeNexusSource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.sonatype_nexus"
 
@@ -35,13 +45,6 @@ _REPOSITORIES = [
     {"name": "maven-public", "format": "maven2", "type": "group"},
     {"name": "docker-proxy", "format": "docker", "type": "proxy"},
 ]
-
-
-def _make_manager(resume_state: SonatypeNexusResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
 
 
 def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
@@ -57,6 +60,15 @@ def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
     return resp
 
 
+def _page(body: Any, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body)
+
+
+def _run(endpoint: str, script: Script, resume_state: SonatypeNexusResumeConfig | None = None) -> DriveResult:
+    config = SonatypeNexusSourceConfig(host="https://n.example.com", username="u", password="p")
+    return SourceDriver(SonatypeNexusSource(), config).run(endpoint, script, resume_state=resume_state)
+
+
 def _streaming_response(chunks: list[bytes], status_code: int = 200) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.status_code = status_code
@@ -64,12 +76,6 @@ def _streaming_response(chunks: list[bytes], status_code: int = 200) -> mock.Mag
     resp.iter_content = mock.Mock(side_effect=lambda chunk_size: iter(chunks))
     resp.__enter__ = mock.Mock(return_value=resp)
     resp.__exit__ = mock.Mock(return_value=False)
-    return resp
-
-
-def _not_found_response() -> mock.MagicMock:
-    resp = _response({}, status_code=404)
-    resp.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=resp)
     return resp
 
 
@@ -163,162 +169,151 @@ class TestReadBounded:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [401, 403, 500])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_200_fails_validation(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = _response({}, status_code=status_code)
-        assert validate_credentials("https://nexus.example.com", "user", "bad") is False
+    def test_non_200_fails_validation(self, status_code):
+        with scripted_network(always(_page({}, status_code))):
+            assert validate_credentials("https://nexus.example.com", "user", "bad") is False
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_network_error_fails_validation(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("https://nexus.example.com", "user", "pass") is False
+    def test_network_error_fails_validation(self):
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            assert validate_credentials("https://nexus.example.com", "user", "pass") is False
 
 
 class TestGetRowsTopLevel:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_repositories_single_fetch_yields_and_stops(self, mock_session):
-        mock_session.return_value.get.return_value = _response(_REPOSITORIES)
+    def test_repositories_single_fetch_yields_and_stops(self):
+        result = _run("repositories", [_page(_REPOSITORIES)])
 
-        manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "u", "p", "repositories", mock.MagicMock(), manager))
+        assert result.items == [_REPOSITORIES]
+        assert result.saved_states == []
+        assert len(result.requests) == 1
+        assert result.urls[0] == "https://n.example.com/service/rest/v1/repositories"
 
-        assert batches == [_REPOSITORIES]
-        manager.save_state.assert_not_called()
-        assert mock_session.return_value.get.call_count == 1
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://n.example.com/service/rest/v1/repositories"
+    def test_tasks_resumes_from_saved_token(self):
+        result = _run(
+            "tasks",
+            [_page({"items": [{"id": "9"}], "continuationToken": None})],
+            resume_state=SonatypeNexusResumeConfig(continuation_token="SAVED"),
+        )
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_tasks_resumes_from_saved_token(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"items": [{"id": "9"}], "continuationToken": None})
+        assert result.requests[0].param("continuationToken") == "SAVED"
 
-        manager = _make_manager(SonatypeNexusResumeConfig(continuation_token="SAVED"))
-        list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
-
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "continuationToken=SAVED" in first_url
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_advancing_token_raises(self, mock_session):
+    def test_non_advancing_token_raises(self):
         # A server that keeps returning the same token would loop forever; it must fail instead.
-        mock_session.return_value.get.return_value = _response({"items": [{"id": "1"}], "continuationToken": "STUCK"})
+        result = _run("tasks", always(_page({"items": [{"id": "1"}], "continuationToken": "STUCK"})))
 
-        manager = _make_manager()
-        with pytest.raises(SonatypeNexusPaginationError):
-            list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
+        assert isinstance(result.raised, SonatypeNexusPaginationError)
 
     @mock.patch(f"{_MODULE}.MAX_PAGES_PER_ENDPOINT", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_page_ceiling_raises(self, mock_session):
+    def test_page_ceiling_raises(self):
         # A server that hands out fresh tokens forever is bounded by the page ceiling.
-        mock_session.return_value.get.side_effect = [
-            _response({"items": [{"id": "1"}], "continuationToken": "A"}),
-            _response({"items": [{"id": "2"}], "continuationToken": "B"}),
-            _response({"items": [{"id": "3"}], "continuationToken": "C"}),
-        ]
+        result = _run(
+            "tasks",
+            [
+                _page({"items": [{"id": "1"}], "continuationToken": "A"}),
+                _page({"items": [{"id": "2"}], "continuationToken": "B"}),
+                _page({"items": [{"id": "3"}], "continuationToken": "C"}),
+            ],
+        )
 
-        manager = _make_manager()
-        with pytest.raises(SonatypeNexusPaginationError):
-            list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
+        assert isinstance(result.raised, SonatypeNexusPaginationError)
 
     @mock.patch(f"{_MODULE}.MAX_PAGINATION_SECONDS", -1)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_pagination_time_budget_raises(self, mock_session):
+    def test_pagination_time_budget_raises(self):
         # Individually valid pages with fresh tokens must still fail once the cumulative
         # wall-clock budget is exhausted, so a slow-drip host can't run until the activity timeout.
-        mock_session.return_value.get.side_effect = [
-            _response({"items": [{"id": "1"}], "continuationToken": "A"}),
-            _response({"items": [{"id": "2"}], "continuationToken": "B"}),
-        ]
+        result = _run(
+            "tasks",
+            [
+                _page({"items": [{"id": "1"}], "continuationToken": "A"}),
+                _page({"items": [{"id": "2"}], "continuationToken": "B"}),
+            ],
+        )
 
-        manager = _make_manager()
-        with pytest.raises(SonatypeNexusPaginationError):
-            list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
+        assert isinstance(result.raised, SonatypeNexusPaginationError)
 
 
 class TestGetRowsRepositoryFanout:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_bookmarked_repository_and_token(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [{"id": "m1"}], "continuationToken": None}),
-        ]
+    def test_resumes_from_bookmarked_repository_and_token(self):
+        result = _run(
+            "components",
+            [
+                _page(_REPOSITORIES),
+                _page({"items": [{"id": "m1"}], "continuationToken": None}),
+            ],
+            resume_state=SonatypeNexusResumeConfig(continuation_token="SAVED", repository="maven-releases"),
+        )
 
-        manager = _make_manager(SonatypeNexusResumeConfig(continuation_token="SAVED", repository="maven-releases"))
-        batches = list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["m1"]
+        assert [row["id"] for batch in result.items for row in batch] == ["m1"]
         # docker-proxy sorts before the bookmark, so it is skipped entirely.
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert len(urls) == 2
-        assert "repository=maven-releases" in urls[1]
-        assert "continuationToken=SAVED" in urls[1]
+        assert len(result.urls) == 2
+        assert "repository=maven-releases" in result.urls[1]
+        assert "continuationToken=SAVED" in result.urls[1]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_repository_deleted_mid_sync_is_skipped(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _not_found_response(),
-            _response({"items": [{"id": "m1"}], "continuationToken": None}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
+    def test_repository_deleted_mid_sync_is_skipped(self):
+        result = _run(
+            "components",
+            [
+                _page(_REPOSITORIES),
+                _page({}, status_code=404),
+                _page({"items": [{"id": "m1"}], "continuationToken": None}),
+            ],
+        )
 
         # docker-proxy 404s (deleted between enumeration and fetch) and is skipped;
         # maven-releases still syncs.
-        assert [row["id"] for batch in batches for row in batch] == ["m1"]
+        assert [row["id"] for batch in result.items for row in batch] == ["m1"]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_advancing_token_raises(self, mock_session):
+    def test_non_advancing_token_raises(self):
         # A repository whose pages never advance the token must fail rather than loop forever.
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [{"id": "d1"}], "continuationToken": "STUCK"}),
-            _response({"items": [{"id": "d2"}], "continuationToken": "STUCK"}),
-        ]
+        result = _run(
+            "components",
+            [
+                _page(_REPOSITORIES),
+                _page({"items": [{"id": "d1"}], "continuationToken": "STUCK"}),
+                _page({"items": [{"id": "d2"}], "continuationToken": "STUCK"}),
+            ],
+        )
 
-        manager = _make_manager()
-        with pytest.raises(SonatypeNexusPaginationError):
-            list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
+        assert isinstance(result.raised, SonatypeNexusPaginationError)
 
     @mock.patch(f"{_MODULE}.MAX_PAGINATION_SECONDS", -1)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_pagination_time_budget_raises(self, mock_session):
+    def test_pagination_time_budget_raises(self):
         # A per-repository walk of individually valid small pages must fail once the cumulative
         # wall-clock budget is exhausted, independent of the per-response transfer deadline.
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [{"id": "d1"}], "continuationToken": "A"}),
-            _response({"items": [{"id": "d2"}], "continuationToken": "B"}),
-        ]
+        result = _run(
+            "components",
+            [
+                _page(_REPOSITORIES),
+                _page({"items": [{"id": "d1"}], "continuationToken": "A"}),
+                _page({"items": [{"id": "d2"}], "continuationToken": "B"}),
+            ],
+        )
 
-        manager = _make_manager()
-        with pytest.raises(SonatypeNexusPaginationError):
-            list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
+        assert isinstance(result.raised, SonatypeNexusPaginationError)
 
     @mock.patch(f"{_MODULE}.MAX_PAGINATION_SECONDS", -1)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_pagination_time_budget_raises_on_terminal_pages(self, mock_session):
+    def test_pagination_time_budget_raises_on_terminal_pages(self):
         # A host that slow-drips a single terminal page (no continuation token) per repository
         # must still trip the cumulative deadline — the check runs after every response, not only
         # before continuing to a next page, so terminal pages can't bypass it across many repos.
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [{"id": "d1"}], "continuationToken": None}),
-            _response({"items": [{"id": "m1"}], "continuationToken": None}),
-        ]
+        result = _run(
+            "components",
+            [
+                _page(_REPOSITORIES),
+                _page({"items": [{"id": "d1"}], "continuationToken": None}),
+                _page({"items": [{"id": "m1"}], "continuationToken": None}),
+            ],
+        )
 
-        manager = _make_manager()
-        with pytest.raises(SonatypeNexusPaginationError):
-            list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
+        assert isinstance(result.raised, SonatypeNexusPaginationError)
 
 
 class TestSonatypeNexusSource:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_primary_keys_and_no_partitioning(self, endpoint):
         config = SONATYPE_NEXUS_ENDPOINTS[endpoint]
-        response = sonatype_nexus_source("https://n.example.com", "u", "p", endpoint, mock.MagicMock(), _make_manager())
+        result = _run(endpoint, [_page({"items": []})])
+        response = result.response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

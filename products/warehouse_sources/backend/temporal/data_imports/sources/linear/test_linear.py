@@ -1,23 +1,24 @@
 import re
-import copy
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linear import LinearSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear import (
     _FLOAT_FIELDS,
     LINEAR_MAX_RETRY_ATTEMPTS,
     LinearResumeConfig,
     LinearRetryableError,
-    _make_paginated_request,
     _parse_retry_after,
-    linear_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES
@@ -34,32 +35,6 @@ def _graphql_query_name(endpoint_name: str) -> str:
     return config.graphql_query_name or endpoint_name
 
 
-def _make_response(nodes: list[dict[str, Any]], has_next_page: bool, end_cursor: str | None) -> MagicMock:
-    response = MagicMock()
-    response.status_code = 200
-    response.ok = True
-    response.json.return_value = {
-        "data": {
-            "issues": {
-                "nodes": nodes,
-                "pageInfo": {"hasNextPage": has_next_page, "endCursor": end_cursor},
-            }
-        }
-    }
-    return response
-
-
-def _make_response_for(query_name: str, nodes: list[dict[str, Any]]) -> MagicMock:
-    """Single-page response keyed under an arbitrary GraphQL query name (e.g. cycles/projects)."""
-    response = MagicMock()
-    response.status_code = 200
-    response.ok = True
-    response.json.return_value = {
-        "data": {query_name: {"nodes": nodes, "pageInfo": {"hasNextPage": False, "endCursor": None}}}
-    }
-    return response
-
-
 def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicMock:
     """Mimic Linear's HTTP-level 429: an HTML body that fails JSON parsing."""
     response = MagicMock()
@@ -72,50 +47,23 @@ def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicM
     return response
 
 
-def _make_graphql_error_response(message: str) -> MagicMock:
-    """Mimic Linear's GraphQL-level failure: HTTP 200/ok, but the body carries an `errors` array."""
-    response = MagicMock()
-    response.status_code = 200
-    response.ok = True
-    response.reason = "OK"
-    response.json.return_value = {"errors": [{"message": message}]}
-    return response
+class _LinearSourceWithToken(LinearSource):
+    def _get_access_token(self, config: LinearSourceConfig, team_id: int) -> str:
+        return "tok"
 
 
-def _make_truncated_response(body: str) -> MagicMock:
-    """Mimic a large 2xx page cut mid-stream: status is OK but the body fails to JSON-decode."""
-    response = MagicMock()
-    response.status_code = 200
-    response.ok = True
-    response.reason = "OK"
-    response.text = body
-    response.json.side_effect = json.JSONDecodeError("Unterminated string starting at", body, len(body))
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(_LinearSourceWithToken(), LinearSourceConfig(linear_integration_id=1))
 
 
-def _capture_post_calls(session: MagicMock, responses: list[MagicMock]) -> list[dict[str, Any]]:
-    """Configure session.post to record a deep-copied snapshot of variables at each call.
-
-    The paginator mutates a single `variables` dict across pages, so recorded calls all
-    reference the same object. Snapshotting here gives us a per-call view for assertions.
-    """
-    snapshots: list[dict[str, Any]] = []
-    response_iter = iter(responses)
-
-    def side_effect(*_args: object, **kwargs: object) -> MagicMock:
-        json_payload = kwargs.get("json")
-        variables = json_payload.get("variables") if isinstance(json_payload, dict) else None
-        snapshots.append(copy.deepcopy(variables) if variables is not None else {})
-        return next(response_iter)
-
-    session.post.side_effect = side_effect
-    return snapshots
-
-
-def _make_resumable_manager(*, saved: LinearResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.load_state.return_value = saved
-    return manager
+def _page(
+    query_name: str, nodes: list[dict[str, Any]], has_next_page: bool = False, end_cursor: str | None = None
+) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": {query_name: {"nodes": nodes, "pageInfo": {"hasNextPage": has_next_page, "endCursor": end_cursor}}}
+        }
+    )
 
 
 # (has_next, end_cursor) per page. Nodes are synthetic; only pagination matters.
@@ -142,7 +90,6 @@ class TestMakePaginatedRequest:
             ),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_pagination_state(
         self,
         _name: str,
@@ -151,92 +98,50 @@ class TestMakePaginatedRequest:
         filter_gte: str | None,
         expected_save_cursors: list[str],
         first_request_has_cursor: bool,
-        mock_session_cls: MagicMock,
     ) -> None:
-        session = MagicMock()
-        responses = [_make_response([{"id": f"{i}"}], has_next, end) for i, (has_next, end) in enumerate(page_specs)]
-        snapshots = _capture_post_calls(session, responses)
-        mock_session_cls.return_value = session
-
-        saved_config = LinearResumeConfig(cursor=saved_cursor) if saved_cursor is not None else None
-        manager = _make_resumable_manager(saved=saved_config)
-        logger = MagicMock()
-
-        list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-                updated_at_gte=filter_gte,
-            )
+        result = _driver().run(
+            "issues",
+            [_page("issues", [{"id": f"{i}"}], has_next, end) for i, (has_next, end) in enumerate(page_specs)],
+            resume_state=LinearResumeConfig(cursor=saved_cursor) if saved_cursor is not None else None,
+            incremental_field="updatedAt" if filter_gte is not None else None,
+            db_incremental_field_last_value=filter_gte,
         )
+        assert result.raised is None
+        variables = [request.json()["variables"] for request in result.requests]
 
         # Resume path: first request carries the saved cursor; fresh path: no cursor on first request.
         if first_request_has_cursor:
-            assert snapshots[0]["cursor"] == saved_cursor
+            assert variables[0]["cursor"] == saved_cursor
         else:
-            assert "cursor" not in snapshots[0]
+            assert "cursor" not in variables[0]
 
         # Each non-final page checkpoints the cursor of the next page.
-        assert manager.save_state.call_args_list == [((LinearResumeConfig(cursor=c),),) for c in expected_save_cursors]
+        assert result.saved_states == [LinearResumeConfig(cursor=c) for c in expected_save_cursors]
+        assert result.rows == [{"id": f"{i}"} for i in range(len(page_specs))]
 
         # The updated_at filter, if any, must be applied on every page including the resumed first request.
         if filter_gte is not None:
-            for variables in snapshots:
-                assert variables["filter"] == {"updatedAt": {"gt": filter_gte}}
+            for request_variables in variables:
+                assert request_variables["filter"] == {"updatedAt": {"gt": filter_gte}}
 
     @parameterized.expand([("null_end_cursor", None), ("empty_end_cursor", "")])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_raises_when_has_next_page_but_cursor_missing(
         self,
         _name: str,
         bad_cursor: str | None,
-        mock_session_cls: MagicMock,
     ) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_make_response([{"id": "a"}], True, bad_cursor)]
-        mock_session_cls.return_value = session
+        result = _driver().run("issues", [_page("issues", [{"id": "a"}], True, bad_cursor)])
 
-        manager = _make_resumable_manager()
-        logger = MagicMock()
+        assert isinstance(result.raised, Exception)
+        assert "endCursor is empty" in str(result.raised)
+        assert result.saved_states == []
+        assert len(result.requests) == 1
 
-        with pytest.raises(Exception, match="endCursor is empty"):
-            list(
-                _make_paginated_request(
-                    access_token="tok",
-                    endpoint_name="issues",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
+    def test_persistent_http_429_raises_retryable_error(self) -> None:
+        result = _driver().run("issues", always(ScriptedResponse(status=429, body=b"<html>Rate limited</html>")))
 
-        manager.save_state.assert_not_called()
-        assert session.post.call_count == 1
-
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_persistent_http_429_raises_retryable_error(
-        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
-    ) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_make_rate_limited_response() for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)]
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        with pytest.raises(LinearRetryableError):
-            list(
-                _make_paginated_request(
-                    access_token="tok",
-                    endpoint_name="issues",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
+        assert isinstance(result.raised, LinearRetryableError)
+        assert len(result.requests) == LINEAR_MAX_RETRY_ATTEMPTS
 
     @parameterized.expand(
         [
@@ -250,146 +155,55 @@ class TestMakePaginatedRequest:
             ),
         ]
     )
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_transient_network_error_is_retried_then_succeeds(
         self,
         _name: str,
         transient_exc: Exception,
-        mock_session_cls: MagicMock,
-        _mock_sleep: MagicMock,
     ) -> None:
         # Linear's POSTs get no transport-level retry, so a transient network error must be folded
         # into the application-level backoff rather than escaping on the first attempt.
-        session = MagicMock()
-        session.post.side_effect = [transient_exc, _make_response([{"id": "a"}], False, None)]
-        mock_session_cls.return_value = session
+        result = _driver().run("issues", [transient_exc, _page("issues", [{"id": "a"}])])
 
-        manager = _make_resumable_manager()
-        logger = MagicMock()
+        assert result.raised is None
+        assert result.items == [[{"id": "a"}]]
+        assert len(result.requests) == 2
 
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-        )
+    def test_persistent_network_error_raises_retryable_error(self) -> None:
+        result = _driver().run("issues", always(ConnectionError("Connection aborted")))
 
-        assert pages == [[{"id": "a"}]]
-        assert session.post.call_count == 2
+        assert isinstance(result.raised, LinearRetryableError)
+        assert set(result.paths) == {"/graphql"}
 
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_persistent_network_error_raises_retryable_error(
-        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
-    ) -> None:
-        session = MagicMock()
-        session.post.side_effect = [
-            requests.exceptions.ReadTimeout("Read timed out. (read timeout=60)")
-            for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)
-        ]
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        with pytest.raises(LinearRetryableError):
-            list(
-                _make_paginated_request(
-                    access_token="tok",
-                    endpoint_name="issues",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
-
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_persistent_truncated_response_raises_retryable_error_without_leaking_body(
-        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
-    ) -> None:
+    def test_persistent_truncated_response_raises_retryable_error_without_leaking_body(self) -> None:
         # The partial body can embed customer data, so the retryable error must describe the failure
         # without echoing response.text.
         body = '{"data":{"issues":{"nodes":[{"title":"secret customer issue"'
-        session = MagicMock()
-        session.post.side_effect = [_make_truncated_response(body) for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)]
-        mock_session_cls.return_value = session
+        result = _driver().run("issues", always(ScriptedResponse(body=body.encode())))
 
-        manager = _make_resumable_manager()
-        logger = MagicMock()
+        assert isinstance(result.raised, LinearRetryableError)
+        assert len(result.requests) == LINEAR_MAX_RETRY_ATTEMPTS
+        assert "secret customer issue" not in str(result.raised)
 
-        with pytest.raises(LinearRetryableError) as exc_info:
-            list(
-                _make_paginated_request(
-                    access_token="tok",
-                    endpoint_name="issues",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
-        assert "secret customer issue" not in str(exc_info.value)
-
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_graphql_internal_server_error_is_retried_then_succeeds(
-        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
-    ) -> None:
+    def test_graphql_internal_server_error_is_retried_then_succeeds(self) -> None:
         # Linear's GraphQL layer can wrap a resolver-side blip as a 200 with a generic
         # "Internal server error" message instead of an HTTP 5xx. It must be retried with
         # backoff like the status-code 5xx case, not surfaced as a non-retryable Exception.
-        session = MagicMock()
-        session.post.side_effect = [
-            _make_graphql_error_response("Internal server error"),
-            _make_response([{"id": "a"}], False, None),
-        ]
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
+        result = _driver().run(
+            "issues",
+            [ScriptedResponse(json={"errors": [{"message": "Internal server error"}]}), _page("issues", [{"id": "a"}])],
         )
 
-        assert pages == [[{"id": "a"}]]
-        assert session.post.call_count == 2
+        assert result.raised is None
+        assert result.items == [[{"id": "a"}]]
+        assert len(result.requests) == 2
 
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_persistent_graphql_internal_server_error_raises_retryable_error(
-        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
-    ) -> None:
-        session = MagicMock()
-        session.post.side_effect = [
-            _make_graphql_error_response("Internal server error") for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)
-        ]
-        mock_session_cls.return_value = session
+    def test_persistent_graphql_internal_server_error_raises_retryable_error(self) -> None:
+        result = _driver().run(
+            "issues", always(ScriptedResponse(json={"errors": [{"message": "Internal server error"}]}))
+        )
 
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        with pytest.raises(LinearRetryableError):
-            list(
-                _make_paginated_request(
-                    access_token="tok",
-                    endpoint_name="issues",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
+        assert isinstance(result.raised, LinearRetryableError)
+        assert len(result.requests) == LINEAR_MAX_RETRY_ATTEMPTS
 
 
 class TestFloatFieldCoercion:
@@ -397,33 +211,23 @@ class TestFloatFieldCoercion:
         [(endpoint, field) for endpoint, fields in _FLOAT_FIELDS.items() for field in fields],
         name_func=lambda func, _num, param: f"{func.__name__}_{param.args[0]}_{param.args[1]}",
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_whole_number_float_field_is_coerced_to_float(
-        self, endpoint_name: str, field_name: str, mock_session_cls: MagicMock
-    ) -> None:
+    def test_whole_number_float_field_is_coerced_to_float(self, endpoint_name: str, field_name: str) -> None:
         # Whole values (0, 1) of Linear's Float fields arrive as JSON ints. Left as ints, a
         # table-creating batch of only whole values infers int64 and the first fractional value
         # wedges the sync with ArrowInvalid. The source must yield floats so the column always
         # infers as float64.
-        session = MagicMock()
-        session.post.side_effect = [
-            _make_response_for(
-                _graphql_query_name(endpoint_name),
-                [{"id": "a", field_name: 0}, {"id": "b", field_name: 1}, {"id": "c", field_name: None}],
-            )
-        ]
-        mock_session_cls.return_value = session
-
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name=endpoint_name,
-                logger=MagicMock(),
-                resumable_source_manager=_make_resumable_manager(),
-            )
+        result = _driver().run(
+            endpoint_name,
+            [
+                _page(
+                    _graphql_query_name(endpoint_name),
+                    [{"id": "a", field_name: 0}, {"id": "b", field_name: 1}, {"id": "c", field_name: None}],
+                )
+            ],
         )
 
-        values = [node[field_name] for node in pages[0]]
+        assert result.raised is None
+        values = [node[field_name] for node in result.rows]
         assert values == [0.0, 1.0, None]
         assert all(isinstance(v, float) for v in values if v is not None)
 
@@ -492,56 +296,27 @@ class TestRateLimitBackoff:
     def test_parse_retry_after(self, _name: str, headers: dict[str, str], expected: float | None) -> None:
         assert _parse_retry_after(_make_rate_limited_response(headers)) == expected
 
-    @patch("time.sleep", return_value=None)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_429_carries_retry_after_into_exception(self, mock_session_cls: MagicMock, _mock_sleep: MagicMock) -> None:
+    def test_429_carries_retry_after_into_exception(self) -> None:
         # Retry-After of 0 keeps the test fast while still exercising the honored-wait path.
-        session = MagicMock()
-        session.post.side_effect = [
-            _make_rate_limited_response({"Retry-After": "0"}) for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)
-        ]
-        mock_session_cls.return_value = session
+        result = _driver().run(
+            "issues",
+            always(ScriptedResponse(status=429, headers={"Retry-After": "0"}, body=b"<html>Rate limited</html>")),
+        )
 
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        with pytest.raises(LinearRetryableError) as exc_info:
-            list(
-                _make_paginated_request(
-                    access_token="tok",
-                    endpoint_name="issues",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert exc_info.value.retry_after == 0.0
-        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
+        assert isinstance(result.raised, LinearRetryableError)
+        assert result.raised.retry_after == 0.0
+        assert len(result.requests) == LINEAR_MAX_RETRY_ATTEMPTS
 
 
 class TestLinearSource:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_get_rows_threads_manager_through(self, mock_session_cls: MagicMock) -> None:
-        session = MagicMock()
-        session.post.side_effect = [
-            _make_response([{"id": "a"}], True, "cursor-a"),
-            _make_response([{"id": "b"}], False, None),
-        ]
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager()
-        logger = MagicMock()
-
-        response = linear_source(
-            access_token="tok",
-            endpoint_name="issues",
-            logger=logger,
-            resumable_source_manager=manager,
+    def test_get_rows_threads_manager_through(self) -> None:
+        result = _driver().run(
+            "issues", [_page("issues", [{"id": "a"}], True, "cursor-a"), _page("issues", [{"id": "b"}])]
         )
-        pages = list(cast(Iterable[Any], response.items()))
 
-        assert pages == [[{"id": "a"}], [{"id": "b"}]]
-        manager.save_state.assert_called_once_with(LinearResumeConfig(cursor="cursor-a"))
+        assert result.raised is None
+        assert result.items == [[{"id": "a"}], [{"id": "b"}]]
+        assert result.saved_states == [LinearResumeConfig(cursor="cursor-a")]
 
 
 class TestLinearSourceNonRetryableErrors:
@@ -577,55 +352,39 @@ class TestLinearSourceNonRetryableErrors:
         assert not any(key in observed_error for key in non_retryable_errors)
 
 
-def _make_validation_response(status_code: int, body: Any) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.json.return_value = body
-    return response
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("unauthorized_401", _make_validation_response(401, {}), "Linear rejected your connection"),
+            ("unauthorized_401", ScriptedResponse(status=401, json={}), "Linear rejected your connection"),
             (
                 "authentication_error_400",
-                _make_validation_response(400, {"errors": [{"extensions": {"code": "AUTHENTICATION_ERROR"}}]}),
+                ScriptedResponse(status=400, json={"errors": [{"extensions": {"code": "AUTHENTICATION_ERROR"}}]}),
                 "Linear rejected your connection",
             ),
-            ("forbidden_403", _make_validation_response(403, {}), "can't read this workspace"),
-            ("server_error_503", _make_validation_response(503, {}), "Couldn't reach Linear"),
+            ("forbidden_403", ScriptedResponse(status=403, json={}), "can't read this workspace"),
+            ("server_error_503", ScriptedResponse(status=503, json={}), "Couldn't reach Linear"),
             (
                 "unexpected_graphql_error",
-                _make_validation_response(400, {"errors": [{"message": "boom"}]}),
+                ScriptedResponse(status=400, json={"errors": [{"message": "boom"}]}),
                 "Couldn't verify your Linear connection",
             ),
             ("network_error", requests.exceptions.ConnectionError("api.linear.app down"), "Couldn't reach Linear"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.capture_exception")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_failures_return_user_facing_message(
-        self,
-        _name: str,
-        outcome: MagicMock | Exception,
-        expected_message: str,
-        mock_session_cls: MagicMock,
-        _mock_capture: MagicMock,
+        self, _name: str, outcome: ScriptedResponse | Exception, expected_message: str
     ) -> None:
-        mock_session_cls.return_value.post.side_effect = [outcome]
-
-        valid, message = validate_credentials("tok")
+        with scripted_network(always(outcome)) as network:
+            valid, message = validate_credentials("tok")
 
         assert valid is False
         assert message is not None
         assert expected_message in message
         assert "api.linear.app" not in message
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_viewer_response_is_valid(self, mock_session_cls: MagicMock) -> None:
-        mock_session_cls.return_value.post.return_value = _make_validation_response(
-            200, {"data": {"viewer": {"id": "user-1"}}}
-        )
+    def test_viewer_response_is_valid(self) -> None:
+        with scripted_network([ScriptedResponse(json={"data": {"viewer": {"id": "user-1"}}})]) as network:
+            assert validate_credentials("tok") == (True, None)
 
-        assert validate_credentials("tok") == (True, None)
+        assert len(network.requests_log) == 1

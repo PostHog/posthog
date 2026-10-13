@@ -1,16 +1,22 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zero import ZeroSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.zero.source import ZeroSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero import (
     ZeroResumeConfig,
     _build_where,
@@ -18,18 +24,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero 
     get_resource,
     resolve_workspace_id,
     validate_credentials,
-    zero_source,
 )
 
 WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
 
 
-def _make_http_response(body: dict[str, Any] | None, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body if body is not None else {}).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+def _make_http_response(body: dict[str, Any] | None, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body if body is not None else {})
 
 
 class TestFormatZeroDatetime:
@@ -117,39 +118,24 @@ class TestGetResource:
 
 class TestResolveWorkspaceId:
     def test_returns_the_single_workspace_id(self) -> None:
-        response = _make_http_response({"data": [{"id": WORKSPACE_ID}], "total": 1})
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = response
+        with scripted_network(always(_make_http_response({"data": [{"id": WORKSPACE_ID}], "total": 1}))):
             assert resolve_workspace_id("api-key") == WORKSPACE_ID
 
     def test_raises_when_key_has_multiple_workspaces(self) -> None:
         response = _make_http_response(
             {"data": [{"id": WORKSPACE_ID}, {"id": "22222222-2222-2222-2222-222222222222"}], "total": 2}
         )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = response
+        with scripted_network(always(response)):
             with pytest.raises(ValueError, match="access to multiple workspaces"):
                 resolve_workspace_id("api-key")
 
     def test_raises_when_key_has_no_workspace(self) -> None:
-        response = _make_http_response({"data": [], "total": 0})
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = response
+        with scripted_network(always(_make_http_response({"data": [], "total": 0}))):
             with pytest.raises(ValueError, match="isn't a member of any workspace"):
                 resolve_workspace_id("api-key")
 
     def test_raises_on_http_error(self) -> None:
-        response = _make_http_response(None, status_code=401)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = response
+        with scripted_network(always(_make_http_response(None, status_code=401))):
             with pytest.raises(requests.HTTPError):
                 resolve_workspace_id("api-key")
 
@@ -157,80 +143,45 @@ class TestResolveWorkspaceId:
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
     def test_maps_status_code_to_validity(self, status_code: int, expected: bool) -> None:
-        response = _make_http_response({"data": []}, status_code=status_code)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = response
+        with scripted_network(always(_make_http_response({"data": []}, status_code=status_code))):
             assert validate_credentials("api-key") is expected
 
 
 class TestZeroSourceResumeBehavior:
-    """End-to-end resume behaviour of ``zero_source`` via ``rest_api_resource``."""
+    """End-to-end resume behaviour of ``ZeroSource``, driven through ``source_for_pipeline``."""
 
     def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response], should_use_incremental_field: bool = False
-    ) -> tuple[list[list[dict[str, Any]]], list[int | None]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero.resolve_workspace_id",
-                return_value=WORKSPACE_ID,
-            ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-            ) as mock_session,
-        ):
-            mock_session.return_value.headers = {}
-            mock_session.return_value.prepare_request.side_effect = lambda req: req
-            mock_session.return_value.send.side_effect = fake_send
-
-            resource = zero_source(
-                api_key="test-key",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            pages = list(cast(Iterable[list[dict[str, Any]]], resource))
-
-        offsets_sent = [p.get("offset") for p in sent_params]
-        return pages, offsets_sent
+        self,
+        endpoint: str,
+        responses: list[ScriptedResponse],
+        resume_state: ZeroResumeConfig | None = None,
+    ) -> DriveResult:
+        driver = SourceDriver(ZeroSource(), ZeroSourceConfig(api_key="test-key"))
+        workspaces = _make_http_response({"data": [{"id": WORKSPACE_ID}], "total": 1})
+        return driver.run(
+            endpoint,
+            route({"/api/workspaces": [workspaces], "/api/companies": responses}),
+            resume_state=resume_state,
+        )
 
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self) -> None:
         # The offset paginator's default limit is 100, so a non-terminal page must carry a full
         # 100 rows — anything smaller would (correctly) be read as the last page and stop pagination.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         responses = [
             _make_http_response({"data": [{"id": f"c{i}"} for i in range(100)], "total": 250}),
             _make_http_response({"data": [{"id": f"c{i}"} for i in range(100, 200)], "total": 250}),
             _make_http_response({"data": [{"id": f"c{i}"} for i in range(200, 250)], "total": 250}),
         ]
-        pages, offsets_sent = self._drive("Companies", manager, responses)
+        result = self._drive("Companies", responses)
 
-        assert offsets_sent == [0, 100, 200]
-        assert [row["id"] for page in pages for row in page] == [f"c{i}" for i in range(250)]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [ZeroResumeConfig(offset=100), ZeroResumeConfig(offset=200)]
+        company_requests = [request for request in result.requests if request.path == "/api/companies"]
+        assert [request.param("offset") for request in company_requests] == ["0", "100", "200"]
+        assert [row["id"] for row in result.rows] == [f"c{i}" for i in range(250)]
+        assert result.saved_states == [ZeroResumeConfig(offset=100), ZeroResumeConfig(offset=200)]
 
     def test_resume_seeds_paginator_with_saved_offset(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = ZeroResumeConfig(offset=200)
-
         responses = [_make_http_response({"data": [{"id": "c4"}], "total": 201})]
-        _, offsets_sent = self._drive("Companies", manager, responses)
+        result = self._drive("Companies", responses, resume_state=ZeroResumeConfig(offset=200))
 
-        assert offsets_sent == [200]
-        manager.load_state.assert_called_once()
+        company_requests = [request for request in result.requests if request.path == "/api/companies"]
+        assert [request.param("offset") for request in company_requests] == ["200"]

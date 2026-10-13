@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -310,7 +311,9 @@ class TestCloseImplementationPrForReport(BaseTest):
         ) as mock_resolve:
             assert close_implementation_pr_for_report(self.team.id, str(self.report.id), reason=reason) is True
 
-        mock_resolve.assert_called_once_with(self.team.id, "PostHog/posthog")
+        mock_resolve.assert_called_once_with(
+            self.team.id, "PostHog/posthog", source="signals_implementation_pr", priority=Priority.CRITICAL
+        )
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert reason in comment_body
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)

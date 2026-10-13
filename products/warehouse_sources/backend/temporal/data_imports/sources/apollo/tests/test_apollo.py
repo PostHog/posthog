@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apo
     _parse_retry_after,
     _parse_timestamp,
     _wait_apollo,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.settings import APOLLO_ENDPOINTS, ENDPOINTS
@@ -27,8 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apollo import ApolloSourceConfig
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo"
-
 
 def _driver() -> SourceDriver:
     return SourceDriver(ApolloSource(), ApolloSourceConfig(api_key="key"))
@@ -38,24 +35,6 @@ def _page(data_key: str, items: list[dict[str, Any]], total_pages: int = 1) -> S
     return ScriptedResponse(
         json={data_key: items, "pagination": {"page": 1, "per_page": PAGE_SIZE, "total_pages": total_pages}}
     )
-
-
-def _make_manager(resume_state: ApolloResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _response(data_key: str, items: list[dict[str, Any]], total_pages: int = 1) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = {
-        data_key: items,
-        "pagination": {"page": 1, "per_page": PAGE_SIZE, "total_pages": total_pages},
-    }
-    resp.status_code = 200
-    resp.ok = True
-    return resp
 
 
 class TestParseTimestamp:
@@ -167,32 +146,36 @@ class TestGetRows:
         assert result.params("page") == ["1", "2"]
         assert result.params("per_page") == [str(PAGE_SIZE), str(PAGE_SIZE)]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_search_cap_is_logged(self, mock_session):
-        mock_session.return_value.post.return_value = _response(
-            "contacts", [{"id": "c", "updated_at": "2024-01-01T00:00:00Z"}], total_pages=MAX_PAGES + 10
+    def test_search_cap_is_logged(self) -> None:
+        logger = mock.MagicMock()
+        result = _driver().run(
+            "contacts",
+            [_page("contacts", [{"id": "c", "updated_at": "2024-01-01T00:00:00Z"}], MAX_PAGES + 10)],
+            resume_state=ApolloResumeConfig(page=MAX_PAGES),
+            logger=logger,
         )
 
-        manager = _make_manager(ApolloResumeConfig(page=MAX_PAGES))
-        logger = mock.MagicMock()
-        batches = list(get_rows("key", "contacts", logger, manager))
-
-        assert len(batches) == 1
+        assert result.raised is None
+        assert len(result.items) == 1
+        assert result.requests[0].json()["page"] == MAX_PAGES
+        assert len(result.requests) == 1
         logger.error.assert_called_once()
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_search_cap_is_logged_when_total_pages_equals_cap(self, mock_session):
+    def test_search_cap_is_logged_when_total_pages_equals_cap(self) -> None:
         # Exactly at the cap: the final reachable page coincides with total_pages,
         # so the cap must still be logged rather than swallowed by the total_pages break.
-        mock_session.return_value.post.return_value = _response(
-            "contacts", [{"id": "c", "updated_at": "2024-01-01T00:00:00Z"}], total_pages=MAX_PAGES
+        logger = mock.MagicMock()
+        result = _driver().run(
+            "contacts",
+            [_page("contacts", [{"id": "c", "updated_at": "2024-01-01T00:00:00Z"}], MAX_PAGES)],
+            resume_state=ApolloResumeConfig(page=MAX_PAGES),
+            logger=logger,
         )
 
-        manager = _make_manager(ApolloResumeConfig(page=MAX_PAGES))
-        logger = mock.MagicMock()
-        batches = list(get_rows("key", "contacts", logger, manager))
-
-        assert len(batches) == 1
+        assert result.raised is None
+        assert len(result.items) == 1
+        assert result.requests[0].json()["page"] == MAX_PAGES
+        assert len(result.requests) == 1
         logger.error.assert_called_once()
 
     def test_incremental_keeps_records_without_parseable_updated_at(self) -> None:

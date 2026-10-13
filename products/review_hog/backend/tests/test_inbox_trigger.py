@@ -157,6 +157,7 @@ class TestInboxTrigger(BaseTest):
             publish=True,
             acting_user_id=self.alice.id,
             trigger_source="inbox",
+            review_mode="flash",
             signal_report_id=str(task.signal_report_id),
             signal_priority=None,
             pr_url=_PR_URL,
