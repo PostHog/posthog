@@ -1,88 +1,46 @@
-import json
-from typing import Any
-
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instatus import (
+    InstatusSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.instatus import (
     InstatusResumeConfig,
     _child_path,
-    instatus_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.settings import INSTATUS_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the instatus module.
-INSTATUS_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.instatus.instatus.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.source import InstatusSource
 
 
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: InstatusResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
-    """Wire a mock session, capturing each request's url and params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    url_snapshots: list[str] = []
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        url_snapshots.append(request.url)
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return url_snapshots, param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return instatus_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _driver() -> SourceDriver:
+    return SourceDriver(InstatusSource(), InstatusSourceConfig(api_key="key"))
 
 
 class TestPagesEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession):
-        session = MockSession.return_value
-        _, params = _wire(session, [_response([{"id": "p9"}]), _response([])])
-        manager = _make_manager(InstatusResumeConfig(page=3, parent_page_id=None))
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "pages",
+            [ScriptedResponse(json=[{"id": "p9"}]), ScriptedResponse(json=[])],
+            resume_state=InstatusResumeConfig(page=3, parent_page_id=None),
+        )
 
-        _rows(_source("pages", manager))
+        assert result.raised is None
+        assert result.params("page") == ["3", "4"]
 
-        assert params[0]["page"] == 3
+    def test_client_error_raises(self) -> None:
+        result = _driver().run(
+            "pages", [ScriptedResponse(status=401, json={"error": {"message": "Could not authenticate"}})]
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"error": {"message": "Could not authenticate"}}, status_code=401)])
-
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("pages", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestFanOut:
@@ -94,68 +52,56 @@ class TestFanOut:
             ("generic_notices", "generic-notices"),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_pages_and_injects_page_id(self, MockSession, endpoint, url_suffix):
-        session = MockSession.return_value
-        urls, _ = _wire(
-            session,
+    def test_fans_out_over_pages_and_injects_page_id(self, endpoint: str, url_suffix: str) -> None:
+        result = _driver().run(
+            endpoint,
             [
-                _response([{"id": "p1"}, {"id": "p2"}]),  # /v2/pages page 1
-                _response([{"id": "c1"}]),  # /v1/p1/<endpoint> page 1
-                _response([]),  # /v1/p1/<endpoint> page 2 (stop)
-                _response([{"id": "c2"}]),  # /v1/p2/<endpoint> page 1
-                _response([]),  # /v1/p2/<endpoint> page 2 (stop)
-                _response([]),  # /v2/pages page 2 (stop)
+                ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),  # /v2/pages page 1
+                ScriptedResponse(json=[{"id": "c1"}]),  # /v1/p1/<endpoint> page 1
+                ScriptedResponse(json=[]),  # /v1/p1/<endpoint> page 2 (stop)
+                ScriptedResponse(json=[{"id": "c2"}]),  # /v1/p2/<endpoint> page 1
+                ScriptedResponse(json=[]),  # /v1/p2/<endpoint> page 2 (stop)
+                ScriptedResponse(json=[]),  # /v2/pages page 2 (stop)
             ],
         )
-
-        rows = _rows(_source(endpoint, _make_manager()))
 
         # page_id injected so the composite [page_id, id] key stays unique table-wide.
-        assert rows == [{"id": "c1", "page_id": "p1"}, {"id": "c2", "page_id": "p2"}]
-        assert f"https://api.instatus.com/v1/p1/{url_suffix}" in urls
-        assert f"https://api.instatus.com/v1/p2/{url_suffix}" in urls
+        assert result.raised is None
+        assert result.rows == [{"id": "c1", "page_id": "p1"}, {"id": "c2", "page_id": "p2"}]
+        assert f"/v1/p1/{url_suffix}" in result.paths
+        assert f"/v1/p2/{url_suffix}" in result.paths
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_fan_out_at_saved_parent_and_page(self, MockSession):
-        session = MockSession.return_value
-        urls, params = _wire(
-            session,
-            [
-                _response([{"id": "p1"}, {"id": "p2"}]),  # pages relisted on resume
-                _response([{"id": "c2b"}]),  # resume p2 at page 2
-                _response([]),  # p2 components page 3 (stop)
-                _response([]),  # pages page 2 (stop)
-            ],
-        )
+    def test_resumes_fan_out_at_saved_parent_and_page(self) -> None:
         # p1 already completed, p2 in progress at its next page (2) — p1 must not be re-requested.
-        manager = _make_manager(
-            InstatusResumeConfig(
+        result = _driver().run(
+            "components",
+            [
+                ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),  # pages relisted on resume
+                ScriptedResponse(json=[{"id": "c2b"}]),  # resume p2 at page 2
+                ScriptedResponse(json=[]),  # p2 components page 3 (stop)
+                ScriptedResponse(json=[]),  # pages page 2 (stop)
+            ],
+            resume_state=InstatusResumeConfig(
                 fanout_state={
                     "completed": [_child_path("components", "p1")],
                     "current": _child_path("components", "p2"),
                     "child_state": {"page": 2},
                 }
-            )
+            ),
         )
 
-        rows = _rows(_source("components", manager))
+        assert result.raised is None
+        assert result.rows == [{"id": "c2b", "page_id": "p2"}]
+        assert "/v1/p1/components" not in result.paths
+        component_requests = [request for request in result.requests if request.path == "/v1/p2/components"]
+        assert component_requests[0].param("page") == "2"
 
-        assert rows == [{"id": "c2b", "page_id": "p2"}]
-        assert not any("/v1/p1/components" in url for url in urls)
-        component_requests = [
-            (url, p) for url, p in zip(urls, params) if url == "https://api.instatus.com/v1/p2/components"
-        ]
-        assert component_requests[0][1]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_parent_id_raises_loudly(self, MockSession):
-        session = MockSession.return_value
+    def test_missing_parent_id_raises_loudly(self) -> None:
         # A status page without an id can't drive the child fan-out — surface it loudly.
-        _wire(session, [_response([{"name": "no-id"}]), _response([])])
+        result = _driver().run("components", [ScriptedResponse(json=[{"name": "no-id"}]), ScriptedResponse(json=[])])
 
-        with pytest.raises(ValueError, match="id"):
-            _rows(_source("components", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "id" in str(result.raised)
 
 
 class TestValidateCredentials:
@@ -163,28 +109,40 @@ class TestValidateCredentials:
         "status_code, expected_ok",
         [(200, True), (401, False), (403, False), (500, False)],
     )
-    @mock.patch(INSTATUS_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected_ok):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        ok, error = validate_credentials("key")
+    def test_status_mapping(self, status_code: int, expected_ok: bool) -> None:
+        script = (
+            always(ScriptedResponse(status=status_code))
+            if status_code == 500
+            else [ScriptedResponse(status=status_code)]
+        )
+        with scripted_network(script) as network:
+            ok, error = validate_credentials("key")
+
         assert ok is expected_ok
         if not ok:
             assert error
+        assert network.requests_log[0].path == "/v2/pages"
+        assert network.requests_log[0].param("per_page") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
-    @mock.patch(INSTATUS_SESSION_PATCH)
-    def test_request_exception_is_failure(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        ok, error = validate_credentials("key")
+    def test_request_exception_is_failure(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            ok, error = validate_credentials("key")
+
         assert ok is False
         assert error
+        assert {request.path for request in network.requests_log} == {"/v2/pages"}
 
 
 class TestInstatusSourceResponse:
     @pytest.mark.parametrize("endpoint", list(INSTATUS_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint):
+    def test_source_response_shape(self, endpoint: str) -> None:
         config = INSTATUS_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_key
         assert response.sort_mode == "asc"
@@ -204,7 +162,7 @@ class TestInstatusSourceResponse:
             ("incidents", ["page_id", "id"]),
         ],
     )
-    def test_primary_keys_are_unique_table_wide(self, endpoint, expected_keys):
+    def test_primary_keys_are_unique_table_wide(self, endpoint: str, expected_keys: list[str]) -> None:
         # Fan-out children carry the parent page id in their key so rows from different pages
         # never collide on a bare resource id.
         assert INSTATUS_ENDPOINTS[endpoint].primary_key == expected_keys
@@ -223,6 +181,6 @@ class TestInstatusSourceResponse:
             ("metrics", None),
         ],
     )
-    def test_partition_keys_are_stable_fields(self, endpoint, expected_partition):
+    def test_partition_keys_are_stable_fields(self, endpoint: str, expected_partition: str | None) -> None:
         # Partition only on immutable creation-time fields, never updatedAt.
         assert INSTATUS_ENDPOINTS[endpoint].partition_key == expected_partition

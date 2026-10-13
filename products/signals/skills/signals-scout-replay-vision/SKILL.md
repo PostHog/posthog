@@ -18,6 +18,18 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: replay_vision
+scout-precheck-query: |
+  SELECT 'enabled_scanner' AS kind, count() AS n
+  FROM system.replay_scanners
+  WHERE enabled = 1
+  HAVING n > 0
+  UNION ALL
+  SELECT 'observation' AS kind, count() AS n
+  FROM events
+  WHERE event = '$recording_observed'
+    AND timestamp >= {now} - INTERVAL 30 DAY
+    AND timestamp <= {now} + INTERVAL 1 DAY
+  HAVING n > 0
 ---
 
 # Signals scout: replay vision
@@ -54,6 +66,8 @@ Two more sibling boundaries: the underlying friction (`$rageclick`, dead clicks,
 5. **Failures never reach the events stream.** `$recording_observed` only exists for _succeeded_ observations — a scanner failing or landing `ineligible` writes **no** event. So a throughput cliff in SQL can mean either "scanner stopped running" or "scanner is running but every observation fails"; the `vision-scanners-observations-list` `status` filter (succeeded / failed / ineligible) is the only way to tell them apart.
 
 ## Quick close-out: is replay vision even in use?
+
+A scheduled run can start with a `<precheck_result>` block. An `enabled_scanner` row counts the enabled scanners. An `observation` row counts the `$recording_observed` events of the last 30 days. A run starts only when at least one row is present, so the no-observations, no-enabled-scanners case does not occur. When the block is present, replay vision is in use: skip the `vision-scanners-list` presence check below. Still run the count query to pick the case. With no `observation` row, go to the watch-gap pattern.
 
 One cheap count tells you the posture:
 

@@ -1082,6 +1082,8 @@ class TestRelaySandboxEventsErrorHandling:
         notify = MagicMock()
         monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        record_cause = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "record_run_failure_cause", record_cause)
         metric = "posthog_tasks_turn_completed_suppressed_total"
         labels = {"reason": "idle_resume"}
         suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
@@ -1098,8 +1100,10 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         if turn_failed:
+            record_cause.assert_called_once_with("run-id", "pi_runtime_error")
             handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
         else:
+            record_cause.assert_not_called()
             await asyncio.wait_for(dispatch_done.wait(), timeout=5)
             assert handle.signal.await_args_list == [
                 call("agent_state_changed", arg=False),

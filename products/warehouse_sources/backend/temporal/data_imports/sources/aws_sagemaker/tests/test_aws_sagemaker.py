@@ -7,7 +7,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
-from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.aws_sagemaker import (
     TRANSPORT_RETRY,
@@ -20,8 +19,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagema
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_sagemaker.source import AwsSagemakerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssagemaker import (
     AwsSagemakerSourceConfig,
 )
@@ -60,6 +66,10 @@ def manager(state: AwsSagemakerResumeConfig | None = None) -> MagicMock:
     return result
 
 
+def driver(config: AwsSagemakerSourceConfig) -> SourceDriver:
+    return SourceDriver(AwsSagemakerSource(), config)
+
+
 @pytest.mark.parametrize(
     "region,host",
     [
@@ -70,25 +80,36 @@ def manager(state: AwsSagemakerResumeConfig | None = None) -> MagicMock:
 )
 @pytest.mark.parametrize("session_token", [None, "fake-session"])
 def test_signed_json_request(
-    config: AwsSagemakerSourceConfig, transport: MagicMock, region: str, host: str, session_token: str | None
+    config: AwsSagemakerSourceConfig, region: str, host: str, session_token: str | None
 ) -> None:
     config.region = region
     config.aws_session_token = session_token
-    transport.post.return_value = response({"Models": []})
-    client = AwsSagemakerClient(config, "2017-07-24")
-    assert client.request("ListModels", {"MaxResults": 1}) == {"Models": []}
-    args, kwargs = transport.post.call_args
-    assert args == (f"https://{host}/",)
-    assert json.loads(kwargs["data"]) == {"MaxResults": 1}
-    headers = kwargs["headers"]
-    assert headers["Content-Type"] == "application/x-amz-json-1.1"
-    assert headers["X-Amz-Target"] == "SageMaker.ListModels"
-    assert "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/" in headers["Authorization"]
-    assert f"/{region}/sagemaker/aws4_request" in headers["Authorization"]
-    assert headers.get("X-Amz-Security-Token") == session_token
-    assert headers["X-Amz-Date"]
-    assert kwargs["allow_redirects"] is False
-    assert kwargs["timeout"] == 60
+    with scripted_network([ScriptedResponse(json={"Models": []})]) as network:
+        client = AwsSagemakerClient(config, "2017-07-24")
+        try:
+            assert client.request("ListModels", {"MaxResults": 1}) == {"Models": []}
+        finally:
+            client.close()
+    assert len(network.requests_log) == 1
+    sent = network.requests_log[0]
+    assert sent.url == f"https://{host}/"
+    assert sent.json() == {"MaxResults": 1}
+    assert sent.headers["content-type"] == "application/x-amz-json-1.1"
+    assert sent.headers["x-amz-target"] == "SageMaker.ListModels"
+    assert "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/" in sent.headers["authorization"]
+    assert f"/{region}/sagemaker/aws4_request" in sent.headers["authorization"]
+    assert sent.headers.get("x-amz-security-token") == session_token
+    assert sent.headers["x-amz-date"]
+    assert sent.read_timeout == 60
+
+    with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://example.com/"})]) as network:
+        client = AwsSagemakerClient(config, "2017-07-24")
+        try:
+            with pytest.raises(AwsSagemakerError):
+                client.request("ListModels", {"MaxResults": 1})
+        finally:
+            client.close()
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize(
@@ -180,35 +201,46 @@ def test_pagination_describes_rows_and_stages_only_complete_pages(
 )
 def test_incremental_filter_and_full_refresh(
     config: AwsSagemakerSourceConfig,
-    transport: MagicMock,
     incremental: bool,
     last_value: dt.datetime | str | int | float | None,
 ) -> None:
-    transport.post.side_effect = [response({"Models": [], "NextToken": "next"}), response({"Models": []})]
-    resource = aws_sagemaker_source(config, "models", "2017-07-24", manager(), incremental, last_value)
-    assert list(cast(Iterable[Any], resource.items())) == []
-    assert resource.sort_mode == "asc"
-    for call in transport.post.call_args_list:
-        payload = json.loads(call.kwargs["data"])
+    result = driver(config).run(
+        "models",
+        [ScriptedResponse(json={"Models": [], "NextToken": "next"}), ScriptedResponse(json={"Models": []})],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=last_value,
+    )
+    assert result.raised is None
+    assert result.rows == []
+    assert result.response and result.response.sort_mode == "asc"
+    for sent in result.requests:
+        payload = sent.json()
         assert payload.get("CreationTimeAfter") == (1704067200.0 if incremental else None)
         assert payload["SortOrder"] == "Ascending"
 
 
-def test_resume_preserves_original_filter(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
-    resume = manager(AwsSagemakerResumeConfig(next_token="resume", watermark=1704067200.0))
-    transport.post.return_value = response({"Models": []})
-    assert list(get_rows(config, "models", "2017-07-24", resume, True, 1705000000)) == []
-    payload = json.loads(transport.post.call_args.kwargs["data"])
+def test_resume_preserves_original_filter(config: AwsSagemakerSourceConfig) -> None:
+    result = driver(config).run(
+        "models",
+        [ScriptedResponse(json={"Models": []})],
+        resume_state=AwsSagemakerResumeConfig(next_token="resume", watermark=1704067200.0),
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=1705000000,
+    )
+    assert result.raised is None
+    assert result.rows == []
+    payload = result.requests[0].json()
     assert payload["NextToken"] == "resume"
     assert payload["CreationTimeAfter"] == 1704067200.0
 
 
-def test_complete_resume_makes_no_request(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
-    assert (
-        list(get_rows(config, "models", "2017-07-24", manager(AwsSagemakerResumeConfig(complete=True)), True, None))
-        == []
+def test_complete_resume_makes_no_request(config: AwsSagemakerSourceConfig) -> None:
+    result = driver(config).run(
+        "models", [], resume_state=AwsSagemakerResumeConfig(complete=True), should_use_incremental_field=True
     )
-    transport.post.assert_not_called()
+    assert result.raised is None
+    assert result.rows == []
+    assert result.requests == []
 
 
 @pytest.mark.parametrize("failure", ["describe", "repeated_token", "missing_arn"])
@@ -250,22 +282,28 @@ def test_error_parsing_and_retry_classification(status: int, code: str, throttle
     assert TRANSPORT_RETRY.is_retry("POST", status) == (status in {429, 503})
 
 
-def test_body_throttle_retries_and_resigns(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
-    transport.post.side_effect = [response({"__type": "ThrottlingException"}, 400), response({"Models": []})]
-    client = AwsSagemakerClient(config, "2017-07-24")
-    request = cast(Any, client.request).retry_with(wait=wait_none())
-    assert request(client, "ListModels", {"MaxResults": 1}) == {"Models": []}
-    assert transport.post.call_count == 2
+def test_body_throttle_retries_and_resigns(config: AwsSagemakerSourceConfig) -> None:
+    with scripted_network(
+        [ScriptedResponse(status=400, json={"__type": "ThrottlingException"}), ScriptedResponse(json={"Models": []})]
+    ) as network:
+        client = AwsSagemakerClient(config, "2017-07-24")
+        try:
+            assert client.request("ListModels", {"MaxResults": 1}) == {"Models": []}
+        finally:
+            client.close()
+    assert len(network.requests_log) == 2
+    assert all(sent.headers["authorization"].startswith("AWS4-HMAC-SHA256 ") for sent in network.requests_log)
 
 
 @pytest.mark.parametrize("schema_name,allowed", [(None, True), ("models", False)])
 @pytest.mark.parametrize("code", ["AccessDenied", "AccessDeniedException"])
 def test_missing_permission_is_accepted_only_at_creation(
-    config: AwsSagemakerSourceConfig, transport: MagicMock, schema_name: str | None, allowed: bool, code: str
+    config: AwsSagemakerSourceConfig, schema_name: str | None, allowed: bool, code: str
 ) -> None:
-    transport.post.return_value = response({"__type": code}, 400)
-    valid, message = validate_credentials(config, schema_name, "2017-07-24")
+    with scripted_network([ScriptedResponse(status=400, json={"__type": code})]) as network:
+        valid, message = validate_credentials(config, schema_name, "2017-07-24")
     assert valid is allowed
+    assert len(network.requests_log) == 1
     if allowed:
         assert message is None
     else:
@@ -274,15 +312,19 @@ def test_missing_permission_is_accepted_only_at_creation(
 
 @pytest.mark.parametrize("schema_name,requests_count", [(None, 1), ("models", 2)])
 def test_validation_probes_describe_only_for_selected_table(
-    config: AwsSagemakerSourceConfig, transport: MagicMock, schema_name: str | None, requests_count: int
+    config: AwsSagemakerSourceConfig, schema_name: str | None, requests_count: int
 ) -> None:
-    transport.post.side_effect = [
-        response({"Models": [{"ModelName": "example"}]}),
-        response({"ModelArn": "example-arn"}),
-    ]
-    assert validate_credentials(config, schema_name, "2017-07-24") == (True, None)
-    assert transport.post.call_count == requests_count
-    assert json.loads(transport.post.call_args_list[0].kwargs["data"]) == {"MaxResults": 1}
+    with scripted_network(
+        [
+            ScriptedResponse(json={"Models": [{"ModelName": "example"}]}),
+            ScriptedResponse(json={"ModelArn": "example-arn"}),
+        ]
+    ) as network:
+        assert validate_credentials(config, schema_name, "2017-07-24") == (True, None)
+    assert len(network.requests_log) == requests_count
+    assert network.requests_log[0].json() == {"MaxResults": 1}
+    if schema_name:
+        assert network.requests_log[1].json() == {"ModelName": "example"}
 
 
 @pytest.mark.parametrize(
@@ -294,20 +336,23 @@ def test_validation_probes_describe_only_for_selected_table(
     ],
 )
 def test_bad_config_never_sends_credentials(
-    config: AwsSagemakerSourceConfig, transport: MagicMock, field: str, value: str, message: str
+    config: AwsSagemakerSourceConfig, field: str, value: str, message: str
 ) -> None:
     setattr(config, field, value)
-    valid, error = validate_credentials(config, None, "2017-07-24")
+    with scripted_network([]) as network:
+        valid, error = validate_credentials(config, None, "2017-07-24")
     assert valid is False and error and message in error
-    transport.post.assert_not_called()
+    assert network.requests_log == []
 
 
-def test_unknown_table_and_version_are_rejected(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
-    assert validate_credentials(config, "unknown", "2017-07-24") == (False, "Unknown SageMaker table: unknown")
-    assert validate_credentials(config, None, "invalid") == (False, "Unsupported SageMaker API version: invalid")
-    with pytest.raises(UnknownResourceError):
-        aws_sagemaker_source(config, "unknown", "2017-07-24", manager(), False, None)
-    transport.post.assert_not_called()
+def test_unknown_table_and_version_are_rejected(config: AwsSagemakerSourceConfig) -> None:
+    with scripted_network([]) as network:
+        assert validate_credentials(config, "unknown", "2017-07-24") == (False, "Unknown SageMaker table: unknown")
+        assert validate_credentials(config, None, "invalid") == (False, "Unsupported SageMaker API version: invalid")
+    result = driver(config).run("unknown", [])
+    assert isinstance(result.raised, UnknownResourceError)
+    assert network.requests_log == []
+    assert result.requests == []
 
 
 def test_transient_validation_error_propagates(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
@@ -317,17 +362,25 @@ def test_transient_validation_error_propagates(config: AwsSagemakerSourceConfig,
     transport.close.assert_called_once()
 
 
-def test_non_object_success_response_is_rejected(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
-    result = response({})
-    result._content = b"[]"
-    transport.post.return_value = result
-    with pytest.raises(ValueError, match="invalid response"):
-        AwsSagemakerClient(config, "2017-07-24").request("ListModels", {})
+def test_non_object_success_response_is_rejected(config: AwsSagemakerSourceConfig) -> None:
+    with scripted_network([ScriptedResponse(json=[])]) as network:
+        client = AwsSagemakerClient(config, "2017-07-24")
+        try:
+            with pytest.raises(ValueError, match="invalid response"):
+                client.request("ListModels", {})
+        finally:
+            client.close()
+    assert len(network.requests_log) == 1
 
 
-def test_non_json_error_does_not_leak_body(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
-    result = response({}, 502)
-    result._content = b"upstream error with sensitive details"
-    transport.post.return_value = result
-    with pytest.raises(AwsSagemakerError, match="^AWS SageMaker request failed: HTTP 502$"):
-        AwsSagemakerClient(config, "2017-07-24").request("ListModels", {})
+def test_non_json_error_does_not_leak_body(config: AwsSagemakerSourceConfig) -> None:
+    with scripted_network(
+        always(ScriptedResponse(status=502, body=b"upstream error with sensitive details"))
+    ) as network:
+        client = AwsSagemakerClient(config, "2017-07-24")
+        try:
+            with pytest.raises(AwsSagemakerError, match="^AWS SageMaker request failed: HTTP 502$"):
+                client.request("ListModels", {})
+        finally:
+            client.close()
+    assert len(network.requests_log) > 1

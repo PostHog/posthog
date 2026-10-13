@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -8,6 +8,8 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.review_hog.backend.models import (
@@ -15,7 +17,9 @@ from products.review_hog.backend.models import (
     ReviewProjectSettings,
     ReviewRepository,
     ReviewUserRepositoryChoice,
+    ReviewUserSettings,
 )
+from products.review_hog.backend.temporal.client import WorkflowProbe
 
 INSTALLATION = "1001"
 WEB = {"installation_id": INSTALLATION, "full_name": "example-org/web", "github_repo_id": 501}
@@ -98,6 +102,44 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
         assert res.status_code == 403, res.json()
         assert self.client.get(self._url(path, environment)).status_code == 200
+
+    @parameterized.expand(
+        [
+            ("environment_only", False, (403, 403, 403, 403, 403)),
+            ("environment_and_parent", True, (200, 200, 200, 200, 200)),
+        ]
+    )
+    @patch("products.review_hog.backend.pr_status.probe_workflow", return_value=WorkflowProbe.NOT_RUNNING)
+    def test_a_project_scoped_key_needs_the_parent_project(
+        self, _name: str, include_parent: bool, expected: tuple[int, int, int, int, int], _probe: MagicMock
+    ) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["*"],
+            scoped_teams=[environment.id, self.team.id] if include_parent else [environment.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        read = self.client.get(self._url("repositories/", environment))
+        write = self.client.post(self._url("repositories/", environment), {**WEB, "selected": True})
+        reviews = self.client.get(self._url("reviews/", environment))
+        pr_status = self.client.get(
+            self._url("reviews/pr_status/", environment), {"pr_url": "https://github.com/PostHog/posthog/pull/5"}
+        )
+        table = self.client.get(self._url("reviews/table/", environment))
+
+        assert (
+            read.status_code,
+            write.status_code,
+            reviews.status_code,
+            pr_status.status_code,
+            table.status_code,
+        ) == expected
 
     def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
         res = self.client.patch(
@@ -285,21 +327,28 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         ReviewUserRepositoryChoice.objects.for_team(self.team.id).create(
             team=self.team, user=self.user, installation_id=INSTALLATION, full_name="example-org/docs", mode="off"
         )
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
+        )
         url = self._url(f"repository_overview/?installation_id={INSTALLATION}")
 
         everything = self.client.get(url)
 
         assert everything.status_code == 200, everything.json()
         assert everything.json()["claim_scope"] == "all"
+        # The one choice, "off" on docs, differs from the "flash" default.
+        assert everything.json()["my_choices_unlike_default"] == 1
         entries = {entry["full_name"]: entry for entry in everything.json()["results"]}
         assert entries["example-org/web"]["owner"] == "this_project"
-        assert entries["example-org/web"]["my_result"] == {"flash": False, "reason": "project_opt_in"}
+        assert entries["example-org/web"]["my_result"] == {"flash": True, "reason": "own_default"}
+        assert entries["example-org/web"]["repository_result"] == {"flash": False, "reason": "project_opt_in"}
         assert entries["example-org/api"]["owner"] == "other_project"
         assert entries["example-org/api"]["owner_project"] == {"id": self.other_team.id, "name": "Other project"}
         assert entries["example-org/api"]["my_result"] == {"flash": False, "reason": "not_in_project"}
         assert entries["example-org/docs"]["exception"]["flash_for"] == "everyone"
         assert entries["example-org/docs"]["my_result"] == {"flash": False, "reason": "own_repository_choice"}
-        assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "repository_everyone"}
+        assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "own_default"}
+        assert entries["example-org/docs"]["repository_result"] == {"flash": True, "reason": "repository_everyone"}
 
         exceptions = self.client.get(f"{url}&view=exceptions").json()
         assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]
