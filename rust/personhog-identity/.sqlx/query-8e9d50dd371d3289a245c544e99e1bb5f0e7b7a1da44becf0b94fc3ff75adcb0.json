@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_outcome_rows' */ \n        SELECT person_id, role, status,\n               CASE WHEN role = $2 THEN moved END as \"claim_record: Value\",\n               CASE WHEN role = $2 THEN sealed END as \"survivor: Value\"\n        FROM lifecycle_op_person\n        WHERE op_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "claim_record: Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "survivor: Value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "8e9d50dd371d3289a245c544e99e1bb5f0e7b7a1da44becf0b94fc3ff75adcb0"
+}

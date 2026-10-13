@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "/* service='personhog-identity', operation='merge_outcome_statuses' */ SELECT person_id, status FROM lifecycle_op_person_tmp WHERE op_id = $1 AND role = $2",
+  "query": "/* service='personhog-identity', operation='merge_flip_rows' */ SELECT person_id, role, status FROM lifecycle_op_person WHERE op_id = $1",
   "describe": {
     "columns": [
       {
@@ -10,20 +10,25 @@
       },
       {
         "ordinal": 1,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
         "name": "status",
         "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
+      false,
       false
     ]
   },
-  "hash": "a8ea22a74070826c30e9120c8a76ef982d30e7b98b4cdd0493a5a425a782bf24"
+  "hash": "a71f9eaf56e460e571143e65bad5b1eaed90af5e61bbda1aab25bfcf75736689"
 }

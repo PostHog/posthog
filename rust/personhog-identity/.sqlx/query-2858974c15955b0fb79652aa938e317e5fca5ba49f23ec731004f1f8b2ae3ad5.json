@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_op_person_rows' */ \n        SELECT person_id, person_uuid, role, status, ordinal,\n               CASE WHEN role = $2 THEN sealed END as \"sealed: Value\"\n        FROM lifecycle_op_person_tmp\n        WHERE op_id = $1\n        ORDER BY ordinal\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "person_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "ordinal",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "sealed: Value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "2858974c15955b0fb79652aa938e317e5fca5ba49f23ec731004f1f8b2ae3ad5"
+}

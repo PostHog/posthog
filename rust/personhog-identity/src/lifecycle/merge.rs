@@ -164,18 +164,154 @@ struct PersonRef {
     person_uuid: Uuid,
 }
 
-struct PersonStatus {
-    person_id: i64,
-    status: String,
-}
-
 /// A sealed source row. `ordinal` and `sealed` are set before any reader
-/// selects on `status = sealed`, so a NULL decodes as the corrupt state it is.
+/// selects on `status = sealed`, so a NULL is the corrupt state it reads as.
 struct SealedSource {
     person_id: i64,
     person_uuid: Uuid,
     ordinal: i32,
     sealed: Value,
+}
+
+/// One `lifecycle_op_person` row of an op with its source seal. Each query
+/// over these rows reads a JSON column for one role only, so a step never
+/// detoasts a document it does not use.
+struct OpPersonRow {
+    person_id: i64,
+    person_uuid: Uuid,
+    role: String,
+    status: String,
+    ordinal: Option<i32>,
+    sealed: Option<Value>,
+}
+
+impl OpPersonRow {
+    fn is_target(&self) -> bool {
+        self.role == ROLE_TARGET
+    }
+
+    fn is_source(&self) -> bool {
+        self.role == ROLE_SOURCE
+    }
+
+    fn person_ref(&self) -> PersonRef {
+        PersonRef {
+            person_id: self.person_id,
+            person_uuid: self.person_uuid,
+        }
+    }
+
+    fn sealed_source(&self, op_id: Uuid) -> Result<SealedSource, SagaError> {
+        let (Some(ordinal), Some(sealed)) = (self.ordinal, self.sealed.clone()) else {
+            return Err(SagaError::CorruptState(format!(
+                "merge op {op_id} sealed source {} has no ordinal or seal",
+                self.person_id
+            )));
+        };
+        Ok(SealedSource {
+            person_id: self.person_id,
+            person_uuid: self.person_uuid,
+            ordinal,
+            sealed,
+        })
+    }
+}
+
+/// Every row of the op with the sources' seals: sources in ordinal order,
+/// then the rows without an ordinal (the target, conflicted sources).
+async fn op_person_rows<'c, E>(
+    executor: E,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<Vec<OpPersonRow>, SagaError>
+where
+    E: sqlx::PgExecutor<'c>,
+{
+    Ok(mirrored_query_as!(
+        OpPersonRow,
+        tables.is_validation(),
+        op = "merge_op_person_rows",
+        r#"
+        SELECT person_id, person_uuid, role, status, ordinal,
+               CASE WHEN role = $2 THEN sealed END as "sealed: Value"
+        FROM {lifecycle_op_person}
+        WHERE op_id = $1
+        ORDER BY ordinal
+        "#,
+        op.op_id,
+        ROLE_SOURCE
+        => fetch_all(executor)
+    )?)
+}
+
+struct OpPersonRef {
+    person_id: i64,
+    role: String,
+    status: String,
+}
+
+async fn op_person_refs(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<Vec<OpPersonRef>, SagaError> {
+    Ok(mirrored_query_as!(
+        OpPersonRef,
+        tables.is_validation(),
+        op = "merge_flip_rows",
+        "SELECT person_id, role, status FROM {lifecycle_op_person} WHERE op_id = $1",
+        op.op_id
+        => fetch_all(&mut **tx)
+    )?)
+}
+
+/// The target row carries the claim record in `moved` and the folded
+/// survivor in `sealed`.
+struct OutcomeRow {
+    person_id: i64,
+    role: String,
+    status: String,
+    claim_record: Option<Value>,
+    survivor: Option<Value>,
+}
+
+async fn op_outcome_rows(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<Vec<OutcomeRow>, SagaError> {
+    Ok(mirrored_query_as!(
+        OutcomeRow,
+        tables.is_validation(),
+        op = "merge_outcome_rows",
+        r#"
+        SELECT person_id, role, status,
+               CASE WHEN role = $2 THEN moved END as "claim_record: Value",
+               CASE WHEN role = $2 THEN sealed END as "survivor: Value"
+        FROM {lifecycle_op_person}
+        WHERE op_id = $1
+        "#,
+        op.op_id,
+        ROLE_TARGET
+        => fetch_all(&mut **tx)
+    )?)
+}
+
+fn split_op_persons(
+    rows: &[OpPersonRow],
+    op_id: Uuid,
+) -> Result<(PersonRef, Vec<SealedSource>), SagaError> {
+    let target = rows
+        .iter()
+        .find(|row| row.is_target())
+        .map(OpPersonRow::person_ref)
+        .ok_or_else(|| SagaError::CorruptState(format!("merge op {op_id} has no target row")))?;
+    let sources = rows
+        .iter()
+        .filter(|row| row.is_source() && row.status == STATUS_SEALED)
+        .map(|row| row.sealed_source(op_id))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((target, sources))
 }
 
 /// The recorded `lifecycle_op.outcome` payload: one entry per requested
@@ -1380,8 +1516,8 @@ impl MergeDriver {
     /// terminal outcome's survivor, durable without ever re-folding.
     async fn fold(&self, pools: &IdentityPools, op: &OpRow) -> Result<Option<OpRow>, SagaError> {
         let request = parse_request(op)?;
-        let target = target_row(pools, &self.tables, op).await?;
-        let sources = sealed_sources(pools, &self.tables, op).await?;
+        let rows = op_person_rows(pools.fast(), &self.tables, op).await?;
+        let (target, sources) = split_op_persons(&rows, op.op_id)?;
 
         // The fold verifies each snapshot's identity and orders by the
         // ordinal itself, so the request carries the recorded pair order
@@ -1516,44 +1652,6 @@ impl MergeDriver {
     }
 }
 
-async fn target_row(
-    pools: &IdentityPools,
-    tables: &IdentityTables,
-    op: &OpRow,
-) -> Result<PersonRef, SagaError> {
-    Ok(mirrored_query_as!(
-        PersonRef,
-        tables.is_validation(),
-        op = "merge_target_row",
-        "SELECT person_id, person_uuid FROM {lifecycle_op_person} WHERE op_id = $1 AND role = $2",
-        op.op_id,
-        ROLE_TARGET
-        => fetch_one(pools.fast())
-    )?)
-}
-
-async fn sealed_sources(
-    pools: &IdentityPools,
-    tables: &IdentityTables,
-    op: &OpRow,
-) -> Result<Vec<SealedSource>, SagaError> {
-    Ok(mirrored_query_as!(
-        SealedSource,
-        tables.is_validation(),
-        op = "merge_sealed_sources",
-        r#"
-        SELECT person_id, person_uuid, ordinal as "ordinal!", sealed as "sealed!"
-        FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND role = $2 AND status = $3
-        ORDER BY ordinal
-        "#,
-        op.op_id,
-        ROLE_SOURCE,
-        STATUS_SEALED
-        => fetch_all(pools.fast())
-    )?)
-}
-
 fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
     if value.is_null() {
         return Ok(Vec::new());
@@ -1576,26 +1674,19 @@ async fn flip(
     let team_id = op.team_id as i32;
     let mut tx = pools.begin(Lane::Heavy).await?;
 
-    let target: i64 = mirrored_query_scalar!(
-        tables.is_validation(),
-        op = "merge_flip_target",
-        "SELECT person_id FROM {lifecycle_op_person} WHERE op_id = $1 AND role = $2",
-        op.op_id,
-        ROLE_TARGET
-        => fetch_one(&mut *tx)
-    )?;
-    let mut sources: Vec<i64> = mirrored_query_scalar!(
-        tables.is_validation(),
-        op = "merge_flip_sources",
-        r#"
-        SELECT person_id FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND role = $2 AND status = $3
-        "#,
-        op.op_id,
-        ROLE_SOURCE,
-        STATUS_SEALED
-        => fetch_all(&mut *tx)
-    )?;
+    let rows = op_person_refs(&mut tx, tables, op).await?;
+    let target = rows
+        .iter()
+        .find(|row| row.role == ROLE_TARGET)
+        .map(|row| row.person_id)
+        .ok_or_else(|| {
+            SagaError::CorruptState(format!("merge op {} has no target row", op.op_id))
+        })?;
+    let mut sources: Vec<i64> = rows
+        .iter()
+        .filter(|row| row.role == ROLE_SOURCE && row.status == STATUS_SEALED)
+        .map(|row| row.person_id)
+        .collect();
     sources.sort_unstable();
 
     // Lock every row up front in id order; the writer's flush does the
@@ -1875,7 +1966,8 @@ impl MergeDriver {
         pools: &IdentityPools,
         op: &OpRow,
     ) -> Result<Option<OpRow>, SagaError> {
-        let sources = sealed_sources(pools, &self.tables, op).await?;
+        let rows = op_person_rows(pools.fast(), &self.tables, op).await?;
+        let (_, sources) = split_op_persons(&rows, op.op_id)?;
 
         let release_calls: Vec<_> = sources
             .iter()
@@ -1972,6 +2064,10 @@ async fn claim_record(
         ROLE_TARGET
         => fetch_one(&mut **tx)
     )?;
+    parse_claim_record(op, moved)
+}
+
+fn parse_claim_record(op: &OpRow, moved: Option<Value>) -> Result<ClaimRecord, SagaError> {
     let moved = moved.ok_or_else(|| {
         SagaError::CorruptState(format!("merge op {} has no claim record", op.op_id))
     })?;
@@ -1994,31 +2090,23 @@ async fn build_outcome(
     op: &OpRow,
     abort_outcome: Option<AbortOutcome>,
 ) -> Result<Value, SagaError> {
-    let record = claim_record(tx, tables, op).await?;
-    let statuses: HashMap<i64, String> = mirrored_query_as!(
-        PersonStatus,
-        tables.is_validation(),
-        op = "merge_outcome_statuses",
-        "SELECT person_id, status FROM {lifecycle_op_person} WHERE op_id = $1 AND role = $2",
-        op.op_id,
-        ROLE_SOURCE
-        => fetch_all(&mut **tx)
-    )?
-    .into_iter()
-    .map(|r| (r.person_id, r.status))
-    .collect();
-
+    let rows = op_outcome_rows(tx, tables, op).await?;
+    let target = rows
+        .iter()
+        .find(|row| row.role == ROLE_TARGET)
+        .ok_or_else(|| {
+            SagaError::CorruptState(format!("merge op {} has no target row", op.op_id))
+        })?;
+    let record = parse_claim_record(op, target.claim_record.clone())?;
+    let statuses: HashMap<i64, String> = rows
+        .iter()
+        .filter(|row| row.role == ROLE_SOURCE)
+        .map(|row| (row.person_id, row.status.clone()))
+        .collect();
     let survivor = if abort_outcome.is_some() {
         None
     } else {
-        mirrored_query_scalar!(
-            tables.is_validation(),
-            op = "merge_outcome_sealed",
-            "SELECT sealed FROM {lifecycle_op_person} WHERE op_id = $1 AND role = $2",
-            op.op_id,
-            ROLE_TARGET
-            => fetch_one(&mut **tx)
-        )?
+        target.survivor.clone()
     };
 
     outcome_from_dispositions(&record.dispositions, abort_outcome, survivor, &statuses)
