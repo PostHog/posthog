@@ -113,19 +113,33 @@ class UserPermissions:
 
     @cached_property
     def _prefetched_access_controls(self) -> dict[int, list[dict[str, Any]]]:
+        """Project AccessControl rules that can change this user's answer, grouped by team_id.
+
+        Narrowed to the principal: a team's defaults, the user's own member rules, and rules
+        of roles they hold. Rules naming another member or a role they do not hold cannot
+        change `resolve_membership_level`'s outcome for this user, so loading them would only
+        bloat the per-request working set.
         """
-        Prefetch all AccessControl entries for teams in user's organizations.
-        Returns a dict mapping team_id to list of access control entries.
-        """
+        from django.db.models import Q  # noqa: PLC0415 - keeps the import local to the one caller
+
         from products.access_control.backend.models.access_control import AccessControl
 
         organization_ids = list(self.organizations.keys())
-        # Get all access controls for teams in these organizations
-        access_controls = AccessControl.objects.filter(
-            team__organization_id__in=organization_ids, resource="project"
-        ).values("team_id", "resource_id", "organization_member_id", "role_id", "access_level")
+        user_role_ids = {
+            role_id for role_ids in self._prefetched_role_ids_by_organization.values() for role_id in role_ids
+        }
+        principal_filter = Q(organization_member__user_id=self.user.pk) | Q(
+            organization_member__isnull=True, role__isnull=True
+        )
+        if user_role_ids:
+            principal_filter |= Q(role_id__in=user_role_ids)
 
-        # Group by team_id
+        access_controls = (
+            AccessControl.objects.filter(team__organization_id__in=organization_ids, resource="project")
+            .filter(principal_filter)
+            .values("team_id", "resource_id", "organization_member_id", "role_id", "access_level")
+        )
+
         result: dict[int, list[dict[str, Any]]] = {}
         for ac in access_controls:
             team_id = ac["team_id"]
@@ -233,11 +247,11 @@ class UserTeamPermissions:
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return UserTeamPermissions._capped_at_admin(organization_membership.level)
 
-        access_controls = [ac for ac in load_project_rules() if ac["resource_id"] == str(team_id)]
-
-        # Organization admins and owners always have access
+        # Organization admins and owners always have access, so skip the rule fetch for them.
         if organization_membership.level >= OrganizationMembership.Level.ADMIN:
             return UserTeamPermissions._capped_at_admin(organization_membership.level)
+
+        access_controls = [ac for ac in load_project_rules() if ac["resource_id"] == str(team_id)]
 
         # Role-backed project AccessControl rows only take effect if the organization has
         # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the

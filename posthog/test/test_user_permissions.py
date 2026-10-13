@@ -51,7 +51,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_does_not_belong(self):
@@ -76,7 +76,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_ids_visible_for_user(self):
@@ -161,7 +161,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         # Check effective membership level
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_new_access_control_private_team_member_no_access(self):

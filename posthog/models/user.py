@@ -411,9 +411,18 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         """
         All teams the user has access to on any organization, taking into account project based permissioning
         """
+        from posthog.constants import AvailableFeature  # noqa: PLC0415
         from posthog.user_permissions import UserPermissions  # noqa: PLC0415 - circular, user_permissions imports User
 
-        return Team.objects.filter(pk__in=UserPermissions(self).team_ids_visible_for_user).order_by("id")
+        user_perms = UserPermissions(self)
+        # Fast path: when every organization this user belongs to lacks access control, no project
+        # restriction can apply beyond organization membership. Return a lazy queryset so callers
+        # such as `.filter(id=X).exists()` answer in Postgres without materializing a candidate list.
+        orgs = user_perms.organizations
+        if orgs and not any(org.is_feature_available(AvailableFeature.ACCESS_CONTROL) for org in orgs.values()):
+            return Team.objects.filter(organization_id__in=orgs.keys()).order_by("id")
+
+        return Team.objects.filter(pk__in=user_perms.team_ids_visible_for_user).order_by("id")
 
     @cached_property
     def organization(self) -> Optional[Organization]:
