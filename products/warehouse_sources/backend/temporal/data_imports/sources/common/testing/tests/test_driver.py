@@ -155,6 +155,12 @@ class TestSourceDriver:
         assert len(every_time.requests) > 1
         assert not isinstance(every_time.raised, UnexpectedRequest)
 
+    def test_a_dropped_connection_is_retried_and_always_repeats_it(self) -> None:
+        result = _driver().run("rows", always(ConnectionResetError("reset by peer")))
+
+        assert len(result.requests) > 1
+        assert isinstance(result.raised, requests.ConnectionError)
+
 
 class TestScriptedResponse:
     @pytest.mark.parametrize(
