@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import EventsNode, FunnelsFilter, FunnelsQuery
@@ -204,6 +206,11 @@ class TestFunnelCaptureOrderUsesMaterializedColumn(ClickhouseTestMixin, APIBaseT
         with materialized("events", "$client_capture_time", is_nullable=is_nullable) as column:
             sql = self._funnel_sql()
 
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # The JSON events table keeps each property path as its own subcolumn and takes no
+            # materialized columns, so the read is already cheap there.
+            assert "events_json" in sql
+            return
         assert column.name in sql, f"expected {column.name} in the query"
         assert "$client_capture_time" not in sql.replace(column.name, ""), (
             "the property is still being extracted from the properties JSON"
