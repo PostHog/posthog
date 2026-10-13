@@ -8,11 +8,29 @@ function TooltipProvider({ delay = 250, ...props }: TooltipPrimitive.Provider.Pr
     return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props): React.ReactElement {
-    return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+const TooltipGlideContext = React.createContext(false)
+
+const createTooltipHandle = TooltipPrimitive.createHandle
+
+function Tooltip<Payload>({ onOpenChangeComplete, ...props }: TooltipPrimitive.Root.Props<Payload>): React.ReactElement {
+    // A tooltip shared through a handle glides between its triggers. It starts once the tooltip has
+    // opened in place, so the first placement does not slide in from the corner of the page.
+    const [glide, setGlide] = React.useState(false)
+    return (
+        <TooltipGlideContext.Provider value={glide}>
+            <TooltipPrimitive.Root
+                data-slot="tooltip"
+                onOpenChangeComplete={(open) => {
+                    setGlide(open && props.handle !== undefined)
+                    onOpenChangeComplete?.(open)
+                }}
+                {...props}
+            />
+        </TooltipGlideContext.Provider>
+    )
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props): React.ReactElement {
+function TooltipTrigger<Payload>({ ...props }: TooltipPrimitive.Trigger.Props<Payload>): React.ReactElement {
     return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
 }
 
@@ -26,6 +44,7 @@ function TooltipContent({
     ...props
 }: TooltipPrimitive.Popup.Props &
     Pick<TooltipPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>): React.ReactElement {
+    const glide = React.useContext(TooltipGlideContext)
     return (
         <TooltipPrimitive.Portal>
             <TooltipPrimitive.Positioner
@@ -35,7 +54,8 @@ function TooltipContent({
                 alignOffset={alignOffset}
                 side={side}
                 sideOffset={sideOffset}
-                className="isolate"
+                data-glide={glide ? '' : undefined}
+                className="quill-tooltip__positioner isolate"
             >
                 <TooltipPrimitive.Popup
                     data-slot="tooltip-content"
@@ -50,4 +70,4 @@ function TooltipContent({
     )
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, createTooltipHandle }

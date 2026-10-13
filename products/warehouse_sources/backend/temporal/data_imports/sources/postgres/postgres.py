@@ -327,6 +327,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # A Neon-style proxy reports its own internal round trip to the control plane (used to route,
+    # authenticate, or wake the compute while establishing the connection) failing with the bare,
+    # generic "ERROR: Control plane request failed" — unlike the specific, actionable control-plane
+    # rejections already handled in `get_non_retryable_errors` (exceeded quota, allow-listed IP,
+    # disabled branch, ...), which all carry their own detailed wording. The generic form means the
+    # round trip itself broke (a transient blip reaching the control plane), not that it returned a
+    # customer-fixable rejection, so a fresh connect after backoff typically succeeds — the same
+    # transient class as the scale-to-zero wake timeout above.
+    "control plane request failed",
     # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
     # the tenant's own backend database to fetch/cache the password secret used to validate the
     # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts

@@ -1,0 +1,142 @@
+{
+    "id": "01a12fb6-3d01-0000-bc78-38e14e2c4139",
+    "name": "AI responder for Slack alerts",
+    "description": "When an alert is posted in a Slack channel, an AI agent investigates it in PostHog and replies in the thread with what it found.",
+    "version": 1,
+    "created_at": "2026-10-12T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-12T00:00:00Z",
+    "trigger": {
+        "type": "internal-event",
+        "filters": {
+            "source": "internal-events",
+            "events": [
+                {
+                    "id": "$slack_message_received",
+                    "type": "events"
+                }
+            ],
+            "properties": [
+                {
+                    "key": "bot_id",
+                    "value": "is_set",
+                    "operator": "is_set",
+                    "type": "event"
+                },
+                {
+                    "key": "thread_ts",
+                    "value": "is_not_set",
+                    "operator": "is_not_set",
+                    "type": "event"
+                }
+            ]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "action_function_e99b861d-89c0-4e1c-aae8-b45f81ed0189",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_e99b861d-89c0-4e1c-aae8-b45f81ed0189",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Alert posted in Slack",
+            "description": "Pick your alerts channel. Only top-level messages from apps and bots start a run.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "output_variable": null,
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [
+                        {
+                            "id": "$slack_message_received",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "bot_id",
+                            "value": "is_set",
+                            "operator": "is_set",
+                            "type": "event"
+                        },
+                        {
+                            "key": "thread_ts",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                            "type": "event"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "id": "action_function_e99b861d-89c0-4e1c-aae8-b45f81ed0189",
+            "name": "Investigate the alert",
+            "description": "An AI agent investigates the alert and replies in the Slack thread.",
+            "on_error": null,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": null,
+            "config": {
+                "template_id": "template-posthog-create-task",
+                "inputs": {
+                    "prompt": {
+                        "value": "An alert was just posted in Slack. Read it from the `text` property of the triggering event. Many alerting tools leave the text empty and put the details in blocks or attachments, so also read `slack_event.blocks` and `slack_event.attachments` on the triggering event when the text is empty or incomplete.\n\nInvestigate it in PostHog: check errors, logs, and recent changes around the time of the alert, and work out what is affected and how many users.\n\nReply with:\n1. What is happening, in one or two sentences.\n2. The most likely cause, with links to the evidence.\n3. Whether a person needs to act now.\n\nDo not change anything. Keep the reply short."
+                    },
+                    "title": {
+                        "value": "Slack alert investigation"
+                    },
+                    "posthog_mcp_scopes": {
+                        "value": "read_only"
+                    },
+                    "reply_in_slack_thread": {
+                        "value": true
+                    },
+                    "non_failure_status_codes": {
+                        "value": [409]
+                    }
+                }
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"],
+    "tags": ["ai", "alerts", "incident management", "slack"],
+    "scope": "global"
+}

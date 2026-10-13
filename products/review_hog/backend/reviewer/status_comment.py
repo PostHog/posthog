@@ -196,9 +196,18 @@ def report_deep_link(team_id: int, report_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/code-review?review={report_id}"
 
 
-def _header(review_mode: str, verb: str, head_sha: str | None) -> str:
+def _title(review_mode: str, verb: str, head_sha: str | None) -> str:
     target = f"`{head_sha[:7]}`" if head_sha else "this pull request"
-    return f"### PostHog Review · {_MODE_NAMES.get(review_mode, 'Deep')} · {verb} {target}"
+    return f"PostHog Review · {_MODE_NAMES.get(review_mode, 'Deep')} · {verb} {target}"
+
+
+def _header(review_mode: str, verb: str, head_sha: str | None) -> str:
+    return f"### {_title(review_mode, verb, head_sha)}"
+
+
+def failure_marker(report_id: str, head_sha: str) -> str:
+    """The hidden marker of a Standard turn's failure comment, so a head gets at most one."""
+    return f"<!-- reviewhog:failed:{report_id}:{head_sha} -->"
 
 
 def _table_row(step: str, status: str, result: str) -> str:
@@ -302,6 +311,11 @@ def _priority_counts(counts: dict[IssuePriority, int], priorities: Collection[Is
         for priority in PRIORITIES_BY_URGENCY
         if priority in priorities and counts[priority]
     )
+
+
+def render_review_summary(review_mode: str, head_sha: str | None, counts: dict[IssuePriority, int]) -> str:
+    """The one-line summary a Standard review body opens with, because Standard posts no status comment."""
+    return f"**{_title(review_mode, 'reviewed', head_sha)}**: {_priority_counts(counts, PRIORITIES_BY_URGENCY)}."
 
 
 def render_final_body(
@@ -639,8 +653,11 @@ def maybe_refresh_status_comment(
 
     Called after pipeline activities persist progress artefacts. The debounce is an atomic claim on
     `status_comment_edited_at`, so the concurrent fan-out's calls collapse to one edit per interval;
-    a run without a status comment (eval / CLI / branch target) bails on the same claim.
+    a run without a status comment (eval / CLI / branch target) bails on the same claim. A Standard
+    turn never edits it, because the report can still carry the comment of an earlier turn.
     """
+    if review_mode == REVIEW_MODE_FLASH:
+        return
     try:
         now = timezone.now()
         claimed = (
@@ -743,6 +760,34 @@ def fail_status_comment(team_id: int, report_id: str, *, run_index: int, review_
         _edit_and_stamp(team_id, report, body)
     except Exception:
         logger.exception("Could not mark the ReviewHog status comment as failed")
+
+
+def post_failure_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FLASH) -> None:
+    """Tell the PR that a Standard turn failed, once per head, because Standard posts no status comment."""
+    try:
+        report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
+        if report is None or report.pr_number is None or not report.head_sha:
+            return
+        auth = _auth(team_id, report.repository)
+        if auth is None:
+            return
+        token, installation_id = auth
+        owner, repo = _split_repository(report.repository)
+        marker = failure_marker(report_id, report.head_sha)
+        if _find_marker_comment(owner, repo, report.pr_number, marker, token=token, installation_id=installation_id):
+            return
+        body = "\n".join(
+            [
+                _header(review_mode, "couldn't review", report.head_sha),
+                "",
+                "Something went wrong and the review didn't finish. Push a new commit to run it again.",
+                "",
+                marker,
+            ]
+        )
+        _post_comment(owner, repo, report.pr_number, body, token=token, installation_id=installation_id)
+    except Exception:
+        logger.exception("Could not post the ReviewHog failure comment")
 
 
 def update_resolution_status_comment(

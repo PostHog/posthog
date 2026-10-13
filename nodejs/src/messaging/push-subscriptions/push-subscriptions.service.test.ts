@@ -1,5 +1,6 @@
 import { gzipSync } from 'zlib'
 
+import { CaptureBillingLimitError } from './push-capture'
 import { PushSubscriptionsService } from './push-subscriptions.service'
 
 describe('PushSubscriptionsService', () => {
@@ -89,15 +90,18 @@ describe('PushSubscriptionsService', () => {
         })
     })
 
-    it('reports a rejected capture rather than telling the SDK the token was stored', async () => {
+    it.each([
+        ['a failed capture', new Error('capture returned 503'), 'capture_failed'],
+        ['a project over its billing limit', new CaptureBillingLimitError(), 'capture_billing_limited'],
+    ])('reports %s rather than telling the SDK the token was stored', async (_name, error, code) => {
         // The SDK marks a registration delivered on a 2xx and stops re-sending it, so a capture that
         // did not happen has to surface as an error or the device is never registered.
-        capture.capture.mockRejectedValue(new Error('capture returned 503'))
+        capture.capture.mockRejectedValue(error)
 
         const result = await service.handle(request(valid))
 
         expect(result.status).toEqual(500)
-        expect(result.body).toMatchObject({ code: 'capture_failed' })
+        expect(result.body).toMatchObject({ code })
     })
 
     it('reports a capture that threw', async () => {

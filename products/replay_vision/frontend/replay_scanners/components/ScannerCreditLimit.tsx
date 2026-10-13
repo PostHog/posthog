@@ -1,12 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonCard, LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { creditsToUsd } from '../../utils/credits'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { creditsToUsd, formatCredits } from '../../utils/credits'
+import {
+    CreditLimitUnit,
+    creditsToObservations,
+    observationsToCredits,
+    replayScannerLogic,
+} from '../replayScannerLogic'
 import { MAX_CREDIT_LIMIT } from '../types'
 
 interface ScannerCreditLimitProps {
@@ -15,9 +20,36 @@ interface ScannerCreditLimitProps {
 
 export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.Element {
     const { creditLimitState } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setScannerValues } = useActions(replayScannerLogic({ id: scannerId }))
-    const { limit, isOn, estimatedMonthly, creditsPerObservation, isBelowEstimate, cannotAffordOneScan, seedValue } =
-        creditLimitState
+    const { setScannerValues, setCreditLimitUnit } = useActions(replayScannerLogic({ id: scannerId }))
+    const {
+        limit,
+        unit,
+        observationLimit,
+        isOn,
+        estimatedMonthly,
+        estimatedMonthlyObservations,
+        creditsPerObservation,
+        isBelowEstimate,
+        cannotAffordOneScan,
+        seedValue,
+    } = creditLimitState
+    const observationPrice = unit === 'observations' ? creditsPerObservation : null
+    const input =
+        observationPrice != null
+            ? {
+                  value: observationLimit,
+                  max: creditsToObservations(MAX_CREDIT_LIMIT, observationPrice),
+                  suffix: 'observations',
+                  toCredits: (amount: number) => observationsToCredits(amount, observationPrice),
+                  summary: limit != null ? `${formatCredits(limit)} per period` : null,
+              }
+            : {
+                  value: limit,
+                  max: MAX_CREDIT_LIMIT,
+                  suffix: 'credits',
+                  toCredits: (amount: number) => amount,
+                  summary: limit != null ? `≈ ${creditsToUsd(limit)} per period` : null,
+              }
 
     return (
         <LemonField name="credit_limit">
@@ -25,7 +57,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                 <LemonCard hoverEffect={false} className="p-3 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                         <div className="space-y-1">
-                            <LemonLabel>Credit limit</LemonLabel>
+                            <LemonLabel>Scanner limit</LemonLabel>
                             <div className="text-xs text-muted">
                                 Cap what this scanner spends in a billing period, on top of your organization's limit.
                             </div>
@@ -43,11 +75,32 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                     </div>
                     {isOn && (
                         <>
-                            <div className="flex items-center gap-4">
-                                <div className="w-40">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                <LemonSegmentedButton<CreditLimitUnit>
+                                    size="small"
+                                    value={unit}
+                                    onChange={setCreditLimitUnit}
+                                    options={[
+                                        {
+                                            value: 'credits',
+                                            label: 'Credits',
+                                            'data-attr': 'vision-scanner-credit-limit-unit-credits',
+                                        },
+                                        {
+                                            value: 'observations',
+                                            label: 'Observations',
+                                            'data-attr': 'vision-scanner-credit-limit-unit-observations',
+                                            disabledReason:
+                                                creditsPerObservation == null
+                                                    ? 'The price of one observation for this model is not known yet'
+                                                    : undefined,
+                                        },
+                                    ]}
+                                />
+                                <div className="w-48">
                                     <LemonInput
                                         type="number"
-                                        value={limit ?? undefined}
+                                        value={input.value ?? undefined}
                                         onChange={(v) =>
                                             // The toggle is materialized on edit too, so clearing a loaded limit blocks the save.
                                             setScannerValues({
@@ -55,32 +108,36 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                                 credit_limit:
                                                     v == null || !Number.isFinite(v)
                                                         ? null
-                                                        : Math.max(1, Math.round(v)),
+                                                        : input.toCredits(Math.max(1, Math.round(v))),
                                             })
                                         }
                                         min={1}
-                                        max={MAX_CREDIT_LIMIT}
+                                        max={input.max}
                                         step={1}
-                                        suffix={<span>credits</span>}
+                                        suffix={<span>{input.suffix}</span>}
                                     />
                                 </div>
                                 <span className="text-sm text-muted">
-                                    {limit != null && `≈ ${creditsToUsd(limit)} per period`}
-                                    {limit != null && estimatedMonthly != null && ' · '}
+                                    {input.summary}
+                                    {input.summary != null && estimatedMonthly != null && ' · '}
                                     {estimatedMonthly != null &&
                                         `Estimated usage: ${creditsToUsd(estimatedMonthly)} a month`}
                                 </span>
                             </div>
                             {cannotAffordOneScan ? (
                                 <div className="text-xs text-warning">
-                                    One scan by this scanner costs {creditsPerObservation} credits, so this limit stops
-                                    it before it scans anything. Raise it to at least {creditsPerObservation} credits.
+                                    {observationPrice != null
+                                        ? 'This limit allows 0 observations, so the scanner stops before it scans anything. Raise it to at least 1 observation.'
+                                        : `One scan by this scanner costs ${creditsPerObservation} credits, so this limit stops it before it scans anything. Raise it to at least ${creditsPerObservation} credits.`}
                                 </div>
                             ) : (
                                 isBelowEstimate && (
                                     <div className="text-xs text-warning">
-                                        This is below the estimated {creditsToUsd(estimatedMonthly ?? 0)} a month, so
-                                        the scanner is likely to stop before the period resets.
+                                        This is below the estimated{' '}
+                                        {observationPrice != null && estimatedMonthlyObservations != null
+                                            ? `${estimatedMonthlyObservations.toLocaleString('en-US')} observations`
+                                            : creditsToUsd(estimatedMonthly ?? 0)}{' '}
+                                        a month, so the scanner is likely to stop before the period resets.
                                     </div>
                                 )
                             )}

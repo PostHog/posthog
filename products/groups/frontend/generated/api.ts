@@ -13,6 +13,10 @@ import type {
     FindGroupApi,
     GroupApi,
     GroupDeletePropertyApi,
+    GroupTypeApi,
+    GroupTypeCreateDetailDashboardApi,
+    GroupTypeMetadataUpdateApi,
+    GroupTypeSetDefaultColumnsApi,
     GroupUpdatePropertyRequestApi,
     GroupsActivityRetrieveParams,
     GroupsDeletePropertyCreateParams,
@@ -223,5 +227,82 @@ export const groupsUpdatePropertyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(groupUpdatePropertyRequestApi),
+    })
+}
+
+export const getGroupsTypesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/`
+}
+
+export const groupsTypesList = async (projectId: string, options?: RequestInit): Promise<GroupTypeApi[]> => {
+    return apiMutator<GroupTypeApi[]>(getGroupsTypesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getGroupsTypesDestroyUrl = (projectId: string, groupTypeIndex: number) => {
+    return `/api/projects/${projectId}/groups_types/${groupTypeIndex}/`
+}
+
+export const groupsTypesDestroy = async (
+    projectId: string,
+    groupTypeIndex: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getGroupsTypesDestroyUrl(projectId, groupTypeIndex), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getGroupsTypesCreateDetailDashboardUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/create_detail_dashboard/`
+}
+
+export const groupsTypesCreateDetailDashboardUpdate = async (
+    projectId: string,
+    groupTypeCreateDetailDashboardApi: GroupTypeCreateDetailDashboardApi,
+    options?: RequestInit
+): Promise<GroupTypeApi> => {
+    return apiMutator<GroupTypeApi>(getGroupsTypesCreateDetailDashboardUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeCreateDetailDashboardApi),
+    })
+}
+
+export const getGroupsTypesSetDefaultColumnsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/set_default_columns/`
+}
+
+export const groupsTypesSetDefaultColumnsUpdate = async (
+    projectId: string,
+    groupTypeSetDefaultColumnsApi: GroupTypeSetDefaultColumnsApi,
+    options?: RequestInit
+): Promise<GroupTypeApi> => {
+    return apiMutator<GroupTypeApi>(getGroupsTypesSetDefaultColumnsUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeSetDefaultColumnsApi),
+    })
+}
+
+export const getGroupsTypesUpdateMetadataPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/update_metadata/`
+}
+
+export const groupsTypesUpdateMetadataPartialUpdate = async (
+    projectId: string,
+    groupTypeMetadataUpdateApi: GroupTypeMetadataUpdateApi[],
+    options?: RequestInit
+): Promise<GroupTypeApi[]> => {
+    return apiMutator<GroupTypeApi[]>(getGroupsTypesUpdateMetadataPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(groupTypeMetadataUpdateApi),
     })
 }

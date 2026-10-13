@@ -16,10 +16,10 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.cdp.validation import build_html_wrap_design
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
     UnlayerRenderError,

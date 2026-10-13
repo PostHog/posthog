@@ -109,6 +109,23 @@ class TestParseRepoItemUrl(SimpleTestCase):
         assert GitHubIntegrationBase.parse_issue_url(issue_url) is None
 
 
+class TestCollaboratorPermission(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("same_account", {"permission": "write", "user": {"id": 42}}, "write"),
+            # The login now belongs to another account, for example after a rename.
+            ("other_account", {"permission": "write", "user": {"id": 43}}, "none"),
+            ("no_account", {"permission": "write"}, "none"),
+        ]
+    )
+    def test_permission_counts_only_for_the_expected_account(self, _name, body, expected) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=200)
+        response.json.return_value = body
+        with patch.object(github, "api_request", return_value=response):
+            assert github.get_collaborator_permission("example/repo", "octocat", expected_user_id=42) == expected
+
+
 class TestPullRequestCommentMarker(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1100,6 +1117,58 @@ class TestGitHubIntegrationModel(BaseTest):
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/comments"
         assert mock_post.call_args.kwargs["json_body"] == {"body": "hello"}
 
+    def test_get_pull_request_includes_requested_reviewers(self):
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "number": 123,
+            "assignees": [{"login": "alice"}],
+            "requested_reviewers": [{"login": "bob"}],
+        }
+
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            result = github.get_pull_request("PostHog/posthog", 123)
+
+        assert result["assignees"] == ["alice"]
+        assert result["requested_reviewers"] == ["bob"]
+
+    def test_list_submitted_pull_request_reviewers_reads_every_page(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first_page = MagicMock(status_code=200)
+        first_page.links = {
+            "next": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/123/reviews?page=2&per_page=100"}
+        }
+        first_page.json.return_value = [
+            {"state": "PENDING", "user": {"login": "pending"}},
+            {"state": "APPROVED", "user": {"login": "approved"}},
+        ]
+        second_page = MagicMock(status_code=200)
+        second_page.links = {}
+        second_page.json.return_value = [{"state": "COMMENTED", "user": {"login": "commented"}}]
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first_page, second_page]) as mock_get:
+            result = github.list_submitted_pull_request_reviewers("PostHog/posthog", 123)
+
+        assert result == {"success": True, "reviewed_by": ["approved", "commented"]}
+        assert mock_get.call_count == 2
+        assert mock_get.call_args_list[0].kwargs["params"] == {"per_page": 100}
+
+    def test_list_submitted_pull_request_reviewers_requires_every_page(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first_page = MagicMock(status_code=200)
+        first_page.links = {"next": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/123/reviews?page=2"}}
+        first_page.json.return_value = [{"state": "APPROVED", "user": {"login": "approved"}}]
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first_page, None]):
+            result = github.list_submitted_pull_request_reviewers("PostHog/posthog", 123)
+
+        assert result["success"] is False
+
     def test_comment_on_pull_request_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
@@ -1146,6 +1215,68 @@ class TestGitHubIntegrationModel(BaseTest):
             github.add_pull_request_assignees("PostHog/posthog", 123, requested)
         sent = mock_post.call_args.kwargs["json_body"]["assignees"]
         assert sent == ["alice", *[f"user{i}" for i in range(9)]]
+
+    def test_request_pull_request_reviews_posts_deduplicated_bounded_batches(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"requested_reviewers": [{"login": "alice"}]}
+        requested = ["alice", "alice", *[f"user{i}" for i in range(20)]]
+
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.request_pull_request_reviews("PostHog/posthog", 123, requested)
+
+        assert result == {"success": True, "requested_reviewers": ["alice"]}
+        url = "https://api.github.com/repos/PostHog/posthog/pulls/123/requested_reviewers"
+        assert mock_post.call_args_list == [
+            call(
+                url,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": ["alice", *[f"user{i}" for i in range(14)]]},
+            ),
+            call(
+                url,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                json_body={"reviewers": [f"user{i}" for i in range(14, 20)]},
+            ),
+        ]
+
+    @parameterized.expand([("first_batch", 3), ("later_batch", 18)])
+    def test_request_pull_request_reviews_continues_after_rejected_reviewer(self, _name: str, invalid_index: int):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        requested = [f"user{i}" for i in range(31)]
+        rejected = requested[invalid_index]
+
+        def post_review_request(_url: str, *, endpoint: str, json_body: dict) -> MagicMock:
+            reviewers = json_body["reviewers"]
+            response = MagicMock(status_code=422 if rejected in reviewers else 201)
+            response.json.return_value = (
+                {"errors": [{"field": "reviewers", "code": "invalid"}]}
+                if rejected in reviewers
+                else {"requested_reviewers": [{"login": login} for login in reviewers]}
+            )
+            return response
+
+        with patch.object(github, "_installation_authenticated_post", side_effect=post_review_request) as mock_post:
+            result = github.request_pull_request_reviews("PostHog/posthog", 123, requested)
+
+        assert result == {"success": True, "requested_reviewers": [login for login in requested if login != rejected]}
+        assert all(len(request.kwargs["json_body"]["reviewers"]) <= 15 for request in mock_post.call_args_list)
+
+    @parameterized.expand([("forbidden", 403), ("unrelated_validation", 422)])
+    def test_request_pull_request_reviews_stops_on_non_reviewer_error(self, _name: str, status_code: int):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        response = MagicMock(status_code=status_code, text="Request failed")
+        response.json.return_value = {"errors": [{"field": "pull_request", "code": "invalid"}]}
+
+        with patch.object(github, "_installation_authenticated_post", return_value=response) as mock_post:
+            result = github.request_pull_request_reviews("PostHog/posthog", 123, ["alice", "bob"])
+
+        assert result["success"] is False
+        assert result["status_code"] == status_code
+        mock_post.assert_called_once()
 
     def test_add_pull_request_assignees_reports_a_github_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
