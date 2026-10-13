@@ -13,6 +13,7 @@ import {
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
 } from 'scenes/surveys/constants'
+import { getIntroScreenDescriptionContentType } from 'scenes/surveys/surveyIntroScreen'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
@@ -298,6 +299,11 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        introScreenHeader: sanitizeHTML(appearance.introScreenHeader ?? ''),
+        introScreenDescription:
+            getIntroScreenDescriptionContentType(appearance) === 'text'
+                ? (appearance.introScreenDescription ?? '')
+                : sanitizeHTML(appearance.introScreenDescription ?? ''),
         surveyPopupDelaySeconds:
             surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
     }
