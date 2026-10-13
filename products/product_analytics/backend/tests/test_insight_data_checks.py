@@ -28,6 +28,7 @@ def counts(
     internal: int = 0,
     missed_by_filter: int = 0,
     internal_is_sample: bool = False,
+    internal_sample_events: int | None = None,
     local: int = 0,
     bots: int = 0,
     duplicates: int = 0,
@@ -39,7 +40,10 @@ def counts(
         bot_events=bots,
         distinct_events=events - duplicates,
         internal_users=InternalUserCounts(
-            events=events, removed_by_filter=internal, missed_by_filter=missed_by_filter, is_sample=internal_is_sample
+            events=events if internal_sample_events is None else internal_sample_events,
+            removed_by_filter=internal,
+            missed_by_filter=missed_by_filter,
+            is_sample=internal_is_sample,
         ),
         sample_rate=sample_rate,
     )
@@ -58,6 +62,12 @@ class TestEvaluateDataChecks(SimpleTestCase):
             ("internal_under_50_events", InsightDataCheckKey.INTERNAL_USERS, counts(1000, internal=49), PASSED),
             ("internal_under_two_percent", InsightDataCheckKey.INTERNAL_USERS, counts(100000, internal=1900), PASSED),
             ("internal_over_two_percent", InsightDataCheckKey.INTERNAL_USERS, counts(100000, internal=2100), WARNING),
+            (
+                "internal_sample_without_events",
+                InsightDataCheckKey.INTERNAL_USERS,
+                counts(100000, internal_sample_events=0),
+                SKIPPED,
+            ),
             (
                 "local_tiny_share_still_counts",
                 InsightDataCheckKey.LOCAL_DEVELOPMENT,
@@ -101,6 +111,15 @@ class TestEvaluateDataChecks(SimpleTestCase):
         [
             ("insight_filters_them_out", True, True, 0, 0, PASSED, None),
             ("project_has_no_filter", False, False, 0, 0, SKIPPED, InsightDataCheckAction.OPEN_FILTER_SETTINGS),
+            (
+                "insight_applies_a_filter_the_project_lacks",
+                True,
+                False,
+                0,
+                0,
+                SKIPPED,
+                InsightDataCheckAction.OPEN_FILTER_SETTINGS,
+            ),
             (
                 "the_filter_would_remove_them",
                 False,

@@ -40,6 +40,7 @@ from posthog.models.user import User
 from posthog.utils import GenericEmails
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 from products.product_analytics.backend.facade.contracts import InsightDataCheck, InsightDataChecks
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckAction,
@@ -203,12 +204,18 @@ class _CheckedQuery:
 class _EventReader:
     team: Team
     user: User
-    modifiers: HogQLQueryModifiers | None
+    modifiers: HogQLQueryModifiers
     # One database for all the queries, because a project with many data warehouse tables is slow to build one for.
     database: Database
 
     def first_row(
-        self, query: str, *, query_type: str, filters: HogQLFilters, placeholders: dict[str, ast.Expr]
+        self,
+        query: str,
+        *,
+        query_type: str,
+        filters: HogQLFilters,
+        placeholders: dict[str, ast.Expr],
+        modifiers: HogQLQueryModifiers | None = None,
     ) -> list[Any]:
         response = execute_hogql_query(
             query=query,
@@ -217,7 +224,7 @@ class _EventReader:
             query_type=query_type,
             filters=filters,
             placeholders=placeholders,
-            modifiers=self.modifiers,
+            modifiers=modifiers or self.modifiers,
             context=HogQLContext(team_id=self.team.pk, user=self.user, database=self.database),
             settings=_query_settings(),
         )
@@ -238,18 +245,14 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
     if get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk):
         return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
     has_internal_users_filter = bool(team.test_account_filters)
-    own_team = _own_team_emails(team)
+    own_team = _own_team_emails(team, user)
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
+        modifiers = create_default_modifiers_for_team(team, checked.modifiers)
         reader = _EventReader(
             team=team,
             user=user,
-            modifiers=checked.modifiers,
-            database=Database.create_for(
-                team=team,
-                user=user,
-                modifiers=create_default_modifiers_for_team(team, checked.modifiers),
-                trigger="shared",
-            ),
+            modifiers=modifiers,
+            database=Database.create_for(team=team, user=user, modifiers=modifiers, trigger="shared"),
         )
         total = _count_events_in_range(checked, reader)
         if total == 0:
@@ -374,11 +377,14 @@ def _generic_emails() -> GenericEmails:
     return GenericEmails()
 
 
-def _own_team_emails(team: Team) -> OwnTeamEmails:
+def _own_team_emails(team: Team, user: User) -> OwnTeamEmails:
     """The emails of the people who work on this project: the members of its organization, and its verified domains."""
-    member_emails = OrganizationMembership.objects.filter(organization_id=team.organization_id).values_list(
-        "user__email", flat=True
-    )
+    memberships = OrganizationMembership.objects.filter(organization_id=team.organization_id)
+    # A match on the email of a member that `user` may not see would tell `user` that the address is a member's.
+    visible_membership_ids = restricted_visible_membership_ids(team.organization, user)
+    if visible_membership_ids is not None:
+        memberships = memberships.filter(id__in=visible_membership_ids)
+    member_emails = memberships.values_list("user__email", flat=True)
     domains: Counter[str] = Counter()
     addresses: set[str] = set()
     for member_email in member_emails:
@@ -590,9 +596,14 @@ def _count_internal_user_events(
     """`chart_events` is how many events the chart keeps after its filters, so the sample holds only those."""
     # When the insight applies the filter, the events it would remove are gone before this count.
     counts_filtered_events = has_internal_users_filter and not checked.filters_internal_users
+    # Without this, a project that joins person properties at query time reads every person to get the emails.
+    modifiers = reader.modifiers
+    if modifiers.personIdPushdown is None:
+        modifiers = modifiers.model_copy(update={"personIdPushdown": True})
     row = reader.first_row(
         _INTERNAL_USERS_QUERY,
         query_type="insight_data_checks_internal_users",
+        modifiers=modifiers,
         filters=HogQLFilters(dateRange=checked.date_range, filterTestAccounts=checked.filters_internal_users),
         placeholders={
             "sample": _sample(MAX_INTERNAL_USERS_CHECKED_EVENTS, chart_events),
@@ -684,7 +695,9 @@ def _internal_users_check(
 ) -> InsightDataCheck:
     key = InsightDataCheckKey.INTERNAL_USERS
     internal_users = counts.internal_users
-    if internal_users is None or internal_users.events == 0:
+    # The sample is drawn by user, so it can hold no event when a few users sent most of the insight's events.
+    is_checked = internal_users is not None and internal_users.events > 0
+    if internal_users is None or not is_checked:
         internal_users = InternalUserCounts(events=1, removed_by_filter=0, missed_by_filter=0)
     share = internal_users.internal_events / internal_users.events
     # The other checks count the larger sample, so this count is given on the same scale.
@@ -715,8 +728,6 @@ def _internal_users_check(
             events=events,
             share=share,
         )
-    if filters_internal_users:
-        return _check(key, InsightDataCheckLevel.PASSED, "Internal and test users are filtered out")
     if not has_internal_users_filter:
         return _check(
             key,
@@ -725,6 +736,14 @@ def _internal_users_check(
             fix="Set up the filter so PostHog knows which users are your own team.",
             action=InsightDataCheckAction.OPEN_FILTER_SETTINGS,
         )
+    if not is_checked:
+        return _check(
+            key,
+            InsightDataCheckLevel.SKIPPED,
+            "Not checked, because too few users sent these events to take a sample of them",
+        )
+    if filters_internal_users:
+        return _check(key, InsightDataCheckLevel.PASSED, "Internal and test users are filtered out")
     return _passed(key, "internal or test users", events, counts)
 
 

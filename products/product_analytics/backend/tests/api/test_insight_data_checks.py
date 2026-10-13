@@ -241,12 +241,18 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("email_on_the_person", "colleague", {"email": "Anna@Agency.Example"}),
-            ("email_as_the_distinct_id", "ben@agency.example", {}),
+            ("email_on_the_person", "colleague", {"email": "Anna@Agency.Example"}, {}),
+            ("email_as_the_distinct_id", "ben@agency.example", {}, {}),
+            (
+                "on_a_project_that_joins_persons_at_query_time",
+                "colleague",
+                {"email": "Anna@Agency.Example"},
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+            ),
         ]
     )
     def test_reports_team_emails_the_internal_users_filter_keeps(
-        self, _name: str, distinct_id: str, person_properties: dict[str, Any]
+        self, _name: str, distinct_id: str, person_properties: dict[str, Any], source: dict[str, Any]
     ) -> None:
         self._create_user("owner@agency.example")
         _create_person(team=self.team, distinct_ids=[distinct_id], properties=person_properties)
@@ -255,7 +261,7 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         result = self._check(
-            self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True)
+            self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True, **source)
         )
 
         internal_users = result["checks"][0]
@@ -265,6 +271,44 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
             "open_filter_settings",
         )
         assert "@agency.example" in internal_users["fix"]
+
+    @parameterized.expand(
+        [
+            ("for_a_requester_who_may_see_that_member", True, "problem"),
+            ("for_a_requester_who_may_not_see_that_member", False, "passed"),
+        ]
+    )
+    def test_recognizes_a_member_by_email_only(
+        self, _name: str, members_can_see_org_members: bool, expected_level: str
+    ) -> None:
+        self._create_user("founder@gmail.com")
+        _create_person(team=self.team, distinct_ids=["founder"], properties={"email": "founder@gmail.com"})
+        self._events(80, distinct_id="founder", event=WIDELY_SENT_EVENT)
+        self._events(120, event=WIDELY_SENT_EVENT)
+        flush_persons_and_events()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = members_can_see_org_members
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+
+        result = self._check(
+            self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True)
+        )
+
+        assert result["checks"][0]["level"] == expected_level
 
     def test_an_insight_that_filters_internal_users_passes_that_check(self) -> None:
         result = self._check(self._query(filterTestAccounts=True))
