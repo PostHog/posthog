@@ -10253,10 +10253,10 @@ Today (12): `agent`, `agent_endpoint`, `call`, `chat`, `issue`, `knowledge_base`
 
 Diffed against: <https://docs.roark.ai/llms.txt>
 
-- [ ] `call/list-call-metrics (GET /calls/{id}/metrics)` — the scored per-call metric values - the product's headline output and the only numeric quality data (high)
-- [ ] `metric-collection-job/get-metric-values-produced-by-a-metric-collection-job` — metric values per collection job, giving metric history over time rather than only the latest run (high)
+- [x] `call/list-call-metrics (GET /calls/{id}/metrics)` — the scored per-call metric values - the product's headline output and the only numeric quality data (high)
+- [x] `metric-collection-job/get-metric-values-produced-by-a-metric-collection-job` — metric values per collection job, giving metric history over time rather than only the latest run (high)
 - [ ] `call/list-call-evaluation-runs` — pass/fail evaluation results per call, the row grain quality dashboards are built on (high)
-- [ ] `call/get-call-transcript` — turn-level transcript for the calls already synced; enables text and duration analysis (high)
+- [x] `call/get-call-transcript` — turn-level transcript for the calls already synced; enables text and duration analysis (high)
 - [ ] `call/list-call-sentiment-runs` — sentiment scores and key phrases per call, a standard breakdown dimension (high)
 - [ ] `chat/list-chat-metrics` — the chat-channel equivalent of call metrics; chats are synced but their scores are not (medium)
 - [ ] `chat/get-chat-transcript` — message-level content under the chats already synced (medium)
