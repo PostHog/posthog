@@ -39,10 +39,10 @@ from ee.hogai.stream.redis_stream import (
 from ee.hogai.utils.types import AssistantOutput
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 TEMPORAL_CONNECT_MAX_ATTEMPTS = 3
-TEMPORAL_CONNECT_BASE_DELAY = 0.5
-_tracer = trace.get_tracer(__name__)
+TEMPORAL_CONNECT_BASE_DELAY_SECONDS = 0.5
 
 STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_django_event_loop_latency_seconds",
@@ -137,21 +137,19 @@ class AgentExecutor:
         async for chunk in self.stream_conversation():
             yield chunk
 
-    async def _connect_with_retry(
-        self, max_attempts: int = TEMPORAL_CONNECT_MAX_ATTEMPTS, base_delay: float = TEMPORAL_CONNECT_BASE_DELAY
-    ) -> Client:
+    async def _connect_with_retry(self) -> Client:
         """Connect to Temporal, and retry transport failures with exponential backoff.
 
         A short Temporal connection drop otherwise fails the chat at once, and the user's retry
         fails the same way.
         """
         span = trace.get_current_span()
-        for attempt in range(max_attempts):
+        for attempt in range(TEMPORAL_CONNECT_MAX_ATTEMPTS):
             try:
                 client = await async_connect()
             except RuntimeError as e:
                 # The Temporal SDK raises a bare RuntimeError with this prefix for transport failures.
-                if not str(e).startswith("Failed client connect") or attempt == max_attempts - 1:
+                if not str(e).startswith("Failed client connect") or attempt == TEMPORAL_CONNECT_MAX_ATTEMPTS - 1:
                     raise
                 logger.warning(
                     "Temporal connect failed, retrying",
@@ -159,7 +157,7 @@ class AgentExecutor:
                     attempt=attempt + 1,
                     error=str(e),
                 )
-                await asyncio.sleep(base_delay * 2**attempt)
+                await asyncio.sleep(TEMPORAL_CONNECT_BASE_DELAY_SECONDS * 2**attempt)
                 continue
             span.set_attribute("posthog_ai.temporal_connect.attempts", attempt + 1)
             if attempt > 0:
@@ -169,7 +167,7 @@ class AgentExecutor:
                     attempts=attempt + 1,
                 )
             return client
-        raise RuntimeError(f"Failed to connect to Temporal after {max_attempts} attempts")
+        raise RuntimeError(f"Failed to connect to Temporal after {TEMPORAL_CONNECT_MAX_ATTEMPTS} attempts")
 
     async def _start_workflow_with_retry(
         self, client: Any, workflow: type[AgentBaseWorkflow], inputs: Any, max_retries: int = 3
