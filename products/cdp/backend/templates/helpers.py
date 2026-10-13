@@ -6,11 +6,11 @@ from typing import Any, Optional, cast
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.site_functions import get_transpiled_function
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from products.cdp.backend.validation import compile_hog
 
 from common.hogvm.python.execute import execute_bytecode
