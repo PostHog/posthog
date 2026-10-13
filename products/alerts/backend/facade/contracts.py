@@ -38,6 +38,8 @@ class DestinationHoldBack(StrEnum):
     WEBHOOK_BODY = "webhook_body"
     WEBHOOK_METHOD = "webhook_method"
     WEBHOOK_TEMPLATED_HEADER = "webhook_templated_header"
+    # Native delivery sends to the stored address as written and does not render a template in it.
+    TEMPLATED_ADDRESS = "templated_address"
     # Native delivery does not sign requests, so a receiver that checks the signature rejects them.
     WEBHOOK_SIGNING = "webhook_signing"
     # Saved again after it was built, before edits were recorded, so what changed is unknown.

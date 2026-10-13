@@ -44,18 +44,19 @@ def classify_alert_destinations(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
         ).order_by("created_at", "id")
     )
-    first_snapshots: dict[UUID, dict[str, Any]] = {
-        revision.hog_function_id: revision.content
+    first_revisions: dict[UUID, HogFunctionRevision] = {
+        revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
         .filter(hog_function_id__in=[function.id for function in functions])
         .order_by("hog_function_id", "version")
         .distinct("hog_function_id")
+        .only("hog_function_id", "content", "created_at")
     }
     return tuple(
         DestinationEligibility(
             hog_function_id=function.id,
             template_id=function.template_id,
-            hold_backs=_hold_backs(function, first_snapshots.get(function.id)),
+            hold_backs=_hold_backs(function, first_revisions.get(function.id)),
         )
         for function in functions
     )
@@ -82,9 +83,10 @@ def unbound_alert_destinations(
     )
 
 
-def _hold_backs(function: HogFunction, first_snapshot: dict[str, Any] | None) -> tuple[DestinationHoldBack, ...]:
+def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | None) -> tuple[DestinationHoldBack, ...]:
     template_id = function.template_id or ""
-    if template_id not in SPEC_BY_TEMPLATE_ID:
+    spec = SPEC_BY_TEMPLATE_ID.get(template_id)
+    if spec is None:
         return (DestinationHoldBack.UNRECOGNIZED_TEMPLATE,)
 
     found: list[DestinationHoldBack] = []
@@ -95,11 +97,18 @@ def _hold_backs(function: HogFunction, first_snapshot: dict[str, Any] | None) ->
     # A secret input is not in `inputs` or in a snapshot, so it is read where it is stored.
     if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "signing_secret"):
         found.append(DestinationHoldBack.WEBHOOK_SIGNING)
+    if any(_has_template(input_value(function.inputs or {}, key)) for key in spec.address_input_keys):
+        found.append(DestinationHoldBack.TEMPLATED_ADDRESS)
 
-    if first_snapshot is None:
-        if function.created_at < EDIT_TRACKING_STARTED and function.updated_at - function.created_at > RESAVED_AFTER:
-            found.append(DestinationHoldBack.UNTRACKED_EDIT)
+    # The first revision holds the config as it stood at the first tracked edit, so an earlier
+    # untracked save is already inside it and the snapshot is no stock baseline.
+    last_untracked_save = function.updated_at if first_revision is None else first_revision.created_at
+    if function.created_at < EDIT_TRACKING_STARTED and last_untracked_save - function.created_at > RESAVED_AFTER:
+        found.append(DestinationHoldBack.UNTRACKED_EDIT)
+    if first_revision is None:
         return tuple(found)
+
+    first_snapshot = first_revision.content
 
     if function.hog != first_snapshot.get("hog"):
         found.append(DestinationHoldBack.CODE)
@@ -135,8 +144,10 @@ def _input_hold_backs(
     return found
 
 
-def _has_template(headers: Any) -> bool:
-    return isinstance(headers, dict) and any(isinstance(value, str) and "{" in value for value in headers.values())
+def _has_template(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_has_template(item) for item in value.values())
+    return isinstance(value, str) and "{" in value
 
 
 def _without_derived(filters: Any) -> Any:

@@ -166,6 +166,21 @@ class TestDestinationEligibility(APIBaseTest):
 
         assert self._classify() == ((DestinationHoldBack.UNTRACKED_EDIT,) if held_back else ())
 
+    def test_a_templated_address_is_held_back(self) -> None:
+        self._function(
+            "template-webhook", _with(WEBHOOK_INPUTS, "url", "https://hooks.example.com/{event.properties.alert_id}")
+        )
+
+        assert self._classify() == (DestinationHoldBack.TEMPLATED_ADDRESS,)
+
+    def test_a_revision_taken_long_after_an_untracked_build_is_no_baseline(self) -> None:
+        function = self._function("template-slack", SLACK_INPUTS)
+        HogFunction.objects.filter(pk=function.pk).update(created_at=datetime(2026, 7, 1, tzinfo=UTC))
+        function.refresh_from_db()
+        self._edited(function, inputs=_with(SLACK_INPUTS, "channel", "C-2"))
+
+        assert self._classify() == (DestinationHoldBack.UNTRACKED_EDIT,)
+
     def test_a_signed_webhook_is_held_back(self) -> None:
         self._function(
             "template-webhook",
