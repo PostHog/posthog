@@ -107,7 +107,6 @@ describe('SupportEditor serialization and preview schema', () => {
         ['newlines', `<pre><code>${SQL}</code></pre>`],
         ['br per line', `<pre><code>${SQL_LINES.join('<br>')}</code></pre>`],
         ['div per line', `<pre>${SQL_LINES.map((line) => `<div>${line}</div>`).join('')}</pre>`],
-        // The browser's DOM when it inserts lines into the block without a paste event, which the editor re-reads.
         ['code element per line', `<pre>${SQL_LINES.map((line) => `<code>${line}</code>`).join('')}</pre>`],
         [
             'div per line with highlight spans',

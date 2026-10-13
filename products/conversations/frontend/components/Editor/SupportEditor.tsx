@@ -136,8 +136,7 @@ const SupportCodeBlockExtension = CodeBlockLowlight.extend({
             },
         ]
     },
-    // Re-read a changed code block from its DOM with the parse rule above, so lines the browser
-    // inserted as copies of <code> stay in the block.
+    // The browser can insert lines as copies of <code>, so re-read the whole block with the rule above.
     extendNodeSchema(extension) {
         return extension.name === this.name ? { reparseInView: true } : {}
     },
