@@ -44,6 +44,7 @@ export function ReplayVisionScannerOption(): JSX.Element {
         // the projection once participant sessions exist. Priced at the model
         // experimentScannerBody pins, so this matches the scanner the save path creates.
         sessionPrice: formatCredits(OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL]),
+        experimentScanners: !!featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER],
     }
 
     const option =

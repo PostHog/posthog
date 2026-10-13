@@ -11,6 +11,7 @@ const meta: Meta<typeof ReplayVisionScannerCard> = {
     args: {
         onChange: () => {},
         sessionPrice: formatCredits(OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL]),
+        experimentScanners: false,
     },
 }
 export default meta
