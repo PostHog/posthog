@@ -77,8 +77,8 @@ describe('insight error states', () => {
         },
         {
             code: 'table_access_denied',
-            detail: "You don't have access to table `subscriptions`.",
-            expectedTitle: "You don't have access to table `subscriptions`.",
+            detail: "You don't have access to table `events`.",
+            expectedTitle: "You don't have access to table `events`.",
             expectedNextStep: 'Ask a project admin to grant you access to this table.',
             aiDebug: false,
             queryDebugger: false,
