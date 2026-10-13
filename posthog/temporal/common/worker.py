@@ -487,7 +487,7 @@ async def create_worker(
         min(max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS, settings.ASYNCIFY_MAX_WORKERS)
     )
 
-    poller_kwargs: dict[str, PollerBehaviorAutoscaling] = {}
+    poller_kwargs: dict[str, typing.Any] = {}
     activity_poller_behavior = build_poller_autoscaling(
         "activity",
         settings.TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN,
