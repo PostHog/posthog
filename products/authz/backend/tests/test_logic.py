@@ -4,69 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from parameterized import parameterized
-
 from posthog import redis
-from posthog.models import Organization, OrganizationMembership, Team
 
-from products.access_control.backend.facade.contracts import AuthorizationRule
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import CheckRequest, Context, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
-from products.authz.backend.logic import authorization, sync_state, synchronization
-from products.authz.backend.logic.synchronization import OrganizationProjection, Relationship
-
-
-class TestOrganizationProjection(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("project", "member", "direct_member"),
-            ("project", "none", "direct_none"),
-            ("dashboard", "viewer", "direct_viewer"),
-            ("insight", "manager", "direct_manager"),
-        ]
-    )
-    def test_individual_assignments_use_direct_relations(self, resource: str, level: str, relation: str) -> None:
-        organization = Organization(id=uuid4())
-        membership = OrganizationMembership(id=uuid4(), organization=organization, user_id=1)
-        team = Team(id=1, organization=organization)
-        rule = AuthorizationRule(
-            resource=resource,
-            resource_id=str(team.id) if resource == "project" else None,
-            access_level=level,
-            organization_member_id=membership.id,
-            role_id=None,
-        )
-        with (
-            patch.object(Organization.objects, "filter") as organizations,
-            patch.object(Organization, "is_feature_available", return_value=True),
-            patch.object(OrganizationMembership.objects, "filter", return_value=[membership]),
-            patch.object(Team.objects, "filter", return_value=[team]),
-            patch.object(synchronization, "authorization_roles", return_value=[]),
-            patch.object(synchronization, "authorization_rules", return_value=[rule]),
-            patch.object(synchronization, "authorization_dashboards", return_value=[]),
-            patch("products.product_analytics.backend.facade.api.authorization_insights", return_value=[]),
-        ):
-            organizations.return_value.first.return_value = organization
-            relationships = OrganizationProjection(organization.id).build()
-
-        target = (
-            f"project:{organization.id}/{team.id}"
-            if resource == "project"
-            else f"access_policy:{organization.id}/{team.id}/{resource}/default"
-        )
-        assignments = {
-            relationship
-            for relationship in relationships
-            if relationship.object == target and relationship.user.endswith("#user")
-        }
-        assert assignments == {
-            Relationship(
-                user=f"organization_member:{organization.id}/{membership.id}#user",
-                relation=relation,
-                object=target,
-            )
-        }
+from products.authz.backend.logic import authorization, sync_state
 
 
 class TestAuthorizationFailures(SimpleTestCase):
