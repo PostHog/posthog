@@ -933,3 +933,43 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
         ids = {r["resource_id"] for r in response.json()["results"]}
         assert str(visible.id) in ids
         assert str(restricted.id) not in ids
+
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_substitution_needs_read_access_to_the_destination_object(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Source dashboard")
+        insight = Insight.objects.create(team=self.team, name="Source insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        restricted = Insight.objects.create(team=self.dest_team, name="Restricted insight", created_by=self.user)
+        AccessControl.objects.create(
+            team=self.dest_team, resource="insight", resource_id=str(restricted.id), access_level="none"
+        )
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=self.dest_team,
+            resource_kind="Insight",
+            resource_id=str(insight.pk),
+            duplicated_resource_id=str(restricted.pk),
+        )
+        payload = {
+            "source_team_id": self.team.pk,
+            "destination_team_id": self.dest_team.pk,
+            "resource_kind": "Dashboard",
+            "resource_id": str(dashboard.pk),
+        }
+        substitution = {
+            "source_resource_kind": "Insight",
+            "source_resource_id": str(insight.pk),
+            "destination_resource_kind": "Insight",
+            "destination_resource_id": str(restricted.pk),
+        }
+
+        self.client.force_login(self.other_user)
+        preview = self.client.post(self._preview_url(), payload)
+        transfer = self.client.post(self._transfer_url(), {**payload, "substitutions": [substitution]}, format="json")
+
+        assert preview.status_code == status.HTTP_200_OK, preview.json()
+        assert all("suggested_substitution" not in resource for resource in preview.json()["resources"])
+        assert transfer.status_code == status.HTTP_403_FORBIDDEN, transfer.json()
+        assert not Dashboard.objects.filter(team=self.dest_team).exists()

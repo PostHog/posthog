@@ -1254,7 +1254,30 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
 
+        self._require_viewer_access_to_added_actions(value)
         return value
+
+    def _require_viewer_access_to_added_actions(self, conditions: dict) -> None:
+        actions_condition = conditions.get("actions")
+        if not isinstance(actions_condition, dict) or not isinstance(self.context["request"].user, User):
+            return
+
+        action_ids = {value.get("id") for value in actions_condition.get("values") or [] if isinstance(value, dict)}
+        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
+        if self.instance is not None:
+            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+
+        user_access_control = self.context["view"].user_access_control
+        denied_ids = sorted(
+            action.id
+            for action in added_actions
+            if not user_access_control.check_access_level_for_object(action, "viewer")
+        )
+        if denied_ids:
+            raise serializers.ValidationError(
+                f"You don't have viewer access to action(s) {', '.join(map(str, denied_ids))}. "
+                "Remove them from the survey conditions, or ask for access."
+            )
 
     def validate_targeting_flag_filters(self, value):
         if value is None:

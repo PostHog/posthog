@@ -1,6 +1,7 @@
 import re
 import json
 import logging
+import contextlib
 from collections.abc import Iterable
 from typing import Any, Optional
 
@@ -19,7 +20,9 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
@@ -1096,6 +1099,43 @@ def _contains_behavioral_property(filters: dict) -> bool:
         for property_list in property_lists
         for prop in property_list
     )
+
+
+def _referenced_action_ids(value: Any) -> set[int]:
+    if isinstance(value, list):
+        return set().union(*(_referenced_action_ids(item) for item in value))
+    if not isinstance(value, dict):
+        return set()
+    action_ids = set().union(*(_referenced_action_ids(item) for item in value.values()))
+    if value.get("type") == "actions":
+        with contextlib.suppress(TypeError, ValueError):
+            action_ids.add(int(value.get("id")))
+    return action_ids
+
+
+def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: Any, stored: Any) -> None:
+    user = getattr(context.get("request"), "user", None)
+    # Synthetic principals (project secret API keys) and userless system writes bypass access control.
+    if not isinstance(user, User):
+        return
+    added_ids = _referenced_action_ids(submitted) - _referenced_action_ids(stored)
+    if not added_ids:
+        return
+
+    team: Team = context["get_team"]()
+    user_access_control = getattr(context.get("view"), "user_access_control", None) or UserAccessControl(
+        user=user, team=team
+    )
+    denied_ids = sorted(
+        action.id
+        for action in Action.objects.filter(team__project_id=team.project_id, id__in=added_ids)
+        if not user_access_control.check_access_level_for_object(action, "viewer")
+    )
+    if denied_ids:
+        raise serializers.ValidationError(
+            f"You don't have viewer access to action(s) {', '.join(map(str, denied_ids))}. "
+            "Remove them from the filters, or ask for access."
+        )
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):

@@ -2,13 +2,16 @@
 
 Inline metrics (on the experiment) and saved/shared metrics (ExperimentSavedMetric.query) are the same
 metric types, so both write paths parse and validate through `parse_and_validate_metric` and check
-referenced actions through `validate_metric_action_ids`. Checks that need a user or that the caller can
-waive (team ownership, permissions, whether a referenced event exists) stay with the callers.
+referenced actions, including the caller's access to them, through `validate_metric_action_ids`. Other
+checks that need a user or that the caller can waive (team ownership, permissions, whether a referenced
+event exists) stay with the callers.
 """
+
+from typing import Any
 
 import pydantic
 import structlog
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
     Breakdown,
@@ -19,6 +22,10 @@ from posthog.schema import (
     ExperimentRetentionMetric,
 )
 
+from posthog.models.team.team import Team
+from posthog.models.user import User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
@@ -216,9 +223,10 @@ def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]
 
 
 def validate_metric_action_ids(
-    metrics: list[dict] | None, team_id: int, *, known_action_ids: set[int] | None = None
+    metrics: list[dict] | None, team: Team, *, user: Any, known_action_ids: set[int] | None = None
 ) -> None:
-    """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
+    """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team,
+    and that ``user`` has viewer access to each of them.
 
     Actions are explicitly created entities with stable IDs, so a reference to a
     nonexistent action is almost certainly a mistake, so we raise a hard validation error.
@@ -234,17 +242,24 @@ def validate_metric_action_ids(
     if not action_ids:
         return
 
-    existing_ids = set(
-        Action.objects.filter(
-            id__in=action_ids,
-            team_id=team_id,
-            deleted=False,
-        ).values_list("id", flat=True)
-    )
-    missing = action_ids - existing_ids
+    actions = list(Action.objects.filter(id__in=action_ids, team_id=team.id, deleted=False))
+    missing = action_ids - {action.id for action in actions}
     if missing:
         missing_str = ", ".join(str(aid) for aid in sorted(missing))
         raise ValidationError(
             f"Action(s) with ID {missing_str} not found or deleted. "
             "Each ActionsNode must reference an existing action belonging to this project."
+        )
+
+    # Synthetic principals (project secret API keys) and userless system writes bypass access control.
+    if not isinstance(user, User):
+        return
+    user_access_control = UserAccessControl(user=user, team=team)
+    denied = sorted(
+        action.id for action in actions if not user_access_control.check_access_level_for_object(action, "viewer")
+    )
+    if denied:
+        raise PermissionDenied(
+            f"You don't have viewer access to action(s) {', '.join(map(str, denied))}. "
+            "Remove them from the metric, or ask for access."
         )

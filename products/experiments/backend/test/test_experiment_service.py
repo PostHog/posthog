@@ -6811,6 +6811,26 @@ class TestExperimentService(APIBaseTest):
 
         assert "999999" in str(ctx.exception.detail)
 
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_metric_action_needs_viewer_access_unless_already_referenced(self):
+        action = Action.objects.create(team=self.team, name="restricted action", created_by=self.user)
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        metric = {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+        experiment = self._service().create_experiment(
+            name="Restricted Action", feature_flag_key="restricted-action-flag", metrics=[metric]
+        )
+        member_service = ExperimentService(team=self.team, user=self._create_user("experiment-member@example.com"))
+
+        with self.assertRaises(PermissionDenied):
+            member_service.create_experiment(
+                name="Member Restricted Action", feature_flag_key="member-restricted-action-flag", metrics=[metric]
+            )
+        updated = member_service.update_experiment(experiment, {"metrics": [metric], "metrics_secondary": []})
+
+        assert updated.metrics is not None and len(updated.metrics) == 1
+
     def test_funnel_metric_with_empty_series_raises(self):
         # The experiment exposure event is prepended as step_0 at query time, so an
         # empty series would produce a degenerate single-step funnel with no conversion event.
