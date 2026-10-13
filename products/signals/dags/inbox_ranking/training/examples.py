@@ -225,6 +225,9 @@ class HeadExamples:
     window_start: datetime.date | None
     # True when the row budget dropped at least one older day.
     cap_bound: bool
+    # Snapshot pairs dropped because one side lacks a label column the head reads. A high count
+    # with few positives means the labels partitions predate the current schema.
+    pairs_skipped_missing_label_columns: int
 
     def window(self) -> dict[str, object]:
         return {
@@ -247,6 +250,22 @@ def build_head_examples(
         examples=_with_features(kept, snapshots, feature_set, extras),
         window_start=days.min().date() if len(days) else None,
         cap_bound=len(kept) < len(moments),
+        pairs_skipped_missing_label_columns=pairs_missing_label_columns(snapshots, head),
+    )
+
+
+def _label_columns_readable(now: Snapshot, later: Snapshot, head: Head) -> bool:
+    return all(column in now.labels and column in later.labels for column in head.label_columns)
+
+
+def pairs_missing_label_columns(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> int:
+    """The (snapshot, `horizon_days`-later snapshot) pairs `example_moments` skips for a missing
+    label column."""
+    return sum(
+        1
+        for date, now in snapshots.items()
+        if (later := snapshots.get(date + datetime.timedelta(days=head.horizon_days))) is not None
+        and not _label_columns_readable(now, later, head)
     )
 
 
@@ -271,7 +290,7 @@ def example_moments(
         # only in the later snapshot (a column that entered the schema mid-window) would pass the
         # "not yet observed at now" guard below and mint an outcome from before `now` as a future
         # positive. Skip the pair when the head's label cannot be read from both snapshots.
-        if any(column not in now.labels or column not in later.labels for column in head.label_columns):
+        if not _label_columns_readable(now, later, head):
             continue
         ids = now.state.index.intersection(now.labels.index).intersection(later.labels.index)
         if len(ids) == 0:

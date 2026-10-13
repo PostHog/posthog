@@ -1,5 +1,7 @@
 module "property_definitions" {
-  source = "../lib/table_family"
+  source  = "../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "property_definitions"
   database = var.database
@@ -20,5 +22,5 @@ module "property_definitions" {
     { name = "last_seen_at", type = "DateTime" },
     { name = "version", type = "UInt64", materialized_expression = "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))" },
   ]
-  deployment = merge(var.deployment.global, try(var.deployment.families.property_definitions, {}))
+  deployment = merge(var.deployment.global, try(var.deployment.families.property_definitions, {}), { overrides = var.overrides })
 }

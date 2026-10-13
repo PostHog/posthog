@@ -425,6 +425,16 @@ class MySQLSource(
             # fails identically. Match the locale-independent error code (the trailing message
             # text is translated on non-English servers).
             "(3024,": "Your MySQL/MariaDB server's maximum statement execution time was exceeded while ordering this table by its incremental field (error 3024). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'max_execution_time', or switch this table to a full re-sync, then resync.",
+            # MariaDB error 1969 (ER_STATEMENT_TIMEOUT): MariaDB's own `max_statement_time` cap
+            # killed the `ORDER BY <incremental_field>` query before the filesort could finish —
+            # the same symptom as 3024 above, just MariaDB's variant of the setting. We already
+            # try to dodge the sort with the in-activity FORCE INDEX fallback (see
+            # `_is_bad_plan_error`); this only escapes once that fallback can't apply — no usable
+            # index on the incremental field. Both `max_statement_time` and the missing index are
+            # static server-side state, so every retry filesorts the same rows and fails
+            # identically. Match the locale-independent error code (the trailing message text is
+            # translated on non-English servers).
+            "(1969,": "Your MariaDB server's maximum statement execution time was exceeded while ordering this table by its incremental field (error 1969). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'max_statement_time', or switch this table to a full re-sync, then resync.",
             # MySQL/MariaDB error 2013 (lost connection during query) that escapes the in-activity
             # FORCE INDEX fallback because the incremental field has no usable index (see
             # `MySQLUnavoidableFilesortError` in mysql.py). The un-indexed full-table sort re-times-out
@@ -468,6 +478,16 @@ class MySQLSource(
             # branch never comes back, so every retry fails identically. Match the stable phrase,
             # excluding the volatile branch id that follows it.
             "branch is missing or sleeping": "The PlanetScale (or Vitess) branch this source connects to has been deleted or put to sleep. Wake it from the PlanetScale dashboard (or resolve any billing issue), or point this source at a database that exists, then resync.",
+            # MySQL/MariaDB error 3032 (ER_SERVER_OFFLINE_MODE): a DB admin put the server into
+            # offline mode (`SET GLOBAL offline_mode = ON`), typically to drain non-admin clients
+            # ahead of maintenance. An already-open connection is allowed to finish its current
+            # statement but gets this error on the next one — which is exactly the streaming read
+            # this source is mid-way through when it hits this. Only an admin with CONNECTION_ADMIN/
+            # SUPER can turn it back off, and every retry reconnects as the same non-admin user, so it
+            # fails identically until they do — the same "wait for an admin action" class as the
+            # locked-account (4151) and host-blocked (1129) entries above. Match the locale-independent
+            # error code (the message text is translated on non-English servers).
+            "(3032,": "Your MySQL/MariaDB server is in offline mode (error 3032), which a database admin turned on to block non-admin connections, usually ahead of maintenance. Ask your database admin to turn it back off ('SET GLOBAL offline_mode = OFF'), then retry the sync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -501,6 +521,12 @@ class MySQLSource(
             # the rare case where it exhausts that budget so Temporal's own activity retry
             # can recover it rather than surfacing it as error-tracking noise.
             "TiProxy fails to connect to TiDB",
+            # A TiDB-fronting gateway's own 1105 wording for the same "no backend reachable"
+            # condition as the TiProxy case above — it found zero TiDB instances to route to
+            # rather than failing to reach one it knew about. `_connect_with_transient_retry`
+            # already retries it in-process (see `_is_transient_no_available_tidb_instances` in
+            # mysql.py); this is the backstop for the rare case where it exhausts that budget.
+            "No available TiDB instances, please make sure TiDB is available",
             # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
             # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
             # swap during a failover, reparent, or health-check-triggered pool recycle) when the

@@ -51,7 +51,7 @@ class HuntrSource(ResumableSource[HuntrSourceConfig, HuntrResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Huntr organization access token to pull your Organization API data into the PostHog Data warehouse.
 
-You can generate an access token in your Huntr organization admin dashboard. The token grants read access to your members, advisors, candidates, jobs, job posts, employers, activities, and actions.
+You can generate an access token in your Huntr organization admin dashboard. The token grants read access to your members, advisors, candidates, jobs, job posts, employers, activities, actions, activity categories, tags, and candidate action metrics.
 """,
             iconPath="/static/services/huntr.png",
             docsUrl="https://posthog.com/docs/cdp/sources/huntr",

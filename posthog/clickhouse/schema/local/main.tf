@@ -8,7 +8,7 @@ terraform {
     clickhousedbops = {
       source = "PostHog/clickhousedbops"
       # Keep equal to provider-version.txt, which bin/clickhouse-schema downloads.
-      version = "0.5.1"
+      version = "0.5.4"
     }
   }
 
@@ -34,10 +34,3 @@ provider "clickhousedbops" {
   manage_dictionary_passwords = true
 }
 
-locals {
-  components = setunion(
-    ["storage", "read", "write"],
-    var.kafka ? ["ingest"] : [],
-    var.test ? ["test"] : [],
-  )
-}

@@ -110,6 +110,19 @@ describe('modelsSceneLogic', () => {
     ])('%s opens the %s tab', async (path, tab) => {
         await mount(path)
         expect(logic.values.activeTab).toEqual(tab)
+        expect(logic.values.lineageTabVisited).toBe(tab === 'lineage')
+    })
+
+    it('remembers that the lineage tab was visited after the user leaves it', async () => {
+        await mount('/models')
+        expect(logic.values.lineageTabVisited).toBe(false)
+
+        router.actions.push('/models?tab=lineage')
+        expect(logic.values.lineageTabVisited).toBe(true)
+
+        router.actions.push('/models')
+        expect(logic.values.activeTab).toEqual('overview')
+        expect(logic.values.lineageTabVisited).toBe(true)
     })
 
     it('opens the data quality tab once its flag is on', async () => {

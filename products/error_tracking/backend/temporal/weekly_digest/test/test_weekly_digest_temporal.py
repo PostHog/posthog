@@ -24,7 +24,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.messaging import MessagingRecord
 from posthog.models.utils import uuid7
 
-from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.facade.testing import create_access_control
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -294,8 +294,8 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        AccessControl.objects.create(
-            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        create_access_control(
+            team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
         )
 
         self.user.role_at_organization = "engineering"

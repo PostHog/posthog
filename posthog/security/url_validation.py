@@ -26,6 +26,8 @@ class PinnedUrlVerdict:
     pinned_ips: ResolvedIPs
 
 
+UNRESOLVED_HOST_REASON = "Could not resolve host"
+
 DNS_RESOLUTION_LIFETIME_SECONDS = 2.0
 DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS = 2.5
 DNS_RESOLUTION_MAX_WORKERS = 20
@@ -478,7 +480,7 @@ def _validate_url_with_ips(
 
     ips = resolve_host_ips(host) if resolved_ips_by_host is None else resolved_ips_by_host.get(host, empty)
     if not ips:
-        return _blocked("Could not resolve host", host=host)
+        return _blocked(UNRESOLVED_HOST_REASON, host=host)
     for ip in ips:
         if _is_internal_ip(ip):
             return _blocked(f"Disallowed target IP: {ip}", host=host, ip=str(ip))

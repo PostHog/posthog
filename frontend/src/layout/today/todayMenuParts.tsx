@@ -18,9 +18,15 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    ItemMenuItem,
+    ItemSeparator,
+    cn,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import { useTodaySheetMenu } from './todaySheetMenuContext'
+import { TodaySheetSub } from './TodaySheetSub'
 
 export interface TodayMenuItemProps {
     children: ReactNode
@@ -34,6 +40,7 @@ export interface TodayMenuItemProps {
 
 export interface TodayMenuSubProps {
     label: ReactNode
+    title: string
     dataAttr: string
     children: ReactNode
 }
@@ -96,12 +103,43 @@ export const CONTEXT_PARTS: TodayMenuParts = {
     ),
 }
 
+function SheetItem({ children, dataAttr, onClick, to, disabled, variant }: TodayMenuItemProps): JSX.Element {
+    const sheet = useTodaySheetMenu()
+    return (
+        <ItemMenuItem
+            className={cn(
+                'no-underline',
+                variant === 'destructive' ? 'text-destructive-foreground' : 'text-foreground'
+            )}
+            disabled={disabled}
+            onClick={() => {
+                onClick?.()
+                sheet?.close()
+            }}
+            {...(to ? { render: <LinkPrimitive to={to} /> } : {})}
+            data-attr={dataAttr}
+        >
+            {children}
+        </ItemMenuItem>
+    )
+}
+
+export const SHEET_PARTS: TodayMenuParts = {
+    Item: SheetItem,
+    Separator: () => <ItemSeparator className="my-1" />,
+    Shortcut: () => <></>,
+    Sub: ({ label, title, dataAttr, children }) => (
+        <TodaySheetSub label={label} title={title} dataAttr={dataAttr}>
+            {children}
+        </TodaySheetSub>
+    ),
+}
+
 /**
  * The parts for a hover card's action list. The card is not a menu, so its rows are plain buttons.
- * `onAction` closes the card after a choice. `onSubmenuOpenChange` reports "File to…", whose menu opens
- * outside the card, so the card stays open while the pointer is in it. Desktop drops the separators here.
+ * `onAction` closes the card after a choice. Desktop drops the separators here.
  */
-export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: boolean) => void): TodayMenuParts {
+export function cardMenuParts(onAction: () => void): TodayMenuParts {
     return {
         Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
             <Button
@@ -124,7 +162,6 @@ export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: 
         Sub: ({ label, dataAttr, children }) => (
             <DropdownMenu
                 onOpenChange={(open, details) => {
-                    onSubmenuOpenChange(open)
                     if (!open && details.reason === 'item-press') {
                         onAction()
                     }

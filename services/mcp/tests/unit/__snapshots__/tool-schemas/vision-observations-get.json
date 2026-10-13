@@ -53,6 +53,10 @@
             "description": "Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
             "type": "string"
         },
+        "variant": {
+            "description": "Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.",
+            "type": "string"
+        },
         "verdict": {
             "description": "Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
             "type": "string"

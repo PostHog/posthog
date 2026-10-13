@@ -36,6 +36,7 @@ import {
     errorTrackingIssueSceneLogic,
     errorTrackingIssueSceneLogicType,
 } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { ExternalIssueAssigneeField } from './ExternalIssueAssigneeField'
 import { appendStacktrace, getStacktrace } from './externalIssueBody'
 import { externalIssueSearchLogic } from './externalIssueSearchLogic'
 import { IncludeStacktraceField } from './IncludeStacktraceField'
@@ -262,6 +263,11 @@ function getSubmittedBody(
     )
 }
 
+function withAssignee(config: Record<string, string>, assignees: string[] | undefined): Record<string, string> {
+    const assignee = assignees?.[0]
+    return assignee ? { ...config, assignee } : config
+}
+
 function createGitHubIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
@@ -279,10 +285,12 @@ function createGitHubIssueForm(
             includeStacktrace: true,
             integrationId: integration.id,
             repositories: [],
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
                 <GitHubRepositorySelectField integrationId={integration.id} />
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="github" />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
@@ -297,11 +305,11 @@ function createGitHubIssueForm(
             repositories: (repositories) =>
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
-        onSubmit: ({ title, body, includeStacktrace, repositories }) => {
+        onSubmit: ({ title, body, includeStacktrace, repositories, assignees }) => {
             const submittedBody = getSubmittedBody(sceneLogic, body, includeStacktrace)
             onSubmit(
                 integration.id,
-                { repository: repositories[0], title, body: submittedBody },
+                withAssignee({ repository: repositories[0], title, body: submittedBody }, assignees),
                 submittedBody !== body
             )
         },
@@ -324,9 +332,11 @@ function createGitLabIssueForm(
             body: `**PostHog issue:** ${issueUrl}`,
             includeStacktrace: true,
             integrationId: integration.id,
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="gitlab" />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
@@ -339,9 +349,9 @@ function createGitLabIssueForm(
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
         },
-        onSubmit: ({ title, body, includeStacktrace }) => {
+        onSubmit: ({ title, body, includeStacktrace, assignees }) => {
             const submittedBody = getSubmittedBody(sceneLogic, body, includeStacktrace)
-            onSubmit(integration.id, { title, body: submittedBody }, submittedBody !== body)
+            onSubmit(integration.id, withAssignee({ title, body: submittedBody }, assignees), submittedBody !== body)
         },
     })
 }
@@ -363,10 +373,12 @@ function createLinearIssueForm(
             includeStacktrace: true,
             integrationId: integration.id,
             teamIds: [],
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
                 <LinearTeamSelectField integrationId={integration.id} />
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="linear" />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
@@ -380,11 +392,11 @@ function createLinearIssueForm(
             title: (title) => (!title ? 'You must enter a title' : undefined),
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
-        onSubmit: ({ title, description, includeStacktrace, teamIds }) => {
+        onSubmit: ({ title, description, includeStacktrace, teamIds, assignees }) => {
             const submittedDescription = getSubmittedBody(sceneLogic, description, includeStacktrace)
             onSubmit(
                 integration.id,
-                { team_id: teamIds[0], title, description: submittedDescription },
+                withAssignee({ team_id: teamIds[0], title, description: submittedDescription }, assignees),
                 submittedDescription !== description
             )
         },
@@ -408,10 +420,12 @@ function createJiraIssueForm(
             includeStacktrace: true,
             integrationId: integration.id,
             projectKeys: [],
+            assignees: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
                 <JiraProjectSelectField integrationId={integration.id} />
+                <ExternalIssueAssigneeField integrationId={integration.id} kind="jira" />
                 <LemonField name="title" label="Summary">
                     <LemonInput data-attr="jira-issue-title" placeholder="Issue summary" size="small" />
                 </LemonField>
@@ -426,11 +440,11 @@ function createJiraIssueForm(
             projectKeys: (projectKeys) =>
                 projectKeys && projectKeys.length === 0 ? 'You must choose a project' : undefined,
         },
-        onSubmit: ({ title, description, includeStacktrace, projectKeys }) => {
+        onSubmit: ({ title, description, includeStacktrace, projectKeys, assignees }) => {
             const submittedDescription = getSubmittedBody(sceneLogic, description, includeStacktrace)
             onSubmit(
                 integration.id,
-                { project_key: projectKeys[0], title, description: submittedDescription },
+                withAssignee({ project_key: projectKeys[0], title, description: submittedDescription }, assignees),
                 submittedDescription !== description
             )
         },

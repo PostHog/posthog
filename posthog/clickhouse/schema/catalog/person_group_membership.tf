@@ -1,15 +1,12 @@
 locals {
-  membership_deployment = merge(var.deployment.sharded, try(var.deployment.families.person_group_membership, {}))
-  # Ingestion reads the config proxy as the source of its dictionary.
-  membership_config_deployment = merge(local.membership_deployment, {
-    components = setunion(local.membership_deployment.components,
-    contains(local.membership_deployment.components, "write") ? ["read"] : [])
-  })
+  membership_deployment                 = merge(var.deployment.sharded, try(var.deployment.families.person_group_membership, {}), { overrides = var.overrides })
   membership_dictionary_password_clause = var.dictionary_password == "" ? "" : " PASSWORD '${var.dictionary_password}'"
 }
 
 module "person_group_membership" {
-  source = "../lib/table_family"
+  source  = "../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "person_group_membership"
   database = var.database
@@ -35,7 +32,9 @@ module "person_group_membership" {
 }
 
 module "person_group_membership_config" {
-  source = "../lib/table_family"
+  source  = "../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "person_group_membership_config"
   database = var.database
@@ -54,13 +53,14 @@ module "person_group_membership_config" {
   routing      = { read = true, write = false }
   names        = { read = "distributed_person_group_membership_config" }
   sharding_key = "sipHash64(team_id)"
-  deployment   = local.membership_config_deployment
+  deployment   = local.membership_deployment
 }
 
 module "person_group_membership_config_dict" {
   source = "../lib/dictionary"
+  node   = var.node
 
-  enabled     = contains(local.membership_deployment.components, "write") && !contains(try(local.membership_deployment.exclude, []), "person_group_membership_config_dict")
+  enabled     = contains(var.objects, "person_group_membership_config_dict")
   database    = var.database
   name        = "person_group_membership_config_dict"
   primary_key = ["team_id"]

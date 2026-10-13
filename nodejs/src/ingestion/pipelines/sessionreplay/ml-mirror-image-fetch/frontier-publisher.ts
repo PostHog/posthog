@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { mlKafkaRecord } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
@@ -80,7 +80,7 @@ export class FrontierPublisher {
     private readonly republishes: ConcurrencyController
 
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly options: FrontierPublisherOptions
     ) {
         this.delayTiers = [...options.delayTiers].sort((left, right) => left.delayMs - right.delayMs)
@@ -142,7 +142,7 @@ class BufferedRepublishBatch implements RepublishBatch {
     private flushed = false
 
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly frontierTopic: string,
         private readonly delayTiers: DelayTier[],
         private readonly republishes: ConcurrencyController,

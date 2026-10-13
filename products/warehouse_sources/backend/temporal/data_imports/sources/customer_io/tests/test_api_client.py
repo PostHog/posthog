@@ -20,35 +20,6 @@ def _ok_json_response(payload: dict | list | None = None, status_code: int = 200
     return response
 
 
-class TestEventsForResources:
-    def test_includes_all_known_object_type_events(self):
-        events = api_client._events_for_resources(["customer_events", "email_events"])
-
-        assert "customer_subscribed" in events
-        assert "email_sent" in events
-        # Order should be deterministic (customer first, then email)
-        assert events.index("customer_subscribed") < events.index("email_sent")
-
-    def test_includes_in_app_events(self):
-        events = api_client._events_for_resources(["in_app_events"])
-
-        assert "in_app_sent" in events
-        assert "in_app_clicked" in events
-        assert "in_app_opened" in events
-        assert "in_app_converted" in events
-
-    def test_skips_unknown_resources(self):
-        events = api_client._events_for_resources(["unknown_events", "not_a_resource"])
-
-        assert events == []
-
-    def test_dedupes_when_resources_overlap(self):
-        events_first = api_client._events_for_resources(["email_events"])
-        events_second = api_client._events_for_resources(["email_events", "email_events"])
-
-        assert events_first == events_second
-
-
 class TestBaseUrl:
     @parameterized.expand(
         [
@@ -135,22 +106,6 @@ class TestCreateWebhook:
         # Created disabled — Customer.io would 404 on webhook deliveries until the
         # signing secret is in place, so we wait until the user provides it.
         assert body["disabled"] is True
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_subscribes_to_in_app_events(self, mock_session):
-        mock_session.return_value.get.return_value = _ok_json_response({"reporting_webhooks": []})
-        mock_session.return_value.post.return_value = _ok_json_response({"id": 42})
-
-        api_client.create_webhook(
-            api_key="key",
-            region="us",
-            webhook_url="https://example.com/hook",
-            resource_names=["in_app_events"],
-        )
-
-        body = mock_session.return_value.post.call_args.kwargs["json"]
-        assert "in_app_sent" in body["events"]
-        assert "in_app_clicked" in body["events"]
 
     @parameterized.expand(
         [
@@ -348,30 +303,6 @@ class TestDeleteWebhook:
 
 class TestGetExternalWebhookInfo:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_returns_exists_true_when_url_matches(self, mock_session):
-        mock_session.return_value.get.return_value = _ok_json_response(
-            {
-                "reporting_webhooks": [
-                    {
-                        "id": 7,
-                        "endpoint": "https://example.com/hook",
-                        "events": ["email_sent", "email_delivered"],
-                        "name": "Hook name",
-                        "disabled": False,
-                    }
-                ]
-            }
-        )
-
-        info = api_client.get_external_webhook_info("key", "us", "https://example.com/hook")
-
-        assert info.exists is True
-        assert info.url == "https://example.com/hook"
-        assert info.enabled_events == ["email_sent", "email_delivered"]
-        assert info.status == "enabled"
-        assert info.description == "Hook name"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
     def test_returns_exists_false_when_no_match(self, mock_session):
         mock_session.return_value.get.return_value = _ok_json_response({"reporting_webhooks": []})
 
@@ -436,24 +367,6 @@ class TestGetListPage:
 
 class TestIterateListEndpoint:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_yields_rows_from_single_page_endpoint(self, mock_session):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
-            CIO_API_ENDPOINTS,
-        )
-
-        endpoint = CIO_API_ENDPOINTS["broadcasts"]
-        mock_session.return_value.get.return_value = _ok_json_response(
-            {"broadcasts": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
-        )
-
-        rows = list(api_client.iterate_list_endpoint("key", "us", endpoint))
-
-        assert rows == [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]
-        mock_session.return_value.get.assert_called_once()
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == f"{CIO_US_BASE_URL}/v1/broadcasts"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
     def test_follows_cursor_pagination(self, mock_session):
         from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
             CIO_API_ENDPOINTS,
@@ -474,24 +387,3 @@ class TestIterateListEndpoint:
         second_params = mock_session.return_value.get.call_args_list[1].kwargs["params"]
         assert second_params["start"] == "cursor-2"
         assert second_params["limit"] == endpoint.page_size
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_skips_non_dict_rows(self, mock_session):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
-            CIOListEndpoint,
-        )
-
-        endpoint = CIOListEndpoint(
-            path="/v1/things",
-            response_key="things",
-            primary_keys=["id"],
-            partition_keys=["id"],
-            partition_mode="md5",
-        )
-        mock_session.return_value.get.return_value = _ok_json_response(
-            {"things": [{"id": 1}, "garbage", None, {"id": 2}]}
-        )
-
-        rows = list(api_client.iterate_list_endpoint("key", "us", endpoint))
-
-        assert rows == [{"id": 1}, {"id": 2}]

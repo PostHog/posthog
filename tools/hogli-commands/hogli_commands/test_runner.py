@@ -38,7 +38,7 @@ def _is_test_file(path: str, rs_cfg_test: set[str] | None = None) -> bool:
     """
     name = PurePosixPath(path).name
     if path.endswith(".py"):
-        return name.startswith("test_") or (name.startswith("eval_") and path.startswith("ee/hogai/eval/"))
+        return name.startswith("test_")
     if path.endswith((".test.ts", ".test.tsx")):
         return True
     if path.endswith(".spec.ts") and path.startswith("playwright/"):
@@ -594,16 +594,7 @@ def detect_test_type(file_path: str) -> TestRunConfig:
             description="Playwright E2E test",
         )
 
-    # 2. Python eval tests (special pytest config)
-    if file_only.startswith("ee/hogai/eval/") and ext == ".py":
-        return TestRunConfig(
-            test_type="python-eval",
-            command=["pytest", "-c", "ee/hogai/eval/pytest.ini", "-s", file_path],
-            description="Python eval test (pytest with eval config)",
-            env=_python_env(),
-        )
-
-    # 3. Python tests
+    # 2. Python tests
     if ext == ".py" and any(file_only.startswith(root) for root in _PYTHON_ROOTS):
         return TestRunConfig(
             test_type="python",
@@ -612,15 +603,15 @@ def detect_test_type(file_path: str) -> TestRunConfig:
             env=_python_env(),
         )
 
-    # 4. Jest tests (*.test.ts, *.test.tsx) — finds nearest package.json to determine pnpm filter
+    # 3. Jest tests (*.test.ts, *.test.tsx) — finds nearest package.json to determine pnpm filter
     if file_only.endswith((".test.ts", ".test.tsx")):
         return _detect_jest_test(file_only, file_path, node_id)
 
-    # 5. Rust tests — finds nearest Cargo.toml; supports node IDs (path.rs::test_name)
+    # 4. Rust tests — finds nearest Cargo.toml; supports node IDs (path.rs::test_name)
     if ext == ".rs":
         return _detect_rust_test(file_only, node_id)
 
-    # 6. Go — any .go file or go.mod; finds nearest go.mod and runs from module root
+    # 5. Go — any .go file or go.mod; finds nearest go.mod and runs from module root
     if ext == ".go" or PurePosixPath(file_only).name == "go.mod":
         return _detect_go_test(file_only)
 
@@ -710,7 +701,7 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
         groups.setdefault(config.test_type, []).append((f, config))
 
     for test_type, entries in groups.items():
-        if test_type in ("python", "python-eval"):
+        if test_type == "python":
             # pytest can take multiple files at once
             cfg = entries[0][1]
             command = cfg.command[:-1] + [f for f, _ in entries]
@@ -777,7 +768,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
     resolved = _resolve_to_repo_relative(file_path)
     config = detect_test_type(resolved)
 
-    if config.test_type in ("python", "python-eval"):
+    if config.test_type == "python":
         # Use nodemon for Python, matching bin/tests behavior
         watch_dirs = ["./posthog", "./common/hogvm/python", "./ee", "./dags", "./products"]
 

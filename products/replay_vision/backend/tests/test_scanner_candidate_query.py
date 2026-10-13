@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 import time_machine
-from posthog.test.base import ClickhouseTestMixin, _create_event
+from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.schema import (
     EventPropertyFilter,
@@ -15,10 +15,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import User
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
@@ -864,3 +867,126 @@ class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
         # Newest-first, tie broken by descending session_id, every enumerated session exactly once.
         assert walked == ["sess-tied", "sess-0", "sess-1", "sess-2", "sess-3", "sess-4"]
+
+
+class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
+    def setup_method(self, _method) -> None:
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    def _exposed_session(self, team, distinct_id: str, variant: str, session_id: str) -> None:
+        settle_bound = _NOW - SETTLE_INTERVAL
+        create_person(team=team, distinct_ids=[distinct_id])
+        _create_event(
+            team=team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=_NOW - dt.timedelta(days=1),
+            properties={"$feature_flag": "balanced-flag", "$feature_flag_response": variant},
+        )
+        produce_replay_summary(
+            team_id=team.id,
+            session_id=session_id,
+            distinct_id=distinct_id,
+            first_timestamp=(settle_bound - dt.timedelta(minutes=20)).isoformat(),
+            last_timestamp=(settle_bound - dt.timedelta(minutes=10)).isoformat(),
+            active_milliseconds=30_000,
+        )
+
+    def _experiment(self, team, creator, *, variants=("control", "test")):
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="balanced-flag",
+            created_by=creator,
+            filters={
+                "multivariate": {
+                    "variants": [{"key": key, "rollout_percentage": 100 // len(variants)} for key in variants]
+                }
+            },
+        )
+        return Experiment.objects.create(
+            team=team,
+            name="balanced",
+            feature_flag=flag,
+            created_by=creator,
+            start_date=_NOW - dt.timedelta(days=7),
+            exposure_criteria={},
+        )
+
+    @pytest.mark.django_db
+    def test_variant_exposure_counts_zero_fill_watched_variants(self, team) -> None:
+        # The plan's shares come from these counts; a variant miscounted (or dropped instead of
+        # zero-filled) plans the budget against the wrong population.
+        from products.replay_vision.backend.queries.variant_sampling import _variant_exposure_counts
+
+        creator = User.objects.create_and_join(team.organization, "counts@posthog.com", "testtest")
+        experiment = self._experiment(team, creator, variants=("control", "test", "beta"))
+        self._exposed_session(team, "counts-control-a", "control", "counts-session-a")
+        self._exposed_session(team, "counts-control-b", "control", "counts-session-b")
+        self._exposed_session(team, "counts-test", "test", "counts-session-c")
+        flush_persons_and_events()
+
+        counts = _variant_exposure_counts(
+            team, experiment_id=experiment.id, selected=None, user=creator, scanner_id="scanner-1"
+        )
+
+        assert counts == {"control": 2.0, "test": 1.0, "beta": 0.0}
+        # Exposure counts are experiment data; without a principal to authorize they stay uncounted
+        # and the tick falls back to plain sampling.
+        assert (
+            _variant_exposure_counts(team, experiment_id=experiment.id, selected=None, user=None, scanner_id=None)
+            is None
+        )
+
+    @pytest.mark.django_db
+    def test_per_variant_rates_gate_candidates_by_attributed_variant(self, team) -> None:
+        # Per-variant thresholds must select by each session's attributed variant, not by one
+        # scanner-wide rate: a broken join projection or multiIf would sample both arms alike.
+        creator = User.objects.create_and_join(team.organization, "balanced@posthog.com", "testtest")
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="balanced-flag",
+            created_by=creator,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=team,
+            name="balanced",
+            feature_flag=flag,
+            created_by=creator,
+            start_date=_NOW - dt.timedelta(days=7),
+            exposure_criteria={},
+        )
+        self._exposed_session(team, "control-user", "control", "control-session")
+        self._exposed_session(team, "test-user", "test", "test-session")
+        flush_persons_and_events()
+
+        def run(rates: dict[str, float] | None):
+            query = RecordingsQuery.model_validate(
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
+            )
+            return ScannerCandidateQuery(
+                team=team,
+                query=query,
+                user=creator,
+                last_swept_at=_NOW - dt.timedelta(days=2),
+                sampling_rate=1.0,
+                sampling_salt="scanner-1",
+                variant_sampling_rates=rates,
+            ).run()
+
+        # Control run: without rates the exposure join keeps both arms.
+        assert {c.session_id for c in run(None)} == {"control-session", "test-session"}
+        # Rate 0 vs 1 is deterministic whatever the hash: only the fully sampled arm survives.
+        assert {c.session_id for c in run({"control": 0.0, "test": 1.0})} == {"test-session"}

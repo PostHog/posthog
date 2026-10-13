@@ -184,6 +184,15 @@ def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedI
     )
 
 
+def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
+    """Whether the user may view the insight, which can live in any environment of the team's project."""
+    insight = Insight.objects.filter(pk=insight_id, team__project_id=team.project_id, deleted=False).first()
+    if insight is None:
+        return False
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    return access_control.check_access_level_for_object(insight, "viewer")
+
+
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:

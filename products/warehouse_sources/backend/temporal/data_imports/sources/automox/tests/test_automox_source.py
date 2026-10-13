@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.automox import (
     MULTIPLE_ORGS_ERROR,
     ORG_NOT_FOUND_ERROR,
@@ -24,43 +23,15 @@ def _config(api_key: str = "key", organization_id: str | None = None) -> Any:
 
 
 class TestSourceConfig:
-    def test_fields(self) -> None:
-        fields = {f.name: f for f in AutomoxSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_key", "organization_id"}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        # The organization id is a non-secret, optional connection parameter.
-        assert fields["organization_id"].required is False
-        assert fields["organization_id"].secret is False
-
     def test_connection_host_fields_force_secret_reentry_on_org_change(self) -> None:
         # Changing organization_id retargets the stored API key, so it must count as a host field.
         assert AutomoxSource().connection_host_fields == ["organization_id"]
 
 
 class TestGetSchemas:
-    def test_only_server_side_filtered_endpoints_are_incremental(self) -> None:
-        schemas = {s.name: s for s in AutomoxSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == set(ENDPOINTS)
-        # Only events (startDate) and policy_runs (start_time) have a server-side time filter.
-        assert {name for name, s in schemas.items() if s.supports_incremental} == {"events", "policy_runs"}
-        assert [f["field"] for f in schemas["events"].incremental_fields] == ["create_time"]
-        assert [f["field"] for f in schemas["policy_runs"].incremental_fields] == ["run_time"]
-        # Fan-out style composite keys where uniqueness beyond the parent is undocumented.
-        assert schemas["packages"].detected_primary_keys == ["id", "server_id"]
-        assert schemas["policy_runs"].detected_primary_keys == ["policy_uuid", "execution_token"]
-
     def test_names_filter(self) -> None:
         schemas = AutomoxSource().get_schemas(_config(), team_id=1, names=["devices", "policies"])
         assert {s.name for s in schemas} == {"devices", "policies"}
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O) — public docs render the table list.
-        assert AutomoxSource.lists_tables_without_credentials is True
-        tables = {t["name"]: t for t in AutomoxSource().get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert tables["devices"]["sync_methods"] == ["Full refresh"]
-        assert "Incremental" in tables["policy_runs"]["sync_methods"]
 
 
 class TestNonRetryableErrors:

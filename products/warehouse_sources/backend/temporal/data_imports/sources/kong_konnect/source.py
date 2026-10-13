@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kongkonnect import (
     KongKonnectSourceConfig,
@@ -28,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konne
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.settings import (
     DEFAULT_REGION,
+    DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     REGION_BASE_URLS,
@@ -59,7 +63,7 @@ class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kong Inc. (Kong Konnect)",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs into the PostHog Data warehouse.
+            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, and identity realm consumers behind them, into the PostHog Data warehouse.
 
 Create a **Personal Access Token** under **Konnect → Personal access tokens**, or a **System Account access token** for a service identity. Either is sent as a bearer token.
 
@@ -115,7 +119,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized": "Your Kong Konnect access token is invalid or has expired. Create a new token in Konnect and reconnect.",
-            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read Advanced Analytics. Grant analytics access to the token or account and reconnect.",
+            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read this data. Grant the token or account read access to the Konnect area this table comes from (Advanced Analytics, control planes, API Products, Service Catalog, or Consumers), then reconnect.",
         }
 
     def get_schemas(
@@ -127,24 +131,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            has_incremental = INCREMENTAL_FIELDS.get(endpoint) is not None
-            return SourceSchema(
-                name=endpoint,
-                # Request logs are append-only time-series; incremental sync advances an absolute
-                # `request_start` window each run.
-                supports_incremental=has_incremental,
-                supports_append=has_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Detailed records for every request proxied through the gateway (Advanced Analytics). "
-                "Historical depth on initial sync is limited by your Konnect plan's data retention.",
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=DESCRIPTIONS)
 
     def validate_credentials(
         self,

@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, cast
 
 import structlog
+from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -36,6 +37,7 @@ from products.marketing_analytics.backend.services.native_integrations import (
     NATIVE_TO_KEY,
     NativeIntegration,
     display_name_for_key,
+    get_enabled_native_integrations,
 )
 
 logger = structlog.get_logger(__name__)
@@ -112,6 +114,8 @@ async def get_marketing_diagnostic(
     include_conversion_goals: bool = True,
     attribution_lookback_days: int = 7,
     user: User | None = None,
+    cache_source_scan: bool = False,
+    refresh_source_scan: bool = False,
 ) -> MarketingDiagnosticResponse:
     """Fetch all per-domain signals in parallel and combine into a unified view.
 
@@ -128,6 +132,8 @@ async def get_marketing_diagnostic(
             source_type=source_type,
             lookback_days=attribution_lookback_days,
             custom_source_mappings=custom_source_mappings,
+            cache_scan=cache_source_scan,
+            refresh_scan=refresh_source_scan,
         ),
     ]
     if include_conversion_goals:
@@ -157,7 +163,12 @@ async def get_marketing_diagnostic(
         else:
             goals = cast(ConversionGoalsListResponse, goals_result)
 
-    integrations = _build_integration_diagnostics(data_source, attribution)
+    enabled_integrations = await sync_to_async(get_enabled_native_integrations, thread_sensitive=False)(team)
+    integrations = [
+        integration
+        for integration in _build_integration_diagnostics(data_source, attribution)
+        if integration.source_type in enabled_integrations
+    ]
     overall = _compute_overall_status(integrations)
     summary = _build_summary(integrations, overall, goals)
     top_actions = _global_recommended_actions(integrations, goals)

@@ -9,6 +9,9 @@ import { urls } from 'scenes/urls'
 
 import type { Experiment } from '~/types'
 
+import { healthFindingForExperimentWarning } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentWarning } from '../experimentLogic'
 
@@ -51,9 +54,15 @@ function WarningDetail({
         case 'running_but_single_variant_shipped':
             return (
                 <>
-                    Variant <strong>"{warning.variantKey}"</strong> is rolled out to 100% of users. The experiment is
-                    not comparing variants. End the experiment with a conclusion, or adjust the variant distribution in{' '}
-                    {flagLink} to resume proper A/B testing.
+                    {warning.variantKey ? (
+                        <>
+                            Variant <strong>"{warning.variantKey}"</strong> is
+                        </>
+                    ) : (
+                        'One variant is'
+                    )}{' '}
+                    rolled out to 100% of users. The experiment is not comparing variants. End the experiment with a
+                    conclusion, or adjust the variant distribution in {flagLink} to resume proper A/B testing.
                 </>
             )
         case 'running_but_no_rollout':
@@ -84,6 +93,9 @@ function WarningDetail({
 
 export function ExperimentWarningBanner(): JSX.Element | null {
     const { experimentWarning, experiment } = useValues(experimentLogic)
+    const { reportActedOn } = useHealthFindingReporting(
+        experimentWarning ? healthFindingForExperimentWarning(experimentWarning.key) : null
+    )
 
     useEffect(() => {
         if (experimentWarning) {
@@ -96,7 +108,11 @@ export function ExperimentWarningBanner(): JSX.Element | null {
     }
 
     const flagLink = experiment.feature_flag ? (
-        <Link target="_blank" to={urls.featureFlag(experiment.feature_flag.id)}>
+        <Link
+            target="_blank"
+            to={urls.featureFlag(experiment.feature_flag.id)}
+            onClick={() => reportActedOn('open_feature_flag')}
+        >
             {experiment.feature_flag.key}
         </Link>
     ) : null

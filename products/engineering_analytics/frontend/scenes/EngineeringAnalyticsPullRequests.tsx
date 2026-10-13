@@ -6,6 +6,7 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { DeliveryPipeline } from '../components/DeliveryPipeline'
 import { RepoEntityHeader } from '../components/EntityHeader'
+import { PullRequestJumpInput } from '../components/PullRequestJumpInput'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
@@ -85,7 +86,10 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
+                <PullRequestJumpInput />
+            </div>
 
             {/* The panel is the scope. Everything below it is the current open backlog, not windowed. */}
             <ScopePanel busy={timingLoading || doraLoading}>

@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from rest_framework.exceptions import APIException
+
 from posthog.models import Team
 
 
@@ -74,6 +76,16 @@ class BaseAction(ABC):
         return base_context
 
     @classmethod
+    def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Return ChangeRequest filters that identify the target of a change request with no resource id.
+
+        Every such change request stores resource_id as NULL, so without these filters the
+        duplicate check matches every other one for the same action.
+        """
+        return {}
+
+    @classmethod
     @abstractmethod
     def detect(cls, request, view, *args, **kwargs) -> bool:
         """
@@ -91,6 +103,29 @@ class BaseAction(ABC):
         For CREATE actions: Return full payload
         """
         pass
+
+    @classmethod
+    def derive_owner_kind(
+        cls,
+        team,
+        resource_id: Optional[str],
+        intent_data: dict[str, Any],
+    ) -> Optional[str]:
+        """Classify which product owns the resource this change targets.
+
+        Called once when the change request is created and again before it applies, so the two
+        answers can be compared. Return None to opt out: the classification is then not recorded
+        and the apply path has nothing to compare.
+        """
+        return None
+
+    @classmethod
+    def refuse_change_request(cls, request, intent_data: dict[str, Any]) -> Optional[APIException]:
+        """Return an error that refuses the write instead of opening a change request, or None.
+
+        Called only when a policy requires approval for the change.
+        """
+        return None
 
     @classmethod
     def check_staleness(

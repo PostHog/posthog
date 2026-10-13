@@ -11,15 +11,18 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
+SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -402,6 +405,112 @@ class TestRemoteConfig(_RemoteConfigBase):
             result = self.remote_config._build_site_apps_js()
 
         assert result == []
+
+    @parameterized.expand([("no_default", {}), ("top_level_default", {"default": "abc"})])
+    def test_site_functions_keep_publishing_when_the_secret_is_encrypted(
+        self, _name: str, default: dict[str, str]
+    ) -> None:
+        # `move_secret_inputs` leaves the value in `encrypted_inputs`, which the transpiler never
+        # reads, so the function has to stay published.
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            inputs_schema=[{"key": "token", "type": "string", "secret": True, **default}],
+            inputs={"token": {"value": "example-private-browser-value"}},
+        )
+        assert (function.inputs or {}) == {}
+        assert (function.encrypted_inputs or {})["token"]["value"] == "example-private-browser-value"
+
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
+        assert "example-private-browser-value" not in result
+
+    @parameterized.expand(
+        [
+            ("mapping", True, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+            ("mapping_default", True, {"inputs": {}, "default": "example-private-browser-value"}),
+            ("mapping_null_input", True, {"inputs": {"token": None}, "default": "example-private-browser-value"}),
+            ("legacy_plaintext_inputs", False, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
+        ]
+    )
+    def test_site_functions_are_not_published_while_a_secret_sits_in_plaintext(
+        self, _name: str, in_mapping: bool, stored: dict
+    ) -> None:
+        schema = {"key": "token", "type": "string", "secret": True}
+        if "default" in stored:
+            schema["default"] = stored["default"]
+        config = {"inputs_schema": [schema], "inputs": stored["inputs"]}
+        unsafe = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            **({"mappings": [config]} if in_mapping else config),
+        )
+        if not in_mapping:
+            # A row saved before secret inputs were encrypted keeps the value in `inputs`, which
+            # `save()` would otherwise move out of the way.
+            HogFunction.objects.filter(id=unsafe.id).update(inputs=config["inputs"], encrypted_inputs=None)
+            unsafe.refresh_from_db()
+        safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True, hog=SITE_HOG)
+
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(unsafe.id) not in result
+        assert str(safe.id) in result
+        assert "example-private-browser-value" not in result
+
+    @parameterized.expand(
+        [
+            (
+                "disabled_mapping",
+                {
+                    "disabled": True,
+                    "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                    "inputs": {"token": {"value": "example-private-browser-value"}},
+                },
+            ),
+            (
+                "null_input_with_a_non_secret_last_schema",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"},
+                        {"key": "label", "type": "string", "default": "shown"},
+                    ],
+                    "inputs": {"token": {"value": None}, "label": None},
+                },
+            ),
+            (
+                "null_input_after_a_mapping_with_a_secret_default",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"}
+                    ],
+                    "inputs": {"token": {"value": None}},
+                },
+                {"inputs_schema": [], "inputs": {"label": None}},
+            ),
+        ]
+    )
+    def test_site_functions_publish_when_no_secret_reaches_the_browser(self, _name: str, *mappings: dict) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            mappings=list(mappings),
+        )
+
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
+        assert "example-private-browser-value" not in result
 
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):

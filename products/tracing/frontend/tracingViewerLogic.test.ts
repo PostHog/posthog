@@ -38,16 +38,17 @@ describe('tracingViewerLogic', () => {
     })
 
     // The prefetch decision drives whether opening a trace refetches it by id: a partial
-    // prefetch batch is the trace's complete span set (no fetch), while a cold link (zero
-    // loaded spans) or a possibly-truncated full batch must fetch. Getting this wrong either
-    // refetches every drawer open or shows truncated waterfalls on cold links.
+    // prefetch batch with its root is the trace's complete span set (no fetch), while a cold link
+    // (zero loaded spans), an orphan batch (no root span), or a possibly-truncated full batch must
+    // fetch. Getting this wrong either refetches every drawer open or shows truncated waterfalls.
     it.each([
-        ['no loaded spans (cold link)', 0, true],
-        ['a partial prefetch batch', 2, false],
-        ['a possibly-truncated full batch', PREFETCH_SPANS, true],
-    ])('openTrace with %s %s', (_name, spanCount, shouldFetch) => {
+        ['no loaded spans (cold link)', 0, true, true],
+        ['a partial prefetch batch', 2, true, false],
+        ['a partial prefetch batch with no root span (orphan)', 2, false, true],
+        ['a possibly-truncated full batch', PREFETCH_SPANS, true, true],
+    ])('openTrace with %s', (_name, spanCount, hasRoot, shouldFetch) => {
         const spans = Array.from({ length: spanCount }, (_, i) =>
-            makeSpan({ uuid: `span-${i}`, span_id: `span-${i}`, trace_id: 'trace-x' })
+            makeSpan({ uuid: `span-${i}`, span_id: `span-${i}`, trace_id: 'trace-x', is_root_span: hasRoot && i === 0 })
         )
         tracingDataLogic().actions.fetchSpansSuccess(spans)
 

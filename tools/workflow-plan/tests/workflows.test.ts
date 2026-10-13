@@ -1,9 +1,12 @@
 // These tests check the workflows under .github/workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
-import { readdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { evaluateValue, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -342,13 +345,6 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     backend(
-        { name: 'hourly schedule', github: schedule() },
-        {
-            runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
-            skipped: ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
-        }
-    ),
-    backend(
         { name: 'ready PR, superseded and cancelled', cancelled: true },
         {
             results: { django_tests: 'cancelled' },
@@ -482,16 +478,16 @@ const E2E_DISPATCH: Scenario = {
 }
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    {
+        file: 'ci-frontend.yml',
+        job: 'changes',
+        step: 'filter',
+        scenario: { name: 'hourly schedule', github: schedule() },
+        runs: false,
+    },
     ...PINNED_WORKFLOWS.flatMap((file) => [
         { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
         { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-        {
-            file,
-            job: 'changes',
-            step: 'filter',
-            scenario: { name: 'hourly schedule', github: schedule() },
-            runs: false,
-        },
         { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
         {
             file,
@@ -536,29 +532,81 @@ describe('.github/workflows run plans', () => {
             },
         })
         expect(plan.errors).toEqual([])
-        const steps = plan.jobs['update-sandbox-agent-version'].steps
+        const steps = plan.jobs['update-sandbox-agent-version']?.steps ?? []
         expect(steps.find((step) => step.id === 'commit')?.runs).toBe(action === 'bump')
         expect(steps.find((step) => step.id === 'enqueue')?.runs).toBe(enqueue)
         expect(steps.find((step) => step.id === 'nightly-smoke')?.runs).toBe(nightly)
     })
 
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
-        const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
+        const testStep = workflow('ci-phrocs.yml').jobs.test?.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
     })
 
-    it('Backend CI runs once every hour and keeps the events_json leg on one of its crons', () => {
-        const backend = workflow('ci-backend.yml')
-        const crons = (backend.on as { schedule: { cron: string }[] }).schedule.map((entry) => entry.cron)
-        const cronHours = (field: string): number[] =>
-            field.startsWith('*/')
-                ? [...Array(24).keys()].filter((hour) => hour % Number(field.slice(2)) === 0)
-                : field.split(',').map(Number)
+    it('Backend CI runs once every hour, on Depot CI only', () => {
+        const crons = (file: string): string[] =>
+            ((loadWorkflow(path.join(REPO_ROOT, file)).on as { schedule?: { cron: string }[] }).schedule ?? []).map(
+                (entry) => entry.cron
+            )
 
-        expect(crons).toContain(backend.env?.EVENTS_JSON_SCHEDULE)
-        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1])).sort((a, b) => a - b)).toEqual([
-            ...Array(24).keys(),
+        expect(crons('.depot/workflows/ci-backend.yml')).toEqual([
+            '23 */3 * * *',
+            '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *',
         ])
+        expect(crons('.github/workflows/ci-backend.yml')).toEqual([])
+    })
+
+    it.each(['refs/heads/master', ''])('the hourly Depot run keeps master coverage with ref %j', (ref) => {
+        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const plan = planWorkflow(depot, {
+            name: 'hourly schedule',
+            github: { ...schedule(), ref },
+            steps: {
+                ...allFiltersChanged(depot),
+                ...backendSelectors,
+                'wait-for-handoff': { handoff: { outputs: { handed_off: 'true' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const running = new Set(runningJobs(plan))
+        const perCommit = ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types']
+        expect({
+            didNotRun: ['changes', 'turbo-tests', 'django', 'django_tests', 'report-test-timings'].filter(
+                (id) => !running.has(id)
+            ),
+            didNotSkip: perCommit.filter((id) => plan.jobs[id]?.result !== 'skipped'),
+            filterRuns: plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs,
+            productTimings: plan.jobs['turbo-tests']?.steps.find((step) => step.name === 'Upload timing data')?.runs,
+        }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false, productTimings: true })
+    })
+
+    it('the scheduled Depot hand-off succeeds without a GitHub receipt', () => {
+        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const script = depot.jobs['wait-for-handoff']?.steps?.find((step) => step.id === 'handoff')?.run
+        expect(script).toBeTypeOf('string')
+        const directory = mkdtempSync(path.join(os.tmpdir(), 'depot-handoff-'))
+        const output = path.join(directory, 'output')
+        try {
+            const result = spawnSync('/bin/bash', ['-c', String(script)], {
+                env: { EVENT: 'schedule', IS_FORK: 'false', GITHUB_OUTPUT: output },
+                encoding: 'utf8',
+            })
+            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
+            expect(readFileSync(output, 'utf8')).toContain('handed_off=true')
+        } finally {
+            rmSync(directory, { recursive: true, force: true })
+        }
+    })
+
+    it.each([
+        ['23 */3 * * *', true],
+        ['23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *', false],
+    ])('the events_json leg follows the scheduled trigger %s', (cron, runs) => {
+        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
+        const github = { ...schedule(), event: { schedule: cron } }
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(evaluateValue(step?.env?.RUN_JSON_TARGETS, { github }, functions)).toBe(runs)
     })
 
     it.each([
@@ -577,7 +625,7 @@ describe('.github/workflows run plans', () => {
             },
         })
         expect(plan.errors).toEqual([])
-        expect(plan.jobs['code-quality'].steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+        expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
     it.each(['success', 'failure'] as const)(
@@ -597,8 +645,8 @@ describe('.github/workflows run plans', () => {
                 },
             })
             expect(plan.errors).toEqual([])
-            expect(plan.jobs.build.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
-            expect(plan.jobs.build.result).toBe(outcome)
+            expect(plan.jobs.build?.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
+            expect(plan.jobs.build?.result).toBe(outcome)
         }
     )
 

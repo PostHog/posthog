@@ -65,6 +65,10 @@ class RepositoryCacheStateSerializer(serializers.Serializer):
         choices=RepositoryCacheStatus.choices,
         help_text="ready means the file list was cached recently. warming means a refresh was just queued.",
     )
+    description = serializers.CharField(
+        allow_blank=True,
+        help_text="GitHub description for this repository. Empty when GitHub has none or the cache has not loaded it.",
+    )
 
 
 class RepositorySearchResponseSerializer(serializers.Serializer):

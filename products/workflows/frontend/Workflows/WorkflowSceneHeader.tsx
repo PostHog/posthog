@@ -30,6 +30,7 @@ import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
+import { parseWorkflowTriggerPrefill, TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const {
@@ -63,6 +64,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isCreatedFromTemplate = props.id === 'new' && !!templateId
+    const isCreatedFromLink = props.id === 'new' && !!parseWorkflowTriggerPrefill(searchParams[TRIGGER_PREFILL_PARAM])
     const isManualWorkflow = ['manual', 'batch'].includes(workflow?.trigger?.type || '')
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
@@ -335,7 +337,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         disabledReason={
                                             workflowHasErrors
                                                 ? 'Some fields still need work'
-                                                : isCreatedFromTemplate
+                                                : isCreatedFromTemplate || isCreatedFromLink
                                                   ? undefined
                                                   : hasUnsavedChanges
                                                     ? undefined

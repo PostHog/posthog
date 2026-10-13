@@ -91,14 +91,8 @@ class AppStoreConnectEndpointConfig:
     # the DAILY/SUMMARY combination of each report type.
     report_version: str = ""
     report_frequency: str = "DAILY"
-    # Apple 404s a SALES report request for a date with no data. Subscription-family report types
-    # (SUBSCRIPTION, SUBSCRIPTION_EVENT) instead 400 with a misleading "Invalid vendor number
-    # specified" error for that same condition — a longstanding, publicly reported Apple API quirk,
-    # usually not an actual credentials problem. A tolerated 400 is not swallowed blindly:
-    # `_fetch_report` reads the body, so a genuinely malformed request (wrong version or sub type)
-    # still fails loudly instead of reading as a quiet account. Apple words that same 400 for a
-    # vendor number it doesn't know, so a sales-report check separates the two before the misleading
-    # wording is tolerated across the whole lookback.
+    # Apple sometimes returns a misleading 400 instead of 404 for an empty report day. Endpoints that
+    # exhibit this quirk tolerate 400; `_fetch_report` classifies the response body before swallowing it.
     missing_report_status_codes: tuple[int, ...] = (404,)
 
 
@@ -214,6 +208,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
+        missing_report_status_codes=(404, 400),
     ),
     # Daily active subscription counts by state and territory.
     "subscription_reports": AppStoreConnectEndpointConfig(

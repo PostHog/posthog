@@ -30,7 +30,8 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.signals.backend.system_one_prompts import (
-    DEFAULT_SYSTEM_ONE_MODEL,
+    JEEVES_MODEL,
+    JEVK_MODEL,
     SystemOnePrompt,
     model_experiment_prompt,
 )
@@ -56,7 +57,7 @@ JEV_BUDGET = Budget(burst=2, per_hour=3600)
 JEV_TEAM_BUDGET = Budget(burst=1, per_hour=1800)
 SHADOW_MODEL_FLAG = "signals-system-one-shadow-model"
 SHADOW_MODEL_FLAG_TIMEOUT_SECONDS = 1.0
-SHADOW_MODELS = {"jevk": DEFAULT_SYSTEM_ONE_MODEL, "jeeves": "posthog/hogference/jeeves-0.1"}
+SHADOW_MODELS = {"jevk": JEVK_MODEL, "jeeves": JEEVES_MODEL}
 
 SAFETY_CATEGORIES = {
     "none": "No matching safety category",
@@ -138,7 +139,7 @@ class _ShadowModelExperiment:
 
 
 async def _shadow_model_experiment(team_id: int, trace_id: str, prompt: SystemOnePrompt) -> _ShadowModelExperiment:
-    if prompt.source != "managed" or prompt.model != DEFAULT_SYSTEM_ONE_MODEL:
+    if prompt.source != "managed" or prompt.model != JEVK_MODEL:
         return _ShadowModelExperiment(prompt=prompt)
     try:
         async with asyncio.timeout(SHADOW_MODEL_FLAG_TIMEOUT_SECONDS):

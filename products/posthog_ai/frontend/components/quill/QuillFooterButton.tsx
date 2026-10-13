@@ -1,9 +1,12 @@
+import { useValues } from 'kea'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { IconCheck, IconCopy } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 /**
  * Icon affordance for message and turn footers. Stays muted whether idle or active: the icon carries
@@ -22,6 +25,7 @@ export function QuillFooterButton({
     dataAttr?: string
     children: ReactNode
 }): JSX.Element {
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
     return (
         <Tooltip>
             <TooltipTrigger
@@ -29,7 +33,7 @@ export function QuillFooterButton({
                 render={
                     <Button
                         variant="default"
-                        size="icon-xs"
+                        size={todayRailEnabled && phoneLayout ? 'icon-sm' : 'icon-xs'}
                         aria-label={label}
                         onClick={onClick}
                         data-attr={dataAttr}

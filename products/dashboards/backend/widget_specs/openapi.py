@@ -6,11 +6,30 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
-from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
+from products.dashboards.backend.constants import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_GROUP_KEY_LENGTH,
+    MAX_GROUP_TITLE_LENGTH,
+)
 from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
+from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
 from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TYPES, WIDGET_SPECS
+
+GROUP_TITLES_HELP_TEXT = (
+    "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. "
+    "A write replaces the whole map. Send an empty object or null to remove all group titles."
+)
+GROUP_KEY_HELP_TEXT = (
+    "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. "
+    "Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+)
+BADGE_HELP_TEXT = (
+    "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. "
+    "cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. "
+    "More than one tile in a group can have the winner badge."
+)
 
 WIDGET_BATCH_ADD_OPENAPI_HELP = (
     "Widget tiles to add atomically. Supported widget_type values: "
@@ -291,6 +310,27 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
             "that do not overlap, and include every tile you move in the same request."
         ),
     )
+    show_description = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether to show the tile's description underneath its title on the dashboard. Works for every "
+            "tile type. The description itself is unaffected and still comes from the tile's insight, text, "
+            "or widget content — this only toggles whether it renders on the dashboard."
+        ),
+    )
+    group_key = serializers.CharField(
+        max_length=MAX_GROUP_KEY_LENGTH,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=GROUP_KEY_HELP_TEXT,
+    )
+    badge = serializers.ChoiceField(
+        choices=DashboardTileBadge.choices,
+        required=False,
+        allow_null=True,
+        help_text=BADGE_HELP_TEXT,
+    )
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
@@ -396,10 +436,13 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="ID of the color theme used for chart visualizations.",
     )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
-    restriction_level = serializers.ChoiceField(
-        choices=RestrictionLevel.choices,
+    restriction_level = serializers.IntegerField(
+        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
         required=False,
-        help_text="Who can edit this dashboard.",
+        help_text=(
+            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
+        ),
     )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
@@ -419,6 +462,12 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
             "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
+    )
+    group_titles = serializers.DictField(
+        child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
+        required=False,
+        allow_null=True,
+        help_text=GROUP_TITLES_HELP_TEXT,
     )
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,
