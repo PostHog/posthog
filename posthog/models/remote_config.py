@@ -357,10 +357,10 @@ class RemoteConfig(UUIDTModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.cdp.site_functions import get_transpiled_function
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.site_functions import exposed_secret_input_keys, get_transpiled_function
 
         # Add in the site apps as an array of objects
         site_apps_js = []
@@ -382,10 +382,12 @@ class RemoteConfig(UUIDTModel):
                     deleted=False,
                     type__in=("site_destination", "site_app"),
                 )
-                .only("id", "team_id", "inputs", "hog", "filters", "mappings")
+                .only("id", "team_id", "inputs", "inputs_schema", "hog", "filters", "mappings")
             )
 
             for site_function in site_functions:
+                if exposed_secret_input_keys(site_function):
+                    continue
                 try:
                     source = get_transpiled_function(site_function)
                     # NOTE: It is an object as we can later add other properties such as a consent ID

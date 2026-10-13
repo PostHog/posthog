@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -22,6 +22,13 @@ _VERSION_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
+# - "version": keyset over the record `version` (`after=<version>`), the X-Series default.
+# - "after_cursor": `after=<page_info.last_seen>`, for endpoints whose records carry no version.
+# - "before_id": `before=<id of the last item>`, newest to oldest.
+# - "single_page": the endpoint takes no page cursor and returns the full list.
+Pagination = Literal["version", "after_cursor", "before_id", "single_page"]
+
+
 @dataclass(frozen=True)
 class LightspeedRetailEndpointConfig:
     name: str
@@ -34,6 +41,13 @@ class LightspeedRetailEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
     page_size: int = PAGE_SIZE
     default_incremental_field: Optional[str] = None
+    pagination: Pagination = "version"
+    data_selector: str = "data"
+    sort_mode: Literal["asc", "desc"] = "asc"
+    # Emits one row per entry of this nested list, tagged with the parent record's id under
+    # `nested_parent_key`, instead of one row per record.
+    nested_rows_field: Optional[str] = None
+    nested_parent_key: Optional[str] = None
 
 
 LIGHTSPEED_RETAIL_ENDPOINTS: dict[str, LightspeedRetailEndpointConfig] = {
@@ -101,6 +115,59 @@ LIGHTSPEED_RETAIL_ENDPOINTS: dict[str, LightspeedRetailEndpointConfig] = {
     "payment_types": LightspeedRetailEndpointConfig(
         name="payment_types",
         path="/payment_types",
+    ),
+    "product_categories": LightspeedRetailEndpointConfig(
+        name="product_categories",
+        path="/product_categories",
+        incremental_fields=[],
+        pagination="after_cursor",
+        data_selector="data.categories",
+    ),
+    "stock_adjustments": LightspeedRetailEndpointConfig(
+        name="stock_adjustments",
+        path="/stock_adjustments",
+        partition_key="created_at",
+    ),
+    "promotions": LightspeedRetailEndpointConfig(
+        name="promotions",
+        path="/promotions",
+        incremental_fields=[],
+        # `page_size` is the only paging param and caps the list, so it is not sent.
+        pagination="single_page",
+    ),
+    "promo_codes": LightspeedRetailEndpointConfig(
+        name="promo_codes",
+        path="/promotions/{promotion_id}/promocodes",
+        primary_key=["promotion_id", "id"],
+        incremental_fields=[],
+        partition_key="created_at",
+        pagination="single_page",
+        fanout=DependentEndpointConfig(
+            parent_name="promotions",
+            resolve_param="promotion_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "promotion_id"},
+        ),
+    ),
+    "gift_cards": LightspeedRetailEndpointConfig(
+        name="gift_cards",
+        path="/gift_cards",
+        incremental_fields=[],
+        partition_key="created_at",
+        pagination="before_id",
+        sort_mode="desc",
+    ),
+    "gift_card_transactions": LightspeedRetailEndpointConfig(
+        name="gift_card_transactions",
+        path="/gift_cards",
+        primary_key=["gift_card_id", "id"],
+        incremental_fields=[],
+        partition_key="created_at",
+        pagination="before_id",
+        sort_mode="desc",
+        nested_rows_field="gift_card_transactions",
+        nested_parent_key="gift_card_id",
     ),
 }
 

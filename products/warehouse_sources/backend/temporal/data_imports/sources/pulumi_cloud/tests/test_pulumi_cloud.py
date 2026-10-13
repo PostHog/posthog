@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -6,6 +7,17 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pulumicloud import (
+    PulumiCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud import pulumi_cloud
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.pulumi_cloud import (
     AUDIT_LOGS_LOOKBACK_SECONDS,
@@ -14,48 +26,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_clo
     PulumiCloudResumeConfig,
     _as_unix_seconds,
     _flatten_update,
-    get_rows,
-    pulumi_cloud_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.settings import (
     PULUMI_CLOUD_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.source import PulumiCloudSource
 
-
-class _FakeResumableManager:
-    def __init__(self, state: PulumiCloudResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[PulumiCloudResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> PulumiCloudResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: PulumiCloudResumeConfig) -> None:
-        self.saved.append(data)
+STACKS_PATH = "/api/user/stacks"
 
 
 def _run_rows(
     endpoint: str,
-    fake_fetch: Any,
-    manager: _FakeResumableManager,
-    **incremental: Any,
-) -> list[dict]:
-    rows: list[dict] = []
-    with patch.object(pulumi_cloud, "_fetch", fake_fetch):
-        for page in get_rows(
-            access_token="pul-test",
-            organization="my-org",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            **incremental,
-        ):
-            rows.extend(page)
-    return rows
+    script: Any,
+    resume_state: PulumiCloudResumeConfig | None = None,
+    **inputs: Any,
+) -> DriveResult:
+    driver = SourceDriver(PulumiCloudSource(), PulumiCloudSourceConfig(access_token="pul-test", organization="my-org"))
+    result = driver.run(endpoint, script, resume_state=resume_state, **inputs)
+    assert result.raised is None
+    return result
+
+
+def _json(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 def _stack_summary(project: str, stack: str) -> dict[str, Any]:
@@ -82,25 +76,28 @@ class TestAsUnixSeconds:
 
 class TestStacks:
     def test_pagination_follows_continuation_token_and_saves_state_after_yield(self) -> None:
-        pages = {
-            None: {"stacks": [_stack_summary("proj", "dev")], "continuationToken": "tok-2"},
-            "tok-2": {"stacks": [_stack_summary("proj", "prod")]},
-        }
-        seen_tokens: list[str | None] = []
+        result = _run_rows(
+            "stacks",
+            [
+                _json({"stacks": [_stack_summary("proj", "dev")], "continuationToken": "tok-2"}),
+                _json({"stacks": [_stack_summary("proj", "prod")]}),
+            ],
+        )
 
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            token = (params or {}).get("continuationToken")
-            seen_tokens.append(token)
-            return pages[token]
-
-        manager = _FakeResumableManager()
-        rows = _run_rows("stacks", fake_fetch, manager)
-
-        assert seen_tokens == [None, "tok-2"]
-        assert [r["stackName"] for r in rows] == ["dev", "prod"]
+        assert result.params("continuationToken") == [None, "tok-2"]
+        assert [r["stackName"] for r in result.rows] == ["dev", "prod"]
         # State is saved after yielding a page, and only while more pages remain — so a crash
         # re-yields the last page (merge dedupes) instead of skipping it.
-        assert [s.next_token for s in manager.saved] == ["tok-2"]
+        assert [s.next_token for s in result.saved_states] == ["tok-2"]
+
+    def test_resume_starts_from_the_saved_token(self) -> None:
+        result = _run_rows(
+            "stacks",
+            [_json({"stacks": [_stack_summary("proj", "prod")]})],
+            resume_state=PulumiCloudResumeConfig(next_token="tok-2"),
+        )
+
+        assert result.params("continuationToken") == ["tok-2"]
 
 
 class TestFlattenUpdate:
@@ -161,29 +158,35 @@ class TestFlattenUpdate:
 
 
 class TestStackUpdates:
-    def _make_pages(self, start_times_per_page: list[list[int]]) -> Any:
+    def _make_pages(self, start_times_per_page: list[list[int]]) -> Callable[[RecordedRequest], ScriptedResponse]:
         stack_list = {"stacks": [_stack_summary("proj", "dev")]}
 
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            if url.endswith("/api/user/stacks"):
-                return stack_list
-            page = (params or {}).get("page", 1)
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == STACKS_PATH:
+                return _json(stack_list)
+            page = int(request.param("page") or 1)
             if page > len(start_times_per_page):
-                return {"updates": []}
-            return {
-                "updates": [
-                    {"updateID": f"u-{t}", "version": t, "info": {"startTime": t}}
-                    for t in start_times_per_page[page - 1]
-                ]
-            }
+                return _json({"updates": []})
+            return _json(
+                {
+                    "updates": [
+                        {"updateID": f"u-{t}", "version": t, "info": {"startTime": t}}
+                        for t in start_times_per_page[page - 1]
+                    ]
+                }
+            )
 
-        return fake_fetch
+        return respond
+
+    @staticmethod
+    def _update_pages(result: DriveResult) -> list[str | None]:
+        return [request.param("page") for request in result.requests if request.path != STACKS_PATH]
 
     def test_full_refresh_walks_pages_until_short_page(self) -> None:
         pages = [list(range(2 * PAGE_SIZE, PAGE_SIZE, -1)), list(range(PAGE_SIZE, PAGE_SIZE - 30, -1))]
-        rows = _run_rows("stack_updates", self._make_pages(pages), _FakeResumableManager())
-        assert len(rows) == PAGE_SIZE + 30
-        assert rows[0]["orgName"] == "my-org"
+        result = _run_rows("stack_updates", self._make_pages(pages))
+        assert len(result.rows) == PAGE_SIZE + 30
+        assert result.rows[0]["orgName"] == "my-org"
 
     def test_incremental_stops_once_a_page_predates_the_watermark(self) -> None:
         # Updates arrive newest-first with no server-side time filter; without the client-side stop
@@ -194,101 +197,91 @@ class TestStackUpdates:
         first_page = list(range(2050, 2050 - PAGE_SIZE, -1))  # full page reaching below 2000
         second_page = list(range(1950, 1850, -1))  # must never be fetched
 
-        fetched_pages: list[int] = []
-        inner = self._make_pages([first_page, second_page])
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            if not url.endswith("/api/user/stacks"):
-                fetched_pages.append((params or {}).get("page", 1))
-            return inner(session, url, headers, logger, params)
-
-        rows = _run_rows(
+        result = _run_rows(
             "stack_updates",
-            fake_fetch,
-            _FakeResumableManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=raw_watermark,
+            self._make_pages([first_page, second_page]),
             incremental_field="startTime",
+            db_incremental_field_last_value=raw_watermark,
         )
 
-        assert fetched_pages == [1]
-        assert [r["startTime"] for r in rows] == list(range(2050, effective_watermark - 1, -1))
+        assert self._update_pages(result) == ["1"]
+        assert [r["startTime"] for r in result.rows] == list(range(2050, effective_watermark - 1, -1))
 
     def test_incremental_stops_on_full_page_without_usable_start_times(self) -> None:
         # If the API ever returns a full page of updates with no usable startTime, the newest-first
         # stop signal is absent; pagination must bail instead of walking to the page cap. The rows on
         # that page are still yielded (kept) so an untimestamped update isn't silently dropped.
-        fetched_pages: list[int] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            if url.endswith("/api/user/stacks"):
-                return {"stacks": [_stack_summary("proj", "dev")]}
-            page = (params or {}).get("page", 1)
-            fetched_pages.append(page)
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == STACKS_PATH:
+                return _json({"stacks": [_stack_summary("proj", "dev")]})
+            page = int(request.param("page") or 1)
             # A full page (would otherwise trigger another fetch) with no startTime on any row.
-            return {"updates": [{"updateID": f"u-{page}-{i}", "version": i, "info": {}} for i in range(PAGE_SIZE)]}
+            return _json(
+                {"updates": [{"updateID": f"u-{page}-{i}", "version": i, "info": {}} for i in range(PAGE_SIZE)]}
+            )
 
-        rows = _run_rows(
+        result = _run_rows(
             "stack_updates",
-            fake_fetch,
-            _FakeResumableManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=5000,
+            respond,
             incremental_field="startTime",
+            db_incremental_field_last_value=5000,
         )
 
-        assert fetched_pages == [1]
-        assert len(rows) == PAGE_SIZE
+        assert self._update_pages(result) == ["1"]
+        assert len(result.rows) == PAGE_SIZE
 
     def test_fan_out_marks_stacks_completed_and_resume_skips_them(self) -> None:
         stacks = [_stack_summary("proj", "dev"), _stack_summary("proj", "prod")]
 
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            if url.endswith("/api/user/stacks"):
-                return {"stacks": stacks}
-            stack = url.split("/updates")[0].rsplit("/", 1)[-1]
-            return {"updates": [{"updateID": f"u-{stack}", "version": 1, "info": {"startTime": 1}}]}
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == STACKS_PATH:
+                return _json({"stacks": stacks})
+            stack = request.path.split("/updates")[0].rsplit("/", 1)[-1]
+            return _json({"updates": [{"updateID": f"u-{stack}", "version": 1, "info": {"startTime": 1}}]})
 
-        manager = _FakeResumableManager()
-        _run_rows("stack_updates", fake_fetch, manager)
+        result = _run_rows("stack_updates", respond)
         # Completed keys accumulate AFTER each stack's rows are yielded, so a crash mid-stack
         # re-processes that stack (merge dedupes) rather than skipping it.
-        assert [s.completed_stack_keys for s in manager.saved] == [
+        assert [s.completed_stack_keys for s in result.saved_states] == [
             ["my-org/proj/dev"],
             ["my-org/proj/dev", "my-org/proj/prod"],
         ]
 
-        resumed = _FakeResumableManager(PulumiCloudResumeConfig(completed_stack_keys=["my-org/proj/dev"]))
-        rows = _run_rows("stack_updates", fake_fetch, resumed)
-        assert [r["stackName"] for r in rows] == ["prod"]
+        resumed = _run_rows(
+            "stack_updates", respond, resume_state=PulumiCloudResumeConfig(completed_stack_keys=["my-org/proj/dev"])
+        )
+        assert [r["stackName"] for r in resumed.rows] == ["prod"]
 
 
 class TestDeployments:
     def test_paginates_until_short_page_and_saves_next_page_after_yield(self) -> None:
-        pages = {
-            1: {"deployments": [{"id": f"d{i}", "created": "2026-06-01T00:00:00Z"} for i in range(PAGE_SIZE)]},
-            2: {"deployments": [{"id": "last", "created": "2026-05-01T00:00:00Z"}]},
-        }
-        seen_pages: list[int] = []
+        result = _run_rows(
+            "deployments",
+            [
+                _json({"deployments": [{"id": f"d{i}", "created": "2026-06-01T00:00:00Z"} for i in range(PAGE_SIZE)]}),
+                _json({"deployments": [{"id": "last", "created": "2026-05-01T00:00:00Z"}]}),
+            ],
+        )
 
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            page = (params or {}).get("page", 1)
-            seen_pages.append(page)
-            return pages[page]
-
-        manager = _FakeResumableManager()
-        rows = _run_rows("deployments", fake_fetch, manager)
-
-        assert seen_pages == [1, 2]
-        assert len(rows) == PAGE_SIZE + 1
+        assert result.params("page") == ["1", "2"]
+        assert len(result.rows) == PAGE_SIZE + 1
         # Saved AFTER yielding page 1: a crash between yield and save re-fetches page 1 (merge
         # dedupes) instead of skipping it.
-        assert [s.page for s in manager.saved] == [2]
+        assert [s.page for s in result.saved_states] == [2]
+
+    def test_resume_starts_from_the_saved_page(self) -> None:
+        result = _run_rows(
+            "deployments",
+            [_json({"deployments": [{"id": "last"}]})],
+            resume_state=PulumiCloudResumeConfig(page=2),
+        )
+
+        assert result.params("page") == ["2"]
 
     def test_empty_first_page_yields_nothing(self) -> None:
         # Orgs without Pulumi Deployments get an empty listing, not an error.
-        rows = _run_rows("deployments", lambda *a, **k: {"deployments": []}, _FakeResumableManager())
-        assert rows == []
+        result = _run_rows("deployments", [_json({"deployments": []})])
+        assert result.rows == []
 
     def test_drops_environment_secrets_from_embedded_updates(self) -> None:
         # A deployment embeds the updates it ran, and each update's `environment` can hold cloud
@@ -305,94 +298,90 @@ class TestDeployments:
                 }
             ]
         }
-        rows = _run_rows("deployments", lambda *a, **k: page, _FakeResumableManager())
-        assert len(rows) == 1
-        updates = rows[0]["updates"]
+        result = _run_rows("deployments", [_json(page)])
+        assert len(result.rows) == 1
+        updates = result.rows[0]["updates"]
         assert all("environment" not in update for update in updates)
         assert [u["updateID"] for u in updates] == ["u1", "u2"]
 
 
 class TestAuditLogs:
-    def _pages_fetch(self, captured: list[dict]) -> Any:
-        pages = {
-            None: {"auditLogEvents": [{"timestamp": 100, "event": "stack.update"}], "continuationToken": "c-2"},
-            "c-2": {"auditLogEvents": [{"timestamp": 90, "event": "member.added"}]},
-        }
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            captured.append(dict(params or {}))
-            return pages[(params or {}).get("continuationToken")]
-
-        return fake_fetch
+    @staticmethod
+    def _pages() -> list[ScriptedResponse]:
+        return [
+            _json({"auditLogEvents": [{"timestamp": 100, "event": "stack.update"}], "continuationToken": "c-2"}),
+            _json({"auditLogEvents": [{"timestamp": 90, "event": "member.added"}]}),
+        ]
 
     def test_incremental_passes_server_side_start_time_lower_bound(self) -> None:
         # The v2 endpoint's startTime is the genuine server-side filter this table's incremental
         # support is built on; dropping it would re-pull the org's entire audit history every run.
-        captured: list[dict] = []
-        manager = _FakeResumableManager()
-        rows = _run_rows(
+        result = _run_rows(
             "audit_logs",
-            self._pages_fetch(captured),
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1750000000,
+            self._pages(),
             incremental_field="timestamp",
+            db_incremental_field_last_value=1750000000,
         )
 
         expected_start = 1750000000 - AUDIT_LOGS_LOOKBACK_SECONDS
-        assert all(p.get("startTime") == expected_start for p in captured)
-        assert captured[1]["continuationToken"] == "c-2"
-        assert [r["timestamp"] for r in rows] == [100, 90]
-        assert [s.next_token for s in manager.saved] == ["c-2"]
+        assert result.params("startTime") == [str(expected_start)] * 2
+        assert result.params("continuationToken")[1] == "c-2"
+        assert [r["timestamp"] for r in result.rows] == [100, 90]
+        assert [s.next_token for s in result.saved_states] == ["c-2"]
+
+    def test_a_full_refresh_run_sends_no_start_time_even_with_a_stale_watermark(self) -> None:
+        # Passing a stale watermark on a full-refresh run would wrongly narrow the audit-log window.
+        result = _run_rows("audit_logs", self._pages(), db_incremental_field_last_value=1750000000)
+
+        assert result.params("startTime") == [None, None]
 
 
 class TestResources:
     def test_cursor_advances_only_while_next_link_present(self) -> None:
         # The final page can still echo a cursor back; only the `next` link signals another page.
         # Following the echoed cursor would loop on the last page forever.
-        pages = {
-            None: {
-                "resources": [{"urn": "urn:1", "project": "p", "stack": "s"}],
-                "pagination": {"cursor": "cur-2", "next": "https://api.pulumi.com/next"},
-            },
-            "cur-2": {
-                "resources": [{"urn": "urn:2", "project": "p", "stack": "s"}],
-                "pagination": {"cursor": "cur-2"},
-            },
-        }
-        seen_cursors: list[str | None] = []
+        result = _run_rows(
+            "resources",
+            [
+                _json(
+                    {
+                        "resources": [{"urn": "urn:1", "project": "p", "stack": "s"}],
+                        "pagination": {"cursor": "cur-2", "next": "https://api.pulumi.com/next"},
+                    }
+                ),
+                _json(
+                    {
+                        "resources": [{"urn": "urn:2", "project": "p", "stack": "s"}],
+                        "pagination": {"cursor": "cur-2"},
+                    }
+                ),
+            ],
+        )
 
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            cursor = (params or {}).get("cursor")
-            seen_cursors.append(cursor)
-            return pages[cursor]
-
-        manager = _FakeResumableManager()
-        rows = _run_rows("resources", fake_fetch, manager)
-
-        assert seen_cursors == [None, "cur-2"]
-        assert [r["urn"] for r in rows] == ["urn:1", "urn:2"]
-        assert [s.next_token for s in manager.saved] == ["cur-2"]
+        assert result.params("cursor") == [None, "cur-2"]
+        assert [r["urn"] for r in result.rows] == ["urn:1", "urn:2"]
+        assert [s.next_token for s in result.saved_states] == ["cur-2"]
 
     def test_empty_page_terminates(self) -> None:
-        rows = _run_rows("resources", lambda *a, **k: {"resources": []}, _FakeResumableManager())
-        assert rows == []
+        result = _run_rows("resources", [_json({"resources": []})])
+        assert result.rows == []
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(pulumi_cloud, "make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             assert validate_credentials("pul-test") is expected
 
+        request = network.requests_log[0]
+        assert request.url == "https://api.pulumi.com/api/user"
+        assert request.headers["authorization"] == "token pul-test"
+        # Responses carry arbitrary infrastructure data, so sample capture is off and the token is redacted.
+        assert network.session_options[0]["capture"] is False
+        assert network.session_options[0]["redact_values"] == ("pul-test",)
+
     def test_network_error_is_not_valid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with patch.object(pulumi_cloud, "make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("pul-test") is False
 
 
@@ -440,13 +429,11 @@ class TestSourceResponse:
     def test_sort_mode_partition_and_primary_keys(
         self, endpoint: str, expected_sort: str, partition_key: str | None
     ) -> None:
-        response = pulumi_cloud_source(
-            access_token="pul-test",
-            organization="my-org",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        empty = _json({"stacks": [], "deployments": [], "auditLogEvents": [], "resources": []})
+
+        response = _run_rows(endpoint, always(empty)).response
+
+        assert response is not None
         assert response.sort_mode == expected_sort
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.primary_keys == PULUMI_CLOUD_ENDPOINTS[endpoint].primary_keys

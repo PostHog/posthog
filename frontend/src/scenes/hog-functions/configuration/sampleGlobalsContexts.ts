@@ -88,4 +88,29 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             },
         },
     }),
+    // The templates read these fields. An empty value renders an empty Slack block, and Slack rejects
+    // the whole message.
+    'data-warehouse-alerts': async (exampleGlobals) => ({
+        ...exampleGlobals,
+        event: {
+            ...exampleGlobals.event,
+            properties: {
+                source_id: '00000000-0000-4000-8000-000000000001',
+                source_type: 'Stripe',
+                source_prefix: 'stripe_',
+                schema_id: '00000000-0000-4000-8000-000000000002',
+                schema_name: 'charges',
+                job_id: '00000000-0000-4000-8000-000000000003',
+                status: 'Failed',
+                kind: 'job_failed',
+                error: 'This is a test alert from PostHog',
+                rows_synced: 1200,
+                paused: false,
+                failed_runs_in_a_row: 1,
+                source_url: 'https://example.com/data-warehouse/sources/00000000-0000-4000-8000-000000000001',
+                schema_url: 'https://example.com/data-warehouse/sources/00000000-0000-4000-8000-000000000001/charges',
+                finished_at: '2026-01-01T00:00:00.000Z',
+            },
+        },
+    }),
 }

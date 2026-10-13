@@ -1,5 +1,7 @@
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
+import type { SignalReportSuppressionSourceEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { SignalReportActionability, SignalReportStatus } from '../../types'
 
 /**
@@ -68,9 +70,20 @@ function inboxStatusBadgeType(status: SignalReportStatus): LemonTagType {
     }
 }
 
-export function SignalReportStatusBadge({ status }: { status: SignalReportStatus }): JSX.Element {
-    const label = STATUS_LABELS[status] ?? status
-    const tooltip = STATUS_TOOLTIPS[status] ?? status
+export function SignalReportStatusBadge({
+    status,
+    suppressionSource,
+}: {
+    status: SignalReportStatus
+    /** A suppressed report nobody dismissed reads as held back, not as dismissed. */
+    suppressionSource?: SignalReportSuppressionSourceEnumApi | null
+}): JSX.Element {
+    const heldBack =
+        status === SignalReportStatus.SUPPRESSED && !!suppressionSource && suppressionSource !== 'dismissed'
+    const label = heldBack ? 'Held back' : (STATUS_LABELS[status] ?? status)
+    const tooltip = heldBack
+        ? 'A safety or actionability check removed this report before anyone reviewed it.'
+        : (STATUS_TOOLTIPS[status] ?? status)
 
     return (
         <Tooltip title={tooltip}>

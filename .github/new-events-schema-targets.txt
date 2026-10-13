@@ -28,6 +28,7 @@ products/cohorts
 products/customer_analytics/backend/hogql_queries
 products/error_tracking/backend/hogql_queries
 products/experiments
+products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries
 products/marketing_analytics/backend/services/test_attribution_health.py
 products/marketing_analytics/backend/services/test_conversion_recordings.py

@@ -4,6 +4,7 @@ from typing import Any
 import structlog
 from temporalio import activity
 
+from posthog.egress.limiter.policies import Priority
 from posthog.temporal.ai.slack_app.helpers import safe_react
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -170,6 +171,8 @@ async def discover_posthog_code_repository_via_agent_activity(
                 user_id=user_id,
                 context=context_block,
                 origin_product=tasks_facade.TaskOriginProduct.SLACK,
+                # A person waits in the Slack thread for the answer.
+                priority=Priority.NORMAL,
                 on_research_session=_capture_research_session,
             )
     except RepoSelectionRejectedError as exc:

@@ -15,7 +15,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { DestinationsIncidentReplayBanner } from 'products/cdp/frontend/DestinationsIncidentReplayBanner'
 import { destinationsEmptyState } from 'products/cdp/frontend/emptyState/destinationsEmptyState'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
@@ -96,7 +95,6 @@ export function DestinationsScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <DestinationsIncidentReplayBanner />
             <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
         </SceneContent>
     )

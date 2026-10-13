@@ -11,6 +11,12 @@ from parameterized import parameterized
 
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome import (
     EPOCH_RFC_3339,
     MetronomeCursorPaginator,
@@ -37,6 +43,11 @@ TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.me
 
 # The instant every resolved window in these tests is measured against.
 NOW = datetime(2026, 9, 3, 12, 34, 56, tzinfo=UTC)
+
+
+def _driver(**config_values: Any) -> SourceDriver:
+    source = MetronomeSource()
+    return SourceDriver(source, source.parse_config({"api_key": "tok", **config_values}))
 
 
 def _response(body: dict[str, Any]) -> Mock:
@@ -494,17 +505,15 @@ class TestMetronomeSourceResponse:
         body = mock_parallel.call_args.args[2]
         assert body["starting_on"] == expected_start
 
-    @patch(f"{TRANSPORT}.rest_api_resource")
-    def test_resume_state_seeds_the_paginator_cursor(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MetronomeResumeConfig(next_page="cursor-9")
-
-        metronome_source(
-            api_key="tok", endpoint="customers", team_id=1, job_id="job-1", resumable_source_manager=manager
+    def test_resume_state_seeds_the_paginator_cursor(self) -> None:
+        result = _driver().run(
+            "customers",
+            [ScriptedResponse(json={"data": [{"id": "cust_1"}]})],
+            resume_state=MetronomeResumeConfig(next_page="cursor-9"),
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "cursor-9"}
+        assert result.raised is None
+        assert result.params("next_page") == ["cursor-9"]
 
     @parameterized.expand(
         [
@@ -523,7 +532,6 @@ class TestMetronomeSourceResponse:
             ("pre_window_checkpoint", MetronomeResumeConfig(parent_cursor="cursor-9"), None, None, True),
         ]
     )
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_resumed_usage_run_pins_the_window(
         self,
         _name,
@@ -531,47 +539,61 @@ class TestMetronomeSourceResponse:
         expected_window,
         expected_parent_cursor,
         expect_state_cleared,
-        mock_parallel,
     ) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = resume_state
+        result = _driver().run(
+            "usage",
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                ScriptedResponse(json={"data": [{"value": 1}]}),
+            ],
+            resume_state=resume_state,
+        )
 
-        metronome_source(
-            api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager
-        ).items()
-
-        body = mock_parallel.call_args.args[2]
+        assert result.raised is None
+        body = result.requests[1].json()
         if expected_window is not None:
             assert body["ending_before"] == expected_window
         else:
             assert body["ending_before"] > EPOCH_RFC_3339
-        assert mock_parallel.call_args.args[3].parent_cursor == expected_parent_cursor
-        assert manager.clear_state.called == expect_state_cleared
+        assert result.requests[0].param("next_page") == expected_parent_cursor
+        if expect_state_cleared:
+            empty_result = _driver().run(
+                "usage",
+                [ScriptedResponse(json={"data": []})],
+                resume_state=resume_state,
+            )
+            assert empty_result.raised is None
+            assert empty_result.final_state is None
+        else:
+            assert result.final_state is not None
 
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
-    def test_usage_checkpoint_saves_the_window_it_synced_with(self, mock_parallel) -> None:
+    def test_usage_checkpoint_saves_the_window_it_synced_with(self) -> None:
         # The cutoff written into the request body and the cutoff saved for a resume must be the
         # same instant, or a retry can't replay the identical window.
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        result = _driver().run(
+            "usage",
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                ScriptedResponse(json={"data": [{"value": 1}]}),
+            ],
+            resume_state=MetronomeResumeConfig(
+                parent_cursor="cursor-3",
+                ending_before="2026-09-04T00:00:00Z",
+                starting_on=EPOCH_RFC_3339,
+            ),
+        )
 
-        metronome_source(
-            api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager
-        ).items()
-
-        synced_body = mock_parallel.call_args.args[2]
-        stage_checkpoint = mock_parallel.call_args.args[4]
-        stage_checkpoint("cursor-3", ("c1",))
-
-        manager.save_state.assert_called_once_with(
+        assert result.raised is None
+        assert result.requests[0].param("next_page") == "cursor-3"
+        synced_body = result.requests[1].json()
+        assert result.saved_states == [
             MetronomeResumeConfig(
                 ending_before=synced_body["ending_before"],
                 starting_on=synced_body["starting_on"],
                 parent_cursor="cursor-3",
                 completed_customers=("c1",),
             )
-        )
+        ]
 
     @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_a_finished_customer_list_checkpoints_nothing(self, mock_parallel) -> None:
@@ -661,20 +683,22 @@ class TestMetronomeCredentials:
             (500, False, "Metronome API returned an unexpected status code: 500"),
         ]
     )
-    @patch(f"{TRANSPORT}.make_tracked_session")
-    def test_status_maps_to_message(self, status_code, expected_valid, expected_message, mock_session) -> None:
+    def test_status_maps_to_message(self, status_code, expected_valid, expected_message) -> None:
         # Metronome's own auth docs say a rejected token comes back as "a 401 or 403", so both
         # codes have to land on the same message.
-        mock_session.return_value.get.return_value = Mock(status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            result = validate_credentials("tok")
 
-        assert validate_credentials("tok") == (expected_valid, expected_message)
+        assert result == (expected_valid, expected_message)
+        assert {request.path for request in network.requests_log} == {"/v1/customers"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
+        assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer tok"}
 
-    @patch(f"{TRANSPORT}.make_tracked_session")
-    def test_unreachable_host_is_not_reported_as_a_bad_token(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+    def test_unreachable_host_is_not_reported_as_a_bad_token(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            valid, message = validate_credentials("tok")
 
-        valid, message = validate_credentials("tok")
-
+        assert {request.path for request in network.requests_log} == {"/v1/customers"}
         assert valid is False
         assert message == "Couldn't reach Metronome to validate the API token. Check your connection and try again."
 
@@ -720,22 +744,17 @@ class TestMetronomeSchemas:
 
         assert window == (timedelta(days=expected_days) if expected_days is not None else None)
 
-    @patch(f"{TRANSPORT}._parallel_usage_pages")
-    def test_a_depth_the_user_edits_reaches_the_request(self, mock_parallel) -> None:
+    def test_a_depth_the_user_edits_reaches_the_request(self) -> None:
         # The depth is a source setting the user can change after the first sync. Reading it per run
         # is what makes an edit take effect; recording it once left the edit saved and inert.
-        source = MetronomeSource()
-        config = source.parse_config({"api_key": "tok", "usage_daily_history_months": 3})
-        inputs = MagicMock(
-            schema_name="usage_daily",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-
         with time_machine.travel(NOW, tick=False):
-            source.source_for_pipeline(config, MagicMock(can_resume=lambda: False), inputs).items()
+            result = _driver(usage_daily_history_months=3).run(
+                "usage_daily",
+                [
+                    ScriptedResponse(json={"data": [{"id": "c1"}]}),
+                    ScriptedResponse(json={"data": [{"value": 1}]}),
+                ],
+            )
 
-        assert mock_parallel.call_args.args[2]["starting_on"] == "2026-06-04T00:00:00Z"
+        assert result.raised is None
+        assert result.requests[1].json()["starting_on"] == "2026-06-04T00:00:00Z"

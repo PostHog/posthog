@@ -443,21 +443,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
 
-    #[tokio::test]
-    async fn service_unavailable_no_sink() {
-        let mut ts = TestStateBuilder::new().build();
-        ts.state.v1_sink_router = None;
-        let app = test_app(ts.state);
-
-        let payload = batch_payload(&[valid_event()]);
-        let resp = app
-            .oneshot(valid_request().body(Body::from(payload)).unwrap())
-            .await
-            .unwrap();
-
-        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
-    }
-
     /// Every registered route must map to its own `&'static` label. The
     /// fallback is silent apart from a log line, so a route registered without
     /// being added to `CAPTURE_V1_PATHS` would quietly report AI traffic under

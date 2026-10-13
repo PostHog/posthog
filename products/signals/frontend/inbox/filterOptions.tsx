@@ -75,6 +75,7 @@ export interface InboxSortOption {
     field: InboxSortField
     direction: InboxSortDirection
     icon: JSX.Element
+    description?: string
 }
 
 export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
@@ -84,37 +85,71 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
     { label: 'Oldest first', field: 'created_at', direction: 'asc', icon: <IconClock /> },
 ]
 
-/** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
-export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = [
-    { label: 'Most likely to merge', field: 'ranking_pr_merged', direction: 'desc', icon: <IconBrain /> },
-    { label: 'Most likely to get a PR', field: 'ranking_pr_created', direction: 'desc', icon: <IconBrain /> },
-    { label: 'Most likely to need action', field: 'ranking_action', direction: 'desc', icon: <IconBrain /> },
-    { label: 'Most likely to be opened', field: 'ranking_open', direction: 'desc', icon: <IconBrain /> },
+/**
+ * The three ranking model scores the staff UI shows, in display order. Each reads one outcome head.
+ * The model serves more heads, but the sort menu, the card tag and the activity log lead with these.
+ */
+export interface InboxRankingScore {
+    field: InboxRankingSortField
+    head: string
+    name: string
+    sortLabel: string
+    /** The short word the card tag uses after the lift ("2.1x fix"). */
+    tagLabel: string
+    description: string
+}
+
+export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
+    {
+        field: 'ranking_open',
+        head: 'open',
+        name: 'Open',
+        sortLabel: 'Most likely to be opened',
+        tagLabel: 'open',
+        description: 'A person opens the report within 3 days.',
+    },
+    {
+        field: 'ranking_action',
+        head: 'action',
+        name: 'Engage',
+        sortLabel: 'Most likely to be acted on',
+        tagLabel: 'engage',
+        description: 'A person acts on the report within 7 days.',
+    },
+    {
+        field: 'ranking_fixed',
+        head: 'fixed',
+        name: 'Fix',
+        sortLabel: 'Most likely to be fixed',
+        tagLabel: 'fix',
+        description: 'Someone fixes the problem within 21 days.',
+    },
 ]
 
+/** Staff-only sorts by the ranking model's served probability for one score. Descending only. */
+export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.map((score) => ({
+    label: score.sortLabel,
+    field: score.field,
+    direction: 'desc',
+    icon: <IconBrain />,
+    description: score.description,
+}))
+
+const RANKING_SCORE_BY_FIELD = Object.fromEntries(INBOX_RANKING_SCORES.map((score) => [score.field, score])) as Record<
+    InboxRankingSortField,
+    InboxRankingScore
+>
+
 export function isRankingSortField(field: InboxSortField): field is InboxRankingSortField {
-    return field.startsWith('ranking_')
+    return field in RANKING_SCORE_BY_FIELD
 }
 
-/** The outcome head each model sort reads, and the short word its card tag uses ("41% merge"). */
-export const RANKING_SORT_HEADS: Record<InboxRankingSortField, { head: string; tagLabel: string }> = {
-    ranking_pr_merged: { head: 'pr_merged', tagLabel: 'merge' },
-    ranking_pr_created: { head: 'pr_created', tagLabel: 'PR' },
-    ranking_action: { head: 'action', tagLabel: 'action' },
-    ranking_open: { head: 'open', tagLabel: 'open' },
+export function rankingScoreForField(field: InboxRankingSortField): InboxRankingScore {
+    return RANKING_SCORE_BY_FIELD[field]
 }
 
-/** Display names for the ranking heads in the probability tooltip. Unknown heads show their raw name. */
-export const RANKING_HEAD_LABELS: Record<string, string> = {
-    pr_merged: 'PR merged',
-    pr_created: 'PR created',
-    action: 'Needs action',
-    open: 'Opened',
-    thumbs_up: 'Thumbs up',
-    discuss: 'Discussed',
-    dismiss_wrong: 'Dismissed as wrong',
-    refund: 'Refunded',
-    reviewer_fix: 'Reviewer fix',
+export function rankingScoreForHead(head: string): InboxRankingScore | undefined {
+    return INBOX_RANKING_SCORES.find((score) => score.head === head)
 }
 
 export const INBOX_CREATED_WINDOW_OPTIONS: { value: InboxCreatedWindow; label: string; hours: number }[] = [

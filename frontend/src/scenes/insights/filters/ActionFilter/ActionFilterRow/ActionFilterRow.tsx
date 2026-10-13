@@ -9,7 +9,9 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
+import { DefinitionView } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -17,6 +19,7 @@ import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -28,11 +31,17 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    FEATURE_FLAG_CALLED_EVENT,
+    FLAG_EVALUATIONS_TABLE,
+    readsFlagEvaluationsTable,
+} from 'scenes/feature-flags/flagEvaluationsTable'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { PropValue } from '~/models/propertyDefinitionsModel'
 import { DatabaseSerializedFieldType, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -50,6 +59,13 @@ import {
     mathsLogic,
 } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
+import {
+    FLAG_CALLS_SERIES_DESCRIPTION,
+    FLAG_CALLS_SERIES_NAME,
+    FLAG_CALLS_UNSUPPORTED_MATH_TYPES,
+    FLAG_EVALUATIONS_SERIES_FIELDS,
+    flagCallsFiltersFromEventFilters,
+} from '../flagCallsSeries'
 import {
     isActionsSeriesNode,
     isAllEventsSeriesNode,
@@ -85,6 +101,23 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
 // The taxonomic filter's showNumericalPropsOnly flag doesn't filter warehouse schema columns,
 // so numeric-only pickers must not be fed non-numeric columns in the first place.
 const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'float', 'decimal']
+
+// A warehouse series filter without a warehouse values endpoint falls back to the event values endpoint.
+// That endpoint scans recent events for a column that events do not carry, so these filters fetch no values.
+const NO_VALUE_SUGGESTIONS = (): PropValue[] => []
+
+function picksFlagCalledEvent(groupType: TaxonomicFilterGroupType | undefined, value: unknown): boolean {
+    return groupType === TaxonomicFilterGroupType.Events && value === FEATURE_FLAG_CALLED_EVENT
+}
+
+function withFlagCallsDescription(renderer: DefinitionPopoverRenderer | undefined): DefinitionPopoverRenderer {
+    return (props) =>
+        picksFlagCalledEvent(props.group.type, props.group.getValue?.(props.item)) ? (
+            <DefinitionView group={props.group} description={FLAG_CALLS_SERIES_DESCRIPTION} />
+        ) : (
+            (renderer?.(props) ?? props.defaultView)
+        )
+}
 
 // Which warehouse tables a row's picker may offer, by the caller's typeKey. Anything not listed
 // gets the unrestricted data warehouse group.
@@ -132,6 +165,7 @@ export function ActionFilterRow({
     excludedProperties,
     includeHiddenEvents,
     allowNonCapturedEvents,
+    flagCallsFromFlagEvaluations,
     hogQLGlobals,
     inlineEventsDocLink,
     definitionPopoverRenderer,
@@ -143,7 +177,11 @@ export function ActionFilterRow({
         ...actionsTaxonomicGroupTypes,
     ]
 
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeam, currentTeamId } = useValues(teamLogic)
+    const buildsFlagCallsSeries = !!flagCallsFromFlagEvaluations && readsFlagEvaluationsTable(currentTeam)
+    const rowDefinitionPopoverRenderer = buildsFlagCallsSeries
+        ? withFlagCallsDescription(definitionPopoverRenderer)
+        : definitionPopoverRenderer
     const { entityFilterVisible } = useValues(logic)
     const {
         updateSeriesEntity,
@@ -158,9 +196,16 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel({ shouldLoad: isActionsSeriesNode(node) }))
     const { mathDefinitions } = useValues(mathsLogic)
-    const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { allTablesMap } = useValues(databaseTableListLogic)
     const { ensureAllTableFields } = useActions(databaseTableListLogic)
     const isDataWarehouseFilter = isWarehouseSeriesNode(node)
+    // A flag calls series stands in for the event, so the picker reopens on the event row, not on the table.
+    const isFlagCallsSeries = isDataWarehouseFilter && node.table_name === FLAG_EVALUATIONS_TABLE
+    // The data warehouse map leaves out PostHog tables, which a flag calls series reads.
+    const seriesTable = isDataWarehouseFilter ? allTablesMap[node.table_name] : undefined
+    // The property values endpoint only serves warehouse tables and views.
+    const seriesValuesTableName =
+        seriesTable?.type === 'data_warehouse' || seriesTable?.type === 'view' ? seriesTable.name : undefined
     useEffect(() => {
         if (isDataWarehouseFilter) {
             ensureAllTableFields()
@@ -263,6 +308,34 @@ export function ActionFilterRow({
                 ])
                 return
             }
+            if (buildsFlagCallsSeries && picksFlagCalledEvent(taxonomicGroupType, changedValue)) {
+                updateSeriesEntity(index, {
+                    kind: dataWarehouseNodeKind ?? NodeKind.DataWarehouseNode,
+                    key: FLAG_EVALUATIONS_TABLE,
+                    name: FLAG_CALLS_SERIES_NAME,
+                    ...FLAG_EVALUATIONS_SERIES_FIELDS,
+                })
+                if (isEventsSeriesNode(node) && node.event === FEATURE_FLAG_CALLED_EVENT) {
+                    const flagCallsFilters = flagCallsFiltersFromEventFilters(node.properties)
+                    updateSeriesProperties(index, flagCallsFilters)
+                    const removedCount = (node.properties?.length ?? 0) - flagCallsFilters.length
+                    if (removedCount > 0) {
+                        lemonToast.info(
+                            `${FLAG_CALLS_SERIES_NAME} supports only flag key, response and SQL filters, so ${removedCount} other ${removedCount === 1 ? 'filter was' : 'filters were'} removed.`
+                        )
+                    }
+                }
+                if (node.math && FLAG_CALLS_UNSUPPORTED_MATH_TYPES.has(node.math)) {
+                    updateSeriesMath(index, {
+                        math: undefined,
+                        math_group_type_index: undefined,
+                        math_property: undefined,
+                        math_property_type: undefined,
+                        math_hogql: undefined,
+                    })
+                }
+                return
+            }
             if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
                 updateSeriesEntity(index, { kind: NodeKind.EventsNode, key: '$autocapture', name: '$autocapture' })
                 updateSeriesProperties(index, [
@@ -292,7 +365,16 @@ export function ActionFilterRow({
                 })
             }
         },
-        [updateSeriesEntity, updateSeriesProperties, index, dataWarehousePopoverFields, dataWarehouseNodeKind]
+        [
+            updateSeriesEntity,
+            updateSeriesProperties,
+            updateSeriesMath,
+            index,
+            dataWarehousePopoverFields,
+            dataWarehouseNodeKind,
+            buildsFlagCallsSeries,
+            node,
+        ]
     )
 
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
@@ -354,7 +436,11 @@ export function ActionFilterRow({
         name = node.name || String(nodeKey)
         // The node's own key is the event actually queried — `name` can be a rename (e.g. set via
         // the API), and committing it as the taxonomic value would select a non-existent event.
-        value = nodeKey != null && nodeKey !== '' ? nodeKey : (node.name ?? null)
+        value = isFlagCallsSeries
+            ? FEATURE_FLAG_CALLED_EVENT
+            : nodeKey != null && nodeKey !== ''
+              ? nodeKey
+              : (node.name ?? null)
     }
 
     const seriesIndicator =
@@ -377,13 +463,15 @@ export function ActionFilterRow({
     // affordance (selected row floats to the top, with the series' rename applied).
     // The picker still opens on the suggested-filters surface either way. All-events
     // and inline-group series have no single committed row to promote.
-    const initialGroupType = isDataWarehouseFilter
-        ? dataWarehouseGroupType
-        : isActionsSeriesNode(node)
-          ? TaxonomicFilterGroupType.Actions
-          : isEventsSeriesNode(node) && !isAllEventsSeriesNode(node) && nodeKey != null && nodeKey !== ''
-            ? TaxonomicFilterGroupType.Events
-            : TaxonomicFilterGroupType.SuggestedFilters
+    const initialGroupType = isFlagCallsSeries
+        ? TaxonomicFilterGroupType.Events
+        : isDataWarehouseFilter
+          ? dataWarehouseGroupType
+          : isActionsSeriesNode(node)
+            ? TaxonomicFilterGroupType.Actions
+            : isEventsSeriesNode(node) && !isAllEventsSeriesNode(node) && nodeKey != null && nodeKey !== ''
+              ? TaxonomicFilterGroupType.Events
+              : TaxonomicFilterGroupType.SuggestedFilters
 
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
@@ -413,9 +501,10 @@ export function ActionFilterRow({
                 typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
             }
             excludedProperties={excludedProperties}
-            includeHiddenEvents={includeHiddenEvents}
+            // The hidden flag-call event shows again, because picking it builds the flag_evaluations series.
+            includeHiddenEvents={includeHiddenEvents || flagCallsFromFlagEvaluations}
             allowNonCapturedEvents={allowNonCapturedEvents}
-            definitionPopoverRenderer={definitionPopoverRenderer}
+            definitionPopoverRenderer={rowDefinitionPopoverRenderer}
         />
     )
 
@@ -594,6 +683,11 @@ export function ActionFilterRow({
                                                     mathAvailability={mathAvailability}
                                                     trendsDisplayCategory={trendsDisplayCategory}
                                                     allowedMathTypes={allowedMathTypes}
+                                                    excludedMathTypes={
+                                                        isFlagCallsSeries
+                                                            ? FLAG_CALLS_UNSUPPORTED_MATH_TYPES
+                                                            : undefined
+                                                    }
                                                     query={query || {}}
                                                     fullWidth
                                                     truncateText={{ maxWidthClass: 'max-w-full' }}
@@ -628,10 +722,8 @@ export function ActionFilterRow({
                                                 onMathPropertySelect={onMathPropertySelect}
                                                 showNumericalPropsOnly={isBoxPlotContext || showNumericalPropsOnly}
                                                 schemaColumns={
-                                                    isDataWarehouseFilter && node.name
-                                                        ? Object.values(
-                                                              dataWarehouseTablesMap[node.name]?.fields ?? []
-                                                          ).filter(
+                                                    seriesTable
+                                                        ? Object.values(seriesTable.fields).filter(
                                                               (field) =>
                                                                   !(isBoxPlotContext || showNumericalPropsOnly) ||
                                                                   NUMERIC_SCHEMA_FIELD_TYPES.includes(field.type)
@@ -732,12 +824,11 @@ export function ActionFilterRow({
                                   ? getEventNamesForAction(node.id, actions)
                                   : []
                         }
-                        schemaColumns={
-                            isDataWarehouseFilter && node.name
-                                ? Object.values(dataWarehouseTablesMap[node.name]?.fields ?? [])
-                                : []
+                        schemaColumns={seriesTable ? Object.values(seriesTable.fields) : []}
+                        dataWarehouseTableName={seriesValuesTableName}
+                        staticValueOptions={
+                            isDataWarehouseFilter && !seriesValuesTableName ? NO_VALUE_SUGGESTIONS : undefined
                         }
-                        dataWarehouseTableName={isDataWarehouseFilter ? (node.name ?? undefined) : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}

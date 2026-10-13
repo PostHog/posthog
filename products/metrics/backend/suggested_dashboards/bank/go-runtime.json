@@ -1,0 +1,274 @@
+{
+    "name": "Go runtime",
+    "description": "Goroutines, heap, CPU and file descriptors of Go services that export Prometheus client metrics.",
+    "panels": [
+        {
+            "key": "goroutines",
+            "title": "Goroutines",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "go_goroutines",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "heap",
+            "title": "Heap in use",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "go_memstats_heap_inuse_bytes",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "rss",
+            "title": "Resident memory",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process_resident_memory_bytes",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "cpu",
+            "title": "CPU cores used",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process_cpu_seconds_total",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "goroutines_by_service",
+            "title": "Goroutines by service",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "go_goroutines",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "heap_over_time",
+            "title": "Heap allocated and in use",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "allocated",
+                        "metricName": "go_memstats_heap_alloc_bytes",
+                        "aggregation": "sum"
+                    },
+                    {
+                        "name": "in_use",
+                        "metricName": "go_memstats_heap_inuse_bytes",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "allocation_rate",
+            "title": "Allocation rate",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "go_memstats_alloc_bytes_total",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By/s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "cpu_by_service",
+            "title": "CPU by service",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process_cpu_seconds_total",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "threads",
+            "title": "OS threads",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "go_threads",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "file_descriptors",
+            "title": "Open file descriptors",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "open",
+                        "metricName": "process_open_fds",
+                        "aggregation": "sum"
+                    },
+                    {
+                        "name": "limit",
+                        "metricName": "process_max_fds",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 10,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}

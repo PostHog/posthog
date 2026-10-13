@@ -345,7 +345,13 @@ class TestBudgetExhaustion:
         assert "warehouse_repartition_failed" not in emitted
         assert "warehouse_repartition_skipped" in emitted
 
-    @parameterized.expand([("first_attempt", 0), ("last_attempt_before_give_up", 2)])
+    @parameterized.expand(
+        [
+            ("first_attempt", 0, False, WorkerShuttingDownError),
+            ("last_attempt_before_give_up", 2, False, WorkerShuttingDownError),
+            ("attempt_that_temporal_cancelled", 1, True, asyncio.CancelledError),
+        ]
+    )
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
@@ -353,10 +359,12 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.DeltaTableRef")
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
-    def test_a_worker_shutdown_hands_the_rewrite_off_without_burning_an_attempt(
+    def test_a_stop_request_hands_the_repartition_off_without_burning_an_attempt(
         self,
         _name: str,
         prior_attempts: int,
+        cancelled: bool,
+        expected_error: type[BaseException],
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
         _mock_helper_cls: MagicMock,
@@ -381,9 +389,12 @@ class TestBudgetExhaustion:
 
         mock_repartition.side_effect = rewrite_until_asked_to_stop
         environment = ActivityEnvironment()
-        environment.worker_shutdown()
+        if cancelled:
+            environment.cancel()
+        else:
+            environment.worker_shutdown()
 
-        with pytest.raises(WorkerShuttingDownError):
+        with pytest.raises(expected_error):
             environment.run(
                 _maybe_repartition_table,
                 RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),

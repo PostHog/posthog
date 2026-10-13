@@ -1,9 +1,12 @@
 from dataclasses import replace
 from typing import Literal, Optional, Union, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 
 import structlog
+import posthoganalytics
+from posthoganalytics import FeatureFlagResult
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -32,6 +35,7 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT, flag_called_on_events_warnings
 from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -212,6 +216,9 @@ def get_hogql_metadata(
             if prepared_ast:
                 response.ch_table_names = get_table_names(prepared_ast)
 
+            if source is None and FLAG_CALLED_EVENT in query.query:
+                heuristic_warnings.extend(_flag_called_on_events_warnings(hogql_ast, context, team))
+
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
         else:
@@ -280,6 +287,61 @@ def _index_usage_enabled(team: Team) -> bool:
             "project": {"id": str(team.id)},
         },
     )
+
+
+def _flag_called_move_notices(team: Team) -> FeatureFlagResult | None:
+    """Customers have not been told yet that $feature_flag_called is moving to posthog.flag_evaluations.
+
+    A warning about the move with no announcement behind it reads as a bug, so the flag stays off until the
+    announcement goes out. The flag's payload holds the announcement's URL.
+    """
+    return posthoganalytics.get_feature_flag_result(
+        "flag-called-move-notices",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+    )
+
+
+def _flag_called_announcement_url(payload: object) -> str | None:
+    """The announcement URL from a flag payload of the shape `{"url": ...}`.
+
+    Clients of HogQL metadata, such as the SQL editor, turn `HogQLNotice.url` into a link.
+    Only an https URL with a host passes for this reason. The result has no surrounding whitespace.
+    """
+    url = payload.get("url") if isinstance(payload, dict) else None
+    if payload is None or (isinstance(payload, dict) and url is None):
+        return None
+    try:
+        parsed = urlparse(url.strip()) if isinstance(url, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is not None and parsed.scheme == "https" and parsed.hostname:
+        return parsed.geturl()
+    logger.warning("hogql_flag_called_announcement_url_invalid", payload=repr(payload)[:200])
+    return None
+
+
+def _flag_called_on_events_warnings(
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery], context: HogQLContext, team: Team
+) -> list[HogQLNotice]:
+    try:
+        move_notices = _flag_called_move_notices(team)
+        if move_notices is None or not move_notices.enabled:
+            return []
+        warnings = flag_called_on_events_warnings(hogql_ast, context)
+        if not warnings:
+            return []
+        url = _flag_called_announcement_url(move_notices.payload)
+        return [warning.model_copy(update={"url": url}) for warning in warnings]
+    except Exception:
+        # The warning is advisory. A query that compiles must not be reported as invalid because this
+        # check failed, and the caller turns any exception here into an invalid query.
+        logger.exception("hogql_flag_called_warning_failed", team_id=context.team_id)
+        return []
 
 
 def _attach_index_usage(

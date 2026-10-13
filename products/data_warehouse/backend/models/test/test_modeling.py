@@ -587,20 +587,28 @@ class TestBoundedResolver(BaseTest):
 
         assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
 
-    def test_cycle_raises_typed_error_with_initial_view(self):
+    @parameterized.expand(
+        [
+            ("bare_names", "a", "b"),
+            ("caller_reaches_back_under_models_root", "models.a", "b"),
+            ("callee_named_under_models_root", "a", "models.b"),
+            ("both_under_models_root", "models.a", "models.b"),
+        ]
+    )
+    def test_cycle_raises_typed_error_with_initial_view(self, _name: str, ref_to_a: str, ref_to_b: str):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="a",
-            query={"query": "select * from b"},
+            query={"query": f"select * from {ref_to_b}"},
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="b",
-            query={"query": "select * from a"},
+            query={"query": f"select * from {ref_to_a}"},
         )
 
         with pytest.raises(ResolutionCycleError) as exc_info:
-            get_parents_from_model_query(self.team, "a", "select * from b")
+            get_parents_from_model_query(self.team, "a", f"select * from {ref_to_b}")
 
         # the inner view where the cycle was detected is `a` (already on the stack), and the caller is also `a`
         assert exc_info.value.view_name == "a"
