@@ -2366,6 +2366,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             columns: item.columns ?? existing.columns,
                             types: item.types ?? existing.types,
                             query_scan: item.query_scan ?? existing.query_scan,
+                            warnings: item.warnings ?? existing.warnings,
                         },
                     }
 
