@@ -196,6 +196,7 @@ export function acpNotificationToAgentConversationEvent(
         return null;
       }
       switch (update.sessionUpdate) {
+        case "agent_message":
         case "agent_message_chunk":
           return {
             type: "assistant_message_chunk",

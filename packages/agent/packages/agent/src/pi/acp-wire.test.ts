@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type PiExtensionDialog,
+  piAcpLogEntries,
   piAcpWireEntry,
   piExtensionDialogResponse,
 } from "./acp-wire";
@@ -239,4 +240,42 @@ describe("piExtensionDialogResponse", () => {
   ])("answers $caseName", ({ dialog, answer, expected }) => {
     expect(piExtensionDialogResponse(dialog, answer)).toEqual(expected);
   });
+});
+
+describe("piAcpLogEntries", () => {
+  const chunk = (text: string, eventId: string) => ({
+    type: "pi_event",
+    id: `entry-${eventId}`,
+    event_id: eventId,
+    timestamp: "2026-01-01T00:00:00Z",
+    event: {
+      type: "assistant_message_chunk",
+      timestamp: 1,
+      content: { type: "text", text },
+    },
+  });
+
+  it.each([
+    { final: false, written: [], carried: 2 },
+    { final: true, written: ["pong"], carried: 0 },
+  ])(
+    "holds back a message still streaming unless the flush is final ($final)",
+    ({ final, written, carried }) => {
+      const { wire, carry } = piAcpLogEntries(
+        [chunk("po", "boot-1"), chunk("ng", "boot-2")],
+        { final },
+      );
+      expect(
+        wire.map(
+          (entry) =>
+            (
+              entry.notification?.params as {
+                update: { content: { text: string } };
+              }
+            ).update.content.text,
+        ),
+      ).toEqual(written);
+      expect(carry).toHaveLength(carried);
+    },
+  );
 });

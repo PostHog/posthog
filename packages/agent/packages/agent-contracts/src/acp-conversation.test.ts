@@ -337,6 +337,27 @@ describe("acpNotificationToAgentConversationEvent", () => {
     ).toEqual(event);
   });
 
+  it("reads a whole agent message as one message chunk", () => {
+    expect(
+      acpNotificationToAgentConversationEvent(
+        {
+          method: "session/update",
+          params: {
+            update: {
+              sessionUpdate: "agent_message",
+              content: { type: "text", text: "pong" },
+            },
+          },
+        },
+        1000,
+      ),
+    ).toEqual({
+      type: "assistant_message_chunk",
+      timestamp: 1000,
+      content: { type: "text", text: "pong" },
+    });
+  });
+
   it("restores a tool title the sender dropped because it repeated the tool name", () => {
     expect(
       acpNotificationToAgentConversationEvent(

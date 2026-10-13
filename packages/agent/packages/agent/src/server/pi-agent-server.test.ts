@@ -358,6 +358,13 @@ describe("PiAgentServer", () => {
       timestamp: 1,
       content: [{ type: "text", text: "hello" }],
     });
+    for (const text of ["po", "ng"]) {
+      server.handleConversationEvent({
+        type: "assistant_message_chunk",
+        timestamp: 2,
+        content: { type: "text", text },
+      });
+    }
     server.handleConversationEvent({
       type: "turn_completed",
       timestamp: 2,
@@ -374,12 +381,17 @@ describe("PiAgentServer", () => {
     });
     await server.logFlushQueue;
 
-    const notifications = appendTaskRunLog.mock.calls
-      .flatMap(([, , entries]) => entries)
-      .map((entry) => {
-        expect(entry).toMatchObject({ type: "notification" });
-        return (entry as { notification: unknown }).notification;
-      });
+    const entries = appendTaskRunLog.mock.calls.flatMap(
+      ([, , entries]) => entries,
+    );
+    expect(entries[1]).toMatchObject({
+      first_event_id: expect.any(String),
+      event_id: expect.any(String),
+    });
+    const notifications = entries.map((entry) => {
+      expect(entry).toMatchObject({ type: "notification" });
+      return (entry as { notification: unknown }).notification;
+    });
     expect(notifications).toEqual([
       {
         jsonrpc: "2.0",
@@ -387,6 +399,16 @@ describe("PiAgentServer", () => {
         params: {
           content: [{ type: "text", text: "hello" }],
           messageId: "message-1",
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "agent_message",
+            content: { type: "text", text: "pong" },
+          },
         },
       },
       expect.objectContaining({
@@ -579,28 +601,23 @@ describe("PiAgentServer", () => {
         provider: "posthog",
         modelId: "claude-opus-5-5",
       },
-      state: { model: "claude-opus-5-5" },
     },
     {
       configId: "effort",
       value: "high",
       command: { type: "set_thinking_level", level: "high" },
-      state: { reasoning_effort: "high" },
     },
   ])(
-    "applies a $configId change from set_config_option and records it on the run",
-    async ({ configId, value, command, state }) => {
+    "applies a $configId change from set_config_option to the Pi session",
+    async ({ configId, value, command }) => {
       const sendCommand = vi.fn(async () => ({ success: true }));
-      const updateTaskRun = vi.fn(async () => ({}));
       const server = new PiAgentServer(config()) as unknown as {
-        posthogAPI: { updateTaskRun: typeof updateTaskRun };
         session: unknown;
         executeCommand(
           method: string,
           params: Record<string, unknown>,
         ): Promise<unknown>;
       };
-      server.posthogAPI.updateTaskRun = updateTaskRun;
       server.session = {
         runtime: { sendCommand, client: { getState: vi.fn(async () => ({})) } },
       };
@@ -608,7 +625,6 @@ describe("PiAgentServer", () => {
       await server.executeCommand("set_config_option", { configId, value });
 
       expect(sendCommand).toHaveBeenCalledWith(command);
-      expect(updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", { state });
     },
   );
 

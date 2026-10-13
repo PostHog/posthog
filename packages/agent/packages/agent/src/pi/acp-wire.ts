@@ -331,3 +331,82 @@ export function piAcpWireEntry(source: object): StoredLogEntry | null {
     notification: { jsonrpc: "2.0", ...notification },
   } as StoredLogEntry;
 }
+
+function assistantChunkText(entry: Record<string, unknown>): string | null {
+  if (
+    entry.type !== "pi_event" ||
+    !isRecord(entry.event) ||
+    entry.event.type !== "assistant_message_chunk"
+  ) {
+    return null;
+  }
+  const content = entry.event.content;
+  return isRecord(content) &&
+    content.type === "text" &&
+    typeof content.text === "string"
+    ? content.text
+    : null;
+}
+
+function agentMessageEntry(
+  chunks: Record<string, unknown>[],
+): StoredLogEntry {
+  const first = chunks[0];
+  const last = chunks[chunks.length - 1];
+  return {
+    type: "notification",
+    timestamp:
+      typeof first.timestamp === "string"
+        ? first.timestamp
+        : new Date().toISOString(),
+    ...(typeof first.id === "string" ? { id: first.id } : {}),
+    ...(typeof last.event_id === "string" ? { event_id: last.event_id } : {}),
+    ...(typeof first.event_id === "string"
+      ? { first_event_id: first.event_id }
+      : {}),
+    notification: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "agent_message",
+          content: {
+            type: "text",
+            text: chunks.map((chunk) => assistantChunkText(chunk)).join(""),
+          },
+        },
+      },
+    },
+  } as StoredLogEntry;
+}
+
+export function piAcpLogEntries(
+  entries: object[],
+  { final }: { final: boolean },
+): { wire: StoredLogEntry[]; carry: object[] } {
+  const wire: StoredLogEntry[] = [];
+  let chunks: Record<string, unknown>[] = [];
+  for (const source of entries) {
+    const entry = source as Record<string, unknown>;
+    if (assistantChunkText(entry) !== null) {
+      chunks.push(entry);
+      continue;
+    }
+    if (chunks.length > 0) {
+      wire.push(agentMessageEntry(chunks));
+      chunks = [];
+    }
+    const converted = piAcpWireEntry(entry);
+    if (converted) {
+      wire.push(converted);
+    }
+  }
+  if (chunks.length === 0) {
+    return { wire, carry: [] };
+  }
+  if (!final) {
+    return { wire, carry: chunks };
+  }
+  wire.push(agentMessageEntry(chunks));
+  return { wire, carry: [] };
+}
