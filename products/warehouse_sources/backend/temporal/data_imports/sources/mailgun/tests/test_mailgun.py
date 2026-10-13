@@ -328,6 +328,12 @@ class TestGetRows:
         assert isinstance(result.raised, MailgunAllDomainsSkippedError)
         assert "every sending domain" in str(result.raised)
 
+        # This message must stay a stable, non-sensitive substring of get_non_retryable_errors,
+        # or an account with every domain rejected gets retried instead of surfaced to the user.
+        non_retryable_errors = MailgunSource().get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable_errors.items() if pattern in str(result.raised)]
+        assert len(matches) == 1
+
     def test_domain_listing_401_still_raises(self):
         # A 401 on the /v4/domains listing is a global credential failure, not a single bad
         # domain — it must surface (and stay non-retryable) rather than be skipped per-domain.
