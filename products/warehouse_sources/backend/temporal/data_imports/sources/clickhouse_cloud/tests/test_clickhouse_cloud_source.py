@@ -1,9 +1,17 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
     ClickhouseCloudSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhousecloud import (
+    ClickhouseCloudSourceConfig,
 )
 
 
@@ -24,27 +32,16 @@ class TestClickhouseCloudSchemas:
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_plumbs_transport_result(self, _name: str, transport_result: bool, expected: bool) -> None:
-        config = MagicMock(key_id="key-id", key_secret="key-secret")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source.validate_clickhouse_cloud_credentials",
-            return_value=transport_result,
-        ) as mock_validate:
+        config = ClickhouseCloudSourceConfig(key_id="key-id", key_secret="key-secret")
+        with scripted_network([ScriptedResponse(status=200 if transport_result else 401)]) as network:
             ok, error = ClickhouseCloudSource().validate_credentials(config, team_id=1)
         assert ok is expected
         assert (error is None) is expected
-        mock_validate.assert_called_once_with("key-id", "key-secret")
+        assert [request.path for request in network.requests_log] == ["/v1/organizations"]
+        assert network.requests_log[0].headers["authorization"] == "Basic a2V5LWlkOmtleS1zZWNyZXQ="
 
 
 class TestClickhouseCloudSourceForPipeline:
-    def _response(self, endpoint: str) -> object:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = None
-        config = MagicMock(key_id="key-id", key_secret="key-secret")
-        return ClickhouseCloudSource().source_for_pipeline(config, MagicMock(), inputs)
-
     @parameterized.expand(
         [
             ("organizations", ["id"], None),
@@ -58,8 +55,13 @@ class TestClickhouseCloudSourceForPipeline:
     def test_primary_keys_and_partitioning(
         self, endpoint: str, primary_keys: list[str], partition_mode: str | None
     ) -> None:
-        response = self._response(endpoint)
-        assert response.name == endpoint  # type: ignore[attr-defined]
-        assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
-        assert response.sort_mode == "asc"  # type: ignore[attr-defined]
-        assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
+        driver = SourceDriver(
+            ClickhouseCloudSource(), ClickhouseCloudSourceConfig(key_id="key-id", key_secret="key-secret")
+        )
+        result = driver.run(endpoint, [ScriptedResponse(json={"result": []})])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == primary_keys
+        assert result.response.sort_mode == "asc"
+        assert result.response.partition_mode == partition_mode

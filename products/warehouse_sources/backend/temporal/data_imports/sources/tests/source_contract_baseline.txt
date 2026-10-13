@@ -300,6 +300,7 @@ Gcore fail:stall-budget
 GcpCloudBilling not-checkable:no-request
 Gerrit fail:rate-limit-budget,stall-budget
 Getdx fail:stall-budget
+Ghost not-checkable:no-request
 Giphy fail:stall-budget
 GitBook fail:stall-budget
 GitLab fail:rate-limit-budget,stall-budget

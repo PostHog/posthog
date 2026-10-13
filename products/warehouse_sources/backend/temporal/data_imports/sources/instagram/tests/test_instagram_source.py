@@ -12,6 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instagram import (
     InstagramSourceConfig,
@@ -194,35 +198,29 @@ class TestInstagramSource:
         config = InstagramSourceConfig(
             instagram_integration_id=7, instagram_account_id=ACCOUNT_ID, start_date="2024-01-01"
         )
-        inputs = _inputs(
-            "media",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-06-01T00:00:00+0000",
-            api_version=pinned_version,
-        )
+        with mock.patch.object(InstagramSource, "_access_token", return_value="refreshed-token"):
+            result = SourceDriver(self.source, config).run(
+                "media",
+                [ScriptedResponse(json={"data": []})],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-06-01T00:00:00+0000",
+                api_version=pinned_version,
+            )
 
-        with (
-            mock.patch.object(InstagramSource, "_access_token", return_value="refreshed-token"),
-            mock.patch(f"{SOURCE_MODULE}.instagram_source") as build_source,
-        ):
-            self.source.source_for_pipeline(config, self.source.get_resumable_source_manager(inputs), inputs)
-
-        kwargs = build_source.call_args.kwargs
-        assert kwargs["access_token"] == "refreshed-token"
-        assert kwargs["endpoint"] == "media"
-        assert kwargs["api_version"] == pinned_version
-        assert kwargs["instagram_account_id"] == ACCOUNT_ID
-        assert kwargs["start_date"] == "2024-01-01"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2024-06-01T00:00:00+0000"
+        assert result.raised is None
+        assert result.response is not None and result.response.name == "media"
+        assert result.paths == [f"/{pinned_version}/{ACCOUNT_ID}/media"]
+        assert result.requests[0].headers["authorization"] == "Bearer refreshed-token"
+        assert result.params("since") == ["1717200000"]
 
     def test_a_full_refresh_run_never_forwards_a_watermark(self) -> None:
-        inputs = _inputs("media", should_use_incremental_field=False, db_incremental_field_last_value="2024-06-01")
+        with mock.patch.object(InstagramSource, "_access_token", return_value="tok"):
+            result = SourceDriver(self.source, self.config).run(
+                "media",
+                [ScriptedResponse(json={"data": []})],
+                should_use_incremental_field=False,
+                db_incremental_field_last_value="2024-06-01",
+            )
 
-        with (
-            mock.patch.object(InstagramSource, "_access_token", return_value="tok"),
-            mock.patch(f"{SOURCE_MODULE}.instagram_source") as build_source,
-        ):
-            self.source.source_for_pipeline(self.config, self.source.get_resumable_source_manager(inputs), inputs)
-
-        assert build_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("since") == [None]

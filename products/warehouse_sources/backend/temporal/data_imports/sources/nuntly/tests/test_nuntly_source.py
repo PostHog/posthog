@@ -1,7 +1,9 @@
-from unittest import mock
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuntly import NuntlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.source import NuntlySource
 
@@ -42,16 +44,12 @@ class TestNuntlySource:
             (False, False, "Invalid credentials"),
         ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.source.validate_nuntly_credentials"
-    )
-    def test_validate_credentials(
-        self, probe_valid: bool, expected_valid: bool, expected_message: str | None, mock_validate: mock.Mock
-    ) -> None:
-        mock_validate.return_value = (probe_valid, 200 if probe_valid else 401)
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, probe_valid: bool, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=200 if probe_valid else 401)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("apk_test")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].headers["authorization"] == "Bearer apk_test"
+        assert network.session_options[0]["redact_values"] == ("apk_test",)

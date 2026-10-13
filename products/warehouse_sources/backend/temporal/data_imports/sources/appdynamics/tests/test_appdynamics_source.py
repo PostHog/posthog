@@ -1,4 +1,5 @@
 import pytest
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import AppdynamicsAuth
@@ -8,6 +9,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     MAX_METRIC_PATHS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appdynamics import (
     AppdynamicsAuthMethodConfig,
@@ -151,15 +156,13 @@ class TestAppdynamicsSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1704067200000
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.appdynamics_source"
-    )
-    def test_source_for_pipeline_full_refresh_drops_watermark(self, mock_source: mock.Mock) -> None:
-        inputs = _source_inputs(schema_name="health_rule_violations", incremental=False)
-        inputs.db_incremental_field_last_value = 1704067200000
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_source_for_pipeline_full_refresh_drops_watermark(self) -> None:
+        result = SourceDriver(self.source, _basic_config()).run(
+            "health_rule_violations",
+            [ScriptedResponse(json=[{"id": 1}]), *[ScriptedResponse(json=[]) for _ in range(5)]],
+            db_incremental_field_last_value=1705708800000,
+        )
 
-        self.source.source_for_pipeline(_api_client_config(), mock.MagicMock(), inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[1].param("start-time") == "1704067200000"

@@ -7,7 +7,14 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blogger import (
+    BloggerSourceConfig,
+)
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -94,20 +101,15 @@ class TestBloggerPipelinePlumbing:
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_clears_last_value_when_not_incremental(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return MagicMock()
-
-        config = SimpleNamespace(api_key="K", blog_id="BID")
-        inputs = _make_inputs(
-            schema_name="posts",
+        driver = SourceDriver(BloggerSource(), BloggerSourceConfig(api_key="K", blog_id="BID"))
+        result = driver.run(
+            "posts",
+            [ScriptedResponse(json={"items": [{"id": "p1"}]})],
             should_use_incremental_field=False,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
-        with patch.object(source_module, "blogger_source", fake_source):
-            BloggerSource().source_for_pipeline(config, MagicMock(), inputs)  # type: ignore[arg-type]
 
         # When the run isn't incremental, the stale watermark must not leak through as a startDate.
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.rows == [{"id": "p1"}]
+        assert result.requests[0].param("startDate") is None
