@@ -272,6 +272,7 @@ export function HogFlowFunctionConfiguration({
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
             onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
+            onInputsChange={(changes) => setInputs({ ...inputs, ...changes })}
         />
     )
 
