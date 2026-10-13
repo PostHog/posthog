@@ -48,6 +48,8 @@ interface Asked {
 export function useSettings(
   codexCloud?: CodexCloudClient,
   runSetup?: () => Promise<string>,
+  // Hears the Today row's switch, so the sidebar and main view follow it at once.
+  onShowToday?: (on: boolean) => void,
 ): SettingsState {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<SettingsView>(() =>
@@ -147,6 +149,7 @@ export function useSettings(
             hasToken: loadClaudeToken() !== null,
             canSetup: runSetup !== undefined && claudeOnPath(),
             showContext: loadPrefs().showContext,
+            showToday: loadPrefs().showToday,
           }),
         );
         // The cloud account comes from the server, so its row fills in once the answer lands.
@@ -171,6 +174,11 @@ export function useSettings(
         if (effect.kind === "clearToken") return clearClaudeToken();
         if (effect.kind === "showContext")
           return savePrefs({ showContext: effect.on });
+        if (effect.kind === "showToday") {
+          savePrefs({ showToday: effect.on });
+          onShowToday?.(effect.on);
+          return;
+        }
       } catch (error) {
         return update({
           ...next,

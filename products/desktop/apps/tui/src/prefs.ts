@@ -21,6 +21,8 @@ export interface Prefs {
   lastModel?: ModelChoice;
   // The context donut on the composer's rule, from settings.
   showContext: boolean;
+  // Today's briefing in the sidebar and the main view, from settings.
+  showToday: boolean;
   // The first run's sign-in sheet has been shown.
   welcomed: boolean;
   // Cloud Claude Code and Codex chats reach this machine's MCP servers through the TUI, from /mcp.
@@ -45,6 +47,7 @@ const DEFAULT_PREFS: Prefs = {
   billing: "posthog",
   claudeMode: "auto",
   showContext: false,
+  showToday: true,
   welcomed: false,
   relayLocalMcp: false,
 };
@@ -73,6 +76,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
         typeof saved.claudeMode === "string" ? saved.claudeMode : "auto",
       ...(modelOf(saved.lastModel) && { lastModel: modelOf(saved.lastModel) }),
       showContext: saved.showContext === true,
+      showToday: saved.showToday !== false,
       welcomed: saved.welcomed === true,
       relayLocalMcp: saved.relayLocalMcp === true,
     };

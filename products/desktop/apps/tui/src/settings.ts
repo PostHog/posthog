@@ -16,6 +16,8 @@ export interface SettingsView {
   canSetup: boolean;
   // The context donut on the composer's rule.
   showContext: boolean;
+  // Today's briefing in the sidebar and the main view.
+  showToday: boolean;
   index: number;
   // A login is running, so its row takes no second Enter.
   busy: boolean;
@@ -34,7 +36,8 @@ export type SettingsItem =
   | "setupToken"
   | "token"
   | "removeToken"
-  | "context";
+  | "context"
+  | "today";
 
 export type SettingsEffect =
   | { kind: "login" }
@@ -47,6 +50,7 @@ export type SettingsEffect =
   | { kind: "saveToken"; token: string }
   | { kind: "clearToken" }
   | { kind: "showContext"; on: boolean }
+  | { kind: "showToday"; on: boolean }
   | { kind: "close" };
 
 export const TOKEN_HINT =
@@ -59,6 +63,7 @@ export function settingsView(saved: {
   hasToken?: boolean;
   canSetup?: boolean;
   showContext?: boolean;
+  showToday?: boolean;
 }): SettingsView {
   return {
     billing: saved.billing,
@@ -67,6 +72,7 @@ export function settingsView(saved: {
     hasToken: saved.hasToken ?? false,
     canSetup: saved.canSetup ?? false,
     showContext: saved.showContext ?? false,
+    showToday: saved.showToday ?? true,
     index: 0,
     busy: false,
     prompt: null,
@@ -83,6 +89,7 @@ export function settingsItems(view: SettingsView): SettingsItem[] {
     "token",
     ...(view.hasToken ? ["removeToken" as const] : []),
     "context",
+    "today",
   ];
 }
 
@@ -173,6 +180,11 @@ export function settingsKey(
       return {
         view: { ...view, showContext: !view.showContext },
         effect: { kind: "showContext", on: !view.showContext },
+      };
+    if (item === "today")
+      return {
+        view: { ...view, showToday: !view.showToday },
+        effect: { kind: "showToday", on: !view.showToday },
       };
     if (view.busy) return { view };
     return {

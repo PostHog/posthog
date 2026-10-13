@@ -8,6 +8,7 @@ import {
   newChat,
   openTask,
   paneIds,
+  showToday,
   splitFocused,
 } from "./layout";
 import {
@@ -64,6 +65,19 @@ describe("sidebarRows", () => {
     work: WorkPage,
     collapsed = new Set<string>(),
   ) => labels(sidebarRows({ layout, work, collapsed, working: new Set() }));
+
+  it("leaves Today out once the briefing is hidden in settings, even on the main view that showed it", () => {
+    const rows = labels(
+      sidebarRows({
+        layout: showToday(initialLayout()),
+        work: page(),
+        collapsed: new Set(),
+        working: new Set(),
+        showToday: false,
+      }),
+    );
+    expect(rows).toEqual(["# Work", "## All chats", "New chat", "[empty]"]);
+  });
 
   it("keeps one Work list, with split tasks in their workspace and in Chats", () => {
     let layout = openTask(initialLayout(), "a");

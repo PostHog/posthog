@@ -94,6 +94,19 @@ describe("settingsKey", () => {
     });
   });
 
+  it("hides and shows the Today briefing from its own row", () => {
+    const onToday = [DOWN, DOWN, DOWN, DOWN, DOWN].reduce(
+      (current, key) => settingsKey(current, key).view,
+      view(),
+    );
+    const off = settingsKey(onToday, ENTER);
+    expect(off.effect).toEqual({ kind: "showToday", on: false });
+    expect(settingsKey(off.view, ENTER).effect).toEqual({
+      kind: "showToday",
+      on: true,
+    });
+  });
+
   it("connects ChatGPT for cloud runs from its own row, and disconnects once connected", () => {
     const onCloud = [DOWN].reduce(
       (current, key) => settingsKey(current, key).view,
