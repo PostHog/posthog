@@ -38,17 +38,18 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.coordinator_review import CoordinatorResult, CoordinatorReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
+from products.review_hog.backend.reviewer.tools.publish_review import PublishOutcome
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
-    BuildBodyInput,
     CoordinatorReviewInput,
     LensReviewInput,
     LoadedPerspectiveDTO,
+    PublishInput,
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
-    _build_and_finalize,
     _current_pr_comments,
+    _publish,
     coordinator_review_activity,
     dedup_activity,
     lens_review_activity,
@@ -751,31 +752,30 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
         pytest.param("automatic", True, None, id="other_trigger"),
     ],
 )
-def test_a_label_review_body_points_to_the_comment_commands(
+def test_a_label_review_points_to_the_comment_commands(
     trigger_source: str, commands_on: bool, expected_hint: str | None
 ) -> None:
     # The hint advertises `@posthog` commands, so it must not appear where they do not run or where nobody used the label.
-    finalize = MagicMock()
+    publish = MagicMock(return_value=PublishOutcome(posted=True))
     with (
-        patch(f"{_MODULE}.load_run_issues", return_value=[]),
-        patch(f"{_MODULE}.load_run_validations", return_value={}),
-        patch(f"{_MODULE}.load_pr_snapshot", return_value=None),
-        patch(f"{_MODULE}.build_review_body", return_value="# Review"),
+        patch(f"{_MODULE}._installation_auth", return_value=("token", "1")),
         patch(f"{_MODULE}.comment_commands_enabled", return_value=commands_on),
-        patch(f"{_MODULE}.finalize_review_report", finalize),
+        patch(f"{_MODULE}.publish_persisted_review", publish),
+        patch(f"{_MODULE}.ReviewReport"),
     ):
-        _build_and_finalize(
-            BuildBodyInput(
+        _publish(
+            PublishInput(
                 team_id=1,
                 report_id="rep-1",
                 head_sha="sha1",
                 run_index=1,
-                issue_ids=[],
-                trigger_source=trigger_source,
+                owner="o",
+                repo="r",
+                pr_number=1,
                 review_mode=REVIEW_MODE_FLASH,
+                trigger_source=trigger_source,
             )
         )
 
-    body = finalize.call_args.kwargs["body_markdown"]
-    assert body.startswith("# Review")
-    assert (expected_hint in body) if expected_hint else body == "# Review"
+    footer = publish.call_args.kwargs["footer"]
+    assert (expected_hint in footer) if expected_hint else footer == ""

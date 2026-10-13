@@ -499,9 +499,6 @@ class BuildBodyInput:
     # idle write to publish so the report never reads at-rest with the post still in flight.
     # Defaulted False so pre-field payloads keep the finalize-goes-idle behavior.
     will_publish: bool = False
-    # What started this turn and what it runs on, for the label hint. Defaulted so pre-field payloads add none.
-    trigger_source: str | None = None
-    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass(frozen=False)
@@ -2005,8 +2002,6 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
         pr_files=pr_files,
         published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
     )
-    if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
-        body = f"{body}\n\n{label_commands_hint(input.review_mode)}"
     finalize_review_report(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2030,6 +2025,9 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    footer = ""
+    if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
+        footer = label_commands_hint(input.review_mode)
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2042,6 +2040,7 @@ def _publish(input: PublishInput) -> PublishResult:
         urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
         review_mode=input.review_mode,
+        footer=footer,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
