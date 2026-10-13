@@ -199,7 +199,61 @@ describe('LLMMessageDisplay', () => {
             expect(container.querySelector('img')).toBeNull()
             expect(container.textContent).not.toContain('https://example.com/hidden.png')
         })
+
+        it.each([
+            { type: 'image', uri: 'https://example.com/hidden.png', data: '[base64 image redacted]' },
+            {
+                type: 'image',
+                uri: 'https://example.com/hidden.png',
+                content: {
+                    image: 'https://example.com/hidden.png',
+                    source: { data: '[base64 image redacted]' },
+                },
+            },
+            {
+                type: 'image',
+                content: {
+                    image: 'https://example.com/hidden.png',
+                    inlineData: { data: '[base64 image redacted]' },
+                },
+            },
+            { type: 'image', content: { image: '[base64 image redacted]', uri: 'https://example.com/hidden.png' } },
+        ])('keeps adjacent text while hiding redacted image sources in content arrays: %j', async (image) => {
+            const content = [{ type: 'text', text: 'a readable neighboring sentence' }, image]
+            const { container } = render(
+                <Provider>
+                    <LLMMessageDisplay
+                        message={{
+                            role: 'assistant',
+                            content: encode ? JSON.stringify(content) : (content as MultiModalContentItem[]),
+                        }}
+                        show
+                        minimal={minimal}
+                    />
+                </Provider>
+            )
+            await waitFor(() => expect(container.textContent).toContain('a readable neighboring sentence'), {
+                timeout: JSON_VIEWER_TIMEOUT_MS,
+            })
+            expect(container.textContent).not.toContain('https://example.com/hidden.png')
+            expect(container.querySelector('img')).toBeNull()
+            if (!minimal) {
+                expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+            }
+        })
     })
+
+    it.each(['[{"status":"complete"}]', '["a readable JSON value"]'])(
+        'preserves an ordinary JSON array in the minimal preview: %s',
+        (content) => {
+            const { container } = render(
+                <Provider>
+                    <LLMMessageDisplay message={{ role: 'assistant', content }} show minimal />
+                </Provider>
+            )
+            expect(container.textContent).toContain(content)
+        }
+    )
 
     it('keeps the transcript when redacted audio replaces the player', () => {
         const message: CompatMessage = {
