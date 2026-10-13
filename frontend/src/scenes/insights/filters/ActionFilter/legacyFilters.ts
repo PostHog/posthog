@@ -73,6 +73,15 @@ function legacyFilterToSeriesNode(filter: ActionFilter, warehouseKind: Warehouse
     return { ...shared, kind, event: filter.id } as SeriesNode
 }
 
+/** Keys the defaults leave out stay unset, so an events default with no `id` keeps the project's default event. */
+export function legacyFilterToSeriesDefaults(
+    defaults: Record<string, any>,
+    warehouseKind: WarehouseSeriesNodeKind = NodeKind.DataWarehouseNode
+): Partial<SeriesNode> {
+    const node = legacyFilterToSeriesNode(defaults as ActionFilter, warehouseKind)
+    return Object.fromEntries(Object.entries(node).filter(([, value]) => value !== undefined)) as Partial<SeriesNode>
+}
+
 /** Sorted by the `order` fields, which the editor then carries as the array index. */
 export function legacyFiltersToSeries(
     filters: Partial<FilterType> | undefined,
