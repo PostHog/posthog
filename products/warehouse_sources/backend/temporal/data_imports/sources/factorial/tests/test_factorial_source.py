@@ -4,6 +4,10 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source import FactorialSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
@@ -47,34 +51,31 @@ class TestFactorialSource:
         assert schemas[0].name == "leaves"
 
     @pytest.mark.parametrize(
-        ("mock_return", "expected_valid", "expected_message"),
+        ("status_code", "expected_valid", "expected_message"),
         [
-            ((True, None), True, None),
+            (200, True, None),
             (
-                (False, "Invalid Factorial API key, or it does not have access to your account's data."),
+                401,
                 False,
                 "Invalid Factorial API key, or it does not have access to your account's data.",
             ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source.validate_factorial_credentials"
-    )
     def test_validate_credentials(
         self,
-        mock_validate: mock.MagicMock,
-        mock_return: tuple[bool, str | None],
+        status_code: int,
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
         # No row pin at creation time, so the probe runs under the default (newest) version.
-        mock_validate.assert_called_once_with("test-key", "2026-07-01")
+        assert network.requests_log[0].path == "/api/2026-07-01/resources/employees/employees"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["x-api-key"] == "test-key"
 
     @pytest.mark.parametrize(
         ("pin", "resolved"),

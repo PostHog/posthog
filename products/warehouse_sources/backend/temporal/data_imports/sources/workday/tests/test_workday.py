@@ -1,19 +1,27 @@
-import json
-from collections.abc import Iterable
-from typing import Any, Optional, cast
+import base64
+from collections.abc import Callable
+from typing import Any, Optional
+from urllib.parse import parse_qs
 
 import pytest
 from unittest import mock
 
-from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workday import (
+    WorkdaySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.settings import (
     WORKDAY_ENDPOINTS,
     build_endpoint_path,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.workday.source import WorkdaySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday import (
     HOST_NOT_ALLOWED_ERROR,
     TOKEN_ERROR,
@@ -22,101 +30,55 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workday.wo
     WorkdayResumeConfig,
     mint_access_token,
     validate_credentials,
-    workday_source,
 )
 
 WORKDAY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday"
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 HOSTNAME = "wd2-impl-services1.workday.com"
 TENANT = "acme_pt1"
 
-
-class FakeResumeManager(ResumableSourceManager[WorkdayResumeConfig]):
-    """Stands in for the Redis-backed manager: no I/O, records what was checkpointed."""
-
-    def __init__(self, state: Optional[WorkdayResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[WorkdayResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[WorkdayResumeConfig]:
-        return self.state
-
-    def save_state(self, data: WorkdayResumeConfig) -> None:
-        self.saved.append(data)
+TOKEN_PATH = f"/ccx/oauth2/{TENANT}/token"
 
 
-def _raw_response(content: bytes, *, status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = content
-    # Callers stream these (stream=True + iter_content) and close them; marking the content
-    # consumed makes iter_content replay `_content` and keeps `.close()` a no-op (raw is None).
-    response._content_consumed = True  # type: ignore[attr-defined]
-    return response
+def _json_response(payload: Any, *, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=payload)
 
 
-def _json_response(payload: Any, *, status_code: int = 200) -> Response:
-    return _raw_response(json.dumps(payload).encode(), status_code=status_code)
+def _redirect_response(location: str = "https://internal.example/") -> ScriptedResponse:
+    return ScriptedResponse(status=302, headers={"Location": location}, body=b"")
 
 
-def _redirect_response(location: str = "https://internal.example/") -> Response:
-    response = _raw_response(b"", status_code=302)
-    response.headers["Location"] = location
-    return response
-
-
-def _page(rows: list[dict[str, Any]], total: int) -> Response:
+def _page(rows: list[dict[str, Any]], total: int) -> ScriptedResponse:
     return _json_response({"total": total, "data": rows})
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session, snapshotting each request's url + params AT PREPARE TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so it has to be copied when
-    each request is prepared rather than read back after the run.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        prepared = mock.MagicMock()
-        # `_check_allowed_host` urlsplits the prepared URL, so it must be a real string.
-        prepared.url = request.url
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
+def _token_response() -> ScriptedResponse:
+    return _json_response({"access_token": "tok", "expires_in": 3600})
 
 
-def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
-    pages = cast("Iterable[Any]", source_response.items())
-    return [row for page in pages for row in page]
+def _tenant_api(
+    pages: list[ScriptedResponse], token: Optional[ScriptedResponse] = None
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Answer the token exchange from `token`, and every other request from `pages` in order."""
+    queue = list(pages)
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/token"):
+            return token or _token_response()
+        return queue.pop(0)
+
+    return respond
 
 
-def _build_source(
-    endpoint: str = "workers",
-    manager: Optional[FakeResumeManager] = None,
-    staffing_version: str = "v7",
-) -> SourceResponse:
-    return workday_source(
-        hostname=HOSTNAME,
-        tenant=TENANT,
-        client_id="client",
-        client_secret="secret",
-        refresh_token="refresh",
-        endpoint=endpoint,
-        staffing_version=staffing_version,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager or FakeResumeManager(),
+def _driver() -> SourceDriver:
+    config = WorkdaySourceConfig(
+        hostname=HOSTNAME, tenant=TENANT, client_id="client", client_secret="secret", refresh_token="refresh"
     )
+    return SourceDriver(WorkdaySource(), config)
+
+
+def _data_requests(requests_log: list[RecordedRequest]) -> list[RecordedRequest]:
+    return [request for request in requests_log if not request.path.endswith("/token")]
 
 
 class TestUrlHelpers:
@@ -139,34 +101,34 @@ class TestUrlHelpers:
 
 class TestMintAccessToken:
     def test_posts_refresh_grant_with_basic_client_auth(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _json_response({"access_token": "tok", "expires_in": 3600})
-
-        with mock.patch(f"{WORKDAY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([_token_response()]) as network:
             assert mint_access_token(HOSTNAME, TENANT, "client", "secret", "refresh") == "tok"
 
-        args, kwargs = session.post.call_args
-        assert args[0] == f"https://{HOSTNAME}/ccx/oauth2/{TENANT}/token"
-        assert kwargs["data"] == {"grant_type": "refresh_token", "refresh_token": "refresh"}
-        assert kwargs["auth"] == ("client", "secret")
-        # A 3xx must not bounce the client secret to another origin.
-        assert kwargs["allow_redirects"] is False
+        request = network.requests_log[0]
+        assert request.url == f"https://{HOSTNAME}{TOKEN_PATH}"
+        assert request.body is not None
+        assert parse_qs(request.body.decode()) == {"grant_type": ["refresh_token"], "refresh_token": ["refresh"]}
+        assert request.headers["authorization"] == f"Basic {base64.b64encode(b'client:secret').decode()}"
+
+    def test_redirect_cannot_bounce_the_client_secret_to_another_origin(self) -> None:
+        with scripted_network([_redirect_response()]) as network:
+            with pytest.raises(WorkdayAuthError, match="HTTP 302"):
+                mint_access_token(HOSTNAME, TENANT, "client", "secret", "refresh")
+
+        assert len(network.requests_log) == 1
 
     @pytest.mark.parametrize(
         "response, expected_fragment",
         [
             (_json_response({"error": "invalid_grant"}, status_code=400), TOKEN_ERROR),
             (_json_response({"error": "invalid_client"}, status_code=401), TOKEN_ERROR),
-            (_raw_response(b"<html>login</html>"), "non-JSON"),
+            (ScriptedResponse(body=b"<html>login</html>"), "non-JSON"),
             (_json_response({"token_type": "Bearer"}), "no access token"),
             (_json_response({"access_token": ""}), "no access token"),
         ],
     )
-    def test_token_failures_raise(self, response: Response, expected_fragment: str) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = response
-
-        with mock.patch(f"{WORKDAY_MODULE}.make_tracked_session", return_value=session):
+    def test_token_failures_raise(self, response: ScriptedResponse, expected_fragment: str) -> None:
+        with scripted_network([response]):
             with pytest.raises(WorkdayAuthError) as excinfo:
                 mint_access_token(HOSTNAME, TENANT, "client", "secret", "refresh")
 
@@ -175,11 +137,8 @@ class TestMintAccessToken:
     def test_oversized_token_body_is_refused(self) -> None:
         # A customer-controlled host could stream an unbounded token body to exhaust the worker;
         # the read is capped rather than buffered whole.
-        session = mock.MagicMock()
-        session.post.return_value = _json_response({"access_token": "tok"})
-
         with (
-            mock.patch(f"{WORKDAY_MODULE}.make_tracked_session", return_value=session),
+            scripted_network([_json_response({"access_token": "tok"})]),
             mock.patch(f"{WORKDAY_MODULE}.MAX_VALIDATE_RESPONSE_BYTES", 4),
         ):
             with pytest.raises(WorkdayAuthError) as excinfo:
@@ -191,24 +150,22 @@ class TestMintAccessToken:
 class TestValidateCredentials:
     def _validate(
         self,
-        probe: Optional[Response] = None,
+        probe: Optional[ScriptedResponse] = None,
         *,
         hostname: str = HOSTNAME,
         tenant: str = TENANT,
         schema_name: Optional[str] = None,
-        token_side_effect: Optional[Exception] = None,
+        token: Optional[ScriptedResponse] = None,
     ) -> tuple[bool, Optional[str]]:
-        session = mock.MagicMock()
-        # `Response.__bool__` is `ok`, so a non-2xx probe must not be treated as absent.
-        session.get.return_value = _json_response({"total": 1, "data": []}) if probe is None else probe
-        with (
-            mock.patch(f"{WORKDAY_MODULE}.make_tracked_session", return_value=session),
-            mock.patch(
-                f"{WORKDAY_MODULE}.mint_access_token",
-                side_effect=token_side_effect,
-                return_value="tok",
-            ),
-        ):
+        answer = _json_response({"total": 1, "data": []}) if probe is None else probe
+
+        # The stack retries a 5xx, so the probe answers every attempt.
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/token"):
+                return token or _token_response()
+            return answer
+
+        with scripted_network(responder):
             return validate_credentials(
                 hostname=hostname,
                 tenant=tenant,
@@ -231,8 +188,7 @@ class TestValidateCredentials:
     def test_rejects_malformed_target_before_sending_credentials(
         self, hostname: str, tenant: str, expected_error: str
     ) -> None:
-        session = mock.MagicMock()
-        with mock.patch(f"{WORKDAY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([]) as network:
             ok, error = validate_credentials(
                 hostname=hostname,
                 tenant=tenant,
@@ -243,8 +199,7 @@ class TestValidateCredentials:
             )
 
         assert (ok, error) == (False, expected_error)
-        session.post.assert_not_called()
-        session.get.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize(
         "status_code, schema_name, expected_ok",
@@ -269,48 +224,57 @@ class TestValidateCredentials:
         assert error == HOST_NOT_ALLOWED_ERROR
 
     def test_token_failure_is_surfaced(self) -> None:
-        ok, error = self._validate(token_side_effect=WorkdayAuthError(f"{TOKEN_ERROR} (HTTP 401)"))
+        ok, error = self._validate(token=_json_response({"error": "invalid_client"}, status_code=401))
         assert ok is False
         assert error is not None and TOKEN_ERROR in error
 
     def test_network_failure_is_surfaced(self) -> None:
-        ok, error = self._validate(token_side_effect=RequestsConnectionError("dns failure"))
-        assert (ok, error) == (False, "dns failure")
+        def respond(_request: RecordedRequest) -> ScriptedResponse:
+            raise RequestsConnectionError("dns failure")
+
+        with scripted_network(respond):
+            ok, error = validate_credentials(
+                hostname=HOSTNAME,
+                tenant=TENANT,
+                client_id="client",
+                client_secret="secret",
+                refresh_token="refresh",
+                staffing_version="v7",
+            )
+
+        assert ok is False
+        assert error is not None and "dns failure" in error
 
 
 class TestWorkdaySource:
     def test_checkpoints_after_each_page(self) -> None:
-        session = mock.MagicMock()
-        _wire(session, [_page([{"id": str(i)} for i in range(100)], total=101), _page([{"id": "100"}], total=101)])
-        manager = FakeResumeManager()
-
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=session):
-            _rows(_build_source(manager=manager))
+        result = _driver().run(
+            "workers",
+            _tenant_api([_page([{"id": str(i)} for i in range(100)], total=101), _page([{"id": "100"}], total=101)]),
+        )
 
         # One checkpoint after the first page (pointing at the next offset); none once the walk
         # finished, so a later attempt restarts cleanly instead of resuming past the end.
-        assert [state.offset for state in manager.saved] == [100]
+        assert [state.offset for state in result.saved_states] == [100]
 
     def test_resumes_from_the_saved_offset(self) -> None:
-        session = mock.MagicMock()
-        snapshots = _wire(session, [_page([{"id": "200"}], total=201)])
-        manager = FakeResumeManager(WorkdayResumeConfig(offset=200))
+        result = _driver().run(
+            "workers",
+            _tenant_api([_page([{"id": "200"}], total=201)]),
+            resume_state=WorkdayResumeConfig(offset=200),
+        )
 
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=session):
-            rows = _rows(_build_source(manager=manager))
+        assert _data_requests(result.requests)[0].param("offset") == "200"
+        assert [row["id"] for row in result.rows] == ["200"]
 
-        assert snapshots[0]["params"]["offset"] == 200
-        assert [row["id"] for row in rows] == ["200"]
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _driver().run("workers", _tenant_api([_page([{"id": "1"}], total=1)]))
+
+        assert _data_requests(result.requests)[0].param("offset") == "0"
 
     def test_internal_hostname_is_blocked_at_run_time(self) -> None:
-        session = mock.MagicMock()
-        _wire(session, [_page([], total=0)])
+        with mock.patch(f"{WORKDAY_MODULE}._is_host_safe", return_value=(False, None)):
+            result = _driver().run("workers", _tenant_api([_page([], total=0)]))
 
-        with (
-            mock.patch(CLIENT_SESSION_PATCH, return_value=session),
-            mock.patch(f"{WORKDAY_MODULE}._is_host_safe", return_value=(False, None)),
-        ):
-            with pytest.raises(WorkdayHostNotAllowedError):
-                _rows(_build_source())
-
-        session.send.assert_not_called()
+        assert isinstance(result.raised, WorkdayHostNotAllowedError)
+        assert result.requests == []

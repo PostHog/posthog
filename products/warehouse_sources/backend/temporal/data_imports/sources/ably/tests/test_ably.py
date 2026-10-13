@@ -1,11 +1,7 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably import (
@@ -15,20 +11,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably 
     _add_interval_start,
     _add_message_time,
     _parse_interval_start,
-    ably_source,
     get_resource,
     split_api_key,
     validate_credentials,
     version_header,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.ably.source import AblySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ably import AblySourceConfig
 
 
-def _pages(response: SourceResponse) -> list[list[dict[str, Any]]]:
-    # SourceResponse.items is typed for async sources too; every Ably endpoint is synchronous.
-    return list(cast(Iterable[list[dict[str, Any]]], response.items()))
+def _driver() -> SourceDriver:
+    return SourceDriver(AblySource(), AblySourceConfig(api_key="app.key:secret", unit="hour"))
+
+
+def _page(body: list[dict[str, Any]], *, next_url: str | None = None) -> ScriptedResponse:
+    headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+    return ScriptedResponse(json=body, headers=headers)
 
 
 class TestVersionHeader:
@@ -168,341 +173,192 @@ class TestAddMessageTime:
         assert _add_message_time({"timestamp": timestamp})["message_time"] is None
 
 
-def _make_http_response(body: list[dict[str, Any]], *, next_url: str | None = None, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    if next_url:
-        resp.headers["Link"] = f'<{next_url}>; rel="next"'
-    return resp
-
-
 class TestAblySourceResumeBehavior:
-    """End-to-end resume/pagination behaviour of ``ably_source`` via ``rest_api_resource``."""
-
-    def _drive(
-        self, manager: MagicMock, responses: list[Response], should_use_incremental_field: bool = False
-    ) -> tuple[list[str], list[list[dict[str, Any]]]]:
-        sent_urls: list[str] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = ably_source(
-                api_key="app.key:secret",
-                endpoint="Stats",
-                unit="hour",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                api_version=ABLY_VERSION_2,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            pages = _pages(response)
-            return sent_urls, pages
+    """End-to-end resume/pagination behaviour of the Ably source."""
 
     def test_fresh_run_follows_link_header_and_saves_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         next_url = "https://main.realtime.ably.net/stats?start=abc&series=1"
-        responses = [
-            _make_http_response([{"intervalId": "2024-01-15:14", "unit": "hour"}], next_url=next_url),
-            _make_http_response([{"intervalId": "2024-01-15:15", "unit": "hour"}]),
-        ]
-        sent_urls, pages = self._drive(manager, responses)
+        result = _driver().run(
+            "Stats",
+            [
+                _page([{"intervalId": "2024-01-15:14", "unit": "hour"}], next_url=next_url),
+                _page([{"intervalId": "2024-01-15:15", "unit": "hour"}]),
+            ],
+        )
 
-        assert sent_urls == ["https://main.realtime.ably.net/stats", next_url]
+        assert result.raised is None
+        assert result.urls == ["https://main.realtime.ably.net/stats?limit=1000&direction=forwards&unit=hour", next_url]
 
-        flattened = [row for page in pages for row in page]
-        assert flattened[0]["interval_start"] == "2024-01-15T14:00:00+00:00"
-        assert flattened[1]["interval_start"] == "2024-01-15T15:00:00+00:00"
+        assert result.rows[0]["interval_start"] == "2024-01-15T14:00:00+00:00"
+        assert result.rows[1]["interval_start"] == "2024-01-15T15:00:00+00:00"
 
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [AblyResumeConfig(next_url=next_url)]
+        assert result.saved_states == [AblyResumeConfig(next_url=next_url)]
 
     def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = _driver().run("Stats", [_page([{"intervalId": "2024-01-15:14", "unit": "hour"}])])
 
-        responses = [_make_http_response([{"intervalId": "2024-01-15:14", "unit": "hour"}])]
-        self._drive(manager, responses)
-
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.saved_states == []
 
     def test_resume_seeds_paginator_with_saved_next_url(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
         resumed_url = "https://main.realtime.ably.net/stats?start=resumed"
-        manager.load_state.return_value = AblyResumeConfig(next_url=resumed_url)
+        result = _driver().run(
+            "Stats",
+            [_page([{"intervalId": "2024-01-15:16", "unit": "hour"}])],
+            resume_state=AblyResumeConfig(next_url=resumed_url),
+        )
 
-        responses = [_make_http_response([{"intervalId": "2024-01-15:16", "unit": "hour"}])]
-        sent_urls, _ = self._drive(manager, responses)
-
-        assert sent_urls == [resumed_url]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.urls == [resumed_url]
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = _driver().run("Stats", [_page([{"intervalId": "2024-01-15:14", "unit": "hour"}])])
 
-        responses = [_make_http_response([{"intervalId": "2024-01-15:14", "unit": "hour"}])]
-        self._drive(manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.paths == ["/stats"]
+        assert result.params("start") == [None]
 
 
 class TestChannelFanout:
     """End-to-end behaviour of the channel-scoped endpoints, which fan out over ``/channels``."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        responses: list[Response],
-        *,
-        manager: MagicMock | None = None,
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
-        if manager is None:
-            manager = MagicMock(spec=ResumableSourceManager)
-            manager.can_resume.return_value = False
-        requests: list[tuple[str, dict[str, Any]]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            requests.append((request.url, dict(request.params)))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = ably_source(
-                api_key="app.key:secret",
-                endpoint=endpoint,
-                unit="hour",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                api_version=ABLY_VERSION_2,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            rows = [row for page in _pages(response) for row in page]
-            return requests, rows
-
     def test_child_path_uses_the_encoded_channel_name(self) -> None:
         # An unencoded `/` in the channel name would address a different Ably endpoint.
-        requests, rows = self._drive(
+        result = _driver().run(
             "ChannelMessages",
             [
-                _make_http_response([{"channelId": "user/42/inbox", "status": {"isActive": True}}]),
-                _make_http_response([{"id": "msg-1", "timestamp": 1705327200000}]),
+                _page([{"channelId": "user/42/inbox", "status": {"isActive": True}}]),
+                _page([{"id": "msg-1", "timestamp": 1705327200000}]),
             ],
         )
 
-        assert [url for url, _ in requests] == [
-            "https://main.realtime.ably.net/channels",
-            "https://main.realtime.ably.net/channels/user%2F42%2Finbox/messages",
-        ]
-        assert rows[0]["channel_id"] == "user/42/inbox"
-        assert rows[0]["message_time"] == "2024-01-15T14:00:00+00:00"
+        assert result.raised is None
+        assert result.paths == ["/channels", "/channels/user%2F42%2Finbox/messages"]
+        assert result.rows[0]["channel_id"] == "user/42/inbox"
+        assert result.rows[0]["message_time"] == "2024-01-15T14:00:00+00:00"
 
     def test_message_history_is_windowed_and_ordered_forwards(self) -> None:
         # Ably history defaults to newest-first, which would walk the watermark backwards, and
         # every request needs an explicit end because there is no open-ended "since X" mode.
-        requests, _ = self._drive(
+        result = _driver().run(
             "ChannelMessages",
             [
-                _make_http_response([{"channelId": "chat", "status": {"isActive": True}}]),
-                _make_http_response([{"id": "msg-1", "timestamp": 1705327200000}]),
+                _page([{"channelId": "chat", "status": {"isActive": True}}]),
+                _page([{"id": "msg-1", "timestamp": 1705327200000}]),
             ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=1705327100000,
         )
 
-        _, child_params = requests[1]
-        assert child_params["direction"] == "forwards"
-        assert child_params["start"] == 1705327100000
-        assert int(child_params["end"]) > 1_700_000_000_000
+        assert result.raised is None
+        assert result.requests[1].param("direction") == "forwards"
+        assert result.requests[1].param("start") == "1705327100000"
+        assert int(result.requests[1].param("end") or 0) > 1_700_000_000_000
 
     def test_presence_sends_no_time_window_on_an_incremental_run(self) -> None:
         # Presence reports who is present now and exposes no time filter, so an incremental
         # request must not grow start/end params the API would reject or ignore.
-        requests, rows = self._drive(
+        result = _driver().run(
             "Presence",
             [
-                _make_http_response([{"channelId": "chat", "status": {"isActive": True}}]),
-                _make_http_response([{"id": "pres-1", "clientId": "alice", "action": "PRESENT"}]),
+                _page([{"channelId": "chat", "status": {"isActive": True}}]),
+                _page([{"id": "pres-1", "clientId": "alice", "action": "PRESENT"}]),
             ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=1705327100000,
         )
 
-        _, child_params = requests[1]
-        assert "start" not in child_params
-        assert "end" not in child_params
-        assert rows[0]["channel_id"] == "chat"
+        assert result.raised is None
+        assert result.requests[1].param("start") is None
+        assert result.requests[1].param("end") is None
+        assert result.rows[0]["channel_id"] == "chat"
 
     def test_parent_listing_asks_for_channel_details(self) -> None:
-        requests, _ = self._drive(
+        result = _driver().run(
             "Presence",
             [
-                _make_http_response([{"channelId": "chat", "status": {"isActive": True}}]),
-                _make_http_response([]),
+                _page([{"channelId": "chat", "status": {"isActive": True}}]),
+                _page([]),
             ],
         )
 
-        assert requests[0][1]["by"] == "value"
+        assert result.raised is None
+        assert result.requests[0].param("by") == "value"
 
     def test_checkpoint_records_each_finished_channel(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive(
+        result = _driver().run(
             "Presence",
             [
-                _make_http_response([{"channelId": "a"}, {"channelId": "b"}]),
-                _make_http_response([{"id": "pres-a"}]),
-                _make_http_response([{"id": "pres-b"}]),
+                _page([{"channelId": "a"}, {"channelId": "b"}]),
+                _page([{"id": "pres-a"}]),
+                _page([{"id": "pres-b"}]),
             ],
-            manager=manager,
         )
 
-        saved = [call.args[0].fanout_state["completed"] for call in manager.save_state.call_args_list]
+        assert result.raised is None
+        saved = [state.fanout_state["completed"] for state in result.saved_states if state.fanout_state]
         assert saved[-1] == ["/channels/a/presence", "/channels/b/presence"]
 
     def test_resume_skips_channels_already_finished(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = AblyResumeConfig(
-            fanout_state={"completed": ["/channels/a/presence"], "current": None, "child_state": None}
-        )
-
-        requests, rows = self._drive(
+        result = _driver().run(
             "Presence",
             [
-                _make_http_response([{"channelId": "a"}, {"channelId": "b"}]),
-                _make_http_response([{"id": "pres-b"}]),
+                _page([{"channelId": "a"}, {"channelId": "b"}]),
+                _page([{"id": "pres-b"}]),
             ],
-            manager=manager,
+            resume_state=AblyResumeConfig(
+                fanout_state={"completed": ["/channels/a/presence"], "current": None, "child_state": None}
+            ),
         )
 
-        assert [url for url, _ in requests] == [
-            "https://main.realtime.ably.net/channels",
-            "https://main.realtime.ably.net/channels/b/presence",
-        ]
-        assert [row["id"] for row in rows] == ["pres-b"]
+        assert result.raised is None
+        assert result.paths == ["/channels", "/channels/b/presence"]
+        assert [row["id"] for row in result.rows] == ["pres-b"]
 
 
 class TestUnknownEndpoint:
     def test_raises_rather_than_syncing_the_wrong_table(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        with pytest.raises(ValueError, match="Unknown Ably endpoint: Nope"):
-            ably_source(
-                api_key="app.key:secret",
-                endpoint="Nope",
-                unit="hour",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                api_version=ABLY_VERSION_2,
-            )
+        result = _driver().run("Nope", [])
 
-
-def _make_redirect_response(location: str, status_code: int = 302) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp.headers["Location"] = location
-    resp._content = b""
-    return resp
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Ably endpoint: Nope"
 
 
 class TestAblyHostPinningAndRedirects:
     """`allowed_hosts=[]` + `allow_redirects=False` keep the Basic-auth credential from
     following a spoofed ``Link: rel="next"`` target or a cross-origin redirect off Ably's host."""
 
-    def _drive(self, sent_urls: list[str], responses: list[Response]) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = ably_source(
-                api_key="app.key:secret",
-                endpoint="Stats",
-                unit="hour",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                api_version=ABLY_VERSION_2,
-            )
-            _pages(response)
-
     def test_off_origin_next_link_is_rejected_before_sending(self) -> None:
         # A spoofed `Link: rel="next"` pointing off Ably's host must be refused before the
         # request (carrying the Basic-auth key) leaves the process.
         evil_url = "https://evil.example.com/stats?start=abc"
-        sent_urls: list[str] = []
-        responses = [_make_http_response([{"intervalId": "2024-01-15:14", "unit": "hour"}], next_url=evil_url)]
-
-        with pytest.raises(ValueError, match="disallowed host"):
-            self._drive(sent_urls, responses)
+        result = _driver().run("Stats", [_page([{"intervalId": "2024-01-15:14", "unit": "hour"}], next_url=evil_url)])
 
         # Only the legitimate first page was ever sent; the off-origin URL was never contacted.
-        assert sent_urls == ["https://main.realtime.ably.net/stats"]
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
+        assert result.paths == ["/stats"]
 
     def test_cross_origin_redirect_is_not_followed(self) -> None:
-        sent_urls: list[str] = []
-        responses = [_make_redirect_response("https://evil.example.com/stats")]
-
-        with pytest.raises(ValueError, match="[Rr]edirect"):
-            self._drive(sent_urls, responses)
+        result = _driver().run(
+            "Stats", [ScriptedResponse(status=302, headers={"Location": "https://evil.example.com/stats"})]
+        )
 
         # The redirect target was never fetched: send ran once for the base host and stopped.
-        assert sent_urls == ["https://main.realtime.ably.net/stats"]
+        assert isinstance(result.raised, ValueError)
+        assert "redirect" in str(result.raised).lower()
+        assert result.paths == ["/stats"]
 
 
 class TestValidateCredentials:
     def test_malformed_key_fails_without_a_request(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably.make_tracked_session"
-        ) as mock_make_session:
+        with scripted_network([]) as network:
             ok, error = validate_credentials("no-colon-here", ABLY_VERSION_2)
 
-            assert ok is False
-            assert error is not None and "malformed" in error.lower()
-            mock_make_session.assert_not_called()
+        assert ok is False
+        assert error is not None and "malformed" in error.lower()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     @pytest.mark.parametrize(
         ("status_code", "expect_ok"),
@@ -514,24 +370,21 @@ class TestValidateCredentials:
         ],
     )
     def test_status_code_mapping(self, status_code: int, expect_ok: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = MagicMock(status_code=status_code)
+        answer = ScriptedResponse(status=status_code)
+        script = always(answer) if status_code == 500 else [answer]
+        with scripted_network(script) as network:
             ok, error = validate_credentials("app.key:secret", ABLY_VERSION_2)
 
-            # The probe validates under the pinned version's header, not Ably's default.
-            assert mock_make_session.call_args.kwargs["headers"] == {"X-Ably-Version": "2"}
-            assert ok is expect_ok
-            if not expect_ok:
-                assert error is not None
+        # The probe validates under the pinned version's header, not Ably's default.
+        assert network.session_options[0]["headers"] == {"X-Ably-Version": "2"}
+        assert network.requests_log[0].headers["x-ably-version"] == "2"
+        assert ok is expect_ok
+        if not expect_ok:
+            assert error is not None
 
     def test_network_error_is_reported_not_raised(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = RequestsConnectionError("boom")
+        with scripted_network(always(RequestsConnectionError("boom"))):
             ok, error = validate_credentials("app.key:secret", ABLY_VERSION_2)
 
-            assert ok is False
-            assert error == "boom"
+        assert ok is False
+        assert error is not None and "boom" in error

@@ -5,6 +5,10 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze import (
     PgAnalyzeRetryableError,
     _post_graphql,
@@ -109,32 +113,25 @@ class TestValidateCredentials:
 
     @pytest.mark.parametrize("status_code", [401, 403])
     def test_returns_false_on_auth_error(self, status_code):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze.make_tracked_session"
-        ) as mock_sess:
-            sess = mock.MagicMock()
-            sess.post.return_value = _mock_response(status_code=status_code, text="forbidden")
-            mock_sess.return_value = sess
-
+        with scripted_network([ScriptedResponse(status=status_code, body=b"forbidden")]) as network:
             ok, err = validate_credentials("bad", "acme", None)
 
-            assert ok is False
-            assert err is not None
-            assert "Invalid" in err
+        assert ok is False
+        assert err is not None
+        assert "Invalid" in err
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/graphql"
+        assert network.requests_log[0].headers["authorization"] == "Token bad"
 
     def test_returns_false_on_graphql_error(self):
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze.make_tracked_session"
-        ) as mock_sess:
-            sess = mock.MagicMock()
-            sess.post.return_value = _mock_response(json_data={"errors": [{"message": "Organization not found"}]})
-            mock_sess.return_value = sess
-
+        with scripted_network([ScriptedResponse(json={"errors": [{"message": "Organization not found"}]})]) as network:
             ok, err = validate_credentials("token", "wrong-slug", None)
 
-            assert ok is False
-            assert err is not None
-            assert "Organization not found" in err
+        assert ok is False
+        assert err is not None
+        assert "Organization not found" in err
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].json()["variables"] == {"organizationSlug": "wrong-slug"}
 
     @pytest.mark.parametrize(
         "blocked_url",

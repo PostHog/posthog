@@ -1,7 +1,6 @@
 import json
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest import mock
@@ -26,8 +25,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.s
     ENDPOINTS,
     MESSAGES_PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.source import ChatwootSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chatwoot import (
+    ChatwootSourceConfig,
+)
 
 TEAM_ID = 1
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(ChatwootSource(), ChatwootSourceConfig(account_id="1", api_access_token="token"))
 
 
 def _make_manager(resume_state: ChatwootResumeConfig | None = None) -> mock.MagicMock:
@@ -82,26 +95,20 @@ class TestValidateCredentials:
         "status_code, expected_valid",
         [(200, True), (401, False), (404, False), (500, False)],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_status_mapping(self, mock_session, status_code, expected_valid):
-        mock_session.return_value.get.return_value = _resp([], status=status_code)
-
-        is_valid, _ = validate_credentials(None, "1", "token", TEAM_ID)
+    def test_status_mapping(self, status_code, expected_valid):
+        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))) as network:
+            is_valid, _ = validate_credentials(None, "1", "token", TEAM_ID)
 
         assert is_valid is expected_valid
+        assert {request.path for request in network.requests_log} == {"/api/v1/accounts/1/agents"}
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_connection_error_is_reported_not_raised(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        is_valid, message = validate_credentials(None, "1", "token", TEAM_ID)
+    def test_connection_error_is_reported_not_raised(self):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            is_valid, message = validate_credentials(None, "1", "token", TEAM_ID)
 
         assert is_valid is False
         assert message is not None and "Could not connect" in message
+        assert {request.path for request in network.requests_log} == {"/api/v1/accounts/1/agents"}
 
     def test_plain_http_host_is_rejected(self):
         is_valid, message = validate_credentials("http://chatwoot.internal", "1", "token", TEAM_ID)
@@ -124,33 +131,30 @@ class TestValidateCredentials:
             "https://169.254.169.254%40attacker.example",
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_authority_ambiguous_host_is_rejected_without_a_request(self, mock_session, host):
+    def test_authority_ambiguous_host_is_rejected_without_a_request(self, host):
         # urlparse and the HTTP client disagree on where the host ends, so these must be rejected
         # before any request — otherwise the host allowlist is an SSRF bypass.
-        is_valid, message = validate_credentials(host, "1", "token", TEAM_ID)
+        with scripted_network([]) as network:
+            is_valid, message = validate_credentials(host, "1", "token", TEAM_ID)
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestGetRowsPaged:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_resumes_from_saved_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp({"meta": {}, "payload": [{"id": 9}]}),
-            _resp({"meta": {}, "payload": []}),
-        ]
-        manager = _make_manager(ChatwootResumeConfig(page=5))
+    def test_resumes_from_saved_page(self):
+        result = _driver().run(
+            "contacts",
+            [
+                ScriptedResponse(json={"meta": {}, "payload": [{"id": 9}]}),
+                ScriptedResponse(json={"meta": {}, "payload": []}),
+            ],
+            resume_state=ChatwootResumeConfig(page=5),
+        )
 
-        list(get_rows(None, "1", "token", "contacts", TEAM_ID, mock.MagicMock(), manager))
-
-        assert "page=5" in mock_session.return_value.get.call_args_list[0].args[0]
+        assert result.params("page") == ["5", "6"]
+        assert [row["id"] for row in result.rows] == [9]
 
     @pytest.mark.parametrize(
         "endpoint, payload, expected_ids",
@@ -162,38 +166,36 @@ class TestGetRowsPaged:
             ("inboxes", {"payload": [{"id": 6}]}, [6]),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_single_endpoints_yield_once_without_pagination(self, mock_session, endpoint, payload, expected_ids):
-        mock_session.return_value.get.return_value = _resp(payload)
-        manager = _make_manager()
+    def test_single_endpoints_yield_once_without_pagination(self, endpoint, payload, expected_ids):
+        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
 
-        batches = list(get_rows(None, "1", "token", endpoint, TEAM_ID, mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == expected_ids
-        assert mock_session.return_value.get.call_count == 1
-        manager.save_state.assert_not_called()
+        assert [item["id"] for item in result.rows] == expected_ids
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
     def test_plain_http_host_raises(self):
-        with pytest.raises(Exception, match="HTTPS"):
-            list(
-                get_rows("http://chatwoot.internal", "1", "token", "agents", TEAM_ID, mock.MagicMock(), _make_manager())
-            )
+        driver = SourceDriver(
+            ChatwootSource(),
+            ChatwootSourceConfig(account_id="1", api_access_token="token", host="http://chatwoot.internal"),
+        )
+        result = driver.run("agents", [])
+
+        assert isinstance(result.raised, Exception)
+        assert "HTTPS" in str(result.raised)
+        assert result.requests == []
 
     def test_authority_ambiguous_host_raises(self):
-        with pytest.raises(Exception, match="not allowed"):
-            list(
-                get_rows(
-                    "https://169.254.169.254\\@attacker.example",
-                    "1",
-                    "token",
-                    "agents",
-                    TEAM_ID,
-                    mock.MagicMock(),
-                    _make_manager(),
-                )
-            )
+        driver = SourceDriver(
+            ChatwootSource(),
+            ChatwootSourceConfig(
+                account_id="1", api_access_token="token", host="https://169.254.169.254\\@attacker.example"
+            ),
+        )
+        result = driver.run("agents", [])
+
+        assert isinstance(result.raised, Exception)
+        assert "not allowed" in str(result.raised)
+        assert result.requests == []
 
 
 class TestGetRowsMessages:
@@ -269,56 +271,54 @@ class TestGetRowsMessages:
 
 
 class TestGetRowsMemberFanout:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_deleted_parent_404_is_skipped(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 10}, {"id": 11}]),
-            _resp({"error": "Resource could not be found"}, status=404),
-            _resp([{"id": 2}]),
+    def test_deleted_parent_404_is_skipped(self):
+        result = _driver().run(
+            "team_members",
+            [
+                ScriptedResponse(json=[{"id": 10}, {"id": 11}]),
+                ScriptedResponse(status=404, json={"error": "Resource could not be found"}),
+                ScriptedResponse(json=[{"id": 2}]),
+            ],
+        )
+
+        assert [row["id"] for row in result.rows] == [2]
+        assert result.paths == [
+            "/api/v1/accounts/1/teams",
+            "/api/v1/accounts/1/teams/10/team_members",
+            "/api/v1/accounts/1/teams/11/team_members",
         ]
-
-        batches = list(get_rows(None, "1", "token", "team_members", TEAM_ID, mock.MagicMock(), _make_manager()))
-
-        assert [row["id"] for batch in batches for row in batch] == [2]
 
     @pytest.mark.parametrize(
         "bookmarked_parent_id, expected_team_ids",
         # A bookmark for a parent that no longer exists must restart the walk, not skip everything.
         [(11, [11]), (999, [10, 11])],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_resumes_from_bookmarked_parent(self, mock_session, bookmarked_parent_id, expected_team_ids):
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 10}, {"id": 11}]),
-            _resp([{"id": 5}]),
-            _resp([{"id": 5}]),
-        ]
-        manager = _make_manager(ChatwootResumeConfig(parent_id=bookmarked_parent_id))
+    def test_resumes_from_bookmarked_parent(self, bookmarked_parent_id, expected_team_ids):
+        result = _driver().run(
+            "team_members",
+            [
+                ScriptedResponse(json=[{"id": 10}, {"id": 11}]),
+                *[ScriptedResponse(json=[{"id": 5}]) for _ in expected_team_ids],
+            ],
+            resume_state=ChatwootResumeConfig(parent_id=bookmarked_parent_id),
+        )
 
-        batches = list(get_rows(None, "1", "token", "team_members", TEAM_ID, mock.MagicMock(), manager))
-
-        assert [row["team_id"] for batch in batches for row in batch] == expected_team_ids
+        assert [row["team_id"] for row in result.rows] == expected_team_ids
+        assert result.paths[1:] == [f"/api/v1/accounts/1/teams/{team_id}/team_members" for team_id in expected_team_ids]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.MAX_MEMBER_FANOUT_PARENTS",
         1,
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_parent_fanout_stops_at_the_parent_cap(self, mock_session):
+    def test_parent_fanout_stops_at_the_parent_cap(self):
         # A misbehaving server can return an unbounded parent list, and the fan-out issues one
         # request per parent.
-        mock_session.return_value.get.side_effect = [_resp([{"id": 10}, {"id": 11}]), _resp([{"id": 1}])]
+        result = _driver().run(
+            "team_members", [ScriptedResponse(json=[{"id": 10}, {"id": 11}]), ScriptedResponse(json=[{"id": 1}])]
+        )
 
-        batches = list(get_rows(None, "1", "token", "team_members", TEAM_ID, mock.MagicMock(), _make_manager()))
-
-        assert [row["team_id"] for batch in batches for row in batch] == [10]
-        assert not any("/teams/11/" in call.args[0] for call in mock_session.return_value.get.call_args_list)
+        assert [row["team_id"] for row in result.rows] == [10]
+        assert not any("/teams/11/" in path for path in result.paths)
 
 
 class TestGetRowsReportingEvents:
@@ -334,88 +334,64 @@ class TestGetRowsReportingEvents:
             ("not-a-date", 0),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_walks_pages_within_a_pinned_window_and_stops_at_total_pages(self, mock_session, watermark, expected_since):
-        mock_session.return_value.get.side_effect = [
-            _resp({"meta": {"count": 3, "current_page": 1, "total_pages": 2}, "payload": [{"id": 1}, {"id": 2}]}),
-            _resp({"meta": {"count": 3, "current_page": 2, "total_pages": 2}, "payload": [{"id": 3}]}),
-        ]
-        manager = _make_manager()
-
-        batches = list(
-            get_rows(
-                None,
-                "1",
-                "token",
-                "reporting_events",
-                TEAM_ID,
-                mock.MagicMock(),
-                manager,
-                db_incremental_field_last_value=watermark,
-            )
+    def test_walks_pages_within_a_pinned_window_and_stops_at_total_pages(self, watermark, expected_since):
+        result = _driver().run(
+            "reporting_events",
+            [
+                ScriptedResponse(
+                    json={"meta": {"count": 3, "current_page": 1, "total_pages": 2}, "payload": [{"id": 1}, {"id": 2}]}
+                ),
+                ScriptedResponse(
+                    json={"meta": {"count": 3, "current_page": 2, "total_pages": 2}, "payload": [{"id": 3}]}
+                ),
+            ],
+            incremental_field="created_at",
+            db_incremental_field_last_value=watermark,
         )
 
-        assert [row["id"] for batch in batches for row in batch] == [1, 2, 3]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
         # total_pages ends the walk, so no third request is made.
-        assert len(urls) == 2
-        assert all(f"since={expected_since}" in url for url in urls)
+        assert len(result.requests) == 2
+        assert result.params("since") == [str(expected_since)] * 2
         # Chatwoot orders this endpoint newest-first over page numbers, so the window end has to
         # be identical on every page or rows at each boundary are skipped as events arrive.
-        untils = {parse_qs(urlsplit(url).query)["until"][0] for url in urls}
+        untils = set(result.params("until"))
         assert len(untils) == 1
         # Saved state carries that window so a resumed attempt paginates the same one.
-        assert [(call.args[0].page, call.args[0].until) for call in manager.save_state.call_args_list] == [
-            (2, int(untils.pop())),
-            (3, mock.ANY),
+        assert result.saved_states == [
+            ChatwootResumeConfig(page=2, until=int(untils.pop() or "0")),
+            ChatwootResumeConfig(page=3, until=result.saved_states[0].until),
         ]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_missing_total_pages_falls_back_to_the_empty_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [_resp({"payload": [{"id": 1}]}), _resp({"payload": []})]
-
-        batches = list(get_rows(None, "1", "token", "reporting_events", TEAM_ID, mock.MagicMock(), _make_manager()))
-
-        assert [row["id"] for batch in batches for row in batch] == [1]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_resume_reuses_the_saved_window(self, mock_session):
-        # Recomputing "now" on a resumed attempt would renumber every remaining page.
-        mock_session.return_value.get.return_value = _resp({"meta": {}, "payload": []})
-        manager = _make_manager(ChatwootResumeConfig(page=4, until=1767000000))
-
-        list(
-            get_rows(
-                None,
-                "1",
-                "token",
-                "reporting_events",
-                TEAM_ID,
-                mock.MagicMock(),
-                manager,
-                db_incremental_field_last_value="2026-01-02T03:04:05+00:00",
-            )
+    def test_missing_total_pages_falls_back_to_the_empty_page(self):
+        result = _driver().run(
+            "reporting_events",
+            [ScriptedResponse(json={"payload": [{"id": 1}]}), ScriptedResponse(json={"payload": []})],
         )
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert "page=4" in url and "until=1767000000" in url
+        assert [row["id"] for row in result.rows] == [1]
+        assert result.params("page") == ["1", "2"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_404_reports_the_endpoint_as_unavailable_not_a_missing_account(self, mock_session):
+    def test_resume_reuses_the_saved_window(self):
+        # Recomputing "now" on a resumed attempt would renumber every remaining page.
+        result = _driver().run(
+            "reporting_events",
+            [ScriptedResponse(json={"meta": {}, "payload": []})],
+            resume_state=ChatwootResumeConfig(page=4, until=1767000000),
+            incremental_field="created_at",
+            db_incremental_field_last_value="2026-01-02T03:04:05+00:00",
+        )
+
+        assert result.params("page") == ["4"]
+        assert result.params("until") == ["1767000000"]
+
+    def test_404_reports_the_endpoint_as_unavailable_not_a_missing_account(self):
         # The route only exists on enterprise builds. The generic 404 message would send the user
         # off to re-check an account id that is correct.
-        mock_session.return_value.get.return_value = _resp({"error": "Not Found"}, status=404)
+        result = _driver().run("reporting_events", [ScriptedResponse(status=404, json={"error": "Not Found"})])
 
-        with pytest.raises(Exception, match=REPORTING_EVENTS_UNAVAILABLE_ERROR):
-            list(get_rows(None, "1", "token", "reporting_events", TEAM_ID, mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, Exception)
+        assert REPORTING_EVENTS_UNAVAILABLE_ERROR in str(result.raised)
 
 
 class TestWebhookTableTransformer:
@@ -467,20 +443,21 @@ class TestWebhookTableTransformer:
 
 
 class TestWebhookManagement:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_create_webhook_returns_signing_secret_as_extra_input(self, mock_session):
-        mock_session.return_value.post.return_value = _resp(
-            {"payload": {"webhook": {"id": 3, "url": "https://ph/webhook", "secret": "s3cret"}}}
-        )
-
-        result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
+    def test_create_webhook_returns_signing_secret_as_extra_input(self):
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={"payload": {"webhook": {"id": 3, "url": "https://ph/webhook", "secret": "s3cret"}}}
+                )
+            ]
+        ) as network:
+            result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "s3cret"}
         assert result.pending_inputs == []
-        body = mock_session.return_value.post.call_args.kwargs["json"]
+        assert network.requests_log[0].method == "POST"
+        body = network.requests_log[0].json()
         assert body["webhook"]["url"] == "https://ph/webhook"
         assert set(body["webhook"]["subscriptions"]) == {
             "conversation_created",
@@ -490,61 +467,54 @@ class TestWebhookManagement:
             "message_updated",
         }
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_create_webhook_without_secret_marks_signing_secret_pending(self, mock_session):
+    def test_create_webhook_without_secret_marks_signing_secret_pending(self):
         # Older self-hosted Chatwoot versions have no per-webhook secret.
-        mock_session.return_value.post.return_value = _resp(
-            {"payload": {"webhook": {"id": 3, "url": "https://ph/webhook"}}}
-        )
-
-        result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
+        with scripted_network(
+            [ScriptedResponse(json={"payload": {"webhook": {"id": 3, "url": "https://ph/webhook"}}})]
+        ):
+            result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
 
         assert result.success is True
         assert result.pending_inputs == ["signing_secret"]
 
     @pytest.mark.parametrize("status", [401, 403])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_create_webhook_permission_error_is_actionable(self, mock_session, status):
-        mock_session.return_value.post.return_value = _resp({"error": "nope"}, status=status)
-
-        result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
+    def test_create_webhook_permission_error_is_actionable(self, status):
+        with scripted_network([ScriptedResponse(status=status, json={"error": "nope"})]):
+            result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
 
         assert result.success is False
         assert result.error is not None and "administrator" in result.error
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_create_webhook_reconciles_existing_webhook_on_422(self, mock_session):
+    def test_create_webhook_reconciles_existing_webhook_on_422(self):
         # Webhook URLs are unique per account: a partial earlier setup 422s on re-create.
-        mock_session.return_value.post.return_value = _resp({"message": "URL has already been taken"}, status=422)
-        mock_session.return_value.get.return_value = _resp(
-            {"payload": {"webhooks": [{"id": 9, "url": "https://ph/webhook", "subscriptions": ["message_created"]}]}}
-        )
-        mock_session.return_value.patch.return_value = _resp(
-            {"payload": {"webhook": {"id": 9, "url": "https://ph/webhook", "secret": "s3cret"}}}
-        )
-
-        result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
+        with scripted_network(
+            [
+                ScriptedResponse(status=422, json={"message": "URL has already been taken"}),
+                ScriptedResponse(
+                    json={
+                        "payload": {
+                            "webhooks": [{"id": 9, "url": "https://ph/webhook", "subscriptions": ["message_created"]}]
+                        }
+                    }
+                ),
+                ScriptedResponse(
+                    json={"payload": {"webhook": {"id": 9, "url": "https://ph/webhook", "secret": "s3cret"}}}
+                ),
+            ]
+        ) as network:
+            result = create_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "s3cret"}
-        assert "/webhooks/9" in mock_session.return_value.patch.call_args.args[0]
+        assert [request.method for request in network.requests_log] == ["POST", "GET", "PATCH"]
+        assert network.requests_log[-1].path == "/api/v1/accounts/1/webhooks/9"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot.make_tracked_session"
-    )
-    def test_delete_webhook_is_a_noop_success_when_absent(self, mock_session):
-        mock_session.return_value.get.return_value = _resp({"payload": {"webhooks": []}})
-
-        result = delete_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
+    def test_delete_webhook_is_a_noop_success_when_absent(self):
+        with scripted_network([ScriptedResponse(json={"payload": {"webhooks": []}})]) as network:
+            result = delete_webhook(None, "1", "token", "https://ph/webhook", TEAM_ID, mock.MagicMock())
 
         assert result.success is True
-        mock_session.return_value.delete.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
 
 class TestChatwootSourceResponse:
