@@ -511,6 +511,9 @@ export interface dashboardLogicActions {
     changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
+    changeDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
+        tileSpacing: DashboardTileSpacing
+    }
     clearAddWidgetSelectedTypes: () => {
         value: true
     }
@@ -1580,6 +1583,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         setDashboardCustomizeMenuOpen: (open: boolean) => ({ open }),
         changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
+        changeDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
@@ -4879,7 +4883,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             })
         },
+        changeDashboardTileSpacing: ({ tileSpacing }) => {
+            if (tileSpacing === (values.dashboard?.customization?.tile_spacing ?? 'standard')) {
+                return
+            }
+            actions.setDashboardTileSpacing(tileSpacing)
+            actions.saveDashboardTileSpacing(tileSpacing)
+        },
         changeDashboardGridCompaction: ({ layoutCompaction }) => {
+            if (
+                layoutCompaction ===
+                (values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
+            ) {
+                return
+            }
             const changeCompaction = (discardUnsavedLayoutChanges = false): void => {
                 if (discardUnsavedLayoutChanges) {
                     const savedSmLayout = Object.entries(values.dashboardLayouts).flatMap(([tileId, layouts]) =>
