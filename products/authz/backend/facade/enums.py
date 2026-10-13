@@ -120,12 +120,3 @@ class SubjectType(StrEnum):
     PROJECT_SECRET_KEY = "project_secret_key"
     SERVICE = "service"
     ROLE = "role"
-
-
-class FilterKind(StrEnum):
-    """How an `AccessFilter` narrows the rows of one resource type."""
-
-    ALL = "all"
-    NONE = "none"
-    ONLY = "only"
-    EXCEPT = "except"

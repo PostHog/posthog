@@ -94,49 +94,21 @@ def list_resources(
     subject: contracts.Subject | None = None,
     context: contracts.Context | None = None,
     limit: int | None = None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> contracts.ResourceIds:
-    """Return the ids of `resource.type` resources in its project or organization that the subject may take the action on.
+    """Return the `resource.type` resources in its project that the subject may take the action on.
 
-    Apply the ids to your own query, for example `qs.filter(pk__in=result.ids)`. When `complete` is False the set
-    was capped, so fail closed and return nothing.
+    The result names the few resources that differ from the rest: the allowed ones, or with `excluded`
+    the denied ones. Apply it next to your own query: `apply_filter` for a QuerySet, `filter_to_expr`
+    for HogQL, `result.allows(id)` for one object. Set `creator_exempt` when the rows have a creator
+    column and the subject keeps its own rows. When `complete` is False the list was capped, so fail
+    closed and return nothing.
+
+    Pass the request's `user_access_control` when you hold one outside an `authorization_session`, so
+    the legacy rules are not loaded again. It goes away once every caller runs inside a session.
     """
-    return rollout.list_resources(resource, action, subject, context, limit)
-
-
-def filter(
-    *,
-    resource: contracts.Resource,
-    action: Action,
-    subject: contracts.Subject | None = None,
-    context: contracts.Context | None = None,
-    creator_exempt: bool = False,
-    user_access_control: UserAccessControl | None = None,
-) -> contracts.AccessFilter:
-    """Return the filter that narrows every `resource.type` row in its project to the rows the subject may `action` on.
-
-    Apply it next to your own query: `apply_filter` for a QuerySet, `filter_to_expr` for HogQL,
-    `access_filter.allows(id)` for one object. Set `creator_exempt` when the rows have a creator column and
-    the subject keeps its own rows. Pass the request's `user_access_control` when you hold one, so the
-    legacy rules are not loaded again. It goes away once the facade has a request-scoped session.
-    """
-    return rollout.filters([resource], action, subject, context, creator_exempt, user_access_control)[0]
-
-
-def filters(
-    resources: Sequence[contracts.Resource],
-    /,
-    *,
-    action: Action,
-    subject: contracts.Subject | None = None,
-    context: contracts.Context | None = None,
-    creator_exempt: bool = False,
-    user_access_control: UserAccessControl | None = None,
-) -> list[contracts.AccessFilter]:
-    """`filter` for several resource types at once, one result per resource, in order.
-
-    Use it when one request narrows many types, such as the HogQL schema build, so the rules load once.
-    """
-    return rollout.filters(resources, action, subject, context, creator_exempt, user_access_control)
+    return rollout.list_resources(resource, action, subject, context, limit, creator_exempt, user_access_control)
 
 
 def list_subjects(

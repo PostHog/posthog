@@ -1,9 +1,12 @@
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
 from posthog.models import OrganizationMembership, Team, User
+from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.authorization import authorization_roles
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import AccessControlLevelResource, UserAccessControl
 from products.dashboards.backend.facade.authorization import LegacyDashboardAuthorization
 
@@ -13,7 +16,7 @@ from . import authorization, request_context
 
 
 def dashboard_level(action: Action) -> AccessControlLevelResource:
-    if action in (Action.VIEW, Action.LIST):
+    if action in (Action.VIEW, Action.LIST, Action.QUERY):
         return "viewer"
     if action in (Action.EDIT, Action.DELETE, Action.SHARE, Action.CREATE):
         return "editor"
@@ -96,20 +99,58 @@ class LegacyAuthorization:
         return access.check_access_level_for_resource("dashboard", level)
 
     def list_resources(
-        self, resource: Resource, action: Action, subject: Subject | None, limit: int | None
+        self,
+        resource: Resource,
+        action: Action,
+        subject: Subject | None,
+        limit: int | None,
+        creator_exempt: bool,
+        user_access_control: UserAccessControl | None,
     ) -> ResourceIds:
-        if resource.id is not None or resource.type != ResourceType.DASHBOARD or resource.project_id is None:
-            raise ValueError("List resources requires a dashboard category scoped to a project")
+        """Same shape as the OpenFGA list: only objects with a rule of their own can differ from the
+        resource level, so those are resolved one by one and the rest follow the resource level."""
+        if resource.id is not None or resource.project_id is None:
+            raise ValueError("List resources requires a resource category scoped to a project")
         if limit is not None and limit < 1:
             raise ValueError("Resource limit must be positive")
-        authorization.action_relation("dashboard:0", action)
-        authorization.organization_id(resource)
+        cap = limit if limit is not None else authorization.MAX_IDS
+        level = dashboard_level(action)
         user = self.user(subject)
         if user is None:
             return ResourceIds(ids=frozenset(), complete=True)
-        access = self.user_access(user, resource)
-        ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
-        return ResourceIds(ids=ids or frozenset(), complete=ids is not None)
+        access = self.adopt(user, resource, user_access_control) or self.user_access(user, resource)
+
+        def build(ids: frozenset[str], *, excluded: bool) -> ResourceIds:
+            return ResourceIds(ids=ids, complete=True, excluded=excluded, creator_exempt=creator_exempt)
+
+        if not access.has_project_access:
+            return build(frozenset(), excluded=False)
+        if access.is_organization_admin or not access.access_controls_supported:
+            return build(frozenset(), excluded=True)
+        scope = cast(APIScopeObject, resource.type.value)
+        with_rule = access.object_ids_with_rules(scope)
+        if len(with_rule) > cap:
+            return ResourceIds(ids=frozenset(), complete=False)
+        allowed = {
+            id: access.check_access_level_for_ref(
+                ObjectAccessRef(resource=scope, id=id, team_id=resource.project_id, created_by_id=None), level
+            )
+            for id in with_rule
+        }
+        if access.check_access_level_for_resource(scope, level):
+            return build(frozenset(id for id, ok in allowed.items() if not ok), excluded=True)
+        return build(frozenset(id for id, ok in allowed.items() if ok), excluded=False)
+
+    def adopt(
+        self, user: User, resource: Resource, user_access_control: UserAccessControl | None
+    ) -> UserAccessControl | None:
+        """Reuse a caller's preloaded access control for its own user and project, so no rule loads twice."""
+        if user_access_control is None or user_access_control.team is None or user_access_control.user.pk != user.pk:
+            return None
+        team = user_access_control.team
+        if team.id != authorization.project_id(resource):
+            return None
+        return self.access.setdefault((user.id, team.id, team.organization_id), user_access_control)
 
 
 def evaluator() -> LegacyAuthorization:
@@ -128,7 +169,13 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
 
 
 def list_resources(
-    resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
+    resource: Resource,
+    action: Action,
+    subject: Subject | None,
+    context: Context | None,
+    limit: int | None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> ResourceIds:
     authorization.validate_context(context)
-    return evaluator().list_resources(resource, action, subject, limit)
+    return evaluator().list_resources(resource, action, subject, limit, creator_exempt, user_access_control)

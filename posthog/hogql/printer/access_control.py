@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from posthog.scopes import APIScopeObject
 
-    from products.authz.backend.facade.contracts import AccessFilter
+    from products.authz.backend.facade.contracts import ResourceIds
 
 
 def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optional["AccessControlFilterWarning"]:
@@ -44,7 +44,7 @@ def build_access_control_guard(
 ) -> Optional[ast.Expr]:
     """Build the WHERE guard that narrows the table to the rows the current user may query, or None.
 
-    The decision comes from the authz facade as an `AccessFilter`. This function only turns it into
+    The decision comes from the authz facade as a `ResourceIds`. This function only turns it into
     an expression, because only the table knows its id and creator columns.
     """
     resource = table.access_scope
@@ -65,14 +65,14 @@ def build_access_control_guard(
     user_access_control = context.database.user_access_control
     user_id = user_access_control.user.pk
     creator_field = table.access_control_creator_id
-    access_filter = authz.filter(
+    result = authz.list_resources(
         resource=Resource(type=ResourceType(resource), project_id=context.team_id),
         action=Action.QUERY,
         subject=Subject(user_id=user_id),
         creator_exempt=creator_field is not None and creator_field in table.fields,
         user_access_control=user_access_control,
     )
-    guard = filter_to_expr(access_filter, id_field, table_type, creator_field, user_id)
+    guard = filter_to_expr(result, id_field, table_type, creator_field, user_id)
     if guard is None:
         return None
 
@@ -85,33 +85,33 @@ def build_access_control_guard(
 
 
 def filter_to_expr(
-    access_filter: "AccessFilter",
+    result: "ResourceIds",
     id_field: str,
     table_type: ast.TableOrSelectType,
     creator_field: Optional[str],
     subject_user_id: Optional[int],
 ) -> Optional[ast.Expr]:
-    """Translate an authz filter into the WHERE guard for one table, or None when nothing is restricted.
+    """Translate an authz result into the WHERE guard for one table, or None when nothing is restricted.
 
     Pure: it knows the column names and the AST, and nothing about the rules. Mirrors
     `posthog.models.access_filter.apply_filter`, the QuerySet adapter.
     """
-    from products.authz.backend.facade.enums import FilterKind  # noqa: PLC0415
-
-    if access_filter.kind == FilterKind.ALL:
+    if not result.complete:
+        return ast.Constant(value=False)
+    if not result.restricts:
         return None
 
-    if access_filter.kind == FilterKind.NONE:
+    if not result.ids:
         guard: ast.Expr = ast.Constant(value=False)
     else:
         guard = ast.CompareOperation(
-            op=ast.CompareOperationOp.In if access_filter.kind == FilterKind.ONLY else ast.CompareOperationOp.NotIn,
+            op=ast.CompareOperationOp.NotIn if result.excluded else ast.CompareOperationOp.In,
             left=_id_as_string(id_field, table_type),
-            right=ast.Constant(value=sorted(access_filter.ids), is_sensitive=True),
+            right=ast.Constant(value=sorted(result.ids), is_sensitive=True),
             type=ast.BooleanType(),
         )
 
-    if access_filter.creator_exempt and creator_field is not None and subject_user_id is not None:
+    if result.creator_exempt and creator_field is not None and subject_user_id is not None:
         exemption = _build_creator_exemption(creator_field, table_type, subject_user_id)
         guard = ast.Or(exprs=[guard, exemption], type=ast.BooleanType())
 

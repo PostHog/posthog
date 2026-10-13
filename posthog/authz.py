@@ -4,6 +4,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model, Q, QuerySet
 
 from posthog.models import Team, User
+from posthog.models.access_filter import filter_q
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -65,7 +66,7 @@ def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, querys
             subject=Subject(user_id=user.pk),
         )
         if result.complete:
-            allowed |= Q(team_id=team_id, pk__in=result.ids)
+            allowed |= Q(team_id=team_id) & filter_q(result, id_field="pk", creator_field=None)
     return queryset.filter(allowed)
 
 

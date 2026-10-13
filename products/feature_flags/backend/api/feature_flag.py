@@ -4832,7 +4832,7 @@ class FeatureFlagViewSet(
         # since team_id == project_id, asymmetric only under the deprecated multi-team-per-project ("environments")
         # path being removed. Mirrors the list endpoint's ACL filtering.
         queryset = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id)
-        queryset = apply_filter(queryset, self.authz_filter(Action.LIST), subject_user_id=request.user.pk)
+        queryset = apply_filter(queryset, self.authz_ids(Action.LIST), subject_user_id=request.user.pk)
         flags = queryset.values_list("id", "key")
 
         # Create mapping of ID to key

@@ -775,21 +775,20 @@ def _compute_system_table_access_decision(
 
     from products.authz.backend.facade import api as authz  # noqa: PLC0415
     from products.authz.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
-    from products.authz.backend.facade.enums import Action, FilterKind, ResourceType  # noqa: PLC0415
+    from products.authz.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
 
-    access_filters = authz.filters(
-        [
-            Resource(type=ResourceType(cast(str, table.access_scope)), project_id=team.id)
-            for table in scoped_tables.values()
-        ],
-        action=Action.QUERY,
-        subject=Subject(user_id=user.pk),
-        user_access_control=user_access_control,
-    )
     denied: set[str] = set(unentitled)
-    for (name, table), access_filter in zip(scoped_tables.items(), access_filters, strict=True):
+    for name, table in scoped_tables.items():
+        result = authz.list_resources(
+            resource=Resource(type=ResourceType(cast(str, table.access_scope)), project_id=team.id),
+            action=Action.QUERY,
+            subject=Subject(user_id=user.pk),
+            user_access_control=user_access_control,
+        )
         # A table whose rows the guard cannot narrow (no id column) only stays when nothing is restricted.
-        if access_filter.kind == FilterKind.NONE or (access_filter.restricts and table.access_control_id is None):
+        if not result.complete or not (result.ids or result.excluded):
+            denied.add(name)
+        elif result.restricts and table.access_control_id is None:
             denied.add(name)
 
     return user_access_control, denied

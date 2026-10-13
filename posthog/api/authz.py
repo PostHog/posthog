@@ -1,6 +1,6 @@
-"""Enforce an authz `AccessFilter` in a viewset: the list filter and the per-object check.
+"""Enforce an authz `ResourceIds` result in a viewset: the list filter and the per-object check.
 
-The access_filter carries the decision. This module only applies it, because only the viewset knows
+The result carries the decision. This module only applies it, because only the viewset knows
 its model, its id and its creator column.
 """
 
@@ -16,14 +16,14 @@ from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
 
 from products.authz.backend.facade import api as authz
-from products.authz.backend.facade.contracts import AccessFilter, Resource, Subject
+from products.authz.backend.facade.contracts import Resource, ResourceIds, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
 
 LEVEL_ACTION = {"viewer": Action.VIEW, "editor": Action.EDIT, "manager": Action.MANAGE_ACCESS}
 
 
 class AuthzPermission(AccessControlPermission):
-    """`AccessControlPermission` with the object check taken from the view's authz filter."""
+    """`AccessControlPermission` with the object check taken from the view's authz result."""
 
     def has_object_permission(self, request: Request, view: Any, object: Any) -> bool:
         if is_service_auth(request) or isinstance(object, Team):
@@ -31,8 +31,8 @@ class AuthzPermission(AccessControlPermission):
         required_level = self.required_access_level(request, view)
         if required_level is None:
             return True
-        access_filter = view.authz_filter(LEVEL_ACTION[required_level])
-        allowed = access_filter.allows(
+        result = view.authz_ids(LEVEL_ACTION[required_level])
+        allowed = result.allows(
             str(object.pk), created_by_user_id=getattr(object, "created_by_id", None), subject_user_id=request.user.pk
         )
         if not allowed:
@@ -53,8 +53,8 @@ class AuthzViewSetMixin:
     request: Any
     user_access_control: Any
 
-    def authz_filter(self, action: Action) -> AccessFilter:
-        return authz.filter(
+    def authz_ids(self, action: Action) -> ResourceIds:
+        return authz.list_resources(
             resource=Resource(type=ResourceType(self.scope_object), project_id=self.team_id),
             action=action,
             subject=Subject(user_id=self.request.user.pk),
@@ -73,4 +73,4 @@ class AuthzViewSetMixin:
         # Service credentials are gated by API scope and project membership, as in the legacy filter.
         if self.action != "list" or is_service_auth(self.request):
             return queryset
-        return apply_filter(queryset, self.authz_filter(Action.LIST), subject_user_id=self.request.user.pk)
+        return apply_filter(queryset, self.authz_ids(Action.LIST), subject_user_id=self.request.user.pk)
