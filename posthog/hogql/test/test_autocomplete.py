@@ -3,6 +3,10 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -19,6 +23,8 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+
+from posthog.taxonomy import definition_search
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -198,6 +204,38 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=18, end=18)
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
+
+    @parameterized.expand(
+        [
+            ("large_project", "value", 2, True),
+            ("short_term", "va", 2, False),
+            ("small_project", "value", 50_000, False),
+        ]
+    )
+    def test_property_search_uses_trigram_order_only_for_long_terms_in_large_projects(
+        self, _name: str, term: str, project_scan_max: int, expects_trigram_order: bool
+    ):
+        for name in ["value_long_name", "value", "unrelated"]:
+            PropertyDefinition.objects.create(
+                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+
+        query = f"select properties.{term} from events"
+        # The project's size is cached per project, so an earlier test must not decide it.
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", project_scan_max),
+            CaptureQueriesContext(connection) as captured,
+        ):
+            results = self._select(query=query, start=18, end=18 + len(term))
+
+        expected_labels = ["value", "value_long_name"]
+        assert [s.label for s in results.suggestions] == expected_labels
+        property_queries = [
+            q["sql"] for q in captured.captured_queries if 'FROM "posthog_propertydefinition"' in q["sql"]
+        ]
+        assert len(property_queries) == 1
+        assert ("ORDER BY LENGTH(" in property_queries[0]) == expects_trigram_order
 
     def test_autocomplete_events_properties_omits_person_property_setters(self):
         self._create_properties()

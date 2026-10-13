@@ -6,6 +6,7 @@ from functools import lru_cache
 from typing import Optional, cast
 
 from django.db import models
+from django.db.models.functions import Length
 from django.db.models.functions.comparison import Coalesce
 
 from posthog.schema import (
@@ -59,6 +60,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import QUERY_DEPRECATED_EVENT_PROPERTIES
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -756,12 +758,13 @@ def _suggest_property_names(
     property_type = _property_definition_type(table, field)
     if property_type is None:
         return
+    project_id: int = context.team.project_id  # type: ignore
 
     with timings.measure("property_filter"):
         property_query = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=context.team.project_id,  # type: ignore
+            effective_project_id=project_id,
             name__contains=match_term,
             type=property_type,
         )
@@ -773,9 +776,15 @@ def _suggest_property_names(
     # an empty match_term makes the filter `LIKE '%%'`, so that count walked the
     # project's whole taxonomy. `posthog_propdef_proj_uniq` is keyed on (project,
     # name, ...), so ordering by name reads it in index order and stops at the limit.
+    # A rare term never fills the limit, so in a large project that walk reads every row.
+    # There, an order the unique index cannot supply moves the planner to the trigram index.
+    # A term under 3 characters has no trigram, and it matches enough rows to stop the walk early.
+    ordering: tuple[Length | str, ...] = ("name",)
+    if len(match_term) >= 3 and search_plan("posthog_propertydefinition", project_id, property_query.db) == "trigram":
+        ordering = (Length("name"), "name")
     with timings.measure("property_get_values"):
         properties = list(
-            property_query.order_by("name")[: PROPERTY_DEFINITION_LIMIT + 1].values("name", "property_type")
+            property_query.order_by(*ordering)[: PROPERTY_DEFINITION_LIMIT + 1].values("name", "property_type")
         )
     response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
     properties = properties[:PROPERTY_DEFINITION_LIMIT]
