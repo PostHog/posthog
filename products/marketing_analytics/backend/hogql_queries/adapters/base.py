@@ -544,6 +544,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             entity_id_output_column=self._campaign_pk_column,
         )
 
+    def _stats_date_field(self, table_name: str) -> ast.Expr:
+        """Stats row date that the WHERE range, the cost date and the currency rate all read.
+        Override when `toDate`/`toDateTime` cannot parse the raw column."""
+        return ast.Field(chain=[table_name, self._stats_date_column])
+
     def _get_where_conditions(self) -> list[ast.Expr]:
         """Default: filter the current level's stats table by `date_range` against the
         `_stats_date_column` column. Adapters with a non-standard WHERE override this."""
@@ -551,7 +556,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         if not self.context.date_range:
             return conditions
         stats_table_name = self._level_tables().stats_table.name
-        date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, self._stats_date_column])])
+        date_field = ast.Call(name="toDateTime", args=[self._stats_date_field(stats_table_name)])
         from_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)])
         to_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
         conditions.append(ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.GtEq, right=from_date))
@@ -765,7 +770,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         stats_date = ast.Call(
             name="coalesce",
             args=[
-                ast.Call(name="toDate", args=[ast.Field(chain=[table_name, self._stats_date_column])]),
+                ast.Call(name="toDate", args=[self._stats_date_field(table_name)]),
                 ast.Call(name="today", args=[]),
             ],
         )
@@ -870,7 +875,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     def _cost_date_expr(self) -> ast.Expr:
         """Per-day cost date (`toDate` of the source's stats date column) for the materialized table."""
         stats_table_name = self._level_tables().stats_table.name
-        return ast.Call(name="toDate", args=[ast.Field(chain=[stats_table_name, self._stats_date_column])])
+        return ast.Call(name="toDate", args=[self._stats_date_field(stats_table_name)])
 
     def _materialization_date_where(self) -> ast.Expr:
         """Date filter using `time_window_min`/`time_window_max` placeholders so the lazy framework
@@ -878,7 +883,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         The window is half-open `[min, max)` to match the framework convention — using `<=` on the
         upper bound double-counts boundary days that fall in two adjacent job windows."""
         stats_table_name = self._level_tables().stats_table.name
-        date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, self._stats_date_column])])
+        date_field = ast.Call(name="toDateTime", args=[self._stats_date_field(stats_table_name)])
         return ast.And(
             exprs=[
                 ast.CompareOperation(
