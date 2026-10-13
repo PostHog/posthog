@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useRef, useState } from 'react'
+import { CSSProperties, useRef } from 'react'
 
 import { cn } from '@posthog/quill-primitives'
 
@@ -23,9 +23,10 @@ export function ArtifactPendingComment({
     className?: string
 }): JSX.Element | null {
     const { pendingAnchor, drafts, writing } = useValues(taskArtifactCommentsLogic(logicProps))
-    const { setDraft, submitComment, dismissPending } = useActions(taskArtifactCommentsLogic(logicProps))
+    const { setDraft, submitComment, dismissPending, beginPendingCapture } = useActions(
+        taskArtifactCommentsLogic(logicProps)
+    )
     const cardRef = useRef<HTMLDivElement>(null)
-    const [capturing, setCapturing] = useState(false)
     if (!pendingAnchor) {
         return null
     }
@@ -54,13 +55,13 @@ export function ArtifactPendingComment({
                         submitComment('pending', addToChat)
                         return
                     }
-                    setCapturing(true)
+                    const snapshot = { anchor: pendingAnchor, content: drafts.pending ?? '' }
+                    beginPendingCapture()
                     const screenshot = await captureCommentScreenshot(cardRef.current)
-                    setCapturing(false)
-                    submitComment('pending', true, screenshot)
+                    submitComment('pending', true, screenshot, snapshot)
                 }}
                 onCancel={dismissPending}
-                saving={writing === 'pending' || capturing}
+                saving={writing === 'pending'}
                 busy={!!writing && writing !== 'pending'}
                 label={isText ? 'Comment on the selected text' : 'Comment on this spot'}
                 placeholder={isText ? 'Add a comment about this selection' : 'Add a comment about this spot'}

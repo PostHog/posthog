@@ -38,6 +38,11 @@ export interface TaskArtifactCommentsLogicProps {
 /** What a draft or a write is for: a new comment on the whole file, the pending pin or selection, or a thread. */
 export type CommentTarget = 'document' | 'pending' | string
 
+export interface PendingCommentSnapshot {
+    anchor: TextCommentAnchor | RegionCommentAnchor
+    content: string
+}
+
 export type ArtifactThreadSource = 'preview' | 'menu' | 'created'
 
 /** Where the pending selection composer sits, in pixels inside the scroll content of the preview. */
@@ -110,6 +115,9 @@ export interface taskArtifactCommentsLogicActions {
         id: string | null
         source: ArtifactThreadSource
     }
+    beginPendingCapture: () => {
+        value: true
+    }
     dismissPending: () => {
         value: true
     }
@@ -165,10 +173,12 @@ export interface taskArtifactCommentsLogicActions {
     submitComment: (
         target: 'document' | 'pending',
         addToChat?: boolean,
-        screenshot?: File | null
+        screenshot?: File | null,
+        snapshot?: PendingCommentSnapshot | null
     ) => {
         addToChat: boolean
         screenshot: File | null
+        snapshot: PendingCommentSnapshot | null
         target: 'document' | 'pending'
     }
     writeFinished: (target: CommentTarget | null) => {
@@ -221,13 +231,16 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
             position,
         }),
         dismissPending: true,
+        beginPendingCapture: true,
         submitComment: (
             target: 'document' | 'pending',
             addToChat: boolean = false,
-            screenshot: File | null = null
+            screenshot: File | null = null,
+            snapshot: PendingCommentSnapshot | null = null
         ) => ({
             target,
             addToChat,
+            snapshot,
             screenshot,
         }),
         replyToThread: (rootId: string, addToChat: boolean = false) => ({ rootId, addToChat }),
@@ -297,6 +310,7 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
         writing: [
             null as CommentTarget | null,
             {
+                beginPendingCapture: () => 'pending',
                 submitComment: (_, { target }) => target,
                 replyToThread: (_, { rootId }) => rootId,
                 setThreadResolved: (_, { rootId }) => rootId,
@@ -396,10 +410,10 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
                     kind: props.kind,
                 })
             },
-            submitComment: async ({ target, addToChat, screenshot }) => {
-                const content = (values.drafts[target] ?? '').trim()
+            submitComment: async ({ target, addToChat, screenshot, snapshot }) => {
+                const content = (snapshot?.content ?? values.drafts[target] ?? '').trim()
                 const anchor: ArtifactCommentAnchor | null =
-                    target === 'document' ? { kind: 'document' } : values.pendingAnchor
+                    target === 'document' ? { kind: 'document' } : (snapshot?.anchor ?? values.pendingAnchor)
                 if (!content || !anchor) {
                     actions.writeFinished(null)
                     return

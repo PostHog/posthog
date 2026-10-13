@@ -221,6 +221,9 @@ export function ArtifactTextAnnotations({
                 }
                 return
             }
+            if (logic.values.writing === 'pending') {
+                return
+            }
             const offsets = selectionOffsets(root, range)
             const anchor = createTextCommentAnchor(buildTextNodeIndex(root).text, offsets.start, offsets.end)
             if (!anchor) {

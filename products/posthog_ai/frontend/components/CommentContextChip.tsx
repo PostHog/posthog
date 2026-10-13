@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 import { IconComment } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
@@ -12,12 +14,19 @@ export function CommentContextChip({
     screenshotUrl?: string | null
     onRemove?: () => void
 }): JSX.Element {
+    const [screenshotFailed, setScreenshotFailed] = useState(false)
+    useEffect(() => setScreenshotFailed(false), [screenshotUrl])
     return (
         <Tooltip
             title={
                 <div className="flex max-w-80 flex-col gap-1">
-                    {screenshotUrl && (
-                        <img src={screenshotUrl} alt={`Screenshot of ${context.label}`} className="max-h-48 rounded" />
+                    {screenshotUrl && !screenshotFailed && (
+                        <img
+                            src={screenshotUrl}
+                            alt={`Screenshot of ${context.label}`}
+                            className="max-h-48 rounded"
+                            onError={() => setScreenshotFailed(true)}
+                        />
                     )}
                     <div className="whitespace-pre-wrap break-words text-xs">{commentContextPreview(context)}</div>
                 </div>

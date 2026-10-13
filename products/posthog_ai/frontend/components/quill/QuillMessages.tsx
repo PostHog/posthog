@@ -92,13 +92,12 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { ite
     const text = userMessageDisplayText(item.text ?? '')
     const revealed = useContext(TurnRevealContext)
     const screenshotNames = commentScreenshotNames(item.text ?? '')
-    const attachments = item.attachments?.filter((attachment) => !screenshotNames.has(attachment.name))
     return (
         <ChatMessage align="end" data-attr="posthog-ai-human-message">
             <ChatMessageContent className="gap-1">
-                {attachments && attachments.length > 0 && (
+                {item.attachments && (
                     <div className="self-end">
-                        <ThreadAttachments attachments={attachments} />
+                        <ThreadAttachments attachments={item.attachments} badgeNames={screenshotNames} />
                     </div>
                 )}
                 <ChatBubble align="end" className="rounded-lg">

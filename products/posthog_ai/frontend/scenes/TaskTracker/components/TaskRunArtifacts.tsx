@@ -279,14 +279,16 @@ function CommentableImage({
     src: string
     alt: string
 }): JSX.Element {
-    const { pinMode } = useValues(taskArtifactCommentsLogic(logicProps))
+    const { pinMode, writing } = useValues(taskArtifactCommentsLogic(logicProps))
     const { setPendingAnchor } = useActions(taskArtifactCommentsLogic(logicProps))
     return (
         <ArtifactImageViewer
             src={src}
             alt={alt}
             overlay={<ArtifactImagePins logicProps={logicProps} />}
-            onPlace={pinMode ? (x, y) => setPendingAnchor(regionAnchorAt(x, y), null) : undefined}
+            onPlace={
+                pinMode && writing !== 'pending' ? (x, y) => setPendingAnchor(regionAnchorAt(x, y), null) : undefined
+            }
         />
     )
 }

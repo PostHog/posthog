@@ -128,7 +128,6 @@ export const ThreadRow = memo(function ThreadRow({
         }
         const text = userMessageDisplayText(item.text ?? '')
         const screenshotNames = commentScreenshotNames(item.text ?? '')
-        const attachments = item.attachments?.filter((attachment) => !screenshotNames.has(attachment.name))
         return (
             <MessageTemplate
                 type="human"
@@ -136,7 +135,7 @@ export const ThreadRow = memo(function ThreadRow({
                 action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
             >
                 <HumanMessageText text={item.text ?? ''} id={item.id} attachments={item.attachments} />
-                {attachments && attachments.length > 0 && <ThreadAttachments attachments={attachments} />}
+                {item.attachments && <ThreadAttachments attachments={item.attachments} badgeNames={screenshotNames} />}
             </MessageTemplate>
         )
     }

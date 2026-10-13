@@ -107,7 +107,10 @@ describe('taskArtifactCommentsLogic', () => {
         logic.actions.setPinMode(true)
         logic.actions.setPendingAnchor(regionAnchorAt(0.5, 0.5), null)
         logic.actions.setDraft('pending', 'The legend covers the bars')
-        logic.actions.submitComment('pending', true)
+        const snapshot = { anchor: regionAnchorAt(0.5, 0.5), content: 'The legend covers the bars' }
+        logic.actions.beginPendingCapture()
+        logic.actions.setPendingAnchor(regionAnchorAt(0.1, 0.1), null)
+        logic.actions.submitComment('pending', true, null, snapshot)
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setDraft(ROOT.id, 'Use a log scale')
         logic.actions.replyToThread(ROOT.id, true)

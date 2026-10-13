@@ -68,7 +68,13 @@ function attachmentKey(attachment: ThreadAttachment): string {
 }
 
 /** Images first, then a badge per remaining file, so a screenshot is not competing with a row of names. */
-export function ThreadAttachments({ attachments }: { attachments: ThreadAttachment[] }): JSX.Element | null {
+export function ThreadAttachments({
+    attachments,
+    badgeNames,
+}: {
+    attachments: ThreadAttachment[]
+    badgeNames?: Set<string>
+}): JSX.Element | null {
     const { currentProjectId } = useValues(projectLogic)
     // An unfetchable image moves down to the badges rather than leaving a broken frame.
     const [unavailable, setUnavailable] = useState<Set<string>>(new Set())
@@ -79,7 +85,9 @@ export function ThreadAttachments({ attachments }: { attachments: ThreadAttachme
 
     const projectId = currentProjectId === null ? null : String(currentProjectId)
     const showsImage = (attachment: ThreadAttachment): boolean =>
-        isImageAttachment(attachment.name) && !unavailable.has(attachmentKey(attachment))
+        isImageAttachment(attachment.name) &&
+        !badgeNames?.has(attachment.name) &&
+        !unavailable.has(attachmentKey(attachment))
     const images = attachments.filter(showsImage)
     const files = attachments.filter((attachment) => !showsImage(attachment))
 
