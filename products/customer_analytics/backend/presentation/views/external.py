@@ -210,9 +210,10 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     except (Team.DoesNotExist, Team.MultipleObjectsReturned):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    # Same 401 as an unknown token: a valid secret token for a team without customer
-    # analytics enabled must not be usable to read account data.
-    if not _customer_analytics_enabled(team):
+    # Same 401 as an unknown token: a valid secret token for a blocked organization or a
+    # team without customer analytics enabled must not be usable to read account data.
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     TeamSecretTokenAuthentication.record_activity_actor(None)

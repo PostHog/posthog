@@ -214,13 +214,19 @@ class TestExternalAccountAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("organization_deactivated", {"is_active": False}),
-            ("organization_active_null", {"is_active": None}),
-            ("organization_pending_deletion", {"is_pending_deletion": True}),
+            (f"{credential}_{name}", credential, changes)
+            for credential in ("psak", "legacy_token")
+            for name, changes in [
+                ("organization_deactivated", {"is_active": False}),
+                ("organization_active_null", {"is_active": None}),
+                ("organization_pending_deletion", {"is_pending_deletion": True}),
+            ]
         ]
     )
-    def test_psak_is_invisible_when_the_organization_is_blocked(self, _name: str, changes: dict) -> None:
-        token = self._create_psak_token(scopes=["account:read"])
+    def test_credentials_are_rejected_when_the_organization_is_blocked(
+        self, _name: str, credential: str, changes: dict
+    ) -> None:
+        token = self._create_psak_token(scopes=["account:read"]) if credential == "psak" else None
         for field, value in changes.items():
             setattr(self.organization, field, value)
         self.organization.save()

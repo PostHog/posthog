@@ -118,6 +118,12 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     except (Team.DoesNotExist, Team.MultipleObjectsReturned):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
+    # Same 401 as an unknown token: a valid secret token must not outlive its
+    # deactivated or deletion-pending organization.
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion:
+        return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
     TICKET_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method=(request.method or "").lower()).inc()
     LEGACY_TICKET_AUTH_BY_TEAM_COUNTER.labels(team_id=str(team.id)).inc()
     return team, None

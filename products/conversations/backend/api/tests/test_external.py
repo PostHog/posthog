@@ -106,6 +106,20 @@ class TestExternalTicketAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("organization_deactivated", {"is_active": False}),
+            ("organization_pending_deletion", {"is_pending_deletion": True}),
+        ]
+    )
+    def test_legacy_token_is_rejected_when_the_organization_is_blocked(self, _name: str, changes: dict) -> None:
+        for field, value in changes.items():
+            setattr(self.organization, field, value)
+        self.organization.save()
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
     def test_kill_switch_off_rejects_legacy_token_without_mirror_row(self) -> None:
         response = self.client.get(self.url, **self._auth_headers())
