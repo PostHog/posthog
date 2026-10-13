@@ -9,6 +9,8 @@ from urllib.parse import quote
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
+
 if TYPE_CHECKING:
     import requests
 
@@ -210,7 +212,7 @@ def get_github_integration_for_repo(repo: Repo):
     if not integration:
         raise errors.GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration, source="visual_review")
+    return GitHubIntegration(integration, source="visual_review", priority=Priority.CRITICAL)
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:

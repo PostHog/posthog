@@ -636,8 +636,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hedgehog-mode':
-        specifier: ^0.0.62
-        version: 0.0.62(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.0.63
+        version: 0.0.63(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/hogql-parser':
         specifier: 1.3.88
         version: 1.3.88
@@ -4520,6 +4520,9 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@testing-library/jest-dom':
+        specifier: '*'
+        version: 5.17.0
       '@testing-library/react':
         specifier: '*'
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5104,6 +5107,9 @@ importers:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -10843,8 +10849,8 @@ packages:
   '@posthog/core@1.58.0':
     resolution: {integrity: sha512-vluXIlVF6WGeHoQbsQK8Y1ywXZlJDU7YHEKiXAArQU38yFBpgxxfD0kInbYHtura4Fr7Z7H8WiDFvtMpCGehGg==}
 
-  '@posthog/hedgehog-mode@0.0.62':
-    resolution: {integrity: sha512-68rNNcx/Sb8f27k+dCvDTDDGe+nHrNmEvL1M4Shfw0LVVKImfckqlqNuGcBow4hB4VGYjWZMMzQkKtoaVNOPQw==}
+  '@posthog/hedgehog-mode@0.0.63':
+    resolution: {integrity: sha512-e323bc717Xk0IA8w2IFv5+q/xki7Z2rcNA0SAEAXp/uXBnYv8kq0s7f6JvTIvTDdoZRHzH5Z18Ao9WYT0ZE4Dg==}
     engines: {node: '>=18'}
     peerDependencies:
       react: 18.3.1
@@ -30413,7 +30419,7 @@ snapshots:
     dependencies:
       '@posthog/types': 1.415.2
 
-  '@posthog/hedgehog-mode@0.0.62(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@posthog/hedgehog-mode@0.0.63(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       gsap: 3.14.2
       matter-js: 0.20.0

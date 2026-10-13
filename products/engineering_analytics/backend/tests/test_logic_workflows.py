@@ -8,6 +8,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
@@ -182,7 +184,7 @@ class TestWorkflowEndpointMapping(BaseTest):
         assert items[1].last_failure_at is None
 
 
-class TestCostPerMergeSeries(BaseTest):
+class TestCostPerMergeSeries(SimpleTestCase):
     """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
     division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
     Python fold — the bucket join, the trailing-window ratio, the empty-bucket handling — without a

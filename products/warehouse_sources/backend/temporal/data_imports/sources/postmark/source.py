@@ -72,6 +72,7 @@ You can find your server token under **Servers → (your server) → API Tokens*
 The token grants read access to the following server-level resources:
 - Outbound messages
 - Inbound messages
+- Opens
 - Bounces
 - Templates
 - Message streams

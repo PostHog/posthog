@@ -1,37 +1,19 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source import ChurnkeySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.churnkey import (
     ChurnkeySourceConfig,
-)
-
-_VALIDATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source.validate_churnkey_credentials"
 )
 
 
 def _config() -> ChurnkeySourceConfig:
     return ChurnkeySourceConfig.from_dict({"api_key": "data_key", "app_id": "app_123"})
-
-
-def _inputs() -> SourceInputs:
-    return SourceInputs(
-        schema_name="Sessions",
-        schema_id="schema-1",
-        source_id="source-1",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job-1",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
 
 
 class TestChurnkeySourceConfig:
@@ -53,18 +35,20 @@ class TestChurnkeySchemas:
 
 class TestChurnkeyValidateCredentials:
     @pytest.mark.parametrize(
-        ("validate_return", "expected_ok"),
+        ("status_code", "expected_ok"),
         [
-            ((True, 200), True),
-            ((False, 401), False),
-            ((False, 403), False),
-            ((False, 404), False),
-            ((False, None), False),
+            (200, True),
+            (401, False),
+            (403, False),
+            (404, False),
+            (None, False),
         ],
     )
-    def test_validate_credentials(self, validate_return: tuple[bool, int | None], expected_ok: bool) -> None:
-        with patch(_VALIDATE, return_value=validate_return):
+    def test_validate_credentials(self, status_code: int | None, expected_ok: bool) -> None:
+        script = always(ConnectionError("boom")) if status_code is None else [ScriptedResponse(status=status_code)]
+        with scripted_network(script):
             ok, error = ChurnkeySource().validate_credentials(_config(), team_id=1)
+
         assert ok is expected_ok
         if not expected_ok:
             assert error
@@ -72,8 +56,10 @@ class TestChurnkeyValidateCredentials:
 
 class TestChurnkeyPipeline:
     def test_source_for_pipeline_plumbing(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        response = ChurnkeySource().source_for_pipeline(_config(), manager, _inputs())
-        assert response.name == "Sessions"
-        assert response.primary_keys == ["_id"]
-        assert response.partition_keys == ["createdAt"]
+        result = SourceDriver(ChurnkeySource(), _config()).run("Sessions", [ScriptedResponse(json=[{"_id": "1"}])])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "Sessions"
+        assert result.response.primary_keys == ["_id"]
+        assert result.response.partition_keys == ["createdAt"]

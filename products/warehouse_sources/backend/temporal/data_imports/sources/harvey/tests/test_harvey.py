@@ -1,38 +1,37 @@
-import json
-from collections.abc import Callable
 from datetime import UTC, date, datetime
-from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from typing import Any
 
 import pytest
 import time_machine
 from unittest import mock
 
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey import (
     HarveyResumeConfig,
     HarveyRetryableError,
-    _fetch_json,
     _parse_datetime,
     _to_epoch,
     check_endpoint_access,
     get_base_url,
     get_rows,
-    harvey_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import MAX_LOOKBACK_DAYS
+from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source import HarveySource
 
 NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
 NOW_EPOCH = int(NOW.timestamp())
 
 HARVEY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey"
-
-# The undecorated function behind tenacity's retry wrapper, so failure-path tests don't sit
-# through the backoff schedule. mypy can't see tenacity's `__wrapped__`, hence the cast.
-_fetch_json_unretried = cast(Any, _fetch_json).__wrapped__
 
 
 class _FakeManager:
@@ -53,32 +52,13 @@ class _FakeManager:
         pass
 
 
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    resp.url = "https://api.harvey.ai/api/test"
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(HarveySource(), HarveySourceConfig(api_key="token", region="us"))
 
 
-def _session_with(responses: list[Response]) -> mock.MagicMock:
-    session = mock.MagicMock()
-    session.get.side_effect = responses
-    return session
-
-
-def _requested_urls(session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in session.get.call_args_list]
-
-
-def _query_params(url: str) -> dict[str, str]:
-    return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
-
-
-def _vault_page(project_ids: list[str], page: int = 1, total_pages: int = 1) -> Response:
-    return _response(
-        {
+def _vault_page(project_ids: list[str], page: int = 1, total_pages: int = 1) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
             "response": {
                 "content": {
                     "projects": [{"id": project_id, "name": project_id} for project_id in project_ids],
@@ -158,14 +138,15 @@ class TestHelpers:
 
     @parameterized.expand([("throttle", 429), ("server_error", 500), ("unavailable", 503)])
     def test_fetch_json_raises_retryable_on_throttle_and_server_errors(self, _name: str, status_code: int) -> None:
-        session = _session_with([_response({}, status_code=status_code)])
-        with pytest.raises(HarveyRetryableError):
-            _fetch_json_unretried(session, "https://api.harvey.ai/api/test", {}, mock.MagicMock())
+        result = _driver().run("client_matters", always(ScriptedResponse(status=status_code, json={})))
+
+        assert isinstance(result.raised, HarveyRetryableError)
+        assert set(result.paths) == {"/api/v1/client_matters"}
 
     def test_fetch_json_raises_http_error_on_client_errors(self) -> None:
-        session = _session_with([_response({"error": "Unauthorized"}, status_code=401)])
-        with pytest.raises(HTTPError):
-            _fetch_json_unretried(session, "https://api.harvey.ai/api/test", {}, mock.MagicMock())
+        result = _driver().run("client_matters", [ScriptedResponse(status=401, json={"error": "Unauthorized"})])
+
+        assert isinstance(result.raised, HTTPError)
 
 
 class TestValidateCredentials:
@@ -173,16 +154,13 @@ class TestValidateCredentials:
         [("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)],
     )
     def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        session = _session_with([_response({}, status_code=status_code)])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             assert validate_credentials("token", "us") is expected
 
-        assert _requested_urls(session) == ["https://api.harvey.ai/api/whoami"]
+        assert {request.url for request in network.requests_log} == {"https://api.harvey.ai/api/whoami"}
 
     def test_network_error_is_invalid(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("token", "us") is False
 
 
@@ -197,16 +175,14 @@ class TestCheckEndpointAccess:
         ]
     )
     def test_probes_the_right_endpoint(self, _name: str, endpoint: str, expected_path: str) -> None:
-        session = _session_with([_response({})])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={})]) as network:
             assert check_endpoint_access("token", "us", endpoint) is None
 
-        assert expected_path in _requested_urls(session)[0]
+        assert network.requests_log[0].path == expected_path
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_denial_returns_reason(self, _name: str, status_code: int) -> None:
-        session = _session_with([_response({}, status_code=status_code)])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code, json={})]):
             reason = check_endpoint_access("token", "us", "audit_logs")
 
         assert reason is not None
@@ -214,14 +190,11 @@ class TestCheckEndpointAccess:
 
     @parameterized.expand([("not_found", 404), ("throttle", 429), ("server_error", 500)])
     def test_non_denial_statuses_are_reachable(self, _name: str, status_code: int) -> None:
-        session = _session_with([_response({}, status_code=status_code)])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code, json={})]):
             assert check_endpoint_access("token", "us", "audit_logs") is None
 
     def test_network_error_is_reachable(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             assert check_endpoint_access("token", "us", "audit_logs") is None
 
     @parameterized.expand(
@@ -235,21 +208,18 @@ class TestCheckEndpointAccess:
     def test_fan_out_probes_child_endpoint_of_first_project(
         self, _name: str, endpoint: str, expected_path: str
     ) -> None:
-        session = _session_with([_vault_page(["proj-1"]), _response({}, status_code=403)])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([_vault_page(["proj-1"]), ScriptedResponse(status=403, json={})]) as network:
             reason = check_endpoint_access("token", "us", endpoint)
 
         assert reason is not None
-        urls = _requested_urls(session)
-        assert "/api/v1/vault/workspace/projects" in urls[0]
-        assert expected_path in urls[1]
+        assert network.requests_log[0].path == "/api/v1/vault/workspace/projects"
+        assert network.requests_log[1].path == expected_path
 
     def test_fan_out_probe_without_projects_is_reachable(self) -> None:
-        session = _session_with([_vault_page([])])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([_vault_page([])]) as network:
             assert check_endpoint_access("token", "us", "vault_project_users") is None
 
-        assert len(_requested_urls(session)) == 1
+        assert len(network.requests_log) == 1
 
 
 class TestSessionRedaction:
@@ -258,28 +228,25 @@ class TestSessionRedaction:
     # must build its session with the token registered for redaction.
     @parameterized.expand(
         [
-            ("validate_credentials", lambda: validate_credentials("token", "us")),
-            ("check_endpoint_access", lambda: check_endpoint_access("token", "us", "audit_logs")),
-            (
-                "get_rows",
-                lambda: list(
-                    get_rows(
-                        api_key="token",
-                        region="us",
-                        endpoint="client_matters",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-                    )
-                ),
-            ),
+            ("validate_credentials", "validate_credentials"),
+            ("check_endpoint_access", "check_endpoint_access"),
+            ("get_rows", "get_rows"),
         ]
     )
-    def test_tracked_session_redacts_api_token(self, _name: str, run: Callable[[], Any]) -> None:
-        session = _session_with([_response({})])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session:
-            run()
+    def test_tracked_session_redacts_api_token(self, _name: str, entrypoint: str) -> None:
+        if entrypoint == "get_rows":
+            result = _driver().run("client_matters", [ScriptedResponse(json={})])
+            assert result.raised is None
+            options = result.session_options
+        else:
+            with scripted_network([ScriptedResponse(json={})]) as network:
+                if entrypoint == "validate_credentials":
+                    validate_credentials("token", "us")
+                else:
+                    check_endpoint_access("token", "us", "audit_logs")
+            options = network.session_options
 
-        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
+        assert options[0]["redact_values"] == ("token",)
 
 
 class TestHttpSampleCapture:
@@ -294,20 +261,26 @@ class TestHttpSampleCapture:
             # still built up front, which is where the capture flag is decided.
             ("query_history", "query_history", HarveyResumeConfig(window_start=NOW_EPOCH), [], False),
             ("usage_history", "usage_history", HarveyResumeConfig(window_start=NOW_EPOCH), [], True),
-            ("client_matters", "client_matters", None, [_response([])], False),
-            ("audit_logs", "audit_logs", HarveyResumeConfig(last_audit_log_id="log-1"), [_response([])], False),
+            ("client_matters", "client_matters", None, [ScriptedResponse(json=[])], False),
+            (
+                "audit_logs",
+                "audit_logs",
+                HarveyResumeConfig(last_audit_log_id="log-1"),
+                [ScriptedResponse(json=[])],
+                False,
+            ),
             (
                 "vault_projects",
                 "vault_projects",
                 HarveyResumeConfig(next_page=1),
-                [_response({"response": {"content": {"projects": []}}})],
+                [ScriptedResponse(json={"response": {"content": {"projects": []}}})],
                 False,
             ),
             (
                 "review_table_rows",
                 "review_table_rows",
                 HarveyResumeConfig(next_page=1),
-                [_response({"response": {"content": {"projects": []}}})],
+                [ScriptedResponse(json={"response": {"content": {"projects": []}}})],
                 False,
             ),
         ]
@@ -317,25 +290,14 @@ class TestHttpSampleCapture:
         _name: str,
         endpoint: str,
         resume: HarveyResumeConfig | None,
-        responses: list[Response],
+        responses: list[ScriptedResponse],
         expected_capture: bool,
     ) -> None:
-        session = _session_with(responses)
-        with (
-            time_machine.travel(NOW, tick=False),
-            mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session,
-        ):
-            list(
-                get_rows(
-                    api_key="token",
-                    region="us",
-                    endpoint=endpoint,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_FakeManager(resume=resume),  # type: ignore[arg-type]
-                )
-            )
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(endpoint, responses, resume_state=resume)
 
-        assert mock_session.call_args.kwargs["capture"] is expected_capture
+        assert result.raised is None
+        assert result.session_options[0]["capture"] is expected_capture
 
     @parameterized.expand(
         [
@@ -345,109 +307,69 @@ class TestHttpSampleCapture:
         ]
     )
     def test_check_endpoint_access_capture_flag(self, _name: str, endpoint: str, expected_capture: bool) -> None:
-        session = _session_with([_response({})])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session) as mock_session:
+        with scripted_network([ScriptedResponse(json={})]) as network:
             check_endpoint_access("token", "us", endpoint)
 
-        assert mock_session.call_args.kwargs["capture"] is expected_capture
+        assert network.session_options[0]["capture"] is expected_capture
 
 
 class TestAuditLogRows:
-    def _get_batches(
-        self,
-        responses: list[Response],
-        manager: _FakeManager,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
-        session = _session_with(responses)
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    api_key="token",
-                    region="us",
-                    endpoint="audit_logs",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,  # type: ignore[arg-type]
-                    db_incremental_field_last_value=db_incremental_field_last_value,
-                )
-            )
-        return batches, session
-
     def test_full_sync_no_logs(self) -> None:
-        manager = _FakeManager()
-        batches, session = self._get_batches([_response({"error": "Not found"}, status_code=404)], manager)
+        result = _driver().run("audit_logs", [ScriptedResponse(status=404, json={"error": "Not found"})])
 
-        assert batches == []
-        assert manager.saved == []
+        assert result.raised is None
+        assert result.items == []
+        assert result.saved_states == []
 
     @time_machine.travel(NOW, tick=False)
     def test_incremental_seeds_from_search(self) -> None:
         last_value = datetime(2026, 6, 30, 9, 0, 0, tzinfo=UTC)
-        manager = _FakeManager()
-        batches, session = self._get_batches(
+        result = _driver().run(
+            "audit_logs",
             [
-                _response({"log": _audit_log("log-a")}),
-                _response([_audit_log("log-b")]),
+                ScriptedResponse(json={"log": _audit_log("log-a")}),
+                ScriptedResponse(json=[_audit_log("log-b")]),
             ],
-            manager,
+            incremental_field="timestamp",
             db_incremental_field_last_value=last_value,
         )
 
-        urls = _requested_urls(session)
-        assert urls[0].startswith("https://api.harvey.ai/api/v1/logs/audit/search?")
-        assert _query_params(urls[0]) == {"time": str(int(last_value.timestamp()))}
-        assert [[log["id"] for log in batch] for batch in batches] == [["log-a"], ["log-b"]]
+        assert result.paths[0] == "/api/v1/logs/audit/search"
+        assert result.queries[0] == {"time": (str(int(last_value.timestamp())),)}
+        assert [[log["id"] for log in batch] for batch in result.items] == [["log-a"], ["log-b"]]
+        assert result.raised is None
 
     @time_machine.travel(NOW, tick=False)
     def test_incremental_caught_up(self) -> None:
         # No log at or after the watermark - the search endpoint 404s.
-        manager = _FakeManager()
-        batches, _ = self._get_batches(
-            [_response({"error": "Not found"}, status_code=404)],
-            manager,
+        result = _driver().run(
+            "audit_logs",
+            [ScriptedResponse(status=404, json={"error": "Not found"})],
+            incremental_field="timestamp",
             db_incremental_field_last_value=NOW,
         )
 
-        assert batches == []
+        assert result.items == []
+        assert result.raised is None
 
     @time_machine.travel(NOW, tick=False)
     def test_incremental_watermark_older_than_search_limit_falls_back_to_earliest(self) -> None:
         stale_watermark = datetime(2024, 1, 1, tzinfo=UTC)
-        manager = _FakeManager()
-        _, session = self._get_batches(
+        result = _driver().run(
+            "audit_logs",
             [
-                _response({"log": _audit_log("log-a")}),
-                _response([]),
+                ScriptedResponse(json={"log": _audit_log("log-a")}),
+                ScriptedResponse(json=[]),
             ],
-            manager,
+            incremental_field="timestamp",
             db_incremental_field_last_value=stale_watermark,
         )
 
-        assert _requested_urls(session)[0] == "https://api.harvey.ai/api/v1/logs/audit/earliest"
+        assert result.urls[0] == "https://api.harvey.ai/api/v1/logs/audit/earliest"
+        assert result.raised is None
 
 
 class TestHistoryRows:
-    def _get_batches(
-        self,
-        responses: list[Response],
-        manager: _FakeManager,
-        endpoint: str = "usage_history",
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
-        session = _session_with(responses)
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    api_key="token",
-                    region="us",
-                    endpoint=endpoint,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,  # type: ignore[arg-type]
-                    db_incremental_field_last_value=db_incremental_field_last_value,
-                )
-            )
-        return batches, session
-
     @parameterized.expand(
         [
             ("usage_history", "usage_history", "/api/v2/history/usage"),
@@ -457,117 +379,68 @@ class TestHistoryRows:
     @time_machine.travel(NOW, tick=False)
     def test_incremental_fetches_windows_up_to_now(self, _name: str, endpoint: str, expected_path: str) -> None:
         last_value = datetime(2026, 7, 1, 10, 0, 0, tzinfo=UTC)
-        manager = _FakeManager()
-        batches, session = self._get_batches(
-            [_response({"events": [_history_event("usage-1")]})],
-            manager,
-            endpoint=endpoint,
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"events": [_history_event("usage-1")]})],
+            incremental_field="utc_time",
             db_incremental_field_last_value=last_value,
         )
 
-        urls = _requested_urls(session)
-        assert expected_path in urls[0]
-        assert _query_params(urls[0]) == {
-            "start_time": str(int(last_value.timestamp())),
-            "end_time": str(NOW_EPOCH),
+        assert result.paths == [expected_path]
+        assert result.queries[0] == {
+            "start_time": (str(int(last_value.timestamp())),),
+            "end_time": (str(NOW_EPOCH),),
         }
-        assert [[event["unique_usage_id"] for event in batch] for batch in batches] == [["usage-1"]]
+        assert [[event["unique_usage_id"] for event in batch] for batch in result.items] == [["usage-1"]]
         # utc_time is parsed so the incremental watermark and partitioning see a datetime.
-        assert batches[0][0]["utc_time"] == datetime(2026, 7, 1, 10, 30, 0, tzinfo=UTC)
-        assert [state.window_start for state in manager.saved] == [NOW_EPOCH]
+        assert result.rows[0]["utc_time"] == datetime(2026, 7, 1, 10, 30, 0, tzinfo=UTC)
+        assert [state.window_start for state in result.saved_states] == [NOW_EPOCH]
+        assert result.raised is None
 
     @time_machine.travel(NOW, tick=False)
     def test_full_sync_starts_at_lookback_floor(self) -> None:
-        manager = _FakeManager()
         # Widen the window so the full backfill is a single request.
         with mock.patch(f"{HARVEY_MODULE}.HISTORY_WINDOW_SECONDS", 400 * 24 * 60 * 60):
-            _, session = self._get_batches([_response({"events": []})], manager)
+            result = _driver().run("usage_history", [ScriptedResponse(json={"events": []})])
 
-        params = _query_params(_requested_urls(session)[0])
-        assert params["start_time"] == str(NOW_EPOCH - MAX_LOOKBACK_DAYS * 24 * 60 * 60)
-        assert params["end_time"] == str(NOW_EPOCH)
+        assert result.requests[0].param("start_time") == str(NOW_EPOCH - MAX_LOOKBACK_DAYS * 24 * 60 * 60)
+        assert result.requests[0].param("end_time") == str(NOW_EPOCH)
+        assert result.raised is None
 
 
 class TestClientMatterRows:
-    def _get_batches(self, responses: list[Response]) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
-        session = _session_with(responses)
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    api_key="token",
-                    region="us",
-                    endpoint="client_matters",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-                )
-            )
-        return batches, session
-
     def test_single_unpaginated_fetch(self) -> None:
         matters = [
             {"id": "cm-1", "name": "1234-5678", "user_count": 3},
             {"id": "cm-2", "name": "8765-4321", "user_count": 1},
         ]
-        batches, session = self._get_batches([_response(matters)])
+        result = _driver().run("client_matters", [ScriptedResponse(json=matters)])
 
-        assert batches == [matters]
-        assert _requested_urls(session) == ["https://api.harvey.ai/api/v1/client_matters"]
+        assert result.items == [matters]
+        assert result.urls == ["https://api.harvey.ai/api/v1/client_matters"]
+        assert result.raised is None
 
 
 class TestVaultProjectRows:
-    def _get_batches(
-        self, responses: list[Response], manager: _FakeManager
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
-        session = _session_with(responses)
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    api_key="token",
-                    region="us",
-                    endpoint="vault_projects",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,  # type: ignore[arg-type]
-                )
-            )
-        return batches, session
-
     def test_multiple_pages_save_state_between_pages(self) -> None:
-        manager = _FakeManager()
-        batches, session = self._get_batches(
+        result = _driver().run(
+            "vault_projects",
             [
                 _vault_page(["proj-1"], page=1, total_pages=2),
                 _vault_page(["proj-2"], page=2, total_pages=2),
             ],
-            manager,
         )
 
-        assert len(batches) == 2
-        assert _query_params(_requested_urls(session)[1])["page"] == "2"
-        assert [state.next_page for state in manager.saved] == [2]
+        assert len(result.items) == 2
+        assert result.requests[1].param("page") == "2"
+        assert [state.next_page for state in result.saved_states] == [2]
+        assert result.raised is None
 
 
 class TestProjectFanOutRows:
-    def _get_batches(
-        self, endpoint: str, responses: list[Response], manager: _FakeManager | None = None
-    ) -> tuple[  # nosemgrep: tuple-return-prefer-dataclass -- test helper returns heterogeneous batches and session
-        list[list[dict[str, Any]]], mock.MagicMock
-    ]:
-        session = _session_with(responses)
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    api_key="token",
-                    region="us",
-                    endpoint=endpoint,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager or _FakeManager(),  # type: ignore[arg-type]
-                )
-            )
-        return batches, session
-
-    def _users(self, project_id: str, user_ids: list[str]) -> Response:
-        return _response(
-            {
+    def _users(self, project_id: str, user_ids: list[str]) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
                 "status": "COMPLETED",
                 "data": {
                     "project_id": project_id,
@@ -577,12 +450,12 @@ class TestProjectFanOutRows:
         )
 
     def test_forbidden_project_users_raise(self) -> None:
-        with pytest.raises(HTTPError):
-            self._get_batches("vault_project_users", [_vault_page(["proj-1"]), _response({}, status_code=403)])
+        result = _driver().run("vault_project_users", [_vault_page(["proj-1"]), ScriptedResponse(status=403, json={})])
+
+        assert isinstance(result.raised, HTTPError)
 
     def test_fan_out_saves_projects_page_after_its_children(self) -> None:
-        manager = _FakeManager()
-        batches, session = self._get_batches(
+        result = _driver().run(
             "vault_project_users",
             [
                 _vault_page(["proj-1"], page=1, total_pages=2),
@@ -590,16 +463,16 @@ class TestProjectFanOutRows:
                 _vault_page(["proj-2"], page=2, total_pages=2),
                 self._users("proj-2", ["user-2"]),
             ],
-            manager,
         )
 
-        assert len(batches) == 2
-        assert _query_params(_requested_urls(session)[2])["page"] == "2"
-        assert [state.next_page for state in manager.saved] == [2]
+        assert len(result.items) == 2
+        assert result.requests[2].param("page") == "2"
+        assert [state.next_page for state in result.saved_states] == [2]
+        assert result.raised is None
 
-    def _files_page(self, file_ids: list[str], next_cursor: str | None) -> Response:
-        return _response(
-            {
+    def _files_page(self, file_ids: list[str], next_cursor: str | None) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
                 "response": {
                     "content": {
                         "files": [
@@ -618,7 +491,7 @@ class TestProjectFanOutRows:
         )
 
     def test_project_files_follow_cursor_until_has_more_is_false(self) -> None:
-        batches, session = self._get_batches(
+        result = _driver().run(
             "vault_project_files",
             [
                 _vault_page(["proj-1"]),
@@ -627,7 +500,7 @@ class TestProjectFanOutRows:
             ],
         )
 
-        rows = [row for batch in batches for row in batch]
+        rows = result.rows
         assert [(row["project_id"], row["id"]) for row in rows] == [
             ("proj-1", "file-1"),
             ("proj-1", "file-2"),
@@ -635,11 +508,12 @@ class TestProjectFanOutRows:
         ]
         assert rows[0]["uploaded_at"] == datetime(2026, 1, 1, tzinfo=UTC)
 
-        first, second = (_query_params(url) for url in _requested_urls(session)[1:])
-        assert "cursor" not in first
-        assert second["cursor"] == "cursor-abc"
-        assert first["sort_by"] == "uploaded_at"
-        assert first["sort_order"] == "asc"
+        first, second = result.requests[1:]
+        assert first.param("cursor") is None
+        assert second.param("cursor") == "cursor-abc"
+        assert first.param("sort_by") == "uploaded_at"
+        assert first.param("sort_order") == "asc"
+        assert result.raised is None
 
     @parameterized.expand(
         [
@@ -648,14 +522,16 @@ class TestProjectFanOutRows:
         ]
     )
     def test_project_files_reject_cursor_cycles(self, _name: str, cursors: list[str]) -> None:
-        with pytest.raises(HarveyRetryableError, match="repeated Vault project files cursor"):
-            self._get_batches(
-                "vault_project_files",
-                [
-                    _vault_page(["proj-1"]),
-                    *(self._files_page([f"file-{index}"], next_cursor=cursor) for index, cursor in enumerate(cursors)),
-                ],
-            )
+        result = _driver().run(
+            "vault_project_files",
+            [
+                _vault_page(["proj-1"]),
+                *(self._files_page([f"file-{index}"], next_cursor=cursor) for index, cursor in enumerate(cursors)),
+            ],
+        )
+
+        assert isinstance(result.raised, HarveyRetryableError)
+        assert "repeated Vault project files cursor" in str(result.raised)
 
     @parameterized.expand(
         [
@@ -665,41 +541,46 @@ class TestProjectFanOutRows:
         ]
     )
     def test_review_tables_are_enumerated_from_project_metadata(self, _name: str, metadata_content: Any) -> None:
-        batches, session = self._get_batches(
+        result = _driver().run(
             "review_tables",
             [
                 _vault_page(["proj-1"]),
-                _response({"response": {"content": metadata_content}}, status_code=201),
-                _response({"response": {"content": {"review_table_id": 11, "title": "Leases", "file_ids": ["f-1"]}}}),
-                _response({}, status_code=404),
+                ScriptedResponse(status=201, json={"response": {"content": metadata_content}}),
+                ScriptedResponse(
+                    json={"response": {"content": {"review_table_id": 11, "title": "Leases", "file_ids": ["f-1"]}}}
+                ),
+                ScriptedResponse(status=404, json={}),
             ],
         )
 
-        assert batches == [[{"review_table_id": 11, "title": "Leases", "file_ids": ["f-1"], "project_id": "proj-1"}]]
-        assert urlparse(_requested_urls(session)[2]).path == "/api/v1/vault/review_table/11"
+        assert result.items == [
+            [{"review_table_id": 11, "title": "Leases", "file_ids": ["f-1"], "project_id": "proj-1"}]
+        ]
+        assert result.paths[2] == "/api/v1/vault/review_table/11"
+        assert result.raised is None
 
     def test_review_table_rows_fetch_one_row_per_file(self) -> None:
         cells = {"cells": [{"column_name": "Start date", "summary": "February 7, 2011"}]}
-        batches, session = self._get_batches(
+        result = _driver().run(
             "review_table_rows",
             [
                 _vault_page(["proj-1"]),
-                _response({"response": {"content": [{"review_table_ids": [11]}]}}, status_code=201),
-                _response({"response": {"content": {"review_table_id": 11, "file_ids": ["f-1", "f-2"]}}}),
-                _response(
-                    {
+                ScriptedResponse(status=201, json={"response": {"content": [{"review_table_ids": [11]}]}}),
+                ScriptedResponse(json={"response": {"content": {"review_table_id": 11, "file_ids": ["f-1", "f-2"]}}}),
+                ScriptedResponse(
+                    json={
                         "event_id": 11,
                         "file_id": "f-1",
                         "updated_at": "Wed, 10 Dec 2025 00:38:49 GMT",
                         "response": cells,
-                    }
+                    },
                 ),
                 # A file without a row of its own or a file group row.
-                _response({}, status_code=404),
+                ScriptedResponse(status=404, json={}),
             ],
         )
 
-        assert batches == [
+        assert result.items == [
             [
                 {
                     "event_id": 11,
@@ -711,10 +592,11 @@ class TestProjectFanOutRows:
                 }
             ]
         ]
-        assert [urlparse(url).path for url in _requested_urls(session)[3:]] == [
+        assert result.paths[3:] == [
             "/api/v1/vault/get_row/11/f-1",
             "/api/v1/vault/get_row/11/f-2",
         ]
+        assert result.raised is None
 
 
 class TestHarveySourceResponse:
@@ -730,14 +612,25 @@ class TestHarveySourceResponse:
     def test_source_response_shape(
         self, _name: str, endpoint: str, primary_keys: list[str], partition_keys: list[str] | None
     ) -> None:
-        response = harvey_source(
-            api_key="token",
-            region="us",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-        )
+        if endpoint in ("usage_history", "query_history"):
+            script: list[ScriptedResponse] = []
+            resume = HarveyResumeConfig(window_start=NOW_EPOCH)
+        elif endpoint == "audit_logs":
+            script = [ScriptedResponse(status=404, json={})]
+            resume = None
+        elif endpoint == "client_matters":
+            script = [ScriptedResponse(json=[])]
+            resume = None
+        else:
+            script = [_vault_page([])]
+            resume = None
 
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(endpoint, script, resume_state=resume)
+
+        response = result.response
+        assert response is not None
+        assert result.raised is None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys

@@ -3549,6 +3549,7 @@ export interface CredentialApi {
  * * `RainforestPay` - RainforestPay
  * * `Wise` - Wise
  * * `LaravelCloud` - LaravelCloud
+ * * `Northbeam` - Northbeam
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4935,6 +4936,7 @@ export const ExternalDataSourceTypeEnumApi = {
     RainforestPay: 'RainforestPay',
     Wise: 'Wise',
     LaravelCloud: 'LaravelCloud',
+    Northbeam: 'Northbeam',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -338,7 +338,6 @@ export interface llmEvaluationLogicValues {
     runsStatsLoading: boolean
     runsSummary: {
         applicabilityRate: number
-        errors: number
         failed: number
         scoreMean: number | null
         successful: number
@@ -564,7 +563,6 @@ export interface llmEvaluationLogicMeta {
             originalEvaluation: EvaluationConfig | null
         ) => {
             applicabilityRate: number
-            errors: number
             failed: number
             scoreMean: number | null
             successful: number
@@ -1619,10 +1617,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     scoreMean: stats.scoreMean ?? null,
                     successful: passed,
                     failed,
-                    errors: 0,
+                    // Round down so a few failures never read as 100%
                     successRate:
                         evaluationSupportsRunOutcomes(evaluation) && applicable > 0
-                            ? Math.round((passed / applicable) * 100)
+                            ? Math.floor((passed / applicable) * 1000) / 10
                             : null,
                     applicabilityRate: total > 0 ? Math.round((applicable / total) * 100) : 0,
                 }

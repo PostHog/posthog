@@ -3,15 +3,25 @@ from typing import Any, cast
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 from parameterized import parameterized
 from requests import Request
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yoco import YocoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.settings import (
     DEFAULT_PAGE_SIZE,
     MAX_FILTER_WINDOW,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source import YocoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco import (
     YocoCursorPaginator,
     YocoResumeConfig,
@@ -19,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco 
     get_endpoint_permissions,
     get_resource,
     validate_credentials,
-    yoco_source,
 )
 
 
@@ -161,6 +170,10 @@ class TestYocoResources:
         assert config["auth"] == {"type": "bearer", "token": "yoco-key"}
 
 
+def _driver() -> SourceDriver:
+    return SourceDriver(YocoSource(), YocoSourceConfig(api_key="key"))
+
+
 class TestYocoSource:
     @parameterized.expand(
         [
@@ -168,17 +181,10 @@ class TestYocoSource:
             ("full_refresh", False, "asc"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.rest_api_resource")
-    def test_sort_mode_and_partitioning(
-        self, _name: str, should_use_incremental_field: bool, expected: str, _mock_resource: MagicMock
-    ) -> None:
-        response = yoco_source(
-            api_key="key",
-            endpoint="payments",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=should_use_incremental_field,
-        )
+    def test_sort_mode_and_partitioning(self, _name: str, should_use_incremental_field: bool, expected: str) -> None:
+        response = _driver().run("payments", [], should_use_incremental_field=should_use_incremental_field).response
+
+        assert response is not None
         # Yoco documents no page ordering, so the watermark must only be committed once the run
         # completes — "asc" would advance it past rows the run never fetched.
         assert response.sort_mode == expected
@@ -186,76 +192,60 @@ class TestYocoSource:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.rest_api_resource")
-    def test_resume_state_seeds_the_paginator(self, mock_resource: MagicMock) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = YocoResumeConfig(
-            cursor="cursor-4", window_start="2026-02-01T00:00:00Z", window_end="2026-03-01T00:00:00Z"
-        )
-
-        yoco_source(
-            api_key="key",
-            endpoint="payments",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    @time_machine.travel("2026-03-01T00:00:00Z", tick=False)
+    def test_resume_state_seeds_the_paginator(self) -> None:
+        result = _driver().run(
+            "payments",
+            [ScriptedResponse(json={"data": [], "next_cursor": None})],
+            resume_state=YocoResumeConfig(
+                cursor="cursor-4", window_start="2026-02-01T00:00:00Z", window_end="2026-03-01T00:00:00Z"
+            ),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert mock_resource.call_args.kwargs["initial_paginator_state"] == {
-            "cursor": "cursor-4",
-            "window_start": "2026-02-01T00:00:00Z",
-            "window_end": "2026-03-01T00:00:00Z",
-        }
+        request = result.requests[0]
+        assert request.param("cursor") == "cursor-4"
+        assert request.param("updated_at__gte") == "2026-02-01T00:00:00Z"
+        assert request.param("updated_at__lte") == "2026-03-01T00:00:00Z"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.rest_api_resource")
-    def test_resume_hook_saves_only_advancing_state(self, mock_resource: MagicMock) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        yoco_source(api_key="key", endpoint="payments", team_id=1, job_id="job-1", resumable_source_manager=manager)
-        resume_hook = mock_resource.call_args.kwargs["resume_hook"]
-
-        resume_hook({"cursor": "cursor-7"})
-        assert manager.save_state.call_args.args[0] == YocoResumeConfig(cursor="cursor-7")
-
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        resume_hook({})
-        manager.save_state.assert_not_called()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.build_dependent_resource")
-    def test_payout_entries_fanout_resume_round_trip(self, mock_build: MagicMock) -> None:
-        mock_build.return_value = iter([])
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = YocoResumeConfig(
-            completed=["/v1/payouts/po_1/payout_entries"],
-            current="/v1/payouts/po_2/payout_entries",
-            child_state={"cursor": "cursor-2"},
+    def test_resume_hook_saves_only_advancing_state(self) -> None:
+        result = _driver().run(
+            "payments",
+            [
+                ScriptedResponse(json={"data": [{"id": "p1"}], "next_cursor": "cursor-7"}),
+                ScriptedResponse(json={"data": [{"id": "p2"}], "next_cursor": None}),
+            ],
         )
 
-        yoco_source(
-            api_key="key",
-            endpoint="payout_entries",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+        assert result.saved_states == [YocoResumeConfig(cursor="cursor-7")]
+
+    def test_payout_entries_fanout_resume_round_trip(self) -> None:
+        result = _driver().run(
+            "payout_entries",
+            route(
+                {
+                    "/v1/payouts/": [ScriptedResponse(json={"data": [{"id": "po_1"}, {"id": "po_2"}]})],
+                    "/v1/payouts/po_2/payout_entries": [
+                        ScriptedResponse(json={"data": [{"id": "e1"}], "next_cursor": None})
+                    ],
+                }
+            ),
+            resume_state=YocoResumeConfig(
+                completed=["/v1/payouts/po_1/payout_entries"],
+                current="/v1/payouts/po_2/payout_entries",
+                child_state={"cursor": "cursor-2"},
+            ),
         )
 
-        kwargs = mock_build.call_args.kwargs
-        assert kwargs["initial_paginator_state"] == {
-            "completed": ["/v1/payouts/po_1/payout_entries"],
-            "current": "/v1/payouts/po_2/payout_entries",
-            "child_state": {"cursor": "cursor-2"},
-        }
-
-        kwargs["resume_hook"]({"completed": ["a"], "current": "b", "child_state": {"cursor": "c"}})
-        assert manager.save_state.call_args.args[0] == YocoResumeConfig(
-            completed=["a"], current="b", child_state={"cursor": "c"}
-        )
+        assert result.raised is None
+        assert result.paths == ["/v1/payouts/", "/v1/payouts/po_2/payout_entries"]
+        assert result.requests[1].param("cursor") == "cursor-2"
+        assert result.saved_states == [
+            YocoResumeConfig(
+                completed=["/v1/payouts/po_1/payout_entries", "/v1/payouts/po_2/payout_entries"],
+            )
+        ]
 
 
 class TestYocoCredentials:
@@ -268,13 +258,9 @@ class TestYocoCredentials:
             (500, False, "unexpected status code"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.make_tracked_session")
-    def test_validate_credentials_status_mapping(
-        self, status: int, expected_valid: bool, fragment: str | None, mock_session: MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        is_valid, message = validate_credentials("yoco-key")
+    def test_validate_credentials_status_mapping(self, status: int, expected_valid: bool, fragment: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
+            is_valid, message = validate_credentials("yoco-key")
 
         assert is_valid is expected_valid
         if fragment is None:
@@ -282,30 +268,26 @@ class TestYocoCredentials:
         else:
             assert message is not None and fragment in message
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.yoco.com/v1/payments/"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer yoco-key"
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        request = network.requests_log[0]
+        assert request.origin + request.path == "https://api.yoco.com/v1/payments/"
+        assert request.headers["authorization"] == "Bearer yoco-key"
+        assert network.session_options[0]["allow_redirects"] is False
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.make_tracked_session")
-    def test_endpoint_permissions_name_the_missing_scope(self, mock_session: MagicMock) -> None:
-        def _get(url: str, **_kwargs: Any) -> Mock:
-            return Mock(status_code=403 if "/v1/payouts/" in url else 200)
+    def test_endpoint_permissions_name_the_missing_scope(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(status=403 if "/v1/payouts/" in request.url else 200, json={})
 
-        mock_session.return_value.get.side_effect = _get
-
-        permissions = get_endpoint_permissions("yoco-key", ["payments", "payouts", "payout_entries"])
+        with scripted_network(respond) as network:
+            permissions = get_endpoint_permissions("yoco-key", ["payments", "payouts", "payout_entries"])
 
         assert permissions["payments"] is None
         assert permissions["payouts"] is not None and "business/payouts:read" in permissions["payouts"]
         # Payout entries can only be reached through a payout id, so the parent answers for them.
         assert permissions["payout_entries"] is not None and "business/payouts:read" in permissions["payout_entries"]
-        assert mock_session.return_value.get.call_count == 2
+        assert len(network.requests_log) == 2
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.make_tracked_session")
-    def test_endpoint_permissions_treat_transport_failures_as_reachable(self, mock_session: MagicMock) -> None:
+    def test_endpoint_permissions_treat_transport_failures_as_reachable(self) -> None:
         # A throttle or network blip is not a missing scope — reporting one would push users to
         # deselect tables they can actually sync.
-        mock_session.return_value.get.side_effect = Exception("connection reset")
-
-        assert get_endpoint_permissions("yoco-key", ["payments"]) == {"payments": None}
+        with scripted_network(always(ConnectionError("connection reset"))):
+            assert get_endpoint_permissions("yoco-key", ["payments"]) == {"payments": None}
