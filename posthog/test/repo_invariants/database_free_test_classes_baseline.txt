@@ -15,21 +15,6 @@ ee/billing/test/test_usage_signals.py::TestUsageSignalsDataClass
 ee/clickhouse/materialized_columns/test/test_analyze.py::TestMaterializedColumnsAnalyze
 ee/clickhouse/models/test/test_dead_letter_queue.py::TestDeadLetterQueue
 ee/clickhouse/models/test/test_property.py::TestPropDenormalized
-ee/hogai/chat_agent/funnels/test/test_toolkit.py::TestFunnelToolkit
-ee/hogai/chat_agent/memory/test/test_parsers.py::TestParsers
-ee/hogai/chat_agent/query_planner/test/test_toolkit.py::TestFinalAnswerTool
-ee/hogai/chat_agent/retention/test/test_toolkit.py::TestRetentionToolkit
-ee/hogai/chat_agent/taxonomy/test/test_nodes.py::TestPropertyTypesPrompt
-ee/hogai/chat_agent/taxonomy/test/test_tools.py::TestDynamicEntityTools
-ee/hogai/chat_agent/taxonomy/test/test_tools.py::TestFinalAnswerModel
-ee/hogai/chat_agent/trends/test/test_toolkit.py::TestTrendsToolkit
-ee/hogai/context/insight/format/test/test_lifecycle.py::TestLifecycleResultsFormatter
-ee/hogai/context/insight/format/test/test_paths.py::TestPathsResultsFormatter
-ee/hogai/context/insight/format/test/test_retention.py::TestRetentionResultsFormatter
-ee/hogai/context/insight/format/test/test_stickiness.py::TestStickinessResultsFormatter
-ee/hogai/context/insight/format/test/test_utils.py::TestFormatUtils
-ee/hogai/context/insight/test/test_query_executor.py::TestValidateAssistantQuery
-ee/hogai/core/plan_mode/test/test_executables.py::TestSupermodeReducer
 ee/hogai/utils/test/test_dispatcher.py::TestDispatcherIntegration
 ee/hogai/utils/test/test_openai.py::TestOpenAIUtils
 ee/partners/stripe/api/provisioning/test/test_services_catalog.py::TestServicesCatalog
@@ -50,7 +35,6 @@ posthog/api/test/test_toolbar_oauth_endpoint_auth.py::TestToolbarOAuthScopesConf
 posthog/api/test/test_toolbar_oauth_primitives.py::TestTokenEndpointStatusRemapping
 posthog/api/test/test_toolbar_oauth_primitives.py::TestToolbarOAuthStateCache
 posthog/caching/test/test_redis_cluster_keys.py::TestRedisClusterKeySlots
-products/cdp/backend/templates/avo/test_template_avo.py::TestTemplateMigration
 posthog/clickhouse/client/test/test_limit.py::TestRateLimit
 posthog/clickhouse/test/test_deletion_coverage.py::TestDeletionCoverage
 posthog/clickhouse/test/test_query_tagging.py::TestAddFallbackQueryTags
@@ -155,6 +139,7 @@ products/business_knowledge/backend/tests/test_logic.py::TestChunker
 products/business_knowledge/backend/tests/test_url_ingest.py::TestFetchUrl
 products/business_knowledge/backend/tests/test_url_ingest.py::TestNormalizeUrl
 products/business_knowledge/backend/tests/test_url_ingest.py::TestParseHtml
+products/cdp/backend/templates/avo/test_template_avo.py::TestTemplateMigration
 products/conversations/backend/api/tests/test_teams_token_storage.py::TestTrustedTeamsServiceUrl
 products/data_modeling/backend/test/test_saved_query_dag_sync.py::TestGetDagId
 products/experiments/backend/hogql_queries/test/test_stats_config.py::TestSequentialStatsConfig
