@@ -3,9 +3,15 @@ from django.db import transaction
 from products.logs.backend import alert_incidents
 from products.logs.backend.alert_state_machine import FIRING_STATES, IncidentCloseReason, IncidentEdge, incident_edge
 from products.logs.backend.alert_utils import next_allowed_check_at
+from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.models import LogsAlertConfiguration
 
-__all__ = ["close_incident_before_delete", "close_incident_on_commit", "next_allowed_check_at"]
+__all__ = [
+    "close_incident_before_delete",
+    "close_incident_on_commit",
+    "next_allowed_check_at",
+    "team_has_logs",
+]
 
 
 def _close_if_subscribed(*, team_id: int, alert_id: str, reason: IncidentCloseReason) -> None:

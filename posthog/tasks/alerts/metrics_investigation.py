@@ -20,11 +20,14 @@ import structlog
 
 from posthog.schema import AlertState, NodeKind
 
+from posthog.ph_client import ph_background_capture
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
 if TYPE_CHECKING:
+    from posthog.models import Team
+
     from products.metrics.backend.facade.contracts import InvestigationResult
 
 logger = structlog.get_logger(__name__)
@@ -37,6 +40,13 @@ MAX_INVESTIGATED_CLAUSES = 3
 MAX_SUMMARY_LENGTH = 4000
 
 _SERVICE_FILTER_KEYS = ("service.name", "service_name")
+
+# The alert fires on a metric, so metrics are always present. These are the
+# other sources an investigation can pivot into, with where to set each up.
+_SOURCE_SETUP_URLS = {
+    "logs": "https://posthog.com/docs/logs/installation",
+    "traces": "https://posthog.com/docs/tracing",
+}
 
 
 class _InvestigationTarget(NamedTuple):
@@ -81,7 +91,7 @@ def run_metrics_alert_investigation(alert: AlertConfiguration, alert_check: Aler
     persistence transaction — this issues ClickHouse queries.
     """
     try:
-        summary = _run_investigation(alert, alert_check)
+        summary, missing_sources = _run_investigation(alert, alert_check)
         alert_check.investigation_status = InvestigationStatus.DONE
         alert_check.investigation_summary = summary
         alert_check.save(update_fields=["investigation_status", "investigation_summary"])
@@ -90,9 +100,11 @@ def run_metrics_alert_investigation(alert: AlertConfiguration, alert_check: Aler
         alert_check.investigation_status = InvestigationStatus.FAILED
         alert_check.investigation_error = {"message": str(error)[:1000]}
         alert_check.save(update_fields=["investigation_status", "investigation_error"])
+    else:
+        _capture_investigation_completed(alert, alert_check, missing_sources)
 
 
-def _run_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> str:
+def _run_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> tuple[str, list[str]]:
     # Deferred: the facade pulls in HogQL machinery that must stay off the
     # alerts import path (matching how core defers facade.queries).
     from products.metrics.backend.facade.api import investigate_incident  # noqa: PLC0415
@@ -115,7 +127,53 @@ def _run_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> st
                 "down a single service, so this investigation ran across all services.)"
             )
         summaries.append(summary)
-    return " ".join(summaries)[:MAX_SUMMARY_LENGTH]
+    missing_sources = _missing_sources(alert.team)
+    missing_note = _missing_sources_note(missing_sources)
+    # Cap the findings, not the note, so the setup links always survive the cap.
+    findings = " ".join(summaries)[: MAX_SUMMARY_LENGTH - len(missing_note)]
+    return findings + missing_note, missing_sources
+
+
+def _missing_sources(team: "Team") -> list[str]:
+    """The sources this team sends no data for, so the summary can say what
+    the investigation could not look at. A failed check counts as present: a
+    false "you have no logs" is worse than a missing hint.
+    """
+    from products.logs.backend.facade.api import team_has_logs  # noqa: PLC0415
+    from products.tracing.backend.facade.api import team_has_spans  # noqa: PLC0415
+
+    checks = {"logs": team_has_logs, "traces": team_has_spans}
+    missing: list[str] = []
+    for source, has_source in checks.items():
+        try:
+            if not has_source(team):
+                missing.append(source)
+        except Exception:
+            logger.exception("metrics_alert_investigation_source_check_failed", team_id=team.id, source=source)
+    return missing
+
+
+def _missing_sources_note(missing_sources: list[str]) -> str:
+    if not missing_sources:
+        return ""
+    names = " or ".join(missing_sources)
+    links = "; ".join(f"set up {source}: {_SOURCE_SETUP_URLS[source]}" for source in missing_sources)
+    return f" This project sends no {names}, so the investigation could not check them ({links})."
+
+
+def _capture_investigation_completed(
+    alert: AlertConfiguration, alert_check: AlertCheck, missing_sources: list[str]
+) -> None:
+    ph_background_capture()(
+        distinct_id=str(alert.id),
+        event="metrics alert investigation completed",
+        properties={
+            "team_id": alert.team_id,
+            "alert_id": str(alert.id),
+            "alert_check_id": str(alert_check.id),
+            "missing_sources": missing_sources,
+        },
+    )
 
 
 def _investigation_targets(alert: AlertConfiguration) -> list[_InvestigationTarget]:

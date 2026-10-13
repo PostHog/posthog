@@ -617,6 +617,50 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         assert alert_check.investigation_summary is not None
         assert len(alert_check.investigation_summary) == MAX_SUMMARY_LENGTH
 
+    @parameterized.expand(
+        [
+            ("both_missing", False, False, ["logs", "traces"]),
+            ("logs_missing", False, True, ["logs"]),
+            ("nothing_missing", True, True, []),
+        ]
+    )
+    def test_investigation_summary_names_missing_sources_past_the_cap(
+        self,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        mock_feature_enabled: MagicMock,
+        _name: str,
+        has_logs: bool,
+        has_spans: bool,
+        expected_missing: list[str],
+    ) -> None:
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        with (
+            patch(
+                "products.metrics.backend.facade.api.investigate_incident",
+                side_effect=lambda *, team, context: _stub_investigation_result(
+                    context.metric_name, mover_label="x" * 10_000
+                ),
+            ),
+            patch("products.logs.backend.facade.api.team_has_logs", return_value=has_logs),
+            patch("products.tracing.backend.facade.api.team_has_spans", return_value=has_spans),
+            patch("posthog.tasks.alerts.metrics_investigation.ph_background_capture") as mock_capture,
+        ):
+            run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        summary = alert_check.investigation_summary
+        assert summary is not None
+        assert len(summary) <= MAX_SUMMARY_LENGTH
+        assert ("posthog.com/docs/logs/installation" in summary) == ("logs" in expected_missing)
+        assert ("posthog.com/docs/tracing" in summary) == ("traces" in expected_missing)
+        captured = mock_capture.return_value.call_args.kwargs
+        assert captured["event"] == "metrics alert investigation completed"
+        assert captured["properties"]["missing_sources"] == expected_missing
+
     def test_investigation_flag_still_rejected_for_trends_threshold_alerts(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:

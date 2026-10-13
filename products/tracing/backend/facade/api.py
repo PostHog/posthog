@@ -53,6 +53,7 @@ from products.tracing.backend.error_counts import (
     count_span_exceptions as _count_span_exceptions,
     count_trace_exceptions as _count_trace_exceptions,
 )
+from products.tracing.backend.has_spans_query_runner import team_has_spans as _team_has_spans
 from products.tracing.backend.impact_query_runner import run_impact_query as _run_impact_query
 from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
@@ -81,6 +82,11 @@ MAX_AI_EVENTS_PER_TRACE = _MAX_AI_EVENTS_PER_TRACE
 # These look repetitive when fields align 1:1. The value is having ONE place
 # where "internal" becomes "external contract". When models and contracts drift,
 # the mapper absorbs the change instead of it leaking everywhere.
+
+
+def team_has_spans(team: "Team") -> bool:
+    """Return True if the given team has ingested at least one trace span."""
+    return _team_has_spans(team)
 
 
 def run_count_query(
