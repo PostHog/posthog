@@ -1,4 +1,6 @@
+import io
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -58,6 +60,22 @@ class TestRunnerBoundaries(SimpleTestCase):
     )
     def test_recorded_failures_carry_no_credentials(self, _name: str, message: str, expected: str) -> None:
         assert runner.describe_failure(ConnectionError(message), {"Authorization": "Bearer tok123"}) == expected
+
+    def test_library_logs_lose_url_credentials_while_redaction_is_on(self) -> None:
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        logging.getLogger().addHandler(handler)
+        self.addCleanup(logging.getLogger().removeHandler, handler)
+        url = "https://mcp.example.com/mcp?token=abc"
+
+        with runner.redacted_logs():
+            try:
+                raise ConnectionError(f"401 for {url}")
+            except ConnectionError:
+                logging.getLogger("mcp.client.streamable_http").exception("POST %s failed", url)
+
+        assert "token=abc" not in stream.getvalue()
+        assert "POST https://mcp.example.com/mcp failed" in stream.getvalue()
 
     @parameterized.expand(
         [

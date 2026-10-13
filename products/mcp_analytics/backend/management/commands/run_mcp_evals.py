@@ -26,6 +26,7 @@ from products.mcp_analytics.backend.agent_evals.runner import (
     RunConfig,
     describe_failure,
     format_run_summary,
+    redacted_logs,
     run_agent_evals,
 )
 from products.mcp_analytics.backend.agent_evals.scenarios import load_scenarios
@@ -77,7 +78,10 @@ class Command(BaseCommand):
             max_turns=cast(int, options["max_turns"]),
         )
         try:
-            report = asyncio.run(run_agent_evals(config, anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)))
+            with redacted_logs():
+                report = asyncio.run(
+                    run_agent_evals(config, anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY))
+                )
         except Exception as unreachable:
             # Only the catalog session raises here; every trial failure stays inside its trial.
             raise CommandError(

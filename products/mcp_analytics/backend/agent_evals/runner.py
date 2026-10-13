@@ -2,9 +2,11 @@ import re
 import json
 import time
 import asyncio
+import logging
+import traceback
 import dataclasses
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator, Mapping
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -173,7 +175,7 @@ async def _run_scenario(
 
 def describe_failure(error: Exception, headers: Mapping[str, str]) -> str:
     # HTTP errors quote the request URL, which can carry a token, and can quote a rejected header value.
-    text = _URL.sub(lambda match: _without_credentials(match.group(0)), _describe(error))
+    text = redact_urls(_describe(error))
     for value in headers.values():
         if value:
             text = text.replace(value, "[redacted]")
@@ -244,6 +246,32 @@ def format_run_summary(report: AgentRunReport) -> str:
 
 
 _URL = re.compile(r"https?://[^\s'\"<>]+")
+
+
+def redact_urls(text: str) -> str:
+    return _URL.sub(lambda match: _without_credentials(match.group(0)), text)
+
+
+class _RedactUrls(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg, record.args = redact_urls(record.getMessage()), None
+        if record.exc_info:
+            record.exc_text = redact_urls("".join(traceback.format_exception(*record.exc_info)))
+            record.exc_info = None
+        return True
+
+
+@contextmanager
+def redacted_logs() -> Iterator[None]:
+    """The MCP SDK and httpx log request URLs and tracebacks themselves, before any failure reaches us."""
+    handlers, redact = list(logging.getLogger().handlers), _RedactUrls()
+    for handler in handlers:
+        handler.addFilter(redact)
+    try:
+        yield
+    finally:
+        for handler in handlers:
+            handler.removeFilter(redact)
 
 
 def _without_credentials(url: str) -> str:
