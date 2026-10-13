@@ -204,6 +204,7 @@ def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
     dropped_invalid_email = dropped_duplicate_email = dropped_too_large = 0
     for line, raw in enumerate(rows, start=2):
         row: dict[str, str] = {}
+        row_keys: set[str] = set()
         for header, value in raw.items():
             key = _column_key(header, id_names_distinct_id)
             if not key:
@@ -211,11 +212,15 @@ def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
                 if str(value).strip():
                     raise PeopleImportInvalid("A column with data in it has no name. Name it and try again.")
                 continue
-            if key in row:
+            if key in row_keys:
                 # Keeping either value would set the wrong property without saying so.
                 raise PeopleImportInvalid(f'Two columns are both named "{key}". Rename one and try again.')
-            row[key] = str(value).strip()
-        has_email_column = has_email_column or "email" in row
+            row_keys.add(key)
+            cell = str(value).strip()
+            # A blank cell would $set "" and wipe the value the person already has.
+            if cell:
+                row[key] = cell
+        has_email_column = has_email_column or "email" in row_keys
         _check_distinct_id(row.get("distinct_id", ""), line)
         email = row.get("email", "")
         try:

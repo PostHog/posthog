@@ -67,7 +67,7 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         _create_person(team=self.team, distinct_ids=["b-newer"], properties={"email": "grace@example.com"})
         flush_persons_and_events()
         rows: list[dict[str, str]] = [
-            {"Email": "ada@example.com", "Distinct ID": "user-1", "subscriptionPlan": "Pro", " ": ""},
+            {"Email": "ada@example.com", "Distinct ID": "user-1", "subscriptionPlan": "Pro", "company": " ", " ": ""},
             {"Email": "Grace@Example.com", "subscriptionPlan": "Free"},
             {"Email": "new@example.com", "Distinct ID": "user-9", "subscriptionPlan": "Team"},
             {"Email": "lead@example.com", "subscriptionPlan": "Trial"},
