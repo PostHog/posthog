@@ -9334,6 +9334,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "enabled": False,
                 "include_invoiceless_charges": False,
+                "excluded_product_ids": ["prod_credit"],
             },
         )
 
@@ -9345,12 +9346,14 @@ class TestExternalDataSource(APIBaseTest):
         config_data = payload["revenue_analytics_config"]
         assert config_data["enabled"] is False
         assert config_data["include_invoiceless_charges"] is False
+        assert config_data["excluded_product_ids"] == ["prod_credit"]
 
         # Verify in database
         source.refresh_from_db()
         config = source.revenue_analytics_config
         assert config.enabled is False
         assert config.include_invoiceless_charges is False
+        assert config.excluded_product_ids == ["prod_credit"]
 
     def test_revenue_analytics_config_partial_update(self):
         source = self._create_external_data_source()

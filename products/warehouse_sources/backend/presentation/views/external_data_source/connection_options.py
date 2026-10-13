@@ -44,7 +44,12 @@ tracer = trace.get_tracer(__name__)
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
-        fields = ["enabled", "include_invoiceless_charges"]
+        fields = ["enabled", "include_invoiceless_charges", "excluded_product_ids"]
+        extra_kwargs = {
+            "excluded_product_ids": {
+                "help_text": "Stripe product IDs to leave out of revenue analytics, for example a prepaid credit product."
+            },
+        }
 
 
 class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):

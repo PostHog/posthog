@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.utils import uuid7
 
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
+from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA as REVENUE_ITEM_SCHEMA
 from products.revenue_analytics.backend.views.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
@@ -212,6 +213,35 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
                 ("stripe.posthog_test", "cus_6", "sub_6", Decimal("0")),
             ],
         )
+
+    def test_excluded_product_ids_drop_revenue_items_and_mrr(self):
+        self.source.revenue_analytics_config.excluded_product_ids = ["prod_1"]
+        self.source.revenue_analytics_config.save()
+
+        revenue_items = self._execute_query(
+            ast.SelectQuery(
+                select=[ast.Field(chain=["product_id"])],
+                distinct=True,
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[f"stripe.posthog_test.{REVENUE_ITEM_SCHEMA.source_suffix}"])
+                ),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["product_id"]))],
+            )
+        )
+        product_ids = [row[0] for row in revenue_items.results]
+        self.assertNotIn("prod_1", product_ids)
+        self.assertIn("prod_2", product_ids)
+
+        mrr = self._execute_query(
+            ast.SelectQuery(
+                select=[ast.Field(chain=["customer_id"]), ast.Field(chain=["mrr"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[f"stripe.posthog_test.{MRR_SCHEMA.source_suffix}"])),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["customer_id"]))],
+            )
+        )
+        mrr_by_customer = dict(mrr.results)
+        self.assertNotIn("cus_1", mrr_by_customer)
+        self.assertEqual(mrr_by_customer["cus_2"], Decimal("40.8052916666"))
 
     def test_query_output_events(self):
         self.team.revenue_analytics_config.events = [

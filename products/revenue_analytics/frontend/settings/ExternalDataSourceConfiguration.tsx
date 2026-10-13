@@ -6,6 +6,7 @@ import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip, lemonTo
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -343,6 +344,39 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                         updateSourceRevenueAnalyticsConfig({
                                             source,
                                             config: { include_invoiceless_charges: checked },
+                                        })
+                                    }
+                                />
+                            )
+                        },
+                    },
+                    {
+                        key: 'excluded_product_ids',
+                        title: (
+                            <span>
+                                Excluded products
+                                <Tooltip title="Stripe product IDs to leave out of revenue, for example a prepaid credit product. Use this when another invoice already counts the same money, such as invoices paid from a customer's credit balance.">
+                                    <IconInfo className="ml-1" />
+                                </Tooltip>
+                            </span>
+                        ),
+                        render: (_, source: ExternalDataSource) => {
+                            return (
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    size="small"
+                                    placeholder="prod_..."
+                                    value={source.revenue_analytics_config.excluded_product_ids ?? []}
+                                    disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
+                                    onChange={(productIds) =>
+                                        updateSourceRevenueAnalyticsConfig({
+                                            source,
+                                            config: {
+                                                excluded_product_ids: productIds
+                                                    .map((productId) => productId.trim())
+                                                    .filter(Boolean),
+                                            },
                                         })
                                     }
                                 />

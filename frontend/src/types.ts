@@ -6476,6 +6476,7 @@ export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 export interface ExternalDataSourceRevenueAnalyticsConfig {
     enabled: boolean
     include_invoiceless_charges: boolean
+    excluded_product_ids?: string[]
 }
 
 export interface ExternalDataSourceCreatePayload {
