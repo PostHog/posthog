@@ -55,10 +55,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
         }
     }
     const canRun =
-        !!task &&
-        (!isPiTaskRuntime(task.runtime) || piAcpEnabled) &&
-        !isLatestRunInProgress &&
-        !isLatestRunCompleted
+        !!task && (!isPiTaskRuntime(task.runtime) || piAcpEnabled) && !isLatestRunInProgress && !isLatestRunCompleted
     const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
