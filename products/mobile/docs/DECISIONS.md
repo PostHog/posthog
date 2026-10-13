@@ -241,3 +241,13 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **iOS 27 SDK scene life cycle.** Apps built with Xcode 27 do not launch without the UIScene life cycle, and the Expo SDK 57 template predates it. `plugins/withIosSceneLifecycle.js` applies the SDK 58 template's change (scene manifest, `SceneDelegate` on `ExpoAppSceneDelegate`, an AppDelegate that provides the React Native factory). It fails the prebuild if the template changes shape. Remove it when the app moves to SDK 58.
 - **`EXPO_PUBLIC_DEMO_MODE=1` sets the first value of the demo flag.** The saved value wins after that, so leaving demo mode in Settings sticks.
 - **The demo walkthrough is an Argent flow** (`.argent/flows/demo-smoke.yaml`) that ends by tapping Exit demo, so it can run twice in a row. It uses `testID`s except for the hand-off scrim, which it taps by its "Close" label.
+
+## Hedgehog widget
+
+- **The hedgehog lives in a home-screen widget, not in the app.** `modules/hedgehog-widget/README.md` holds the contract. Widgets cannot run JavaScript or animate on their own, so `src/features/hedgehog/choreography.ts` plans a seeded script for the day and the app hands it to the widget once per UTC day through the local Expo module (App Group on iOS, SharedPreferences on Android).
+- **iOS plays one keyframe a minute, Android plays real frame animation.** WidgetKit renders timeline entries, so iOS gets a keyframe per minute and relies on the iOS 17 transition between entries. Android `RemoteViews` support a `ViewFlipper` with `autoStart`, so the launcher flips sprite frames every 120 ms with no app involvement.
+- **`@bacons/apple-targets` owns the widget extension target** (`targets/HedgehogWidget/`), so the target survives `expo prebuild`. Its pod is named `PostHogHedgehogWidget`, because the appex already owns the Swift module name `HedgehogWidget`.
+- **The widget target needs iOS 17**, for `Button(intent:)` and animated entry transitions, so iOS 16 users see no widget. The app's own minimum is unchanged.
+- **A tap anywhere on the widget pokes the hedgehog** and nothing opens the app, because the app has no hedgehog surface to open. On iOS each widget family keeps its own poke, so tapping the small widget does not make the medium one react, and the widget records when it scheduled a reaction so a later reload does not replay it.
+- **Sprites are committed PNGs** cut from the `@posthog/hedgehog-mode` atlas by `scripts/extract_hedgehog_sprites.py` at 2x nearest-neighbour. Android also gets mirrored `_l` copies, because `RemoteViews` cannot flip an `ImageView`.
+- **`.gitignore` anchors `/ios/` and `/android/`**, so the module's native folders are tracked and only the prebuild output at the root is ignored.

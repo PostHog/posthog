@@ -1,7 +1,9 @@
 node_modules/
 .expo/
-ios/
-android/
+# Anchored: modules/hedgehog-widget/ios and /android are source, only the prebuild output at the root is generated.
+/ios/
+/android/
+modules/*/android/build/
 dist/
 web-build/
 coverage/

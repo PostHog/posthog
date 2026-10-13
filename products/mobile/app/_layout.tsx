@@ -14,6 +14,7 @@ import { BootSplash } from '@/auth/BootSplash'
 import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGate'
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
 import { useDemoHydrated } from '@/demo/demoMode'
+import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
 import { configureNotifications } from '@/features/notifications/pushRegistration'
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
@@ -62,6 +63,7 @@ export default function RootLayout(): ReactElement {
 
     useAuthRedirect()
     usePushRegistration()
+    useHedgehogWidgetSync()
     useNotificationRouting()
 
     return (

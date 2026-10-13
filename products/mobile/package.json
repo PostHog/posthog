@@ -83,6 +83,7 @@
         "zustand": "^4.5.7"
     },
     "devDependencies": {
+        "@bacons/apple-targets": "5.0.0",
         "@biomejs/biome": "2.2.4",
         "@react-native/jest-preset": "0.86.3",
         "@react-native/metro-config": "0.86.3",

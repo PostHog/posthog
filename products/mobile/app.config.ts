@@ -20,6 +20,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         // Local device builds sign automatically with this team; EAS builds carry their own credentials.
         appleTeamId: process.env.APPLE_TEAM_ID,
         supportsTablet: false,
+        entitlements: {
+            // Shared with the HedgehogWidget extension, which reads the choreography the app writes.
+            'com.apple.security.application-groups': ['group.com.posthog.code.mobile'],
+        },
         infoPlist: {
             ITSAppUsesNonExemptEncryption: false,
         },
@@ -52,6 +56,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         'expo-font',
         'expo-updates',
         './plugins/withIosSceneLifecycle',
+        '@bacons/apple-targets',
     ],
     updates: {
         url: `https://u.expo.dev/${EAS_PROJECT_ID}`,

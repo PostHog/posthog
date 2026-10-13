@@ -22,6 +22,7 @@ export type AnalyticsEvent =
     | 'mobile_project_picker_opened'
     | 'mobile_project_switched'
     | 'mobile_push_opened'
+    | 'mobile_hedgehog_widget_synced'
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
 
