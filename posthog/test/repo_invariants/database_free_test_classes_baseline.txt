@@ -65,13 +65,7 @@ posthog/admin/test_admin.py::TestOrganizationMemberInlineConfig
 posthog/admin/test_admin.py::TestPluginAttachmentInline
 posthog/api/oauth/test_cimd.py::TestAuthorizationServerMetadata
 posthog/api/oauth/test_cimd.py::TestFetchCimdMetadata
-posthog/api/test/test_comment_slack_sync.py::TestDiscussionCardBlocks
-posthog/api/test/test_comments.py::TestCommentHelperFunctions
 posthog/api/test/test_csp.py::TestCSPModule
-posthog/api/test/test_event_definition_base.py::TestEventDefinitionGeneratorBase
-posthog/api/test/test_event_definition_typescript.py::TestTypeScriptGeneratorOptionalInTypes
-posthog/api/test/test_github.py::TestRelayToEu
-posthog/api/test/test_organization_domain.py::TestOrganizationDomains
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckCaa
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckCloudflare
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckCname
@@ -79,11 +73,9 @@ posthog/api/test/test_proxy_record_diagnostics.py::TestCheckHttpChallenge
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckLiveEvent
 posthog/api/test/test_proxy_record_diagnostics.py::TestIsReservedProxyDomain
 posthog/api/test/test_proxy_record_diagnostics.py::TestIsValidProxyDomain
-posthog/api/test/test_team_project_parity.py::TestTeamProjectParity
 posthog/api/test/test_toolbar_oauth_endpoint_auth.py::TestToolbarOAuthScopesConfig
 posthog/api/test/test_toolbar_oauth_primitives.py::TestTokenEndpointStatusRemapping
 posthog/api/test/test_toolbar_oauth_primitives.py::TestToolbarOAuthStateCache
-posthog/api/test/test_user_integration.py::TestGithubUserFromCode
 posthog/caching/test/test_redis_cluster_keys.py::TestRedisClusterKeySlots
 products/cdp/backend/templates/avo/test_template_avo.py::TestTemplateMigration
 posthog/clickhouse/client/test/test_limit.py::TestRateLimit
