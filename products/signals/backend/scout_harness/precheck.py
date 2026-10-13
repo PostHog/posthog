@@ -30,7 +30,8 @@ The query comes from the first source that applies (`resolve_effective_precheck`
 A canonical scout whose input lives in Postgres tables that HogQL cannot read ships its default as a
 code check in `_CODE_PRECHECKS` instead of a query. The same rollout and the same overrides apply. The
 check gets the time of the last run that ran, or None before the first one, and returns why the
-scout should run, or None to skip it. An exception runs the scout, like a query error does.
+scout should run, or None to skip it. It is not called when the last run did not complete, so that
+run is retried. An exception runs the scout, like a query error does.
 """
 
 from __future__ import annotations
@@ -70,6 +71,7 @@ from products.signals.backend.scout_harness.team_limits import (
     precheck_default_rollout_percent,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade import api as tasks_facade
 from products.workflows.backend.facade.suggestions_scout import suggestions_scout_run_reason
 
 logger = structlog.get_logger(__name__)
@@ -297,7 +299,7 @@ def _evaluate_code_precheck(
     started = time.monotonic()
     error_type: str | None = None
     try:
-        reason = _CODE_PRECHECKS[config.skill_name](team.pk, last_run_at=_last_run_at(config), now=now)
+        reason = _code_precheck_reason(config, now)
     except Exception as error:
         error_type = type(error).__name__
         logger.warning(
@@ -325,6 +327,24 @@ def _evaluate_code_precheck(
         error_type=error_type,
     )
     return result
+
+
+def _code_precheck_reason(config: SignalScoutConfig, now: datetime) -> str | None:
+    latest = (
+        SignalScoutRun.objects.for_team(config.team_id)
+        .filter(skill_name=config.skill_name)
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+        .order_by("-created_at")
+        .values_list("created_at", "task_run__status")
+        .first()
+    )
+    # A failed, cancelled or stranded run has not read its input, and only a run that starts can retry
+    # it or let the runner fail a stranded run, so the check never skips after one.
+    if latest is not None and latest[1] != tasks_facade.TaskRunStatus.COMPLETED:
+        return "last_run_unsuccessful"
+    return _CODE_PRECHECKS[config.skill_name](
+        config.team_id, last_run_at=latest[0] if latest is not None else None, now=now
+    )
 
 
 def dry_run_scout_precheck(
@@ -377,11 +397,7 @@ def dry_run_scout_precheck(
 
 def precheck_since(config: SignalScoutConfig) -> datetime:
     """The `{since}` bound: the last run that actually ran, or the config's creation."""
-    return _last_run_at(config) or config.created_at
-
-
-def _last_run_at(config: SignalScoutConfig) -> datetime | None:
-    return (
+    last_run_at = (
         SignalScoutRun.objects.for_team(config.team_id)
         .filter(skill_name=config.skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
@@ -389,6 +405,7 @@ def _last_run_at(config: SignalScoutConfig) -> datetime | None:
         .values_list("created_at", flat=True)
         .first()
     )
+    return last_run_at or config.created_at
 
 
 def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:

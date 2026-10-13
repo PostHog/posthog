@@ -3,14 +3,21 @@ from uuid import UUID
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import ActivityLog, Team
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision, WorkflowProposal
-from products.workflows.backend.services.suggestions_scout import suggestions_scout_run_reason
+from products.workflows.backend.services.suggestions_scout import (
+    SENDS_MATURED_MAX_EXECUTION_S,
+    suggestions_scout_run_reason,
+)
+
+SERVICE = "products.workflows.backend.services.suggestions_scout"
 
 NOW = datetime(2026, 10, 9, 12, 30, 0, tzinfo=UTC)
 LAST_RUN = NOW - timedelta(hours=24)
@@ -128,4 +135,11 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
         self._opt_in(flow, days_ago=5)
         self._send(flow, hours_ago=50)
 
-        assert self._reason() == "sends_matured"
+        with patch(f"{SERVICE}.sync_execute", wraps=sync_execute) as query:
+            assert self._reason() == "sends_matured"
+
+        query.assert_called_once()
+        assert query.call_args.kwargs["settings"] == {
+            "max_execution_time": SENDS_MATURED_MAX_EXECUTION_S,
+            "timeout_overflow_mode": "throw",
+        }

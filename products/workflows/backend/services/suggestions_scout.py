@@ -5,14 +5,17 @@ none gains nothing from its runs. The first live opted-in workflow switches the 
 project, and losing the last one, by opting out, archiving or deleting it, removes it again.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from django.db import connection, transaction
 from django.db.models import Q
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.models import ActivityLog, Team, User
+from posthog.schema_enums import ProductKey
 
 from products.signals.backend.facade.api import (
     ScoutEnableRefusal,
@@ -32,6 +35,7 @@ PROPOSAL_WRITE_SCOPE = "hog_flow_proposal:write"
 _LOCK_NAMESPACE = 72_031
 # The scout skill reads a send only once it is this old, because opens and bounces arrive after the send.
 SEND_MATURITY = timedelta(hours=48)
+SENDS_MATURED_MAX_EXECUTION_S = 5
 
 
 def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: bool) -> None:
@@ -145,18 +149,31 @@ def _sends_matured_since(opted_in: list[tuple[UUID, int, datetime]], *, last_run
     Reads the per-version source because a batch send records its email metrics under the batch
     job id on the per-flow source, and under `<flow id>/<version>` here for every trigger type.
     """
-    flows_by_team: dict[int, set[str]] = {}
-    for flow_id, team_id, _ in opted_in:
-        flows_by_team.setdefault(team_id, set()).add(str(flow_id))
-    for team_id, flow_ids in flows_by_team.items():
-        totals = fetch_app_metric_totals_by_source(
-            team_id,
-            HOG_FLOW_VERSION_APP_SOURCE,
-            after=last_run_at - SEND_MATURITY,
-            before=now - SEND_MATURITY,
-            name=[TARGET_SEND_METRIC],
-        )
-        for app_source_id, counts in totals.items():
-            if app_source_id.split("/", 1)[0] in flow_ids and counts.get(TARGET_SEND_METRIC, 0) > 0:
-                return True
-    return False
+    tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutSendsMatured")
+    rows = sync_execute(
+        """
+        SELECT 1
+        FROM app_metrics2
+        WHERE team_id IN %(team_ids)s
+          AND app_source = %(app_source)s
+          AND metric_name = %(metric_name)s
+          AND timestamp >= toDateTime64(%(after)s, 6)
+          AND timestamp < toDateTime64(%(before)s, 6)
+          AND splitByChar('/', app_source_id)[1] IN %(flow_ids)s
+          AND count > 0
+        LIMIT 1
+        """,
+        {
+            "team_ids": sorted({team_id for _, team_id, _ in opted_in}),
+            "app_source": HOG_FLOW_VERSION_APP_SOURCE,
+            "metric_name": TARGET_SEND_METRIC,
+            "after": (last_run_at - SEND_MATURITY).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+            "before": (now - SEND_MATURITY).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+            "flow_ids": [str(flow_id) for flow_id, _, _ in opted_in],
+        },
+        workload=Workload.OFFLINE,
+        # The pre-check activity gives up after its own timeout and runs the scout, so a longer read
+        # would only hold a worker thread and a connection for an answer nobody uses.
+        settings={"max_execution_time": SENDS_MATURED_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
+    )
+    return bool(rows)

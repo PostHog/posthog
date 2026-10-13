@@ -315,7 +315,7 @@ class TestCodeCheckSkillDefault(BaseTest):
 
         return check
 
-    def _last_run(self) -> datetime:
+    def _last_run(self, status: str) -> datetime:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
@@ -323,7 +323,7 @@ class TestCodeCheckSkillDefault(BaseTest):
         )
         run = SignalScoutRun.all_teams.create(
             team=self.team,
-            task_run=TaskRun.objects.create(task=task, team=self.team),
+            task_run=TaskRun.objects.create(task=task, team=self.team, status=status),
             skill_name=WORKFLOWS_SKILL,
             skill_version=1,
         )
@@ -341,13 +341,15 @@ class TestCodeCheckSkillDefault(BaseTest):
 
     @parameterized.expand(
         [
-            ("nothing_new", None, "skip", "no_new_input", None),
-            ("new_input", "published", "run", "input_changed", "published"),
-            ("check_raises", RuntimeError("boom"), "error", "query_error", None),
+            ("nothing_new", "completed", None, "skip", "no_new_input", None, True),
+            ("new_input", "completed", "published", "run", "input_changed", "published", True),
+            ("check_raises", "completed", RuntimeError("boom"), "error", "query_error", None, True),
+            ("last_run_failed", "failed", None, "run", "input_changed", "last_run_unsuccessful", False),
+            ("last_run_stranded", "in_progress", None, "run", "input_changed", "last_run_unsuccessful", False),
         ]
     )
-    def test_code_check_gates_the_run(self, _name, answer, outcome, reason, detail) -> None:
-        last_run_at = self._last_run()
+    def test_code_check_gates_the_run(self, _name, run_status, answer, outcome, reason, detail, checked) -> None:
+        last_run_at = self._last_run(run_status)
 
         result, capture = self._evaluate(answer)
 
@@ -359,7 +361,7 @@ class TestCodeCheckSkillDefault(BaseTest):
             "skill_default",
         )
         assert result.should_run == (outcome != "skip")
-        assert self.calls == [last_run_at]
+        assert self.calls == ([last_run_at] if checked else [])
         assert capture.call_args.kwargs["properties"]["detail"] == detail
 
     def test_first_run_passes_no_last_run(self) -> None:
