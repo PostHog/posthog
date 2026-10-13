@@ -205,6 +205,7 @@ _STRING_RESULT_FUNCTIONS = frozenset(
         "reverseutf8",
         "rightpad",
         "rightpadutf8",
+        "sha1",
         "substring",
         "substringutf8",
         "tostring",

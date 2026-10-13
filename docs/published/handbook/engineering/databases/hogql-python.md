@@ -53,6 +53,12 @@ This accounting is not a limit on Python process memory.
 The `range()` builtin checks its result size against the remaining VM allowance before allocating the list.
 Queries that exceed these limits fail during expansion; reduce the number or size of the placeholder expressions to stay within them.
 
+## Native SHA1 hashing
+
+`SHA1(value)` runs ClickHouse's native SHA-1 function and returns a 20-byte binary digest. Use `lower(hex(SHA1(value)))` for lowercase hexadecimal text. It accepts one string argument and propagates `NULL`.
+
+`posthog/hogql/functions/test/test_hash_functions.py` checks feature flag hash parity against the shared Rust evaluator corpus, including the first 60 digest bits and the exact binary64 bucket value. These checks cover hash arithmetic, not identifier resolution or flag evaluation.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.

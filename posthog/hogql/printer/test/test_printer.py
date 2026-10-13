@@ -1894,6 +1894,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)  # inline values
 
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
+        self.assertEqual(self._expr("SHA1(event)"), "SHA1(events.event)")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)")
@@ -1967,6 +1968,8 @@ class TestPrinter(BaseTest):
             "Aggregation 'quantile' expects 1 parameter, found 2",
         )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
+        self._assert_expr_error("SHA1()", "Function 'SHA1' expects 1 argument, found 0")
+        self._assert_expr_error("SHA1('a', 'b')", "Function 'SHA1' expects 1 argument, found 2")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
         self._assert_expr_error(
