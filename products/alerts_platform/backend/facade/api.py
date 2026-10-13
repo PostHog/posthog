@@ -44,9 +44,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     return platform_lifecycle.upsert_configuration(upsert)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert) -> bool:
-    """Copy one configuration in only when its team already runs that source here. True when it did."""
-    return platform_lifecycle.upsert_if_running(upsert)
+def upsert_if_running(upsert: PlatformAlertUpsert) -> None:
+    """Copy one configuration in only when its team already runs that source here."""
+    platform_lifecycle.upsert_if_running(upsert)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:

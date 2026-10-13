@@ -9,8 +9,6 @@ logs on the platform.
 rather than duplicates, and a later comparison can line the two stacks up per alert.
 """
 
-from uuid import UUID
-
 import structlog
 
 from posthog.dataclasses import frozen
@@ -125,13 +123,10 @@ def disable_platform_alert_configurations(*, team_id: int | None = None) -> int:
     return disabled
 
 
-def follow_logs_alert(alert_id: UUID) -> None:
+def follow_logs_alert(alert: LogsAlertConfiguration) -> None:
     """Copies a logs alert that was just created or turned back on, if its team runs logs on the platform.
 
     Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
     stay off the platform until the next backfill.
     """
-    alert = LogsAlertConfiguration.objects.filter(id=alert_id).first()
-    if alert is None or not alert.enabled:
-        return
     upsert_if_running(platform_upsert_of(alert))

@@ -623,7 +623,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
             updated = super().update(instance, validated_data)
             if enabled_change is True:
-                transaction.on_commit(partial(follow_logs_alert, updated.id), robust=True)
+                transaction.on_commit(partial(follow_logs_alert, updated), robust=True)
             return updated
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
@@ -652,7 +652,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             created = super().create(validated_data)
-            transaction.on_commit(partial(follow_logs_alert, created.id), robust=True)
+            if created.enabled:
+                transaction.on_commit(partial(follow_logs_alert, created), robust=True)
             return created
 
 

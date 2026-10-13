@@ -55,7 +55,7 @@ writes a source product's rows. What it does cost is the evaluation queries its 
 ones the source's own production fleet is already running for the same alerts.
 
 The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing creates those on its own:
-`python manage.py backfill_platform_alert_configurations [--team-id N]` for logs and `python manage.py backfill_platform_insight_alert_configurations [--team-id N]` for insight are the only writers, and both are manual.
+`python manage.py backfill_platform_alert_configurations [--team-id N]` for logs and `python manage.py backfill_platform_insight_alert_configurations [--team-id N]` for insight are the only bulk writers, and both are manual. The logs alerts API also copies one alert when it is created or turned back on, but only in a team that already has an enabled logs copy.
 So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
 is run, one cohort at a time.
 
