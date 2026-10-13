@@ -407,9 +407,9 @@ jobs:
                   # paths-filter in `changes`.
                   while IFS= read -r f; do
                       case "$f" in
-                          frontend/jest.*|babel.config.js|tsconfig.json|tsconfig.*.json|\
+                          babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
-                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
+                          .github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
                               fall_back config_change "$f"
                               exit 0
                               ;;

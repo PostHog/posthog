@@ -32,3 +32,5 @@ export function CollapsibleFrameContent({
         </Collapsible.Panel>
     )
 }
+
+// CI selection probe, reverted in a later commit
