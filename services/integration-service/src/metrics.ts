@@ -36,17 +36,26 @@ export const previousVersionServedTotal = new Counter({
     registers: [register],
 })
 
-// An unreadable mount keeps the secrets already held rather than failing every read, so
-// this gauge is the only sign of that degradation. Alert on it.
+// An unreadable secret source keeps the secrets already held rather than failing every read,
+// so this gauge is the only sign of that degradation. Alert on it.
 export const servingStaleSeconds = new Gauge({
     name: 'integration_secret_serving_stale_seconds',
-    help: 'Age of the secrets still being served because the mount could not be re-read (0 when healthy)',
+    help: 'Age of the secrets still being served because the secret source could not be re-read (0 when healthy)',
     registers: [register],
 })
 
 export const mountErrorsTotal = new Counter({
     name: 'integration_secret_store_errors_total',
-    help: 'Reads of the secret mount that returned nothing',
+    help: 'Reads of the secret source (mount or Kubernetes API) that returned nothing',
+    registers: [register],
+})
+
+// A watch that restarts often is a source of lag between pods. `stalled` means the safety
+// re-fetch found a change the watch never delivered.
+export const secretWatchRestartsTotal = new Counter({
+    name: 'integration_secret_watch_restarts_total',
+    help: 'Restarts of the Kubernetes Secret watch, by why the previous watch ended',
+    labelNames: ['reason'],
     registers: [register],
 })
 

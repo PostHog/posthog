@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 from django.db import models as db_models
 
+from posthog.egress.limiter.policies import Priority
+
 from ..db import READER_DB
 from ..facade.enums import ReviewState, SnapshotResult
 from ..models import Artifact, Repo, Run, RunSnapshot
@@ -276,7 +278,7 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
         .first()
     )
     if gh is not None:
-        github_login = UserGitHubIntegration(gh).github_login
+        github_login = UserGitHubIntegration(gh, source="visual_review", priority=Priority.BATCH).github_login
         if github_login:
             return _Approver(label=github_login, is_github_login=True)
 

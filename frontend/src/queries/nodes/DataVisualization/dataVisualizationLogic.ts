@@ -126,6 +126,7 @@ export interface DataVisualizationLogicProps {
     insightLoading?: boolean
     dashboardId?: DashboardType['id']
     loadPriority?: number
+    retainResponseOnUnmount?: boolean
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
     filtersOverride?: DashboardFilter | null
@@ -981,6 +982,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 query: getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
+                retainResponseOnUnmount: props.retainResponseOnUnmount,
                 variablesOverride: props.variablesOverride,
                 filtersOverride: props.filtersOverride,
                 limitContext: props.limitContext,
@@ -1000,6 +1002,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         actions: [
             dataNodeLogic({
                 cachedResults: props.cachedResults,
+                retainResponseOnUnmount: props.retainResponseOnUnmount,
                 key: props.key,
                 query: getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
