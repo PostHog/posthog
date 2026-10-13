@@ -14,6 +14,8 @@ ORGANIZATION_DEACTIVATED_DENIAL_CODE = ComputeQuotaDenialReason.ORGANIZATION_DEA
 
 logger = logging.getLogger(__name__)
 
+POSTHOG_CODE_CLIENT_PROVENANCES = frozenset(TaskClientProvenance)
+
 
 def organization_deactivated(team_id: int) -> bool:
     return Team.objects.filter(id=team_id, organization__is_active=False).exists()
@@ -40,7 +42,7 @@ def is_billable_compute(
     source_loop_id: object | None,
     source_loop_internal: bool | None,
 ) -> bool:
-    if client_provenance != TaskClientProvenance.POSTHOG_DESKTOP:
+    if client_provenance not in POSTHOG_CODE_CLIENT_PROVENANCES:
         return False
     if origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP):
         return True

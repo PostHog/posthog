@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # Whop follows the Standard Webhooks spec: `webhook-id`, `webhook-timestamp` (Unix seconds) and
 # `webhook-signature` (a space-separated list of `v<version>,<base64 HMAC-SHA256>` entries) signing

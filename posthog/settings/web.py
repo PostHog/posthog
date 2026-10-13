@@ -127,6 +127,7 @@ PRODUCTS_APPS = [
     "products.security.backend.apps.SecurityConfig",
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
+    "products.groups.backend.apps.GroupsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -296,7 +297,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
-CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
+CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
@@ -1293,8 +1294,6 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:write",
     "element:read",
     "uploaded_media:write",
-    "survey:read",
-    "survey:write",
     "field_note:read",
     "field_note:write",
 ]

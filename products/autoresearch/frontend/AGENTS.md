@@ -10,7 +10,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AutoresearchScene.tsx`         | `/autoresearch` — the model list: a container-query grid of model cards and the "New model" entry point.                                     |
 | `AutoresearchModelCard.tsx`     | One model card: the question, a headline metric per state (draft, training, awaiting check, confirmed). `ModelCardMenu.tsx` holds actions.   |
-| `pipelineQuestion.ts`           | The model's question in plain words ("Who will do X in the next N days?"), shared by the list cards and the detail header.                   |
+| `pipelineQuestion.ts`           | The model's question in plain words ("Who will do “X” in the next N days?"), `eventName()` for event names in copy, and the header subtitle. |
 | `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form. Its parts live in `newModel/`.                                                                        |
 | `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — the detail shell: the question header, the lifecycle strip, and four tabs. Each tab lives in `pipeline/`.              |
 | `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                                        |
@@ -19,7 +19,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | `autoresearchPipelineLogic.ts`  | Detail logic. Also maps the old `?tab=` keys to the four tabs, so saved links still open.                                                    |
 | `pipelineLifecycle.ts`          | The five lifecycle steps (question set to checked against reality) and which one is current.                                                 |
 | `agentSearch.ts`                | The agent's search across training runs: chart points, best score so far, AUC change per experiment, log groups and the latest agent notes.  |
-| `onlinePerformance.ts`          | Accuracy tab helpers over the `online_performance` endpoint: the headline, the realized AUC series, predicted against actual by segment.     |
+| `onlinePerformance.ts`          | Accuracy tab helpers over the `online_performance` endpoint: the stat tiles, the realized AUC series, predicted against actual by segment.   |
 | `predictionCoverage.ts`         | Predictions tab coverage from the runs list: the measured summary and the coverage and score age per day.                                    |
 | `predictionSegments.ts`         | The likelihood segments from the cut points the `online_performance` endpoint returns: lift over the base rate, or a fixed pair until then.  |
 | `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                                                   |

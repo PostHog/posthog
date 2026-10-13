@@ -214,6 +214,7 @@ class TestEvaluationFormatting:
             ("categorical", None, False, True, "Skipped"),
             ("categorical", None, False, "true", "Skipped"),
             ("numeric", None, False, True, "Skipped"),
+            ("numeric", None, True, False, "UNKNOWN"),
         ]
     )
     def test_typed_evaluation(

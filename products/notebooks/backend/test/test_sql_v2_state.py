@@ -174,6 +174,34 @@ def cells_markdown(count: int) -> dict[str, Any]:
 
 
 class TestMarkdownBlockSpans(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("paragraphs", "First paragraph.\n\nSecond paragraph."),
+            ("headings_and_table", "## Summary\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nClosing note."),
+            ("fenced_example", "```python\nx = 1\n\n\n<!--ph:phb-example-->\n```\n\nExplanation."),
+        ]
+    )
+    def test_anchored_cell_includes_all_its_markdown(self, _name: str, source: str) -> None:
+        markdown = f"# Title\n\n\n<!--ph:phb-cell-->\n{source}\n\n\nNext cell."
+        blocks = list(iter_markdown_blocks(markdown, group_anchored_prose=True))
+        assert [block.source for block in blocks] == ["# Title", source, "Next cell."]
+        assert blocks[1].node_id == "phb-cell"
+        assert markdown[blocks[1].start : blocks[1].end] == source
+
+    @parameterized.expand(
+        [
+            ("anchor", "<!--ph:phb-next-->\nNext cell."),
+            ("component", '<SQLV2 nodeId="next" code="select 1" />'),
+            ("comment", '<Comment ref="note" replies={[]} />'),
+        ]
+    )
+    def test_anchored_cell_stops_before_other_addressable_content(self, _name: str, following: str) -> None:
+        blocks = list(
+            iter_markdown_blocks(f"<!--ph:phb-cell-->\nFirst.\n\nSecond.\n\n{following}", group_anchored_prose=True)
+        )
+        assert len(blocks) == 2
+        assert blocks[0].source == "First.\n\nSecond."
+
     MARKDOWN = (
         "# Title\n\n"
         "Some prose.\nA second line.\n\n"
@@ -459,7 +487,8 @@ class TestNotebookCellState(APIBaseTest):
     def test_state_endpoint_returns_cells_and_kernel(self, _mock_enabled) -> None:
         notebook = self._notebook(
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
-            '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />'
+            '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />\n\n\n'
+            "<!--ph:phb-note-->\nFirst paragraph.\n\nSecond paragraph."
         )
         notebook.variables = [{"name": "limit", "type": "number", "value": 10}]
         notebook.save()
@@ -478,5 +507,6 @@ class TestNotebookCellState(APIBaseTest):
         assert by_node["s"]["dependents"] == ["p"]
         assert by_node["p"]["status"] == "never_run"
         assert by_node["p"]["depends_on"] == ["s"]
+        assert by_node["phb-note"]["code"] == "First paragraph.\n\nSecond paragraph."
         assert by_node["s"]["last_run"]["run_id"]
         assert data["markdown"][by_node["s"]["start"] : by_node["s"]["end"]].startswith('<SQLV2 nodeId="s"')

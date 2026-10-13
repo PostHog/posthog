@@ -27,8 +27,8 @@ def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> list[Experime
         try:
             finding = check(ctx)
         except Exception as error:
-            # The findings ride on responses such as the experiment detail, so one failing check
-            # must not fail the response or hide the findings of the other checks.
+            # The findings ride on the health action, the exposure answer and `experiment launched`, so one
+            # failing check must not fail them or hide the findings of the other checks.
             capture_exception(error)
             continue
         if finding is not None:

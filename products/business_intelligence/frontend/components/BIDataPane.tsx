@@ -7,6 +7,7 @@ import { BIConnections } from 'products/business_intelligence/frontend/BIConnect
 import { BIDataPaneSection } from 'products/business_intelligence/frontend/BIDataPaneSection'
 import { BIDataSourcePicker } from 'products/business_intelligence/frontend/BIDataSourcePicker'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
+import { BIHierarchySection } from 'products/business_intelligence/frontend/BIHierarchySection'
 
 import { BIConnectionSelector } from './BIConnectionSelector'
 
@@ -87,6 +88,7 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                         />
                     </>
                 )}
+                {config.source && !dataPaneFieldsError ? <BIHierarchySection tabId={tabId} /> : null}
                 {config.source && !dataPaneFieldsError ? <BIConnections /> : null}
             </div>
             <div className="border-t p-2">

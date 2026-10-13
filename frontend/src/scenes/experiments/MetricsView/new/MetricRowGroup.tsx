@@ -917,7 +917,7 @@ export function MetricRowGroup({
                             metric={metric}
                             error={error}
                             query={debugQuery}
-                            onRetry={handleRetry}
+                            onRetry={error?.retriable === true ? handleRetry : undefined}
                             retryDisabledReason={isRecalculating ? 'Recalculation in progress' : undefined}
                         />
                     </td>
