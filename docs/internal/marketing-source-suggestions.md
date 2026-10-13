@@ -233,3 +233,11 @@ The full search connection card appears only when no search source is connected,
 
 The rescan cooldown uses the server scan time. Failed plan requests can retry without a fresh scan.
 Search controls and the Search Console connection action remain available during paid sync.
+
+## Bing Ads reconnection warning
+
+The `legacy-oauth-reconnect-warning` feature flag controls the reconnection banner in Marketing analytics and its settings.
+The banner only appears when a project has a Bing Ads integration marked with `oauth_uses_legacy_client`.
+It asks users to reconnect before November 30, 2026.
+The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
+Use project targeting to release the warning gradually.
