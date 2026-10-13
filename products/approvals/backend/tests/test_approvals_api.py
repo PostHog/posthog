@@ -958,6 +958,30 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
         with self._scoped_by_owner(True):
             self._adopt("experiment")
 
+    def test_a_family_that_governs_a_different_write_does_not_count(self, _mock_enabled) -> None:
+        """The cover has to survive write by write, not merely exist.
+
+        A flag protected against being enabled, adopted into a family that gates only pausing,
+        would keep a policy and lose the only protection it had. Comparing whole families instead
+        of operations let that through.
+        """
+        self._policy("feature_flag.enable")
+        self._policy("experiment.pause")
+
+        with self._scoped_by_owner(True), self.assertRaises(ValidationError) as caught:
+            self._adopt("experiment")
+
+        assert "need approval" in str(caught.exception)
+
+    def test_a_partial_overlap_still_refuses(self, _mock_enabled) -> None:
+        """Covering some of the writes is not covering them, so one gap is enough to refuse."""
+        self._policy("feature_flag.enable")
+        self._policy("feature_flag.update")
+        self._policy("experiment.launch")
+
+        with self._scoped_by_owner(True), self.assertRaises(ValidationError):
+            self._adopt("experiment")
+
     def test_an_ungoverned_flag_may_be_adopted(self, _mock_enabled) -> None:
         with self._scoped_by_owner(True):
             self._adopt("survey")
