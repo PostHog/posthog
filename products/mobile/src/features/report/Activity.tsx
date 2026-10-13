@@ -40,7 +40,10 @@ export function Activity({ events, viewerName }: ActivityProps): ReactElement {
 
 const styles = StyleSheet.create({
     section: {
-        marginTop: 36,
+        marginTop: 24,
+        paddingTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
     },
     header: {
         flexDirection: 'row',
