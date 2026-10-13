@@ -8,7 +8,11 @@ from posthog.schema import ErrorTrackingIssueStatus
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.temporal.weekly_digest.queries import query_new_error_issues, query_teams_for_digest
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
+)
+from posthog.temporal.weekly_digest.queries import query_new_error_issues, query_saved_filters, query_teams_for_digest
 
 from products.error_tracking.backend.facade.testing import create_issue
 
@@ -65,3 +69,31 @@ def test_query_teams_for_digest_loads_the_used_fields_in_one_query(
             paged_ids.append(team.id)
 
     assert paged_ids == [team.id for team in digest_teams]
+
+
+def test_query_saved_filters_counts_only_views_in_the_period(team, user):
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    period_start = period_end - timedelta(days=7)
+    busy = SessionRecordingPlaylist.objects.create(team=team, name="Busy filter", type="filters")
+    old = SessionRecordingPlaylist.objects.create(team=team, name="Old filter", type="filters")
+    unviewed = SessionRecordingPlaylist.objects.create(team=team, name="Unviewed filter", type="filters")
+
+    def view(playlist: SessionRecordingPlaylist, viewed_at: datetime) -> None:
+        viewed = SessionRecordingPlaylistViewed.objects.create(team=team, user=user, playlist=playlist)
+        # viewed_at is auto_now_add, so an update is the only way to backdate it.
+        SessionRecordingPlaylistViewed.objects.filter(pk=viewed.pk).update(viewed_at=viewed_at)
+
+    view(busy, period_start + timedelta(days=1))
+    view(busy, period_end)
+    view(busy, period_start)  # excluded: window is exclusive at the start
+    view(old, period_start - timedelta(days=30))
+    view(old, period_start + timedelta(days=2))
+    view(old, period_end + timedelta(seconds=1))
+
+    results = list(query_saved_filters(period_start, period_end))
+
+    assert [(r["short_id"], r["view_count"]) for r in results] == [
+        (busy.short_id, 2),
+        (old.short_id, 1),
+        (unviewed.short_id, 0),
+    ]
