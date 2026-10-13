@@ -45,6 +45,23 @@ class TestRunnerBoundaries(SimpleTestCase):
     @parameterized.expand(
         [
             (
+                "query_token",
+                "GET https://mcp.example.com/mcp?token=abc failed",
+                "GET https://mcp.example.com/mcp failed",
+            ),
+            (
+                "userinfo_in_another_url",
+                "redirect to 'http://u:p@other.example.com/x?k=1'",
+                "redirect to 'http://other.example.com/x'",
+            ),
+        ]
+    )
+    def test_recorded_failures_carry_no_url_credentials(self, _name: str, message: str, expected: str) -> None:
+        assert runner.describe_failure(ConnectionError(message)) == expected
+
+    @parameterized.expand(
+        [
+            (
                 "userinfo_and_query_are_dropped",
                 "https://user:secret@mcp.example.com/mcp?token=abc#x",
                 "https://mcp.example.com/mcp",

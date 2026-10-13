@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import asyncio
@@ -122,7 +123,8 @@ async def _run_scenario(
     trial: int,
 ) -> AgentTrial:
     async def create_message(messages: list[MessageParam]) -> Message:
-        return await client.messages.create(
+        # Streaming, because the SDK refuses MAX_TOKENS without it for models with a lower non-streaming cap.
+        async with client.messages.stream(
             model=config.model,
             max_tokens=MAX_TOKENS,
             system=system,
@@ -130,7 +132,8 @@ async def _run_scenario(
             messages=messages,
             output_config={"effort": config.effort},
             extra_body={"cache_control": {"type": "ephemeral"}},
-        )
+        ) as stream:
+            return await stream.get_final_message()
 
     finished: AgentTrial | None = None
     try:
@@ -140,7 +143,10 @@ async def _run_scenario(
             async def call_tool(name: str, tool_input: object) -> ToolOutcome:
                 if not isinstance(tool_input, dict):
                     return ToolOutcome(text="Tool input must be a JSON object.", is_error=True)
-                result = await session.call_tool(name, tool_input, read_timeout_seconds=TOOL_CALL_TIMEOUT)
+                try:
+                    result = await session.call_tool(name, tool_input, read_timeout_seconds=TOOL_CALL_TIMEOUT)
+                except Exception as error:
+                    return ToolOutcome(text=describe_failure(error), is_error=True)
                 return ToolOutcome(text=tool_result_text(result), is_error=bool(result.isError))
 
             deps = TrialDeps(create_message=create_message, call_tool=call_tool, now_ms=_now_ms)
@@ -156,15 +162,15 @@ async def _run_scenario(
                 turns=0,
                 usage=TrialUsage(),
                 duration_ms=0,
-                error=describe_failure(error, config.url),
+                error=describe_failure(error),
             )
     assert finished is not None
     return finished
 
 
-def describe_failure(error: Exception, url: str) -> str:
+def describe_failure(error: Exception) -> str:
     # HTTP errors quote the request URL, which can carry a token in its query or userinfo.
-    return _describe(error).replace(url, _without_credentials(url))
+    return _URL.sub(lambda match: _without_credentials(match.group(0)), _describe(error))
 
 
 def _describe(error: Exception) -> str:
@@ -228,6 +234,9 @@ def format_run_summary(report: AgentRunReport) -> str:
         suffix = f" ({tool_errors} tool errors)" if tool_errors else ""
         lines.append(f"  {scenario_id}: {' '.join(trial.outcome for trial in trials)}{suffix}")
     return "\n".join(lines)
+
+
+_URL = re.compile(r"https?://[^\s'\"<>]+")
 
 
 def _without_credentials(url: str) -> str:

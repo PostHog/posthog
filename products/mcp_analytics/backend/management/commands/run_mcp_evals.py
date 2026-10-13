@@ -77,9 +77,7 @@ class Command(BaseCommand):
             report = asyncio.run(run_agent_evals(config, anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)))
         except Exception as unreachable:
             # Only the catalog session raises here; every trial failure stays inside its trial.
-            raise CommandError(
-                f"could not list the server's tools: {describe_failure(unreachable, config.url)}"
-            ) from unreachable
+            raise CommandError(f"could not list the server's tools: {describe_failure(unreachable)}") from unreachable
 
         out = cast(Path, options["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
