@@ -25,6 +25,7 @@ async def fetch_gateway_cost(request_id: str, *, base_url: str, api_key: str) ->
         return None
     try:
         async with (
+            # nosemgrep: aiohttp-missing-trust-env — the internal gateway must bypass the external egress proxy
             aiohttp.ClientSession(trust_env=False) as session,
             session.get(
                 f"{base_url}/v1/usage/{request_id}",
