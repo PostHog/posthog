@@ -113,7 +113,6 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
-                        - .github/workflows/ci-backend.yml
                         - .github/actions/setup-uv/**
                         - .depot/actions/setup-uv/**
                         - '.depot/workflows/*.yml'
