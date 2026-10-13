@@ -108,6 +108,18 @@ describe('buildToolCallProperties', () => {
         })
     })
 
+    // Most issues list calls arrive through the CLI, so its events need the same
+    // bounded request controls as the hosted server, and still no caller text.
+    it('records issues list page size and volume buckets, but no other input', () => {
+        const properties = buildToolCallProperties('query-error-tracking-issues-list', {
+            ...base,
+            success: true,
+            input: { limit: 25, volumeResolution: 7, searchQuery: 'private caller text' },
+        })
+        expect(properties).toMatchObject({ error_tracking_limit: 25, error_tracking_volume_resolution: 7 })
+        expect(JSON.stringify(properties)).not.toContain('private caller text')
+    })
+
     it('stamps catalog metadata on catalogued tools and omits it for unknown names', () => {
         // The CLI path silently shipped without category or description while the
         // hosted server stamped both; this pins the two paths to the same catalog.
