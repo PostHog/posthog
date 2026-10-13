@@ -484,6 +484,13 @@ export interface dashboardLogicActions {
             widgetType: string
         }[]
     }
+    applyDashboardUpdate: (
+        dashboard: DashboardType,
+        layouts: Record<number, DashboardTile['layouts']>
+    ) => {
+        dashboard: DashboardType
+        layouts: Record<number, Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined>
+    }
     applyWidgetIssueMetadataChange: (payload: {
         context: WidgetIssueMetadataContext
         delta: WidgetIssueMetadataDelta
@@ -511,6 +518,9 @@ export interface dashboardLogicActions {
         value: true
     }
     clearInitialDashboardSettingsOverride: () => {
+        value: true
+    }
+    closeTileModal: () => {
         value: true
     }
     copyToDashboard: (
@@ -1590,6 +1600,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        applyDashboardUpdate: (dashboard: DashboardType, layouts: Record<number, DashboardTile['layouts']>) => ({
+            dashboard,
+            layouts,
+        }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -1629,6 +1643,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         openTextTileModal: true,
         openImageTileModal: true,
         openButtonTileModal: true,
+        closeTileModal: true,
         setTileOverride: (tile: DashboardTile) => ({ tile }),
 
         /**
@@ -1842,6 +1857,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                   }
                         updatedDashboard.persisted_filters = latestDashboard.persisted_filters
                         updatedDashboard.persisted_variables = latestDashboard.persisted_variables
+                        if (scope === 'colors') {
+                            dashboardsModel.actions.updateDashboardSuccess(
+                                {
+                                    ...persistedDashboard,
+                                    persisted_filters: latestDashboard.persisted_filters,
+                                    persisted_variables: latestDashboard.persisted_variables,
+                                },
+                                { layoutsPersisted: true }
+                            )
+                        }
                         if (scope === 'colors' && breakdownColorsChanged) {
                             const autoCount = breakdownColorsToSave.filter((color) => color.source === 'auto').length
                             posthog.capture('dashboard breakdown colors saved', {
@@ -2177,6 +2202,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
                 loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                applyDashboardUpdate: (_, { layouts }) => layouts,
                 saveEditModeChangesSuccess: (state, { dashboard, payload }) =>
                     payload?.scope === 'layout' ? tileLayoutsFromDashboard(dashboard) : state,
                 receiveTileFromStream: (state, { tile }) => ({
@@ -2226,6 +2252,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 dashboardNotFound: () => null,
                 setAccessDeniedToDashboard: () => null,
+                applyDashboardUpdate: (_, { dashboard }) => dashboard,
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
@@ -2326,9 +2353,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return null
-                },
-                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
-                    return state && dashboard && state.id === dashboard.id ? dashboard : state
                 },
                 saveDashboardChangesSuccess: (state, { dashboard }) =>
                     state && dashboard
@@ -2567,6 +2591,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         showTextTileModal: [
             false,
             {
+                closeTileModal: () => false,
                 setTextTileId: (_, { textTileId }) => !!textTileId,
                 openTextTileModal: () => true,
             },
@@ -2574,6 +2599,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         showImageTileModal: [
             false,
             {
+                closeTileModal: () => false,
                 openImageTileModal: () => true,
                 setTextTileId: () => false,
             },
@@ -2581,6 +2607,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         textTileId: [
             null as DashboardTileIdOrNew,
             {
+                closeTileModal: () => null,
                 setTextTileId: (_, { textTileId }) => textTileId,
                 openTextTileModal: () => null,
             },
@@ -2589,6 +2616,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         showButtonTileModal: [
             false,
             {
+                closeTileModal: () => false,
                 setButtonTileId: (_, { buttonTileId }) => !!buttonTileId,
                 openButtonTileModal: () => true,
             },
@@ -2596,6 +2624,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         buttonTileId: [
             null as DashboardTileIdOrNew,
             {
+                closeTileModal: () => null,
                 setButtonTileId: (_, { buttonTileId }) => buttonTileId,
                 openButtonTileModal: () => null,
             },
@@ -3702,6 +3731,59 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        [dashboardsModel.actionTypes.updateDashboardSuccess]: ({
+            dashboard,
+            payload,
+        }: {
+            dashboard: DashboardType | null
+            payload?: { layoutsPersisted?: boolean }
+        }) => {
+            if (!dashboard || !values.dashboard || dashboard.id !== props.id || values.dashboard.id !== dashboard.id) {
+                return
+            }
+
+            const layoutsPersisted = payload?.layoutsPersisted === true
+            const previousTiles = new Map(values.dashboard.tiles.map((tile) => [tile.id, tile]))
+            const originalLayouts = layoutsPersisted
+                ? layoutsByTile(
+                      calculateLayouts(
+                          values.dashboard.tiles.map((tile) => ({
+                              ...tile,
+                              layouts: values.dashboardLayouts[tile.id],
+                          }))
+                      )
+                  )
+                : null
+            const layouts = tileLayoutsFromDashboard(dashboard)
+            if (!layoutsPersisted) {
+                values.dashboard.tiles.forEach((tile) => {
+                    if (tile.id in layouts) {
+                        layouts[tile.id] = values.dashboardLayouts[tile.id]
+                    }
+                })
+            }
+            const tiles = dashboard.tiles.map((tile) => {
+                const previousTile = previousTiles.get(tile.id)
+                if (previousTile && !layoutsPersisted) {
+                    return { ...tile, layouts: previousTile.layouts }
+                }
+                const draftSm = previousTile?.layouts?.sm
+                const originalSm = originalLayouts?.[tile.id]?.sm
+                if (
+                    draftSm &&
+                    originalSm &&
+                    (draftSm.x !== originalSm.x ||
+                        draftSm.y !== originalSm.y ||
+                        draftSm.w !== originalSm.w ||
+                        draftSm.h !== originalSm.h)
+                ) {
+                    return { ...tile, layouts: previousTile.layouts }
+                }
+                return tile
+            })
+
+            actions.applyDashboardUpdate({ ...dashboard, tiles }, layouts)
+        },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
                 cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
@@ -4204,7 +4286,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical,
                     }
                 )
-                dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
+                dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard), {
+                    layoutsPersisted: true,
+                })
                 eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
             } catch {
                 if (!cache.pendingDashboardTileSpacing) {
@@ -4247,7 +4331,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         grid_spacing: values.dashboard?.customization?.tile_spacing ?? 'standard',
                     }
                 )
-                dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
+                dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard), {
+                    layoutsPersisted: true,
+                })
             } catch (error) {
                 posthog.captureException(error)
                 if (!cache.pendingDashboardGridCompaction) {
@@ -4727,11 +4813,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
             }
         },
-        saveEditModeChangesSuccess: ({ dashboard }) => {
-            if (dashboard) {
+        saveEditModeChangesSuccess: ({ dashboard, payload }) => {
+            if (dashboard && payload?.scope !== 'colors') {
                 // Sync the saved dashboard (including any name/description changes) to
                 // dashboardsModel so the sidebar and other global views stay up to date
-                dashboardsModel.actions.updateDashboardSuccess(dashboard)
+                dashboardsModel.actions.updateDashboardSuccess(dashboard, { layoutsPersisted: true })
             }
             // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
             if (cache.dashboardChangesPersisted) {
