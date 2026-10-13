@@ -146,6 +146,12 @@ So a run can mark requests verified without proving the rows are gone. What stop
 removing nothing is upstream of the count: `MutationRunner.reuse_since` keeps a run from adopting a
 mutation an earlier run enqueued, which is the failure the count was added to notice.
 
+A marked queue row is therefore not proof of erasure, so `verify_queued_request` does not read the queue's state for a query-backed event removal.
+It counts the request's queued uuids that are still readable on every default deletion target, scoped to the request's team.
+The request stays QUEUED while any of them survive.
+The drain skips every uuid that has a marked queue row, so the next `deletes_job` run does not retry such a survivor.
+An operator has to remove it another way.
+
 ### Property removal on `flag_evaluations`
 
 The property-removal job sweeps `sharded_flag_evaluations` with the same per-shard copy, delete, reingest and verify ops it runs on the events tables.

@@ -1025,13 +1025,37 @@ def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
     return None
 
 
-def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
+def count_surviving_hogql_event_removals(request: "DataDeletionRequest") -> int:
+    """Count rows that a query-backed event removal queued and that are still readable in ClickHouse.
+
+    The queue cannot answer this: deletes_job marks every queued uuid deleted after its sweep, whether
+    or not the rows are gone. So this reads every default deletion target for the queued uuids, scoped
+    to the request's team, which keeps each read to that team's rows.
+
+    Like the adhoc arm of the delete predicate, a row ingested after the uuids were queued is outside
+    the request's scope and does not count.
+    """
     from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
+    from posthog.models.deletion_targets import (
+        DEFAULT_DELETION_TARGETS,
+        resolve_read_targets_via_sync_execute,
+        surviving_rows_sql,
+    )
 
+    queued_for_request = (
+        f"FROM {ADHOC_EVENTS_DELETION_TABLE} WHERE team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s"
+    )
+    # GLOBAL, because the queue is only on the main cluster and a target can be stored on another one.
+    predicate = (
+        f"team_id = %(team_id)s AND uuid GLOBAL IN (SELECT uuid {queued_for_request}) "
+        f"AND (inserted_at IS NULL OR inserted_at <= (SELECT max(created_at) {queued_for_request}))"
+    )
+    params = {"team_id": request.team_id, "request_id": str(request.pk)}
+    total = 0
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
@@ -1039,16 +1063,17 @@ def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
     ):
-        result = sync_execute(
-            f"SELECT count() FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
-            "WHERE team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s AND is_deleted = 0",
-            {"team_id": request.team_id, "request_id": str(request.pk)},
-            team_id=request.team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-        )
-    return int(result[0][0]) if result else 0
+        for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
+            result = sync_execute(
+                surviving_rows_sql(target.read_table, predicate),
+                params,
+                team_id=request.team_id,
+                readonly=True,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.META,
+            )
+            total += int(result[0][0]) if result else 0
+    return total
 
 
 @dataclass
@@ -1067,13 +1092,13 @@ VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
 def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
     """Verify an event-removal request and promote it to COMPLETED when its events are gone.
 
-    Counts matching events for criteria-backed requests and pending queue rows for query-backed
+    Counts matching events for criteria-backed requests and surviving queued rows for query-backed
     requests. When zero remain and the request is in a verifiable status (QUEUED or FAILED),
     atomically promotes it to COMPLETED via a status-guarded update. Idempotent; safe to call from
     both the Dagster sweep job and the Django admin button.
     """
     if request.request_type == RequestType.HOGQL_EVENT_REMOVAL:
-        remaining = count_pending_hogql_event_removals(request)
+        remaining = count_surviving_hogql_event_removals(request)
     else:
         remaining = count_remaining_matching_events(request)
     if remaining > 0 or request.status not in VERIFIABLE_STATUSES:
