@@ -33,6 +33,7 @@ import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tr
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
+import { isTransactionalEmailSend } from './transactional-email'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -698,8 +699,9 @@ export class EmailService {
                 distinct_id: distinctId,
                 event: success ? '$workflows_email_sent' : '$workflows_email_failed',
                 properties: {
-                    $workflow_id: invocation.functionId,
-                    $workflow_action_id: invocation.state.actionId,
+                    ...(isTransactionalEmailSend(invocation.state.actionId)
+                        ? { $message_template_id: invocation.functionId }
+                        : { $workflow_id: invocation.functionId, $workflow_action_id: invocation.state.actionId }),
                     $email_to: params.to.email,
                     $email_subject: params.subject,
                     // Always set, never conditional: an untracked send can never produce a

@@ -393,6 +393,27 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(personManagerSpy).not.toHaveBeenCalled()
         })
 
+        it('runs a transactional send from its job state, since its template has no stored flow', async () => {
+            const templateId = new UUIDT().toString()
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                transactionalEmail: {
+                    template_id: templateId,
+                    template_name: 'Password reset',
+                    email: { to: { email: 'user@example.com' }, subject: 'Reset', html: '', text: '' },
+                },
+            })
+            invocation.functionId = templateId
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results).toHaveLength(1)
+            expect(results[0].invocation.hogFlow).toMatchObject({ id: templateId, team_id: team.id, status: 'active' })
+            expect(results[0].invocation.person?.properties).toEqual({ name: 'Person A 1' })
+        })
+
         it('should make minimal calls to the person manager', async () => {
             const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
             await processor.processInvocations(invocations)

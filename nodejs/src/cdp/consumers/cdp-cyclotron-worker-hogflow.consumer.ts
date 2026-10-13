@@ -8,6 +8,7 @@ import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { buildTransactionalEmailFlow } from '../services/messaging/transactional-email'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -88,7 +89,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 const team = await this.deps.teamManager.getTeam(item.teamId)
-                const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
+                const transactionalEmail = (item.state as CyclotronJobInvocationHogFlow['state'] | null)
+                    ?.transactionalEmail
+                const hogFlow = transactionalEmail
+                    ? buildTransactionalEmailFlow(item.teamId, transactionalEmail)
+                    : await this.hogFlowManager.getHogFlow(item.functionId)
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,

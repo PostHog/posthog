@@ -23,6 +23,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailSuppressionService } from './email-suppression.service'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
+import { isTransactionalEmailSend } from './transactional-email'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
@@ -270,18 +271,25 @@ export class EmailTrackingService {
             return
         }
 
+        // A transactional send's function ID is its message template, which is neither a function nor a flow.
+        const isTemplateSend = isTransactionalEmailSend(actionId)
         // The function ID could be one or the other so we load both
-        const [hogFunction, hogFlow] = await Promise.all([
-            this.hogFunctionManager.getHogFunction(functionId).catch(() => null),
-            this.hogFlowManager.getHogFlow(functionId).catch(() => null),
-        ])
+        const [hogFunction, hogFlow] = isTemplateSend
+            ? [null, null]
+            : await Promise.all([
+                  this.hogFunctionManager.getHogFunction(functionId).catch(() => null),
+                  this.hogFlowManager.getHogFlow(functionId).catch(() => null),
+              ])
 
         let teamId = hogFunction?.team_id ?? hogFlow?.team_id
         let appSourceId = hogFunction?.id ?? hogFlow?.id
 
         if (!teamId || !appSourceId) {
             const fallbackTeamId = Number(verifiedTeamId)
-            if (Number.isInteger(fallbackTeamId) && fallbackTeamId > 0) {
+            if (Number.isInteger(fallbackTeamId) && fallbackTeamId > 0 && isTemplateSend) {
+                teamId = fallbackTeamId
+                appSourceId = functionId
+            } else if (Number.isInteger(fallbackTeamId) && fallbackTeamId > 0) {
                 // The workflow row is gone (deleting a finished campaign is routine housekeeping),
                 // but its sends were recorded at send time, so dropping the delayed complaint and
                 // bounce feedback would make the team read cleaner than it is to everything that
@@ -322,7 +330,8 @@ export class EmailTrackingService {
                 app_source_version:
                     hogFlow && workflowVersion !== undefined ? { id: hogFlow.id, version: workflowVersion } : undefined,
             },
-            hogFlow ? 'hog_flow' : 'hog_function'
+            // Template sends are recorded as flows at send time, since they run as a one-step flow.
+            hogFlow || isTemplateSend ? 'hog_flow' : 'hog_function'
         )
 
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
@@ -333,9 +342,13 @@ export class EmailTrackingService {
                 distinct_id: distinctId,
                 timestamp,
                 properties: {
-                    $workflow_id: appSourceId,
-                    $workflow_action_id: actionId,
-                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                    ...(isTemplateSend
+                        ? { $message_template_id: appSourceId }
+                        : {
+                              $workflow_id: appSourceId,
+                              $workflow_action_id: actionId,
+                              ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                          }),
                     ...properties,
                 },
             })

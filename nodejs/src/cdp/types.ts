@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { TransactionalEmailSource } from './services/messaging/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
@@ -469,6 +470,9 @@ export type HogFlowInvocationContext = {
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
+    // Set on a transactional send from a message template. The job has no stored workflow, so the
+    // workers build its one-step flow from this on every dequeue.
+    transactionalEmail?: TransactionalEmailSource
     currentAction?: {
         id: string
         startedAtTimestamp: number

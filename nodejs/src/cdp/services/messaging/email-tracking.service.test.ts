@@ -17,6 +17,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-to
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -31,6 +32,7 @@ import {
 } from './email-tracking.service'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { TRANSACTIONAL_EMAIL_ACTION_ID } from './transactional-email'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -347,15 +349,27 @@ describe('EmailTrackingService', () => {
                 functionId,
                 parentRunId,
                 workflowVersion,
+                actionId,
+                distinctId,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
+                actionId?: string
+                distinctId?: string
             }): Promise<supertest.Response> => {
                 // Third arg opts into the versioned payload, which `generate` won't emit by default
                 // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
                 const trackingCode = signer.generate(
-                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    {
+                        functionId,
+                        id: invocationId,
+                        teamId: team.id,
+                        parentRunId,
+                        workflowVersion,
+                        distinctId,
+                        state: actionId ? { actionId } : undefined,
+                    },
                     false,
                     workflowVersion !== undefined
                 )
@@ -438,6 +452,38 @@ describe('EmailTrackingService', () => {
 
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs).toHaveLength(0)
+            })
+
+            it('attributes a transactional send to its message template, not to a workflow', async () => {
+                const templateId = new UUIDT().toString()
+                const service = api['emailTrackingService'] as any
+                jest.spyOn(service.teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(true)
+                const queueEventSpy = jest.spyOn(service.capturedEventsService, 'queueEvent')
+
+                const res = await postBounce({
+                    functionId: templateId,
+                    actionId: TRANSACTIONAL_EMAIL_ACTION_ID,
+                    distinctId: 'distinct-1',
+                })
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(metrics.map((m) => m.value.metric_name)).toEqual(['email_bounced', 'email_bounced_hard'])
+                    expect(metrics[0].value).toMatchObject({
+                        team_id: team.id,
+                        app_source: 'hog_flow',
+                        app_source_id: templateId,
+                    })
+                })
+                expect(queueEventSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        event: '$workflows_email_bounced',
+                        distinct_id: 'distinct-1',
+                        properties: expect.objectContaining({ $message_template_id: templateId }),
+                    })
+                )
+                expect((queueEventSpy.mock.calls[0][0] as any).properties).not.toHaveProperty('$workflow_id')
             })
 
             it('attributes the bounce to the version that sent it, not the version live when it lands', async () => {

@@ -2036,6 +2036,100 @@ describe('CDP API', () => {
         })
     })
 
+    describe('transactional email', () => {
+        let mockQueueInvocations: jest.Mock
+        const templateId = new UUIDT().toString()
+        const body = {
+            template_id: templateId,
+            template_name: 'Password reset',
+            email: {
+                to: { email: 'user@example.com', name: '' },
+                from: { integrationId: 1 },
+                subject: 'Reset your password',
+                html: '<a href="{{ variables.reset_link }}">Reset</a>',
+                text: '',
+            },
+            distinct_id: 'distinct_A_1',
+            variables: { reset_link: 'https://example.com/reset' },
+        }
+
+        // Raw audience literal and Python claim names: the wire contract with Django's
+        // WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE, so drift on either side breaks here.
+        const mintToken = (
+            teamId: number,
+            tokenTemplateId: string,
+            {
+                secret = 'local-dev-workflows-transactional-email-jwt',
+                audience = 'posthog:workflows:send_transactional_email',
+            } = {}
+        ) => jwt.sign({ team_id: teamId, template_id: tokenTemplateId }, secret, { audience, expiresIn: '2m' })
+
+        beforeEach(() => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+        })
+
+        it('queues the send on the email fast lane with the template and data in its state', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/messaging/transactional_email`)
+                .set({ Authorization: `Bearer ${mintToken(team.id, templateId)}` })
+                .send(body)
+
+            expect(res.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({
+                id: res.body.invocation_id,
+                teamId: team.id,
+                functionId: templateId,
+                queue: 'email',
+                queuePriority: 0,
+                state: {
+                    event: { distinct_id: 'distinct_A_1' },
+                    variables: { reset_link: 'https://example.com/reset' },
+                    transactionalEmail: { template_id: templateId, email: body.email },
+                },
+            })
+        })
+
+        it('refuses a send when the team is over its email quota', async () => {
+            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/messaging/transactional_email`)
+                .set({ Authorization: `Bearer ${mintToken(team.id, templateId)}` })
+                .send(body)
+
+            expect(res.status).toEqual(429)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                "another template's token",
+                () => ({ Authorization: `Bearer ${mintToken(team.id, new UUIDT().toString())}` }),
+            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintToken(team.id + 1, templateId)}` })],
+            [
+                'a step-resume-audience token',
+                () => ({
+                    Authorization: `Bearer ${mintToken(team.id, templateId, {
+                        audience: 'posthog:workflows:step_resume',
+                    })}`,
+                }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/messaging/transactional_email`)
+                .set(headers())
+                .send(body)
+
+            expect(res.status).toEqual(401)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+    })
+
     describe('hogflow cancel invocations auth', () => {
         let mockCancelJobs: jest.Mock
 
