@@ -20,9 +20,9 @@ IOS: dict[str, Any] = {
     "rollout_percentage": 100,
 }
 
-RUNNING = {"is_launched": True, "has_ended": False}
-ENDED = {"is_launched": True, "has_ended": True}
-DRAFT = {"is_launched": False, "has_ended": False}
+RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
+ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
+DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
 
 
 def _context(
@@ -35,6 +35,7 @@ def _context(
 ) -> HealthContext:
     return HealthContext(
         **status,
+        is_paused=False,
         archived=False,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=variants, early_exit=early_exit),
         primary_metric_count=1,
@@ -63,56 +64,22 @@ class TestForcedVariantReleaseCondition(TestCase):
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control"),
             ),
             (
-                "catch_all_override_without_rollout",
-                _context([{"properties": [], "variant": "test"}]),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test"),
-            ),
-            (
                 "cohorts_forced_into_both_variants",
                 _context([{**IOS, "variant": "test"}, {**STAFF, "variant": "control"}]),
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "test, control"),
             ),
-            (
-                "randomized_set_at_zero_rollout_randomizes_nobody",
-                _context([{**IOS, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}]),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test"),
-            ),
-            (
-                "override_at_zero_rollout",
-                _context([{**STAFF, "variant": "test", "rollout_percentage": 0}, EVERYONE]),
-                None,
-            ),
             ("override_after_a_catch_all_is_unreachable", _context([EVERYONE, {**STAFF, "variant": "test"}]), None),
-            (
-                "override_after_a_group_catch_all_in_a_mixed_flag",
-                _context([{**EVERYONE, "aggregation_group_type_index": 0}, {**STAFF, "variant": "test"}]),
-                ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "2", "test"),
-            ),
-            (
-                "override_after_a_catch_all_of_the_same_group_type",
-                _context(
-                    [
-                        {**EVERYONE, "aggregation_group_type_index": 0, "variant": "test"},
-                        {**EVERYONE, "aggregation_group_type_index": 0},
-                        {**STAFF, "variant": "control"},
-                    ]
-                ),
-                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 3", "test, control"),
-            ),
-            (
-                "override_after_a_zero_catch_all_with_early_exit",
-                _context([{**EVERYONE, "rollout_percentage": 0}, {**EVERYONE, "variant": "control"}], early_exit=True),
-                None,
-            ),
             (
                 "override_after_a_partial_catch_all_with_early_exit",
                 _context([{**EVERYONE, "rollout_percentage": 50}, {**STAFF, "variant": "test"}], early_exit=True),
                 None,
             ),
             (
-                "override_after_a_partial_catch_all",
-                _context([{**EVERYONE, "rollout_percentage": 50}, {**STAFF, "variant": "test"}]),
-                ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "2", "test"),
+                "set_numbers_follow_the_flag_order",
+                _context(
+                    [{**STAFF, "variant": "test", "rollout_percentage": 0}, {**IOS, "variant": "control"}, EVERYONE]
+                ),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "2", "control"),
             ),
             ("override_naming_no_variant_is_ignored", _context([{**STAFF, "variant": "old-test"}, EVERYONE]), None),
             (

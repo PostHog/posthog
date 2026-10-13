@@ -21,20 +21,28 @@ class TestDisableSesFeedbackForwarding(BaseTest):
                 config={"domain": domain, "provider": provider},
             )
 
+    @patch("products.workflows.backend.management.commands.disable_ses_feedback_forwarding.time.sleep")
     @patch("products.workflows.backend.management.commands.disable_ses_feedback_forwarding.SESProvider")
-    def test_updates_ses_domains_and_reports_real_failures(self, mock_provider_cls: MagicMock) -> None:
+    def test_updates_ses_domains_and_reports_real_failures(
+        self, mock_provider_cls: MagicMock, _sleep: MagicMock
+    ) -> None:
+        throttled_once: set[str] = set()
+
         def put(domain: str) -> None:
+            if domain == "ses.com" and domain not in throttled_once:
+                throttled_once.add(domain)
+                raise ClientError({"Error": {"Code": "TooManyRequestsException"}}, "PutEmailIdentityFeedbackAttributes")
             code = {"gone.com": "NotFoundException", "broken.com": "TooManyRequestsException"}.get(domain)
             if code:
                 raise ClientError({"Error": {"Code": code}}, "PutEmailIdentityFeedbackAttributes")
 
         mock_provider_cls.return_value.disable_feedback_forwarding.side_effect = put
 
-        with pytest.raises(CommandError, match="broken.com"):
+        with pytest.raises(CommandError, match="--domains=broken.com$"):
             call_command("disable_ses_feedback_forwarding")
 
         called = [c.args[0] for c in mock_provider_cls.return_value.disable_feedback_forwarding.call_args_list]
-        assert called == ["broken.com", "gone.com", "ses.com"]
+        assert called == ["broken.com"] * 7 + ["gone.com", "ses.com", "ses.com"]
 
     @patch("products.workflows.backend.management.commands.disable_ses_feedback_forwarding.SESProvider")
     def test_rejects_an_explicitly_empty_domains_value(self, mock_provider_cls: MagicMock) -> None:

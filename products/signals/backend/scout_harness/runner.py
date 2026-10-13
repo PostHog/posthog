@@ -996,6 +996,7 @@ async def _spawn_and_run(
         run_id=str(run_id),
         team_id=team.id,
         started_at=started_at,
+        project_timezone=team.timezone,
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve

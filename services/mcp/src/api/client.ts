@@ -1262,7 +1262,7 @@ export class ApiClient {
                 variables_override,
                 filters_override,
             }: {
-                insightId: string
+                insightId: string | number
                 variables_override?: string
                 filters_override?: string
             }): Promise<Result<Schemas.Insight>> => {
@@ -1274,39 +1274,46 @@ export class ApiClient {
                     params.set('filters_override', filters_override)
                 }
 
-                // Check if insightId is a short_id (8 character alphanumeric string)
-                // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
-                if (isShortId(insightId)) {
-                    // The list endpoint accepts ?short_id=... and runs the same
-                    // InsightSerializer.to_representation, which applies
-                    // variables_override / filters_override from query_params. So
-                    // short_id resolution + override application happen in one hop.
-                    params.set('short_id', insightId)
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
+                const retrieveById = (): Promise<Result<Schemas.Insight>> => {
+                    const queryString = params.toString() ? `?${params}` : ''
+                    return this.fetchJson<Schemas.Insight>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
+                    )
+                }
 
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
+                // A number is always a numeric id. Eight-digit ids also match the short_id syntax.
+                if (typeof insightId === 'number' || !isShortId(insightId)) {
+                    return retrieveById()
+                }
 
-                    if (!result.success) {
-                        return result
-                    }
+                // The list endpoint accepts ?short_id=... and runs the same
+                // InsightSerializer.to_representation, which applies
+                // variables_override / filters_override from query_params. So
+                // short_id resolution + override application happen in one hop.
+                const listParams = new URLSearchParams(params)
+                listParams.set('short_id', insightId)
+                const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/?${listParams}`
+                )
 
-                    const insights = result.data.results
-                    const insight = insights[0]
+                if (!result.success) {
+                    return result
+                }
 
-                    if (insights.length === 0 || !insight) {
-                        return {
-                            success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
-                        }
-                    }
-
+                const insight = result.data.results[0]
+                if (insight) {
                     return { success: true, data: insight }
                 }
 
-                const queryString = params.toString() ? `?${params}` : ''
-                return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
-                )
+                // Short ids are random alphanumerics, so an all-digit string can be either kind of id.
+                if (/^\d+$/.test(insightId)) {
+                    return retrieveById()
+                }
+
+                return {
+                    success: false,
+                    error: new Error(`No insight found with short_id: ${insightId}`),
+                }
             },
 
             create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
@@ -1580,11 +1587,13 @@ export class ApiClient {
                 query: Record<string, unknown>
             }): Promise<{
                 results: unknown
+                columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
             }> => {
                 return this.request<{
                     results: unknown
+                    columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
                 }>({

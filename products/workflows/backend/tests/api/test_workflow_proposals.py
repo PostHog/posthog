@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -17,6 +16,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow

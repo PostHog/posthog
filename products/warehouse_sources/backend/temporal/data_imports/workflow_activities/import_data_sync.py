@@ -74,7 +74,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    PipelineInputs,
+    relink_orphan_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -801,7 +804,8 @@ def _get_models(
     if source is None:
         raise Exception("No source attached to job")
 
-    table: DataWarehouseTable | None = schema.table
+    # The pipeline reads `schema.table` to decide if this run is a first sync, so an orphan is linked first.
+    table: DataWarehouseTable | None = relink_orphan_table(schema, source, LOGGER.bind(team_id=job.team_id))
     return ImportJobModels(
         job=job,
         schema=schema,
