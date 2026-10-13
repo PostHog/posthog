@@ -146,9 +146,7 @@
                         "templating": "hog"
                     },
                     "tags": {
-                        "value": [
-                            "CSM_{splitByString('@', variables.account.CSM[1].email)[1]}"
-                        ],
+                        "value": ["CSM_{splitByString('@', variables.account.CSM[1].email)[1]}"],
                         "templating": "hog"
                     },
                     "tags_mode": {

@@ -183,13 +183,7 @@
                     },
                     "sla_business_hours": {
                         "value": {
-                            "days": [
-                                "monday",
-                                "tuesday",
-                                "wednesday",
-                                "thursday",
-                                "friday"
-                            ],
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
@@ -223,13 +217,7 @@
                     },
                     "sla_business_hours": {
                         "value": {
-                            "days": [
-                                "monday",
-                                "tuesday",
-                                "wednesday",
-                                "thursday",
-                                "friday"
-                            ],
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
@@ -263,13 +251,7 @@
                     },
                     "sla_business_hours": {
                         "value": {
-                            "days": [
-                                "monday",
-                                "tuesday",
-                                "wednesday",
-                                "thursday",
-                                "friday"
-                            ],
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
