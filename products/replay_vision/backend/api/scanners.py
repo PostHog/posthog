@@ -602,9 +602,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     )
     limit_reached = serializers.SerializerMethodField(
         help_text=(
-            "Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is "
-            "set and the budget left cannot cover one more observation, which is the same test the scanner's "
-            "enforcement gates apply. Always false when no limit is set."
+            "Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, "
+            "because the organization has used its free credits. True when the budget left cannot cover one "
+            "more observation, which is the same test the scanner's enforcement gates apply. Always false when "
+            "no limit is set and `free_only` is false."
         ),
     )
     sweep_throttle_factor = serializers.SerializerMethodField(
@@ -653,6 +654,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "sampling_rate",
             "sampling_mode",
             "credit_limit",
+            "free_only",
             "provider",
             "model",
             "enabled",
@@ -2408,6 +2410,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,
                     credit_limit=source.credit_limit,
+                    free_only=source.free_only,
                     provider=source.provider,
                     model=source.model,
                     emits_signals=source.emits_signals,

@@ -334,6 +334,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         validators=[MinValueValidator(1)],
         help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
     )
+    free_only = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Run only while the organization has free credits left this billing period, so the scanner never adds spend.",
+    )
     limit_notified_period_start = models.DateTimeField(
         null=True,
         blank=True,
@@ -545,6 +550,10 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         `experiment_exposure` inside `query` for the same reason.
         """
         return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
+
+    @property
+    def has_spend_ceiling(self) -> bool:
+        return self.credit_limit is not None or self.free_only
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

@@ -14,7 +14,7 @@ from posthog.date_util import start_of_month
 from posthog.models import Organization, Team
 
 from products.replay_vision.backend import quota
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -32,7 +32,10 @@ from products.replay_vision.backend.quota import (
     compute_scanner_budget,
     compute_scanner_budgets,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    seed_scanner_spend,
+    snapshot_for as _snapshot_for,
+)
 
 _ORG_ID = "01234567-89ab-cdef-0123-456789abcdef"
 
@@ -498,6 +501,31 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         result = compute_scanner_budgets(self.organization.id, [other_scanner.id])
         assert result[other_scanner.id].credits_used == 0
         assert result[other_scanner.id].credit_limit is None
+
+    @parameterized.expand(
+        [
+            ("no_own_cap_free_credits_bind", None, FREE_TIER_MONTHLY_CREDITS, True),
+            ("larger_own_cap_free_credits_bind", 100_000, FREE_TIER_MONTHLY_CREDITS, True),
+            ("tighter_own_cap_binds", 5, 5, True),
+        ]
+    )
+    def test_free_only_scanner_draws_on_the_orgs_free_credits(
+        self, _name: str, own_cap: int | None, expected_limit: int, expected_blocked: bool
+    ) -> None:
+        # Another scanner's spend leaves less than one observation of free credits, while billing allows far more.
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 10)
+        free = ReplayScanner.objects.create(
+            team=self.team,
+            name="free-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            credit_limit=own_cap,
+            free_only=True,
+        )
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
+        assert (budget.credit_limit, budget.blocked) == (expected_limit, expected_blocked)
 
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):

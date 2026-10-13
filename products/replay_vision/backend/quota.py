@@ -344,8 +344,9 @@ def compute_scanner_budgets(
     # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
     scanner_rows = ReplayScanner.all_origins.filter(
         team__organization_id=organization_id, pk__in=scanner_ids
-    ).values_list("id", "credit_limit", "model")
-    configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
+    ).values_list("id", "credit_limit", "model", "free_only")
+    configs = {scanner_id: (limit, model) for scanner_id, limit, model, _ in scanner_rows}
+    free_only_ids = {scanner_id for scanner_id, _, _, free_only in scanner_rows if free_only}
     # Almost every scanner is uncapped, so the spend aggregates run only for the capped ones; the
     # rest report zero usage, and `blocked` is always False without a limit.
     capped_ids = [scanner_id for scanner_id in scanner_ids if (configs.get(scanner_id) or (None,))[0] is not None]
@@ -381,6 +382,14 @@ def compute_scanner_budgets(
             credits_settled=settled_credits,
             credits_reserved=reserved,
         )
+    if free_only_ids:
+        free_budget = _free_credits_budget(organization_id, period)
+        for scanner_id in free_only_ids & set(scanner_ids):
+            own = result[scanner_id]
+            free = replace(free_budget, credits_per_observation=own.credits_per_observation)
+            # A free-only scanner can carry its own cap too; whichever leaves less room binds.
+            if own.remaining is None or free.remaining is not None and free.remaining < own.remaining:
+                result[scanner_id] = free
     return result
 
 
@@ -538,6 +547,26 @@ def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
         period_end=period.end,
         credits_settled=consumed,
         credits_reserved=reserved,
+    )
+
+
+def free_credits_ceiling(cap: OrgCreditCap) -> int:
+    """The most a free-only scanner lets the org spend this period: the free credits, or less if billing caps lower."""
+    if cap.credit_limit is None:
+        return FREE_TIER_MONTHLY_CREDITS
+    return min(cap.credit_limit, FREE_TIER_MONTHLY_CREDITS)
+
+
+def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:
+    cap = replace(org_credit_cap(organization_id), period=period)
+    quota = quota_state_for_cap(organization_id, cap)
+    return ScannerBudget(
+        credit_limit=free_credits_ceiling(cap),
+        credits_used=quota.credits_used,
+        period_start=period.start,
+        period_end=period.end,
+        credits_settled=quota.credits_settled,
+        credits_reserved=quota.credits_reserved,
     )
 
 

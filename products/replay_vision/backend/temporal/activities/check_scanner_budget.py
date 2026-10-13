@@ -107,7 +107,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     if scanner is None:
         # The reconciler removes schedules for deleted scanners. A racing tick just stops here.
         return CheckScannerBudgetOutput(capped=False)
-    if scanner.credit_limit is None:
+    if not scanner.has_spend_ceiling:
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decision and the notification stamp cannot straddle a rollover.
     period = current_period_bounds(scanner.team.organization_id)

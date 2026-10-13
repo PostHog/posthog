@@ -43,7 +43,7 @@ from posthog.session_recordings.session_recording_v2_service import RecordingBlo
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
     _RELEASE_GRACE_SECONDS,
     pending_enqueue_claims_for_scanner,
@@ -926,14 +926,21 @@ class TestCreateObservationActivity:
 
         assert created == {"sibling-a": True, "sibling-b": True}
 
-    @parameterized.expand([("uncapped", None), ("capped", 1_000)])
+    @parameterized.expand([("uncapped", None, False), ("capped", 1_000, False), ("free_only", None, True)])
     def test_concurrent_admissions_across_scanners_cannot_exceed_org_credit_limit(
-        self, _name: str, scanner_limit: int | None
+        self, _name: str, scanner_limit: int | None, free_only: bool
     ) -> None:
         # Without the org-level admission, both pass the unlocked quota read and bill past the limit.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
-        scanner_a = _make_scanner(credit_limit=scanner_limit)
-        scanner_b = _make_scanner(team=scanner_a.team, name="org-sibling", credit_limit=scanner_limit)
+        scanner_a = _make_scanner(credit_limit=scanner_limit, free_only=free_only)
+        scanner_b = _make_scanner(
+            team=scanner_a.team, name="org-sibling", credit_limit=scanner_limit, free_only=free_only
+        )
+        # Free-only scanners race for the last free credits while billing still allows far more spend.
+        org_limit = credits
+        if free_only:
+            seed_scanner_spend(_make_scanner(team=scanner_a.team, name="spender"), FREE_TIER_MONTHLY_CREDITS - credits)
+            org_limit = 1_000_000
         barrier = threading.Barrier(2)
         created: dict[str, bool] = {}
 
@@ -948,7 +955,7 @@ class TestCreateObservationActivity:
             finally:
                 connections.close_all()
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", credits):
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
             threads = [
                 threading.Thread(target=admit, args=(scanner_a, "org-race-a")),
                 threading.Thread(target=admit, args=(scanner_b, "org-race-b")),
