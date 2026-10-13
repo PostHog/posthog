@@ -121244,6 +121244,7 @@ export namespace Schemas {
 
 
     export const DataModelingNodesRetrieveLookup = {
+      Metric: 'metric',
       PosthogTable: 'posthog_table',
       SavedQuery: 'saved_query',
       WarehouseTable: 'warehouse_table',

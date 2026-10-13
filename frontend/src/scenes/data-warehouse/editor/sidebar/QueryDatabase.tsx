@@ -732,6 +732,9 @@ export const QueryDatabase = ({
                                     View in data catalog
                                 </Link>
                             </DropdownMenuItem>
+                            {!isEmbeddedMode ? (
+                                <SeeLineageMenuItem target={{ lookup: 'metric', id: item.record.metric.id }} />
+                            ) : null}
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {

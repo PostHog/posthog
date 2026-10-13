@@ -71,6 +71,7 @@ class NodeLookup(models.TextChoices):
     SAVED_QUERY = "saved_query"
     WAREHOUSE_TABLE = "warehouse_table"
     POSTHOG_TABLE = "posthog_table"
+    METRIC = "metric"
 
 
 class LineageIssueSerializer(serializers.Serializer):
@@ -394,6 +395,8 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
                 .order_by("created_at")
                 .first()
             )
+        elif lookup == NodeLookup.METRIC:
+            node = queryset.filter(metric_id=self.kwargs["pk"]).order_by("created_at").first()
         else:
             raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {lookup}"})
 

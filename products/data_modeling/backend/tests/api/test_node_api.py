@@ -69,11 +69,16 @@ class TestNodeViewSet(APIBaseTest):
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
 
-    @parameterized.expand(["saved_query", "warehouse_table", "posthog_table"])
+    @parameterized.expand(["saved_query", "warehouse_table", "posthog_table", "metric"])
     def test_retrieve_node_by_backing_resource(self, lookup):
         if lookup == "saved_query":
             resource_id = self.saved_query.id
             expected_node = self.view_node
+        elif lookup == "metric":
+            resource_id = uuid4()
+            expected_node = Node.objects.create(
+                team=self.team, dag=self.dag, name="revenue", type=NodeType.METRIC, metric_id=resource_id
+            )
         elif lookup == "warehouse_table":
             resource_id = uuid4()
             self.table_node.properties = {"origin": "warehouse", "warehouse_table_id": str(resource_id)}

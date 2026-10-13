@@ -350,6 +350,7 @@ export type DataModelingNodesRetrieveLookup =
     (typeof DataModelingNodesRetrieveLookup)[keyof typeof DataModelingNodesRetrieveLookup]
 
 export const DataModelingNodesRetrieveLookup = {
+    Metric: 'metric',
     PosthogTable: 'posthog_table',
     SavedQuery: 'saved_query',
     WarehouseTable: 'warehouse_table',
