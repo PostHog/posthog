@@ -101,6 +101,10 @@ class MaterializationRefusedError(Exception):
     pass
 
 
+class IncrementalConfigRefusedError(MaterializationRefusedError):
+    pass
+
+
 class MaterializationForbiddenError(Exception):
     pass
 
