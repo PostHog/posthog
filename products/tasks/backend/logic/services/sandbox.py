@@ -206,6 +206,8 @@ class SandboxResources:
 
 
 class SandboxConfig(BaseModel):
+    base_image_reference: str | None = None
+    require_snapshot: bool = False
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
