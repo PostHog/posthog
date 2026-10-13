@@ -32,6 +32,7 @@ export type BackgroundRequest =
     | { type: 'content-status'; tabId: number }
     | { type: 'content-command'; tabId: number; command: ContentCommand }
     | { type: 'has-host-permission'; uiHost: string }
+    | { type: 'open-tab'; url: string }
 
 export interface BackgroundMessage {
     source: typeof CONTENT_MESSAGE_SOURCE
@@ -83,6 +84,7 @@ const BACKGROUND_REQUEST_TYPES: BackgroundRequest['type'][] = [
     'content-status',
     'content-command',
     'has-host-permission',
+    'open-tab',
 ]
 
 export function isBackgroundMessage(message: unknown): message is BackgroundMessage {

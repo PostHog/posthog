@@ -251,6 +251,10 @@ export function onBackgroundRequest(handler: (request: BackgroundRequest) => Pro
 }
 
 export async function openTab(url: string): Promise<void> {
+    if (isDevtoolsPanel()) {
+        await requestBackground({ type: 'open-tab', url })
+        return
+    }
     await extensionBrowser.tabs.create({ url })
 }
 
