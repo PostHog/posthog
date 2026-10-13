@@ -190,18 +190,12 @@ const DelayedLoadingSpinner = (): JSX.Element => {
     return <>{show ? <Spinner /> : null}</>
 }
 
-/** Reports a scene-load failure to error tracking and to analytics together, so the two never drift apart. */
 const captureSceneLoadFailure = (
     error: unknown,
     sceneId: string,
     stage: 'import' | 'logic_mount',
     extra: Record<string, unknown> = {}
-): SupportTicketExceptionEvent | undefined => {
-    const exceptionEvent = posthog.captureException(error, { extra: { sceneId, ...extra } })
-    // pinned: analytics event name — renaming breaks dashboards
-    posthog.capture('scene load failed', { scene_id: sceneId, stage })
-    return exceptionEvent
-}
+): SupportTicketExceptionEvent | undefined => posthog.captureException(error, { extra: { sceneId, stage, ...extra } })
 
 const scrollMainContentToTop = (): void => {
     const element = document.getElementById('main-content')

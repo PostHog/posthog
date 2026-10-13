@@ -108,19 +108,16 @@ describe('sceneLogic', () => {
     // rendered, and must leave something error tracking can count.
     describe('a scene that fails to load', () => {
         const exceptionEvent = { uuid: 'scene-load-exception', event: '$exception' }
-        let captureSpy: jest.SpyInstance
         let captureExceptionSpy: jest.SpyInstance
 
         beforeEach(() => {
             pendingImportRejection = null
-            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             captureExceptionSpy = jest
                 .spyOn(posthog, 'captureException')
                 .mockImplementation(() => exceptionEvent as any)
         })
 
         afterEach(() => {
-            captureSpy.mockRestore()
             captureExceptionSpy.mockRestore()
         })
 
@@ -132,8 +129,9 @@ describe('sceneLogic', () => {
             await expectLogic(logic).delay(1)
 
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
-            expect(captureExceptionSpy).toHaveBeenCalled()
-            expect(captureSpy).toHaveBeenCalledWith('scene load failed', { scene_id: sceneId, stage })
+            expect(captureExceptionSpy).toHaveBeenCalledWith(expect.any(Error), {
+                extra: expect.objectContaining({ sceneId, stage }),
+            })
             // The support form needs this event, or a non-entitled organization cannot report the failure.
             expect(logic.values.sceneLoadExceptionEvent).toEqual(exceptionEvent)
         })
