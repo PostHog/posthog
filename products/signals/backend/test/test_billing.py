@@ -158,6 +158,17 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=_at(10), pr_url=pr_url)
         self.assertEqual(self._credits(), {})
 
+    def test_trial_pr_never_bills_but_later_paid_retry_can(self) -> None:
+        report = self._report()
+        run = self._pr_run(report, created_at=_at(10))
+        run.state = {"self_driving_funding": {"funding": "trial"}}
+        run.save(update_fields=["state"])
+        self.assertEqual(self._credits(), {})
+        paid = self._pr_run(report, created_at=_at(11))
+        paid.state = {"self_driving_funding": {"funding": "paid"}}
+        paid.save(update_fields=["state"])
+        self.assertEqual(self._credits(), {self.team.pk: SIGNALS_CREDITS_PER_REPORT_WITH_PR})
+
     def test_run_with_null_output_not_billed(self) -> None:
         # `output` is null=True, so SQL NULL is the real default for a run with no PR — not {}.
         report = self._report()
@@ -412,7 +423,7 @@ class TestSignalsBilling(BaseTest):
         index_sql, index_params = run_model.objects.filter(index.condition).order_by().query.sql_with_params()
         query_sql, query_params = _bridges_with_pr_run().query.sql_with_params()
         self.assertIn(index_sql.split(" WHERE ", 1)[1], query_sql)
-        self.assertTrue(set(index_params).issubset(query_params))
+        self.assertTrue(all(param in query_params for param in index_params))
 
 
 class TestBillingExemptions(BaseTest):

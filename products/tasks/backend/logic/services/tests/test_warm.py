@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
 
+from products.signals.backend.facade.trial import TrialRefused
 from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmSourceChanged
 from products.tasks.backend.models import Task, TaskRun
 
@@ -75,6 +76,16 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert result.run.id == existing.id
         assert task.runs.count() == 1
         m_workflow.assert_not_called()
+
+    def test_trial_quota_cancellation_requires_an_explicit_retry(self) -> None:
+        task = self._task(origin=Task.OriginProduct.SIGNAL_REPORT)
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.CANCELLED, state={"cancel_source": "self_driving_trial"}
+        )
+        with patch(f"{WARM}.is_team_limited", return_value=False):
+            with self.assertRaisesMessage(TrialRefused, "explicit_retry_required"):
+                SandboxWarmer(task, user=self.user).warm()
+        assert task.runs.count() == 1
 
     def test_rewarms_with_resume_after_terminal_run(self):
         task = self._task()

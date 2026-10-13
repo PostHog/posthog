@@ -14,6 +14,7 @@ from django.utils.functional import Promise
 from pydantic import BaseModel, JsonValue
 
 if TYPE_CHECKING:
+    from products.signals.backend.facade.trial import TaskTrialAdmission
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.logic.services.sandbox import SandboxResources
 
@@ -41,6 +42,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
+from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     DEFAULT_TRUSTED_DOMAINS,
     GITHUB_PR_URL_PREFIX,
@@ -794,6 +796,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
         startup_requested_at: datetime | None = None,
+        _trial_admission: "TaskTrialAdmission | None | Literal[False]" = False,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -803,6 +806,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
+        from products.signals.backend.facade.trial import (
+            prepare_task_trial,  # noqa: PLC0415 -- Signals models depend on Tasks
+        )
+
+        trial_admission = (
+            prepare_task_trial(team=self.team, origin=self.origin_product, report_id=self.signal_report_id)
+            if _trial_admission is False
+            else _trial_admission
+        )
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
             distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
@@ -919,7 +931,26 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             stamp_pending_user_message_id(state)
             if effective_environment == TaskRun.Environment.CLOUD:
                 state[SANDBOX_PROVISIONING_STARTED_STATE_KEY] = False
+            run_id = uuid.uuid4()
+            state.pop("self_driving_funding", None)
+            if trial_admission is not None:
+                trial_runtime = state.get("runtime_adapter") or ("pi" if task.runtime == Task.Runtime.PI else "claude")
+                trial_model = state.get("model") or model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER.get(
+                    trial_runtime, ""
+                )
+                state["self_driving_funding"] = trial_admission.bind(
+                    run_id=run_id,
+                    origin=task.origin_product,
+                    stage=state.get("ai_stage") or "implementation",
+                    report_id=task.signal_report_id,
+                    model=trial_model,
+                    runtime=trial_runtime,
+                )
+                if state["self_driving_funding"]["funding"] == "trial" and trial_runtime != "pi":
+                    state["runtime_adapter"] = trial_runtime
+                    state["model"] = trial_model
             task_run = TaskRun.objects.create(
+                id=run_id,
                 task=task,
                 team=task.team,
                 status=TaskRun.Status.NOT_STARTED if scheduled_at is not None else TaskRun.Status.QUEUED,
@@ -1628,6 +1659,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 distinct_id=distinct_id,
             )
 
+        from products.signals.backend.facade.trial import (
+            prepare_task_trial,  # noqa: PLC0415 -- Signals depends on Tasks
+        )
+
+        trial_admission = prepare_task_trial(
+            team=task.team, origin=task.origin_product, report_id=task.signal_report_id
+        )
         with transaction.atomic():
             task.save()
             task_run = task.create_run(
@@ -1637,6 +1675,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
                 startup_requested_at=startup_requested_at,
+                _trial_admission=trial_admission,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)

@@ -360,6 +360,8 @@ def mint_scoped_token(
     allowed_models: list[str] | None = None,
     limit_tier: str | None = None,
     capture_mode: Literal["none"] | None = None,
+    trial_funding: dict[str, str | int] | None = None,
+    cap_usd: str | None = None,
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
 ) -> str | None:
@@ -379,7 +381,7 @@ def mint_scoped_token(
     post = internal_requests.post if gateway_config is not None else requests.post
 
     body: dict[str, Any] = {
-        "cap_usd": token_cap_usd(team_id, ai_product),
+        "cap_usd": cap_usd if cap_usd is not None else token_cap_usd(team_id, ai_product),
         "ttl_seconds": max(60, min(expires_in_seconds, 86400))
         if expires_in_seconds is not None
         else _token_ttl_seconds(ai_product),
@@ -395,6 +397,8 @@ def mint_scoped_token(
         body["limit_tier"] = limit_tier
     if capture_mode is not None:
         body["capture_mode"] = capture_mode
+    if trial_funding is not None:
+        body["trial_funding"] = trial_funding
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:
@@ -416,6 +420,10 @@ def mint_scoped_token(
                     token = None
                     last_error = "mint response was not a JSON object"
                 if isinstance(token, str) and token:
+                    if trial_funding is not None and payload.get("trial_funding") != trial_funding:
+                        revoke_scoped_token(token, gateway_config=gateway_config)
+                        last_error = "mint response did not acknowledge trial funding"
+                        break
                     if capture_mode is not None and payload.get("capture_mode") != capture_mode:
                         # Older gateways ignore unknown fields; never use their unprotected token.
                         revoke_scoped_token(token, gateway_config=gateway_config)

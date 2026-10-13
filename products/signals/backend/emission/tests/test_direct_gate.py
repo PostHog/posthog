@@ -10,6 +10,16 @@ from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.system_one_decision import SignalsDecisionError
 
+
+@pytest.fixture(autouse=True)
+def existing_funding_policy():
+    with (
+        patch("products.signals.backend.trial_llm_execution.TrialLLMExecution.prepare", return_value=None),
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+    ):
+        yield
+
+
 GATE_MODULE_PATH = "products.signals.backend.emission.direct_gate"
 FACADE_MODULE_PATH = "products.signals.backend.facade.api"
 

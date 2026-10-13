@@ -82,6 +82,11 @@ def scout_run_created(*, instance: SignalScoutRun, created: bool, **kwargs: obje
 
 
 def task_cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
+    from products.signals.backend.trial_tasks import (
+        notify_trial_cost_updated,  # noqa: PLC0415 -- keep task execution dependencies off Django startup
+    )
+
+    notify_trial_cost_updated(run_id=run_id, team_id=team_id)
     try:
         with transaction.atomic():
             spend_id = (
@@ -102,3 +107,14 @@ def connect_spend_receivers() -> None:
     connect_task_run_cost_updated(task_cost_updated, dispatch_uid="signals.task_cost_updated")
     connect_task_run_post_save(task_run_created, dispatch_uid="signals.spend_task_created")
     post_save.connect(scout_run_created, sender=SignalScoutRun, dispatch_uid="signals.spend_scout_created")
+    connect_task_run_post_save(trial_run_updated, dispatch_uid="signals.trial_run_updated")
+
+
+def trial_run_updated(*, instance: "TaskRun", created: bool, **kwargs: object) -> None:
+    if (instance.state or {}).get("self_driving_funding", {}).get("funding") != "trial":
+        return
+    from products.signals.backend.trial_tasks import (
+        notify_trial_cost_updated,  # noqa: PLC0415 -- keep execution dependencies off Django startup
+    )
+
+    notify_trial_cost_updated(run_id=instance.id, team_id=instance.team_id)

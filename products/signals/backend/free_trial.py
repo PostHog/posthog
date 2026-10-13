@@ -1,10 +1,8 @@
-"""Self-driving free trial gate.
+"""Legacy reports-only trial gate, shared by automatic and explicit implementation.
 
-Sibling of `quota.py` (the org-level billing quota gate) with the same call shape and the same
-fail-open posture. While the `self-driving-free-trial` flag is on for an org, Self-driving still
-researches and writes reports but opens no pull requests: auto-start creates no implementation
-task and the manual create-from-report path refuses one. Nothing is billed because nothing ships
-a PR, so the billing exemption and refund machinery in `billing.py` stays untouched.
+Claimed projects use the enabled one-time policy instead, so this gate must not prevent
+their opt-in implementation or subsequent paid continuation. Unclaimed projects retain
+the legacy reports-only restriction and its fail-open flag behavior.
 """
 
 from typing import TYPE_CHECKING
@@ -15,6 +13,8 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from posthog.event_usage import groups
+
+from products.signals.backend.trial_policy import TrialPolicy
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -41,7 +41,7 @@ class FreeTrialPullRequestRefused(APIException):
 
 
 def self_driving_free_trial_enabled(team: "Team") -> bool:
-    """Whether the team's org is on a Self-driving free trial.
+    """Whether the legacy reports-only restriction applies to this project.
 
     Org-keyed like the quota-enforcement and refund flags. Fails open (not on trial) on a
     flag-read error: a flag outage must not stop every org's pull requests. Blocking network
@@ -49,7 +49,7 @@ def self_driving_free_trial_enabled(team: "Team") -> bool:
     """
     try:
         org_id = str(team.organization_id)
-        return (
+        legacy_enabled = (
             posthoganalytics.feature_enabled(
                 SELF_DRIVING_FREE_TRIAL_FLAG,
                 org_id,
@@ -58,6 +58,10 @@ def self_driving_free_trial_enabled(team: "Team") -> bool:
             )
             is True
         )
+        if not legacy_enabled:
+            return False
+        policy = TrialPolicy(team)
+        return not (policy.grant() is not None and policy.flag_decision().enabled is True)
     except Exception:
         logger.warning("self_driving_free_trial_flag_check_failed", exc_info=True)
         return False

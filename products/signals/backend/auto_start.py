@@ -770,9 +770,14 @@ def _create_implementation_task_if_absent(
     head_branch = _generate_self_driving_head_branch(title)
     description = description + _head_branch_instruction(head_branch)
 
+    from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
+
     exempt_reason: str | None = None
     task_id: str | None = None
-    with transaction.atomic():
+    with (
+        task_trial_admission(team=Team.objects.get(id=team_id), origin="signal_report", report_id=report_id),
+        transaction.atomic(),
+    ):
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
@@ -1051,7 +1056,12 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
         raise RequestedImplementationUnavailable("The existing implementation task still has an active run")
     previous_run = runs[0]
     free_trial_enabled = self_driving_free_trial_enabled(team)
-    with transaction.atomic():
+    from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
+
+    with (
+        task_trial_admission(team=team, origin="signal_report", report_id=request.report_id),
+        transaction.atomic(),
+    ):
         current = SignalReport.objects.select_for_update().get(id=request.report_id, team_id=request.team_id)
         if (
             current.status != SignalReport.Status.READY
@@ -1521,6 +1531,25 @@ async def maybe_autostart_implementation_task(
             # the team rather than dropping the PR.
             task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
             runner_source = "team_fallback"
+    if (
+        task_user is not None
+        and triggering_user_id is None
+        and not (team_config and team_config.autostart_enabled is True)
+    ):
+        from products.signals.backend.trial_reports import (
+            implementation_requires_trial_opt_in,  # noqa: PLC0415 -- avoids eager policy imports
+        )
+
+        if await database_sync_to_async(implementation_requires_trial_opt_in)(team_id, report_id):
+            opted_in = (
+                await SignalUserAutonomyConfig.objects.filter(user=task_user, autostart_priority__isnull=False)
+                .exclude(autostart_priority="")
+                .aexists()
+            )
+            if not opted_in:
+                return AutostartOutcome(
+                    status="blocked", reason="Trial implementation requires an explicit request or an existing opt-in"
+                )
     if task_user is None:
         logger.info(
             "self-driving auto-start skipped",

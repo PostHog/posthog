@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError, transaction
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -66,6 +66,13 @@ from products.signals.backend.temporal.report_safety_judge import SafetyJudgeRes
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
+from products.signals.backend.trial_billing import TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial_models import (
+    SignalTrialOperation,
+    SignalTrialOrganization,
+    SignalTrialReportReservation,
+)
+from products.signals.backend.trial_policy import OperationAdmission, TrialPolicy
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.models import Task, TaskRun
@@ -206,6 +213,49 @@ class TestScoutReportAPI(APIBaseTest):
         artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
         assert artefact is not None
         return [entry["github_login"] for entry in json.loads(artefact.content)]
+
+    @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
+    def test_trial_report_api_consumes_five_slots_and_refuses_sixth(self) -> None:
+        run = _make_run(self.team)
+        with (
+            patch("products.signals.backend.trial_policy.posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.signals.backend.trial_billing.TrialBilling.status",
+                return_value=TrialBillingStatus(
+                    ready=True,
+                    migrated=True,
+                    continuation=TrialContinuation.PAYMENT,
+                ),
+            ),
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+        ):
+            policy = TrialPolicy(self.team)
+            policy.claim(user_id=self.user.pk)
+            SignalTrialOrganization.objects.filter(organization_id=self.organization.pk).update(
+                billing_migrated_at=timezone.now()
+            )
+            operation = policy.admit(
+                OperationAdmission(
+                    operation_key="scout-api", stage=SignalTrialOperation.Stage.SCOUT, estimated_microusd=100_000
+                ),
+                paid_authorized=False,
+            )
+            operation.task_run_id = run.task_run_id
+            operation.save(update_fields=["task_run_id"])
+            for index in range(5):
+                response = self.client.post(
+                    self._emit_url(str(run.id)), data=self._payload(idempotency_key=f"trial-{index}"), format="json"
+                )
+                assert response.status_code == 200, response.content
+                assert response.json()["emitted"] is True
+            response = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(idempotency_key="sixth"), format="json"
+            )
+        assert response.status_code == 402, response.content
+        assert SignalReport.objects.filter(team=self.team, status=SignalReport.Status.READY).count() == 5
+        assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count() == 5
 
     def test_emit_report_authors_ready_report(self) -> None:
         run = _make_run(self.team)

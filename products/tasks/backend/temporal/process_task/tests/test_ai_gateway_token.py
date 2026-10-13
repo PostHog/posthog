@@ -212,6 +212,27 @@ class TestMintScopedToken:
         assert kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
         assert kwargs["timeout"] == 3
 
+    @pytest.mark.parametrize("acknowledged", [True, False])
+    def test_trial_mint_requires_funding_acknowledgement(self, mint_settings, acknowledged: bool) -> None:
+        funding: dict[str, str | int] = {
+            "grant_id": "00000000-0000-4000-8000-000000000001",
+            "operation_id": "00000000-0000-4000-8000-000000000002",
+            "policy_version": 1,
+        }
+        response = {"token": "phe_trial", **({"trial_funding": funding} if acknowledged else {})}
+        with patch.object(requests, "post") as post:
+            post.side_effect = [self._response(201, response), self._response(200, {"revoked": True})]
+            token = mint_scoped_token(
+                ai_product="signals_implementation", team_id=123, trial_funding=funding, cap_usd="1.25"
+            )
+        assert token == ("phe_trial" if acknowledged else None)
+        body = post.call_args_list[0].kwargs["json"]
+        assert body["trial_funding"] == funding
+        assert body["cap_usd"] == "1.25"
+        assert body.get("allowed_models") == _PRODUCT_ALLOWED_MODELS.get("signals_implementation")
+        if not acknowledged:
+            assert post.call_args_list[1].args[0].endswith("/v1/tokens/revoke")
+
     @pytest.mark.parametrize("capture_mode", [None, "default", False])
     def test_private_mint_revokes_an_unacknowledged_token(
         self, mint_settings, capture_mode: object, gateway_config: AIGatewayConfig | None
