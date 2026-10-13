@@ -33,12 +33,16 @@ from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.temporal.usage_report.storage import bucket, read_json
 from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
 
-_SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
-_SANDBOX_COMPUTE_DESTINATION_KEYS = (
-    "teams_with_sandbox_compute_credits_used_in_period",
-    "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
-    "teams_with_sandbox_compute_memory_mib_seconds_in_period",
-)
+# Queries added behind a `workflow.patched` guard, mapped to the `all_data` keys they produce.
+# A history recorded before the patch never ran the query, so its keys default to empty.
+_PATCHED_QUERY_DESTINATION_KEYS: dict[str, tuple[str, ...]] = {
+    "sandbox_compute_usage": (
+        "teams_with_sandbox_compute_credits_used_in_period",
+        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
+        "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+    ),
+    "teams_with_metrics_series_in_period": ("teams_with_metrics_series_in_period",),
+}
 
 
 def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int, int]]:
@@ -62,12 +66,12 @@ def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int
     return all_data
 
 
-def add_pre_sandbox_compute_patch_defaults(
-    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
-) -> None:
-    if not any(result.query_name == _SANDBOX_COMPUTE_QUERY_NAME for result in query_results):
-        for key in _SANDBOX_COMPUTE_DESTINATION_KEYS:
-            all_data[key] = {}
+def add_pre_patch_query_defaults(all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]) -> None:
+    ran = {result.query_name for result in query_results}
+    for query_name, keys in _PATCHED_QUERY_DESTINATION_KEYS.items():
+        if query_name not in ran:
+            for key in keys:
+                all_data[key] = {}
 
 
 def iter_chunk_lines(
