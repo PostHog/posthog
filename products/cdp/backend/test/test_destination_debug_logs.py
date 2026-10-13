@@ -1,7 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 
@@ -80,7 +83,16 @@ class TestDestinationDebugLogs(ClickhouseTestMixin, BaseTest):
         count = count_debug_logs(scope, functions)
         assert (count.lines, count.functions, count.teams) == (len(doomed), 2, 1)
 
-        delete_debug_logs(scope, functions, wait=True)
+        default = connection.get_clickhouse_creds(ClickHouseUser.DEFAULT)
+        users = {ClickHouseUser.DEFAULT: default, ClickHouseUser.DELETION_EXECUTOR: default}
+        with (
+            patch.object(connection, "_registered_users", return_value=users),
+            patch("products.cdp.backend.services.destination_debug_logs.sync_execute", wraps=sync_execute) as execute,
+        ):
+            delete_debug_logs(scope, functions, wait=True)
+
+        # The default user has no ALTER DELETE grant in production.
+        assert execute.call_args.kwargs["ch_user"] == ClickHouseUser.DELETION_EXECUTOR
 
         assert self._remaining() == {(str(function.id), message) for function, _, message, _ in kept}
         assert count_debug_logs(scope, functions).lines == 0

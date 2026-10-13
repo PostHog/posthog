@@ -17,9 +17,11 @@ from typing import Any, Optional
 
 from django.db.models import Q
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.log_entries import LOG_ENTRIES_SHARDED_TABLE, LOG_ENTRIES_TABLE
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.settings import CLICKHOUSE_DATABASE
 
@@ -112,6 +114,7 @@ def delete_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]], wa
     if not functions:
         return
     # Waiting on every replica outlasts the client timeout in production, so it runs asynchronously.
+    # The default user has no ALTER DELETE grant on the log tables.
     # nosemgrep: clickhouse-fstring-param-audit - only constants are interpolated; scope and functions are bound parameters
     sync_execute(
         f"""
@@ -120,4 +123,6 @@ def delete_debug_logs(scope: DebugLogScope, functions: list[tuple[int, str]], wa
         """,
         _args(scope, functions),
         settings={"lightweight_deletes_sync": 2 if wait else 0},
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.DELETION_EXECUTOR,
     )

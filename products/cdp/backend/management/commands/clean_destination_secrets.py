@@ -4,6 +4,8 @@ Three stores hold them, and each step cleans one:
 
 - `debug-logs`: debug lines in `log_entries` where native and Segment destinations dumped
   their resolved config. Needs `--debug-logs-before`, the deploy time of the redaction fix.
+  The delete runs as the deletion executor ClickHouse user, so `--commit` needs the
+  `CLICKHOUSE_DELETION_EXECUTOR_*` credentials.
 - `activity-logs`: activity log rows that recorded values of masked fields, such as destination and
   workflow inputs, before the log masked them.
 - `mapping-secrets`: secret mapping inputs, moved into the destination's encrypted inputs.
