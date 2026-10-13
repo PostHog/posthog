@@ -400,10 +400,10 @@ Today (9): `bills`, `contacts`, `credit_notes`, `debit_notes`, `estimates`, `inc
 
 Diffed against: <https://developer.alegra.com/reference>
 
-- [ ] `Bank accounts (GET /api/v1/bank-accounts)` — resolves payment account IDs and supports reports by bank account (high)
-- [ ] `Warehouses (GET /api/v1/warehouses)` — resolves warehouse IDs in item inventory for reports by location (high)
-- [ ] `Item categories (GET /api/v1/item-categories)` — provides category metadata for grouping synced items and sales (high)
-- [ ] `Inventory adjustments (GET /api/v1/inventory-adjustments)` — explains stock corrections and inventory gains or losses (medium)
+- [x] `Bank accounts (GET /api/v1/bank-accounts)` — resolves payment account IDs and supports reports by bank account (high)
+- [x] `Warehouses (GET /api/v1/warehouses)` — resolves warehouse IDs in item inventory for reports by location (high)
+- [x] `Item categories (GET /api/v1/item-categories)` — provides category metadata for grouping synced items and sales (high)
+- [x] `Inventory adjustments (GET /api/v1/inventory-adjustments)` — explains stock corrections and inventory gains or losses (medium)
 - [ ] `Warehouse transfers (GET /api/v1/warehouse-transfers)` — tracks stock movement between warehouses (medium)
 - [ ] `Purchase orders (GET /api/v1/purchase-orders)` — measures committed purchases before supplier bills arrive (medium)
 - [ ] `Recurring invoices (GET /api/v1/recurring-invoices)` — measures scheduled recurring billing before invoices are generated (medium)
@@ -518,9 +518,9 @@ Today (10): `accounts`, `call_dispositions`, `calls`, `excluded_domains`, `exclu
 
 Diffed against: <https://api.amplemarket.com/api-docs/v1/swagger.yaml>
 
-- [ ] `Contacts (GET /contacts)` — expands contact IDs on synced tasks into prospect attributes and account relationships (high)
-- [ ] `Lead list entries (GET /lead-lists/{id})` — provides leads, list membership, and enrichment results absent from synced list summaries (high)
-- [ ] `Job openings (GET /job-openings)` — adds hiring signals for account prioritization and outreach analysis (medium)
+- [x] `Contacts (GET /contacts)` — expands contact IDs on synced tasks into prospect attributes and account relationships (high). Added as `contacts` (fan-out over `accounts` by `account_id`, because the endpoint has no unfiltered listing). Contacts not linked to an account are not reachable.
+- [x] `Lead list entries (GET /lead-lists/{id})` — provides leads, list membership, and enrichment results absent from synced list summaries (high). Added as `lead_list_entries` (fan-out over `lead_lists`).
+- ~~`Job openings (GET /job-openings)`~~ — skipped: it requires a company id, domain, or LinkedIn URL and searches Amplemarket's company data, so the rows are not records in the customer's account
 
 Note: Parsed every GET operation in the vendor's published OpenAPI spec, including nested resources. Contacts require IDs, a name, or an account filter; lead entries require pagination for each list. Job openings require a company identifier or domain. Task status and type endpoints contain enum strings; enrichment jobs, recordings, and webhook-only engagement were excluded.
 
