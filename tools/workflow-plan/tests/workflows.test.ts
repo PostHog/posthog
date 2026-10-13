@@ -412,6 +412,7 @@ const EXPECTATIONS: Expectation[] = [
                 'frontend-typescript-checks',
                 'frontend_tests',
             ],
+            skipped: ['record-jest-durations'],
         }
     ),
     frontend(
@@ -452,7 +453,7 @@ const EXPECTATIONS: Expectation[] = [
     frontend(
         { name: 'hourly schedule', github: schedule() },
         {
-            runs: ['jest', 'jest-replay-shared', 'frontend_tests'],
+            runs: ['jest', 'jest-replay-shared', 'record-jest-durations', 'frontend_tests'],
             skipped: ['frontend-format', 'frontend-bundle-size', 'frontend-typescript-checks'],
         }
     ),

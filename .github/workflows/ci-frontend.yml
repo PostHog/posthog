@@ -274,7 +274,8 @@ jobs:
     select-jest-tests:
         name: Select jest tests
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
+        # Installs the frontend workspace to list the related tests; about two minutes.
+        timeout-minutes: 10
         needs: changes
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
@@ -292,6 +293,8 @@ jobs:
             # fallback rate can be read per reason rather than inferred from mode alone.
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             selected_file_count: ${{ steps.classify.outputs.selected_file_count }}
+            related_test_count: ${{ steps.classify.outputs.related_test_count }}
+            estimated_seconds: ${{ steps.classify.outputs.estimated_seconds }}
             shard_count: ${{ steps.classify.outputs.shard_count }}
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
@@ -300,6 +303,34 @@ jobs:
               with:
                   fetch-depth: 1000
                   filter: blob:none
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Restore recorded jest durations
+              # Written by record-jest-durations on the hourly master run. A miss prices
+              # every test at the script's fallback, so sizing still works from counts.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: .jest_durations
+                  # run_id never matches, so the prefix restore-key takes the newest entry.
+                  key: posthog-jest-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-jest-durations-
 
             - name: Compute changed files
               id: diff
@@ -427,10 +458,15 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode uses three shards because a widely imported source file
-                  # can make --findRelatedTests approach a full suite. --findRelatedTests
-                  # walks jest's import graph from these files and runs the matching
-                  # *.test.* files.
+                  # The script lists the tests --findRelatedTests will run and sizes the
+                  # matrix so the slowest shard meets its wall target. A checkout from
+                  # before the script keeps the fixed three shards below.
+                  if [[ -f .github/scripts/jest-select.js ]]; then
+                      CHANGED_FILES="$CHANGED_FILES" CHANGED_FILE_COUNT="$changed_count" DURATIONS_FILE=.jest_durations \
+                          node .github/scripts/jest-select.js plan || fall_back selector_crash "jest-select.js exited $?"
+                      exit 0
+                  fi
+
                   SELECTED_COUNT=$(echo "$CHANGED_FILES" | wc -w | tr -d ' ')
                   {
                       echo "mode=selective"
@@ -867,8 +903,9 @@ jobs:
 
     jest:
         runs-on: ubuntu-24.04
-        # PRs run three selective shards over the tests reachable from the changed
-        # files. The merge queue runs the full four-shard fanout.
+        # PRs run as many selective shards as the tests reachable from the changed
+        # files need to meet the wall target in .github/scripts/jest-select.js. The
+        # merge queue runs the full four-shard fanout.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on the
@@ -902,6 +939,11 @@ jobs:
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["app"],"chunk":[1,2,3,4]}') }}
 
         steps:
+            # ubuntu-24.04 hands out several CPU models, and the same shard runs up to
+            # 1.4x slower on one than another, so timings are only comparable per model.
+            - name: Print runner CPU
+              run: lscpu | grep 'Model name'
+
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Mint setup-action GitHub token
@@ -1002,6 +1044,37 @@ jobs:
               if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
+
+    record-jest-durations:
+        name: Record jest durations
+        needs: jest
+        # The hourly run is the one full run on master, so its JUnit covers every test.
+        # select-jest-tests restores the map to size the PR matrix.
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/jest-select.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Download Jest results
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-frontend-*
+
+            - name: Build the durations map
+              run: node .github/scripts/jest-select.js durations ./junit-artifacts > .jest_durations
+
+            - name: Save the durations map to Actions cache
+              # One immutable key per run; restores match the prefix and take the newest.
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .jest_durations
+                  key: posthog-jest-durations-${{ github.run_id }}
 
     jest-replay-shared:
         runs-on: ubuntu-24.04
@@ -1234,6 +1307,8 @@ jobs:
                         "selection_eligible": ${{ needs.select-jest-tests.result == 'success' }},
                         "changed_file_count": ${{ needs.select-jest-tests.outputs.changed_file_count || 'null' }},
                         "selected_file_count": ${{ needs.select-jest-tests.outputs.selected_file_count || 'null' }},
+                        "related_test_count": ${{ needs.select-jest-tests.outputs.related_test_count || 'null' }},
+                        "estimated_seconds": ${{ needs.select-jest-tests.outputs.estimated_seconds || 'null' }},
                         "shard_count": ${{ needs.select-jest-tests.outputs.shard_count || 'null' }},
                         "full_run_reason_category": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_category || '') }},
                         "full_run_reason_detail": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_detail || '') }},
