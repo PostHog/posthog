@@ -474,6 +474,7 @@ the row lists both.
 | kestra                           | HTTP                        | requests                                                        | ✅                          |
 | kickscale                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | kisi                             | HTTP                        | requests                                                        | ✅                          |
+| klarna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | klaus                            | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                          | HTTP                        | requests                                                        | ✅                          |
 | knock                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1247,7 +1248,6 @@ doesn't conflict with concurrent PRs.
 - kinde
 - kion
 - kissmetrics
-- klarna
 - koyeb
 - kyve
 - labelbox
