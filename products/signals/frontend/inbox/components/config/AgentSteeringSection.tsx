@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconArrowRight, IconCode, IconCompass, IconSearch } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { IconCode, IconCompass, IconSearch } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -49,17 +49,17 @@ export function AgentSteeringSection(): JSX.Element {
         <SettingsSection
             id="steering"
             title="Steering"
-            description="Guide how each agent works on this project."
-            action={
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    to={urls.settings('environment-task-agent-instructions', 'task-agent-project-instructions')}
-                    sideIcon={<IconArrowRight aria-hidden />}
-                    data-attr="signals-steering-project-instructions"
-                >
-                    Project instructions
-                </LemonButton>
+            description={
+                <>
+                    Guide each agent's work in addition to your{' '}
+                    <Link
+                        to={urls.settings('environment-task-agent-instructions', 'task-agent-project-instructions')}
+                        data-attr="signals-steering-project-instructions"
+                    >
+                        project instructions
+                    </Link>
+                    .
+                </>
             }
         >
             <div>
