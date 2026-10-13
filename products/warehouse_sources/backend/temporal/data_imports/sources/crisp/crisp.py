@@ -98,6 +98,9 @@ def client_config(config: CrispSourceConfig, api_version: str) -> ClientConfig:
         "allowed_hosts": [],
         "allow_redirects": False,
         "request_timeout": (10, 60),
+        # Crisp sends no Retry-After with a 429, and the default five tries end before its
+        # rate limit clears. Nine tries keep one request waiting inside the retry budget.
+        "max_retries": 9,
         "retry_budget_seconds": 240,
         "retry_after_max_seconds": 120,
     }
