@@ -2490,10 +2490,18 @@ describe('experimentLogic', () => {
             expect(logic.values.experimentWarning).toEqual(expected)
         })
 
+        const healthUrl = '/api/projects/:team/experiments/7/health/'
+        const mountKeyedLogic = (): ReturnType<typeof experimentLogic.build> => {
+            const keyedLogic = experimentLogic({ experimentId: 7 })
+            keyedLogic.mount()
+            return keyedLogic
+        }
+
         it.each<{
             desc: string
             overrides: Partial<Experiment>
-            health: ExperimentHealthApi
+            // null makes the health request fail.
+            health: ExperimentHealthApi | null
             expected: Record<string, unknown>
             healthFindingsFlag?: boolean
         }>([
@@ -2503,6 +2511,7 @@ describe('experimentLogic', () => {
                 health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
                 expected: {
                     health_ui: 'panel',
+                    request_failed: false,
                     health_finding_codes: ['flag_off_while_running'],
                     health_finding_subcodes: ['flag_off_while_running:running_but_flag_disabled'],
                     health_finding_count: 1,
@@ -2535,27 +2544,39 @@ describe('experimentLogic', () => {
                     flag_state_server: 'running_but_flag_disabled',
                 },
             },
+            {
+                desc: 'a failed request, which leaves the server values empty',
+                overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
+                health: null,
+                expected: {
+                    request_failed: true,
+                    health_finding_codes: null,
+                    health_finding_count: null,
+                    flag_state_browser: 'running_but_flag_disabled',
+                    flag_state_server: null,
+                    no_metric_server: null,
+                },
+            },
         ])(
             'compares the local rules with the server checks when the health loads: $desc',
-            ({ overrides, health, expected, healthFindingsFlag = true }) => {
+            async ({ overrides, health, expected, healthFindingsFlag = true }) => {
                 setHealthFindingsFlag(healthFindingsFlag)
+                useMocks({
+                    get: { [healthUrl]: () => (health ? [200, health] : [500, { detail: 'Server error' }]) },
+                })
+                const keyedLogic = mountKeyedLogic()
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+                keyedLogic.actions.setExperiment(createExperiment({ id: 7, ...overrides }))
 
-                logic.actions.setExperiment(createExperiment(overrides))
-                logic.actions.loadExperimentHealthSuccess(health, 'experiment_load')
+                await expectLogic(keyedLogic, () => {
+                    keyedLogic.actions.loadExperimentHealth('experiment_load')
+                }).toDispatchActions(['loadExperimentHealthSuccess'])
 
                 const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
                 expect(checkedEvents).toHaveLength(1)
-                expect(checkedEvents[0][1]).toMatchObject(expected)
+                expect(checkedEvents[0][1]).toMatchObject({ duration_ms: expect.any(Number), ...expected })
             }
         )
-
-        const healthUrl = '/api/projects/:team/experiments/7/health/'
-        const mountKeyedLogic = (): ReturnType<typeof experimentLogic.build> => {
-            const keyedLogic = experimentLogic({ experimentId: 7 })
-            keyedLogic.mount()
-            return keyedLogic
-        }
 
         it('loads the health with each experiment load and after a changed input, comparing only once', async () => {
             const health: ExperimentHealthApi = { findings: [] }
