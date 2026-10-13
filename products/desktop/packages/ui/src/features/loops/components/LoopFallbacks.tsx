@@ -1,20 +1,56 @@
-import { Flex, Text } from "@radix-ui/themes";
+import {
+  Button,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Text,
+} from "@posthog/quill";
+import { hoggiePng } from "@posthog/shared/hoggies";
+import { navigateToLoops } from "@posthog/ui/router/navigationBridge";
+
+export function LoopNotFound() {
+  return (
+    <Empty className="h-full border-0">
+      <EmptyHeader>
+        <EmptyMedia>
+          <img
+            src={hoggiePng("magnifying-glass-1")}
+            alt=""
+            className="pointer-events-none w-28 select-none"
+          />
+        </EmptyMedia>
+        <EmptyTitle>Loop not found</EmptyTitle>
+        <EmptyDescription>
+          This loop may have been deleted, or it belongs to a different project.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button
+          type="button"
+          variant="primary"
+          data-attr="loop-not-found-view-all"
+          onClick={() => navigateToLoops()}
+        >
+          View all loops
+        </Button>
+      </EmptyContent>
+    </Empty>
+  );
+}
 
 export function LoopLoadError() {
   return (
-    <Flex
-      direction="column"
-      align="center"
-      gap="1"
-      className="mx-auto mt-16 max-w-md rounded-(--radius-2) border border-(--gray-5) border-dashed px-6 py-10 text-center"
-    >
-      <Text className="font-medium text-[13px] text-gray-12">
+    <div className="mx-auto mt-16 flex max-w-md flex-col items-center gap-1 rounded-(--radius-2) border border-border border-dashed px-6 py-10 text-center">
+      <Text size="sm" weight="medium">
         Couldn't load this loop
       </Text>
-      <Text className="max-w-md text-[12px] text-gray-11 leading-snug">
+      <Text size="xs" variant="muted" className="leading-snug">
         It may have been deleted, or the loops API returned an error.
       </Text>
-    </Flex>
+    </div>
   );
 }
 
@@ -26,31 +62,26 @@ export function LoopsEmptyNotice({
   hint: string;
 }) {
   return (
-    <Flex
-      align="center"
-      justify="center"
-      direction="column"
-      gap="1"
-      py="6"
-      className="rounded border border-gray-6 border-dashed"
-    >
-      <Text className="font-medium text-sm">{title}</Text>
-      <Text color="gray" className="max-w-[420px] text-center text-[13px]">
+    <div className="flex flex-col items-center justify-center gap-1 rounded border border-border border-dashed py-6">
+      <Text size="sm" weight="medium">
+        {title}
+      </Text>
+      <Text size="sm" variant="muted" className="max-w-[420px] text-center">
         {hint}
       </Text>
-    </Flex>
+    </div>
   );
 }
 
 export function LoopsSkeleton() {
   return (
-    <Flex direction="column" gap="2">
+    <div className="flex flex-col gap-2">
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className="h-[58px] animate-pulse rounded-(--radius-2) border border-border bg-(--gray-2)"
+          className="h-[58px] animate-pulse rounded-(--radius-2) border border-border bg-muted"
         />
       ))}
-    </Flex>
+    </div>
   );
 }
