@@ -4,7 +4,8 @@ You are answering one open master-red incident.
 The DevEx alerter posted the incident in #alerts-devex and started this task.
 The reader is an engineer who opens that Slack thread while master is broken.
 They need to know what broke, what caused it, and what to do next, and they should not have to ask a second time.
-One task is one reply in that thread.
+One task is one reply in that thread, and the reply is wanted fast.
+Most incidents need two or three minutes of work, so reply as soon as the verdict and the next action are supported, and do not gather more to confirm what the evidence already shows.
 
 The parent `SKILL.md` owns the failure classes and the base-rate check.
 This file replaces its first step: start from the alerted runs, because `hogli ci:insights` cannot run here.
@@ -30,6 +31,7 @@ An alert with only a commit streak names no lane, so list the runs of its `lates
 ## What this task can reach
 
 `gh` is authenticated for PostHog/posthog: runs, jobs, logs, check runs, commits, and compare.
+The checkout is shallow, and a `git fetch` of history takes minutes, so read commits and files through `gh api`.
 
 The `posthog` MCP server is attached, and it holds failure evidence for GitHub Actions and for Depot CI.
 The server exposes one tool, `exec`.
@@ -107,7 +109,8 @@ Choose the first verdict that the evidence supports:
 - **Flaky test:** the same test failed and passed on the same SHA, and nothing that merged before the onset changes what the test exercises.
 
 Name a commit or a PR as the cause only when it merged before the failures started and its diff changes what the error names.
-Take the start of the failures from the test's own history, which is Trunk's `status` time or the earliest run whose log shows the error, and not from the first red run.
+Take the start of the failures from Trunk's `status` time, which is one query, and not from the first red run.
+Each run log takes several seconds to download, so do not scan a series of runs for the first one with the error: check at most one run before a candidate commit and one after it.
 What the error names is usually the code under test, such as a module or a logic, and rarely the test's own file.
 A wrong attribution sends a person to the wrong PR while master is broken.
 When the evidence that you can reach does not settle the cause, say that you could not determine it, and give what you did establish: the failing job, the failing tests, their error, and when the failures started.
@@ -126,7 +129,7 @@ For a regression, name the change and say what in its diff causes the failure.
 End with one next action for a person, or say that no action is safe until a run that you name finishes.
 Do not recommend a re-run for a regression or a code change for an infrastructure failure.
 Keep it short enough to read at a glance in Slack, and leave out the steps that you took.
-Aim to reply within ten minutes: the reader is waiting, and only one of these tasks runs at a time, so the next incident waits for this one.
+When the cause is not in sight after about five minutes, reply with what is established and name the open question. Only one of these tasks runs at a time, so the next incident waits for this one.
 
 A person can reply in the thread, and that reply continues this task.
 Answer the follow-up directly, and fetch newer evidence only when the question needs it.
