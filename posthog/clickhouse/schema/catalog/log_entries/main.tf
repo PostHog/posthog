@@ -71,6 +71,7 @@ module "log_entries_data_family" {
     ttl          = var.ttl ? "toDate(timestamp) + toIntervalDay(90)" : null
     settings     = "index_granularity = 1024, ttl_only_drop_parts = 1"
   }
+  routing      = { read = !var.test }
   sharding_key = ""
   deployment = merge({
     keeper_path = "/clickhouse/tables/noshard/${var.database}.log_entries_data"

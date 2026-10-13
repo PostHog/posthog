@@ -8,7 +8,7 @@ from clickhouse_driver.errors import ErrorCodes, ServerException
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 
-@dataclass
+@dataclass(frozen=False)
 class MetricsClient:
     cluster: ClickhouseCluster
 
