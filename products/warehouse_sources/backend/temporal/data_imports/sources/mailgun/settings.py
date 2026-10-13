@@ -7,17 +7,21 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PaginationStyle = Literal["paging", "skip"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class MailgunEndpointConfig:
     name: str
     # Path relative to the regional API host. Contains a `{domain}` placeholder for
     # domain-scoped endpoints, which fan out over every sending domain on the account.
     path: str
     domain_scoped: bool = False
+    # Fans out over every mailing list on the account, with a `{list_address}` placeholder in the path.
+    list_scoped: bool = False
     # "paging" endpoints return opaque next/previous URLs in a `paging` object and
     # terminate with an empty `items` page; "skip" endpoints use limit/skip offsets.
     pagination: PaginationStyle = "paging"
     page_size: int = 100
+    # Response key that holds the page's rows.
+    data_key: str = "items"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style
@@ -28,9 +32,9 @@ class MailgunEndpointConfig:
 
 # Of these list endpoints, only the Events API exposes a server-side timestamp filter (`begin`/`end`
 # epoch seconds with `ascending=yes`), so it's the only one advertised as incremental. Domains,
-# suppressions, mailing lists, tags, and templates have no updated-at filter — full
-# refresh only. Domain-scoped rows get a `domain` column injected so primary keys stay
-# unique across domains.
+# suppressions, the allowlist, mailing lists and their members, tags, templates, and subaccounts
+# have no updated-at filter — full refresh only. Domain-scoped rows get a `domain` column injected
+# so primary keys stay unique across domains, and list-scoped rows a `list_address` column.
 MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
     "domains": MailgunEndpointConfig(
         name="domains",
@@ -84,11 +88,26 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
         partition_key="created_at",
         partition_format="month",
     ),
+    "allowlist": MailgunEndpointConfig(
+        name="allowlist",
+        path="/v3/{domain}/whitelists",
+        domain_scoped=True,
+        page_size=1000,
+        # `value` is the allowlisted address or domain, unique within a sending domain.
+        primary_keys=["domain", "value"],
+    ),
     "mailing_lists": MailgunEndpointConfig(
         name="mailing_lists",
         path="/v3/lists/pages",
         page_size=100,
         primary_keys=["address"],
+    ),
+    "mailing_list_members": MailgunEndpointConfig(
+        name="mailing_list_members",
+        path="/v3/lists/{list_address}/members/pages",
+        list_scoped=True,
+        page_size=100,
+        primary_keys=["list_address", "address"],
     ),
     "tags": MailgunEndpointConfig(
         name="tags",
@@ -108,7 +127,27 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
         # Template names are unique per domain; list items aren't guaranteed an `id`.
         primary_keys=["domain", "name"],
     ),
+    "subaccounts": MailgunEndpointConfig(
+        name="subaccounts",
+        path="/v5/accounts/subaccounts",
+        pagination="skip",
+        page_size=1000,
+        data_key="subaccounts",
+        primary_keys=["id"],
+    ),
 }
+
+LOGS_ENDPOINT = "logs"
+LOGS_PATH = "/v1/analytics/logs"
+
+LOGS_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "timestamp",
+        "type": IncrementalFieldType.DateTime,
+        "field": "timestamp",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
 
 METRICS_PATH = "/v1/analytics/metrics"
 
@@ -178,10 +217,11 @@ METRICS_INCREMENTAL_FIELDS: list[IncrementalField] = [
     },
 ]
 
-ENDPOINTS = tuple(MAILGUN_ENDPOINTS.keys()) + tuple(MAILGUN_METRICS_ENDPOINTS.keys())
+ENDPOINTS = tuple(MAILGUN_ENDPOINTS.keys()) + tuple(MAILGUN_METRICS_ENDPOINTS.keys()) + (LOGS_ENDPOINT,)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     **{name: config.incremental_fields for name, config in MAILGUN_ENDPOINTS.items() if config.incremental_fields},
+    LOGS_ENDPOINT: LOGS_INCREMENTAL_FIELDS,
     **dict.fromkeys(MAILGUN_METRICS_ENDPOINTS, METRICS_INCREMENTAL_FIELDS),
 }
 

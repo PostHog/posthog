@@ -33,34 +33,50 @@ live API (`https://restapi.e-conomic.com`) using e-conomic's public demo agreeme
 
 ## Endpoint matrix
 
-| Schema                       | Path                          | Primary key                      | Sort                             | Incremental                        | Notes                                                   |
-| ---------------------------- | ----------------------------- | -------------------------------- | -------------------------------- | ---------------------------------- | ------------------------------------------------------- |
-| `customers`                  | `/customers`                  | `customerNumber`                 | `lastUpdated`                    | ✅ `lastUpdated` (DateTime)        |                                                         |
-| `customer_groups`            | `/customer-groups`            | `customerGroupNumber`            | `customerGroupNumber`            | full refresh                       |                                                         |
-| `products`                   | `/products`                   | `productNumber`                  | `lastUpdated`                    | ✅ `lastUpdated` (DateTime)        |                                                         |
-| `product_groups`             | `/product-groups`             | `productGroupNumber`             | `productGroupNumber`             | full refresh                       |                                                         |
-| `suppliers`                  | `/suppliers`                  | `supplierNumber`                 | `supplierNumber`                 | full refresh                       | no `lastUpdated` field; filter on it errors             |
-| `supplier_groups`            | `/supplier-groups`            | `supplierGroupNumber`            | `supplierGroupNumber`            | full refresh                       |                                                         |
-| `accounts`                   | `/accounts`                   | `accountNumber`                  | `accountNumber`                  | full refresh                       | chart of accounts                                       |
-| `accounting_years`           | `/accounting-years`           | `year`                           | `year`                           | full refresh                       |                                                         |
-| `journals`                   | `/journals`                   | `journalNumber`                  | `journalNumber`                  | full refresh                       |                                                         |
-| `currencies`                 | `/currencies`                 | `code`                           | `code`                           | full refresh                       |                                                         |
-| `payment_terms`              | `/payment-terms`              | `paymentTermsNumber`             | _(none)_                         | full refresh                       | `sort=paymentTermsNumber` → 400; tiny single-page table |
-| `departments`                | `/departments`                | `departmentNumber`               | `departmentNumber`               | full refresh                       |                                                         |
-| `departmental_distributions` | `/departmental-distributions` | `departmentalDistributionNumber` | `departmentalDistributionNumber` | full refresh                       |                                                         |
-| `units`                      | `/units`                      | `unitNumber`                     | `unitNumber`                     | full refresh                       |                                                         |
-| `vat_zones`                  | `/vat-zones`                  | `vatZoneNumber`                  | `vatZoneNumber`                  | full refresh                       |                                                         |
-| `employees`                  | `/employees`                  | `employeeNumber`                 | `employeeNumber`                 | full refresh                       |                                                         |
-| `invoices_booked`            | `/invoices/booked`            | `bookedInvoiceNumber`            | `bookedInvoiceNumber`            | ✅ `bookedInvoiceNumber` (Integer) | immutable; partition by stable `date`                   |
-| `invoices_drafts`            | `/invoices/drafts`            | `draftInvoiceNumber`             | `draftInvoiceNumber`             | full refresh                       | has `lastUpdated` filter, but `sort=lastUpdated` → 400  |
+| Schema                       | Path                               | Primary key                           | Sort                             | Incremental                        | Notes                                                          |
+| ---------------------------- | ---------------------------------- | ------------------------------------- | -------------------------------- | ---------------------------------- | -------------------------------------------------------------- |
+| `customers`                  | `/customers`                       | `customerNumber`                      | `lastUpdated`                    | ✅ `lastUpdated` (DateTime)        |                                                                |
+| `customer_groups`            | `/customer-groups`                 | `customerGroupNumber`                 | `customerGroupNumber`            | full refresh                       |                                                                |
+| `products`                   | `/products`                        | `productNumber`                       | `lastUpdated`                    | ✅ `lastUpdated` (DateTime)        |                                                                |
+| `product_groups`             | `/product-groups`                  | `productGroupNumber`                  | `productGroupNumber`             | full refresh                       |                                                                |
+| `suppliers`                  | `/suppliers`                       | `supplierNumber`                      | `supplierNumber`                 | full refresh                       | no `lastUpdated` field; filter on it errors                    |
+| `supplier_groups`            | `/supplier-groups`                 | `supplierGroupNumber`                 | `supplierGroupNumber`            | full refresh                       |                                                                |
+| `accounts`                   | `/accounts`                        | `accountNumber`                       | `accountNumber`                  | full refresh                       | chart of accounts                                              |
+| `accounting_years`           | `/accounting-years`                | `year`                                | `year`                           | full refresh                       |                                                                |
+| `journals`                   | `/journals`                        | `journalNumber`                       | `journalNumber`                  | full refresh                       |                                                                |
+| `currencies`                 | `/currencies`                      | `code`                                | `code`                           | full refresh                       |                                                                |
+| `payment_terms`              | `/payment-terms`                   | `paymentTermsNumber`                  | _(none)_                         | full refresh                       | `sort=paymentTermsNumber` → 400; tiny single-page table        |
+| `departments`                | `/departments`                     | `departmentNumber`                    | `departmentNumber`               | full refresh                       |                                                                |
+| `departmental_distributions` | `/departmental-distributions`      | `departmentalDistributionNumber`      | `departmentalDistributionNumber` | full refresh                       |                                                                |
+| `units`                      | `/units`                           | `unitNumber`                          | `unitNumber`                     | full refresh                       |                                                                |
+| `vat_zones`                  | `/vat-zones`                       | `vatZoneNumber`                       | `vatZoneNumber`                  | full refresh                       |                                                                |
+| `employees`                  | `/employees`                       | `employeeNumber`                      | `employeeNumber`                 | full refresh                       |                                                                |
+| `invoices_booked`            | `/invoices/booked`                 | `bookedInvoiceNumber`                 | `bookedInvoiceNumber`            | ✅ `bookedInvoiceNumber` (Integer) | immutable; partition by stable `date`                          |
+| `invoices_drafts`            | `/invoices/drafts`                 | `draftInvoiceNumber`                  | `draftInvoiceNumber`             | full refresh                       | has `lastUpdated` filter, but `sort=lastUpdated` → 400         |
+| `orders_drafts`              | `/orders/drafts`                   | `orderNumber`                         | `orderNumber`                    | full refresh                       | rows leave the table when the order is sent                    |
+| `orders_sent`                | `/orders/sent`                     | `orderNumber`                         | `orderNumber`                    | full refresh                       | rows leave the table when the order is archived                |
+| `orders_archived`            | `/orders/archived`                 | `orderNumber`                         | `orderNumber`                    | full refresh                       | no `lastUpdated`; partition by `date`                          |
+| `accounting_year_entries`    | `/accounting-years/{year}/entries` | `accountingYear`, `entryNumber`       | `entryNumber`                    | full refresh                       | fan-out over `accounting_years` via each year's `entries` link |
+| `journal_entries`            | `/journals/{n}/entries`            | `journalNumber`, `journalEntryNumber` | `journalEntryNumber`             | full refresh                       | fan-out over `journals`; unbooked entries only                 |
 
 ## Throttling
 
 - The API throttles and can return `429` (and transient `5xx`). Retry with backoff; honor `Retry-After`
   when present. Published rate-limit numbers are not clearly documented.
 
+## Fan-out endpoints
+
+- `accounting_year_entries` reads `/accounting-years/{year}/entries` once per accounting year. A year
+  that spans two calendar years is named `YYYY/YYYY` but uses another form in URLs, so the path comes
+  from the parent row's `entries` link. The entry number restarts with each accounting year, so the
+  year is part of the primary key.
+- `journal_entries` reads `/journals/{journalNumber}/entries` once per journal. These are entries that
+  are not booked yet; booking moves them to the accounting-year entries.
+- Both are full refresh. Resume state records which parents finished and the page of the current one.
+- `/accounts/{accountNumber}/accounting-years/{year}/entries` is not synced: it returns a per-account
+  subset of `accounting_year_entries`, which already carries `account`.
+
 ## Not implemented (yet)
 
-Sub-resources/fan-out (customer contacts, invoice lines, account entries per accounting year) and the
-separate sub-APIs on `apis.e-conomic.com` (subscriptions, etc.) are out of scope for the initial source.
-Account entries in particular require a per-accounting-year fan-out (`/accounting-years/{year}/entries`).
+Other sub-resources (customer contacts, invoice lines, vouchers, totals, periods) and the separate
+sub-APIs on `apis.e-conomic.com` (subscriptions, etc.) are out of scope for now.

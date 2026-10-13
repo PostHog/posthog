@@ -284,7 +284,7 @@ def warm_selected_repository(team_id: int, integration_id: int, full_name: str) 
         return
     github = GitHubIntegration(integration, source="business_knowledge", priority=Priority.BATCH)
     try:
-        async_to_sync(GitHubRepositoryFullCache(github).sync_full_cache_entry_async)(full_name)
+        async_to_sync(GitHubRepositoryFullCache(github, priority=Priority.BATCH).sync_full_cache_entry_async)(full_name)
     except GitHubIntegrationError as exc:
         # GitHub answers 404 when the repository left the installation. Drop the cached tree and README
         # so search cannot return them. The selection stays, so access comes back if the repo is re-added.

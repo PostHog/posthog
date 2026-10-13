@@ -12,6 +12,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.review_hog.backend.requested_reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
+    RUN_MODE_REVIEW_ONLY,
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
     request_pr_review as _request_pr_review,
@@ -21,6 +22,7 @@ from products.review_hog.backend.temporal.types import TRIGGER_COMMENT
 __all__ = [
     "RUN_MODE_FLASH",
     "RUN_MODE_REVIEW",
+    "RUN_MODE_REVIEW_ONLY",
     "PRReviewRequestOutcome",
     "PRReviewRequestStatus",
     "request_pr_review",

@@ -183,7 +183,7 @@ def mailerlite_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": endpoint_config.path,
-                    "params": {"limit": PAGE_SIZE},
+                    "params": {"limit": endpoint_config.page_size},
                     # Every list response wraps its rows in {"data": [...], "links": {...}, "meta": {...}};
                     # a missing/empty "data" is a legit zero-row page, not an error.
                     "data_selector": "data",

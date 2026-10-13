@@ -1037,7 +1037,7 @@ class EffectiveTeamScopedKeyPermission(BasePermission):
 
 
 class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Recent ReviewHog reviews on this project.
+    """Recent code reviews on this project.
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
     valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
@@ -1088,7 +1088,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
         },
         summary="List recent reviews",
-        description="Recent ReviewHog reviews on this project: actively running reviews first (with the "
+        description="Recent code reviews on this project: actively running reviews first (with the "
         "in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), "
         "plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting "
         "user's reviews; `scope=everyone` lists every review on the project.",
@@ -1143,7 +1143,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
         },
         summary="List reviews as a paginated table",
-        description="ReviewHog reviews on this project as a paginated table: reviews with a completed turn "
+        description="Code reviews on this project as a paginated table: reviews with a completed turn "
         "plus reviews with a run in flight, ordered by last activity, so a review that starts or finishes "
         "moves to the top. Pages with `limit` and `offset`; `count` is the total across pages. Filters by "
         "`repository`, `review_mode`, `status`, and `published`. `running_count` counts the running reviews "
@@ -1267,7 +1267,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
         },
         summary="Start a review of a pull request",
-        description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
+        description="Start a PostHog Review run on any pull request the project's GitHub App installation can "
         "access, and publish it back to the PR. The run appears under the requesting user's recent reviews. "
         "A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency "
         "threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull "
@@ -1343,7 +1343,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             400: OpenApiResponse(description="Not a GitHub pull request URL, or an invalid parameter."),
         },
         summary="Look up a pull request's review status",
-        description="Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and "
+        description="Where a pull request's review runs stand: `state`, the latest completed review turn, and "
         "the latest Resolve run. Works for any pull request on the project, also ones the caller did not "
         "trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called "
         "with, to get `request_outcome`, which says when that request is done.",
@@ -1382,7 +1382,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             404: OpenApiResponse(description="No such review on this project, or no such completed turn."),
         },
         summary="Retrieve one review's detail",
-        description="One completed ReviewHog review on this project, with one turn's validated findings, "
+        description="One completed code review on this project, with one turn's validated findings, "
         "the findings the validator dismissed (and why), and the review body published to GitHub. The "
         "latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and "
         "the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed "

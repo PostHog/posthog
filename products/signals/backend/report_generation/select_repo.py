@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
@@ -112,6 +113,8 @@ async def select_repository_for_team(
             user_id=user_id,
             context=request_section,
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            # Report generation runs in the background, so its repository cache refresh yields first.
+            priority=Priority.BATCH,
             step_name=step_name,
             signal_report_id=signal_report_id,
             sandbox_environment_id=sandbox_environment_id,

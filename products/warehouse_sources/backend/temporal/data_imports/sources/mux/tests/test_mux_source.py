@@ -66,6 +66,10 @@ class TestMuxNonRetryableErrors:
                 "invalid_timeframe",
                 "400 Client Error: Bad Request for url: https://api.mux.com/data/v1/errors | api error: code=invalid_timeframe",
             ),
+            (
+                "max_request_latency_bad_request",
+                "400 Client Error: Bad Request for url: https://api.mux.com/data/v1/metrics/max_request_latency/timeseries?timeframe%5B%5D=1784040390&timeframe%5B%5D=1791816390&group_by=day | api error: code=bad_request",
+            ),
         ]
     )
     def test_deterministic_client_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
@@ -76,6 +80,12 @@ class TestMuxNonRetryableErrors:
         [
             ("server_error", "500 Server Error: Internal Server Error for url: https://api.mux.com/video/v1/assets"),
             ("read_timeout", "HTTPSConnectionPool(host='api.mux.com', port=443): Read timed out."),
+            # A transient 5xx/timeout for this same metric+endpoint carries no query string (see
+            # `_safe_url` in rest_client), so it must not collide with the bad_request entry above.
+            (
+                "max_request_latency_server_error",
+                "HTTP 500 for https://api.mux.com/data/v1/metrics/max_request_latency/timeseries",
+            ),
         ]
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:

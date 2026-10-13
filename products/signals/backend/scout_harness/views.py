@@ -3170,12 +3170,17 @@ def guard_scout_lifecycle_fields(
     requested: object,
     action: str,
 ) -> None:
-    """Apply the lock gate to a write body. A no-op unless the body changes a protected field."""
-    fields = lock_protected_changes(requested, config=config)
-    if config is None or not fields:
+    """Apply the lock gate to a write body. A no-op unless the body changes a protected field.
+
+    With no config yet, the gate checks the row the write would create. So a lock set at
+    registration asks for the same claim as a lock set afterwards.
+    """
+    target = config or SignalScoutConfig(team_id=team.id, skill_name=skill_name, created_by=cast(User, request.user))
+    fields = lock_protected_changes(requested, config=target)
+    if not fields:
         return
     assert_can_change_scout_lifecycle(
-        request=request, team=team, skill_name=skill_name, config=config, action=action, fields=fields
+        request=request, team=team, skill_name=skill_name, config=target, action=action, fields=fields
     )
 
 

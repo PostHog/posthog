@@ -1,8 +1,9 @@
 import { type ChartTheme } from '@posthog/quill-charts'
 
-import { lightenDarkenColor, toOpaqueHex } from 'lib/utils/colors'
 import { hashCodeForString } from 'lib/utils/strings'
 
+import { type AiLab } from '../aiLabs'
+import { labColor, shadeColor } from '../colors'
 import antigravityLogo from '../harness-logos/antigravity.png'
 import claudeLogo from '../harness-logos/claude.svg'
 import coderabbitLogo from '../harness-logos/coderabbit.svg'
@@ -27,16 +28,16 @@ export interface HarnessLogo {
 }
 
 const HARNESS_BRAND_COLORS = {
-    claude: '#d97757',
-    openai: '#74aa9c',
     vscode: '#007acc',
     coderabbit: '#ff570a',
     kimchi: '#ff521d',
 } as const
 
+type HarnessBrand = keyof typeof HARNESS_BRAND_COLORS
+
 interface HarnessDescriptor {
     logo?: HarnessLogo
-    color?: keyof typeof HARNESS_BRAND_COLORS | 'monochrome'
+    brand?: AiLab | HarnessBrand | 'monochrome'
     // Index into the data-viz palette for harnesses without a brand color.
     colorIndex?: number
     shade?: number
@@ -48,35 +49,35 @@ interface HarnessDescriptor {
 // has no opinion on. Keys must match HARNESS_LABELS / harness_label_sql in mcp_harness.py.
 // Exported so tests can assert coverage against the backend HARNESS_LABELS tuple.
 export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
-    'Claude Desktop': { logo: { src: claudeLogo, alt: 'Claude Desktop logo' }, color: 'claude', shade: -8 },
-    'Claude Code (VS Code)': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, color: 'claude', shade: -4 },
-    'Claude Agent SDK': { logo: { src: claudeLogo, alt: 'Claude Agent SDK logo' }, color: 'claude', shade: 4 },
-    'Claude Code': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, color: 'claude', shade: 0 },
-    'Claude.ai': { logo: { src: claudeLogo, alt: 'Claude.ai logo' }, color: 'claude', shade: 8 },
-    'Anthropic API': { color: 'claude', shade: -12 },
-    Cowork: { logo: { src: claudeLogo, alt: 'Cowork logo' }, color: 'claude', shade: 12 },
-    'Claude Design': { logo: { src: claudeLogo, alt: 'Claude Design logo' }, color: 'claude', shade: 16 },
-    ChatGPT: { logo: { src: openaiLogo, alt: 'ChatGPT logo' }, color: 'openai', shade: 0 },
-    'OpenAI Agent Builder': { logo: { src: openaiLogo, alt: 'OpenAI Agent Builder logo' }, color: 'openai', shade: 4 },
-    'OpenAI Responses API': { logo: { src: openaiLogo, alt: 'OpenAI Responses API logo' }, color: 'openai', shade: -4 },
-    OpenAI: { logo: { src: openaiLogo, alt: 'OpenAI logo' }, color: 'openai', shade: 8 },
-    'OpenAI Codex': { logo: { src: openaiLogo, alt: 'OpenAI Codex logo' }, color: 'openai', shade: -8 },
-    Grok: { logo: { src: grokLogo, alt: 'Grok logo' }, color: 'monochrome' },
-    Cursor: { logo: { src: cursorLogo, alt: 'Cursor logo' }, color: 'monochrome' },
-    'VS Code': { logo: { src: vscodeLogo, alt: 'VS Code logo' }, color: 'vscode' },
-    Windsurf: { logo: { src: windsurfLogo, alt: 'Windsurf logo' }, color: 'monochrome' },
+    'Claude Desktop': { logo: { src: claudeLogo, alt: 'Claude Desktop logo' }, brand: 'Anthropic', shade: -8 },
+    'Claude Code (VS Code)': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, brand: 'Anthropic', shade: -4 },
+    'Claude Agent SDK': { logo: { src: claudeLogo, alt: 'Claude Agent SDK logo' }, brand: 'Anthropic', shade: 4 },
+    'Claude Code': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, brand: 'Anthropic', shade: 0 },
+    'Claude.ai': { logo: { src: claudeLogo, alt: 'Claude.ai logo' }, brand: 'Anthropic', shade: 8 },
+    'Anthropic API': { brand: 'Anthropic', shade: -12 },
+    Cowork: { logo: { src: claudeLogo, alt: 'Cowork logo' }, brand: 'Anthropic', shade: 12 },
+    'Claude Design': { logo: { src: claudeLogo, alt: 'Claude Design logo' }, brand: 'Anthropic', shade: 16 },
+    ChatGPT: { logo: { src: openaiLogo, alt: 'ChatGPT logo' }, brand: 'OpenAI', shade: 0 },
+    'OpenAI Agent Builder': { logo: { src: openaiLogo, alt: 'OpenAI Agent Builder logo' }, brand: 'OpenAI', shade: 4 },
+    'OpenAI Responses API': { logo: { src: openaiLogo, alt: 'OpenAI Responses API logo' }, brand: 'OpenAI', shade: -4 },
+    OpenAI: { logo: { src: openaiLogo, alt: 'OpenAI logo' }, brand: 'OpenAI', shade: 8 },
+    'OpenAI Codex': { logo: { src: openaiLogo, alt: 'OpenAI Codex logo' }, brand: 'OpenAI', shade: -8 },
+    Grok: { logo: { src: grokLogo, alt: 'Grok logo' }, brand: 'xAI' },
+    Cursor: { logo: { src: cursorLogo, alt: 'Cursor logo' }, brand: 'Cursor' },
+    'VS Code': { logo: { src: vscodeLogo, alt: 'VS Code logo' }, brand: 'vscode' },
+    Windsurf: { logo: { src: windsurfLogo, alt: 'Windsurf logo' }, brand: 'monochrome' },
     Replit: { logo: { src: replitLogo, alt: 'Replit logo' }, colorIndex: 11, shade: 15 },
     Lovable: { logo: { src: lovableLogo, alt: 'Lovable logo' }, colorIndex: 4 },
-    Manus: { logo: { src: manusLogo, alt: 'Manus logo' }, color: 'monochrome' },
-    CodeRabbit: { logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' }, color: 'coderabbit' },
-    Notion: { logo: { src: notionLogo, alt: 'Notion logo' }, color: 'monochrome' },
+    Manus: { logo: { src: manusLogo, alt: 'Manus logo' }, brand: 'monochrome' },
+    CodeRabbit: { logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' }, brand: 'coderabbit' },
+    Notion: { logo: { src: notionLogo, alt: 'Notion logo' }, brand: 'monochrome' },
     Linear: { logo: { src: linearLogo, alt: 'Linear logo' }, colorIndex: 9 },
     LibreChat: { logo: { src: librechatLogo, alt: 'LibreChat logo' }, colorIndex: 14 },
-    Pi: { logo: { src: piLogo, alt: 'Pi logo' }, color: 'monochrome' },
-    Kimchi: { logo: { src: kimchiLogo, alt: 'Kimchi logo' }, color: 'kimchi' },
+    Pi: { logo: { src: piLogo, alt: 'Pi logo' }, brand: 'monochrome' },
+    Kimchi: { logo: { src: kimchiLogo, alt: 'Kimchi logo' }, brand: 'kimchi' },
     Antigravity: { logo: { src: antigravityLogo, alt: 'Antigravity logo' }, colorIndex: 7 },
     Poke: {},
-    opencode: { logo: { src: opencodeLogo, alt: 'opencode logo' }, color: 'monochrome' },
+    opencode: { logo: { src: opencodeLogo, alt: 'opencode logo' }, brand: 'monochrome' },
     Kiro: {},
     'Desktop Commander': {},
     'PostHog CLI': {},
@@ -91,16 +92,18 @@ export function harnessColor(theme: ChartTheme, label: string): string | undefin
         return theme.axisColor
     }
     const descriptor = HARNESS_BY_LABEL[label]
-    if (descriptor?.color === 'monochrome') {
+    const brand = descriptor?.brand
+    if (brand === 'monochrome') {
         return theme.axisColor
     }
     const index = descriptor?.colorIndex ?? hashCodeForString(label)
-    const base = descriptor?.color ? HARNESS_BRAND_COLORS[descriptor.color] : theme.colors[index % theme.colors.length]
+    const base = !brand
+        ? theme.colors[index % theme.colors.length]
+        : brand in HARNESS_BRAND_COLORS
+          ? HARNESS_BRAND_COLORS[brand as HarnessBrand]
+          : labColor(theme, brand)
     if (!base) {
         return theme.axisColor
     }
-    const hex = toOpaqueHex(base)
-    return descriptor?.shade && /^#[\da-f]{3}([\da-f]{3})?$/i.test(hex)
-        ? lightenDarkenColor(hex, descriptor.shade)
-        : base
+    return descriptor?.shade ? shadeColor(base, descriptor.shade) : base
 }

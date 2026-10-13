@@ -174,6 +174,62 @@ class TestPagination:
         assert params[0]["url"] == resume_url
 
 
+class TestAccountingYearEntriesFanout:
+    def _years_page(self) -> Response:
+        return _response(
+            [
+                {"year": "2022", "entries": f"{E_CONOMIC_BASE_URL}/accounting-years/2022/entries"},
+                {"year": "2022/2023", "entries": f"{E_CONOMIC_BASE_URL}/accounting-years/2022_6_2023/entries"},
+            ]
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_each_year_through_its_entries_link(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        second_page = f"{E_CONOMIC_BASE_URL}/accounting-years/2022/entries?skippages=1"
+        requests_sent = _wire(
+            session,
+            [
+                self._years_page(),
+                _response([{"entryNumber": 1}], next_page=second_page),
+                _response([{"entryNumber": 2}]),
+                _response([{"entryNumber": 1}]),
+            ],
+        )
+
+        rows = _rows(_source("accounting_year_entries", _make_manager()))
+
+        assert [(r["accountingYear"], r["entryNumber"]) for r in rows] == [
+            ("2022", 1),
+            ("2022", 2),
+            ("2022/2023", 1),
+        ]
+        assert [r["url"] for r in requests_sent] == [
+            f"{E_CONOMIC_BASE_URL}/accounting-years",
+            f"{E_CONOMIC_BASE_URL}/accounting-years/2022/entries",
+            second_page,
+            f"{E_CONOMIC_BASE_URL}/accounting-years/2022_6_2023/entries",
+        ]
+        assert requests_sent[1]["params"]["sort"] == "entryNumber"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_years(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        requests_sent = _wire(session, [self._years_page(), _response([{"entryNumber": 5}])])
+        manager = _make_manager(
+            EConomicResumeConfig(
+                fanout_state={"completed": ["/accounting-years/2022/entries"], "current": None, "child_state": None}
+            )
+        )
+
+        rows = _rows(_source("accounting_year_entries", manager))
+
+        assert [(r["accountingYear"], r["entryNumber"]) for r in rows] == [("2022/2023", 5)]
+        assert requests_sent[-1]["url"] == f"{E_CONOMIC_BASE_URL}/accounting-years/2022_6_2023/entries"
+        saved = manager.save_state.call_args.args[0]
+        assert "/accounting-years/2022_6_2023/entries" in saved.fanout_state["completed"]
+
+
 class TestErrorHandling:
     @parameterized.expand([("server_error", 500), ("bad_gateway", 503), ("throttled", 429)])
     @mock.patch(CLIENT_SESSION_PATCH)

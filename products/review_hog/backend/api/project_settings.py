@@ -194,7 +194,7 @@ def _entry_data(entry: OverviewEntry) -> dict[str, Any]:
 
 
 class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
-    """The project-wide ReviewHog rule and the repository overview.
+    """The project-wide PostHog Review rule and the repository overview.
 
     Project members can read everything here. Only project admins can change the rule and its lists,
     and every change goes to the activity log.
@@ -230,7 +230,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
     @extend_schema(
         methods=["GET"],
         responses={200: OpenApiResponse(response=ReviewProjectSettingsSerializer)},
-        summary="Get the project's ReviewHog rule",
+        summary="Get the project's code review rule",
         description="The project rule for automatic Standard reviews, bot pull requests, the Deep review defaults, "
         "and the connected GitHub installations.",
     )
@@ -242,7 +242,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
             400: OpenApiResponse(description="Invalid field value."),
             403: OpenApiResponse(description="Only project admins can change the rule."),
         },
-        summary="Update the project's ReviewHog rule",
+        summary="Update the project's code review rule",
         description="Partially update the project rule. Only the provided fields change. Project admins only.",
     )
     @action(detail=False, methods=["GET", "PATCH"], url_path="project_settings", url_name="project_settings")

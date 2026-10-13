@@ -1,8 +1,8 @@
 import { Host, Image as SymbolImage } from "@expo/ui/swift-ui";
 import { getReasoningEffortOptions } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -70,9 +70,13 @@ export function Composer({
   const router = useRouter();
   const [text, setText] = useState("");
   const [photos, setPhotos] = useState<Photo[]>([]);
-  const dictation = useDictation();
   const withSpeech = (base: string, heard: string): string =>
     [base.trim(), heard.trim()].filter(Boolean).join(" ");
+  const dictation = useDictation((heard) =>
+    setText((current) => withSpeech(current, heard)),
+  );
+  // Drawer screens stay mounted when another route gets focus, so stop the microphone on blur.
+  useFocusEffect(useCallback(() => dictation.cancel, [dictation.cancel]));
   const { model, adapter, reasoning } = useComposer();
   const effort = getReasoningEffortOptions(adapter, model)?.find(
     (option) => option.value === reasoning,
@@ -80,7 +84,10 @@ export function Composer({
   const shown = dictation.active
     ? withSpeech(text, dictation.transcript)
     : text;
-  const canSend = (shown.trim().length > 0 || photos.length > 0) && !sending;
+  const canSend =
+    (shown.trim().length > 0 || photos.length > 0) &&
+    !sending &&
+    !dictation.stopping;
 
   const attach = async (): Promise<void> => {
     try {
@@ -96,14 +103,23 @@ export function Composer({
     dictation.start();
   };
 
-  const stopDictation = (): string => {
-    const value = withSpeech(text, dictation.stop());
+  const stopDictation = async (): Promise<void> => {
+    const heard = await dictation.stop();
+    if (heard !== null) setText((current) => withSpeech(current, heard));
+  };
+
+  // The input shows the live transcript, so an edit already holds it. Dropping the transcript keeps it from being added twice.
+  const editText = (value: string): void => {
+    if (dictation.active) dictation.cancel();
     setText(value);
-    return value;
   };
 
   const submit = async (): Promise<void> => {
-    const value = (dictation.active ? stopDictation() : text).trim();
+    if (dictation.stopping || sending) return;
+    const heard = dictation.active ? await dictation.stop() : "";
+    // An edit, cancel or blur during the wait ends the send and keeps the draft.
+    if (heard === null) return;
+    const value = withSpeech(text, heard).trim();
     if ((!value && !photos.length) || sending) return;
     const attached = photos;
     setText("");
@@ -151,7 +167,7 @@ export function Composer({
       ) : null}
       <TextInput
         value={shown}
-        onChangeText={setText}
+        onChangeText={editText}
         placeholder={placeholder}
         placeholderTextColor={colors.inkMute}
         style={styles.input}

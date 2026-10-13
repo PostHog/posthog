@@ -33,11 +33,8 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
 
-from products.review_hog.backend.reviewer.tools.github_client import (
-    GitHubAPIError,
-    github_api_request,
-    is_app_bot_author,
-)
+from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request, matches_app_bot
 from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPARE_FILES_CAP, PRParser
 
 logger = logging.getLogger(__name__)
@@ -203,6 +200,17 @@ def _same_full_diff(previous: _PRDiff, current: _PRDiff) -> bool:
     return previous_lines is not None and previous_lines == _own_lines(current.files)
 
 
+def _is_own_commit(commit: dict[str, Any], app_login: str | None) -> bool:
+    # Anyone can put the app's noreply email on a commit, so only a GitHub-verified commit with the
+    # app as both author and committer counts. Those are the commits the app creates through the API.
+    verified = bool(((commit.get("commit") or {}).get("verification") or {}).get("verified"))
+    return (
+        verified
+        and matches_app_bot(commit.get("author"), app_login)
+        and matches_app_bot(commit.get("committer"), app_login)
+    )
+
+
 class PushGate:
     def __init__(self, *, team_id: int, repository: str, token: str, installation_id: str | None) -> None:
         self.team_id = team_id
@@ -234,6 +242,7 @@ class PushGate:
         if comparison is None:
             return None
         commits: list[dict[str, Any]] = comparison.get("commits") or []
+        app_login = posthog_app_login()
         files = _changed_files(comparison)
         if comparison.get("total_commits", 0) > len(commits) or len(files) >= GITHUB_COMPARE_FILES_CAP:
             return None
@@ -241,7 +250,7 @@ class PushGate:
             commit_shas=[commit["sha"] for commit in commits],
             merge_shas={commit["sha"] for commit in commits if len(commit.get("parents") or []) > 1},
             files=files,
-            reviewhog_shas={commit["sha"] for commit in commits if is_app_bot_author(commit.get("author"))},
+            reviewhog_shas={commit["sha"] for commit in commits if _is_own_commit(commit, app_login)},
         )
 
     def _commit_files(self, shas: list[str]) -> list[_ChangedFile] | None:

@@ -83,6 +83,11 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                "s3_service_unavailable_ebusy",
+                OSError(errno.EBUSY, "Service Unavailable"),
+                True,
+            ),
+            (
                 # A different errno must not be swept up by the fd-exhaustion check.
                 "unrelated_os_error_with_errno",
                 OSError(errno.ENOENT, "No such file or directory"),

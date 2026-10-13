@@ -15,6 +15,12 @@ class TestElevenLabsSchemas:
             ("agents", False, False),
             ("voices", False, False),
             ("triage_tickets", False, False),
+            ("models", False, False),
+            ("workspace_members", False, False),
+            ("workspace_groups", False, False),
+            ("tools", False, False),
+            # Executions take a server-side `start_time` filter, so they merge incrementally.
+            ("tool_executions", True, False),
         ]
     )
     def test_schema_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:

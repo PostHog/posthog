@@ -148,6 +148,33 @@ class TestValidateCredentials:
         # The status code is for error tracking, not for the person reading the source setup form.
         assert str(status_code) not in error
 
+    @parameterized.expand(
+        [
+            ("one_resource_readable", [403, 200], True, None),
+            ("no_resource_readable", [403] * 5, False, "denied"),
+            ("project_missing", [404], False, "could not find"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_checks_project_endpoints_when_listing_projects_is_denied(
+        self, _name, endpoint_statuses, expected_success, expected_substring, mock_session
+    ):
+        mock_session.return_value.get.side_effect = [_http_error_response(403)] + [
+            _ok_json_response({"items": []}) if status == 200 else _http_error_response(status)
+            for status in endpoint_statuses
+        ]
+
+        success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
+
+        assert success is expected_success
+        if expected_substring is None:
+            assert error is None
+        else:
+            assert error is not None
+            assert expected_substring in error.lower()
+        probed_url = mock_session.return_value.get.call_args_list[1].args[0]
+        assert probed_url.startswith(f"{REVENUECAT_API_BASE_URL}/projects/proj_test/")
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_returns_false_on_network_error(self, mock_session):
         mock_session.return_value.get.side_effect = requests.ConnectionError("dns fail")
