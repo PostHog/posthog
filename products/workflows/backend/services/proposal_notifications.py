@@ -1,5 +1,6 @@
 """Tells one person when PostHog files a suggestion on a workflow, in the app and by email."""
 
+import html
 from uuid import UUID
 
 import structlog
@@ -8,6 +9,7 @@ from posthog.email import EmailMessage, get_email_team_and_org_context, is_email
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization_notification_lock import effective_notification_settings, notification_locks_for_users
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -60,28 +62,37 @@ def _recipient(team: Team, hog_flow: HogFlow, filed_by_user_id: int | None) -> U
     return None
 
 
+def _defanged(text: str) -> str:
+    # sanitize_email_string also HTML-escapes. Undo only that step, so the template escapes the text once
+    # and the URLs in it stay broken for mail-client auto-linking.
+    return html.unescape(sanitize_email_string(text))
+
+
 def _send_email(user: User, team: Team, hog_flow: HogFlow, proposal: WorkflowProposal, path: str) -> None:
     if not is_email_available(with_absolute_urls=True):
+        return
+    campaign_key = f"workflow_suggestion_{proposal.id}"
+    # The transport dedupes per address, so a retry that resolves a different person would email them too.
+    if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
         return
     locks = notification_locks_for_users([user.id], organization_id=team.organization_id).get(user.id, {})
     if not effective_notification_settings(user, locks=locks).get(EMAIL_SETTING, True):
         return
-    workflow_name = sanitize_display_name(
-        hog_flow.name or "",
-        fallback="your workflow",
-        context={"helper": "workflow_suggestion_email", "field": "workflow_name"},
+    workflow_name = _defanged(
+        sanitize_display_name(
+            hog_flow.name or "",
+            fallback="your workflow",
+            context={"helper": "workflow_suggestion_email", "field": "workflow_name"},
+        )
     )
     message = EmailMessage(
-        # One send per proposal and recipient: the email transport skips a campaign key it already delivered.
-        campaign_key=f"workflow_suggestion_{proposal.id}",
+        campaign_key=campaign_key,
         template_name="workflow_suggestion_filed",
         subject=f"PostHog suggested a change to {workflow_name}",
         template_context={
             "workflow_name": workflow_name,
-            # Escaped and defanged here, so the template renders them with `safe`: a URL in scout text must not
-            # become a link in a PostHog email.
-            "suggestion_title": sanitize_email_string(proposal.title),
-            "suggestion_rationale": sanitize_email_string(proposal.rationale),
+            "suggestion_title": _defanged(proposal.title),
+            "suggestion_rationale": _defanged(proposal.rationale),
             "suggestion_path": path,
             **get_email_team_and_org_context(team=team),
         },

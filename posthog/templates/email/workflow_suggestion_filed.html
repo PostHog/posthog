@@ -5,8 +5,8 @@
     <p>
         PostHog suggested a change to <b>{{ workflow_name }}</b> in project <b>{{ team_name }}</b>.
     </p>
-    <p><b>{{ suggestion_title|safe }}</b></p>
-    <p>{{ suggestion_rationale|safe }}</p>
+    <p><b>{{ suggestion_title }}</b></p>
+    <p>{{ suggestion_rationale }}</p>
     <p>Nothing changes until someone approves the suggestion and publishes the workflow.</p>
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri suggestion_path %}">Review suggestion</a>

@@ -6,11 +6,14 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -991,6 +994,7 @@ class TestWorkflowProposals(APIBaseTest):
                 organization_member=OrganizationMembership.objects.get(user=member),
             )
         recipient = User.objects.get(email=expected_email) if expected_email else self.user
+        HogFlow.objects.filter(id=flow_id).update(name="Verify at attacker.example.com")
 
         self._propose(flow_id, rationale="The open rate on https://evil.example.com/landing dropped.")
 
@@ -998,7 +1002,44 @@ class TestWorkflowProposals(APIBaseTest):
         assert notification.resolved_user_ids == [recipient.id]
         assert notification.source_url == f"/project/{self.team.id}/workflows/{flow_id}/self-driving"
         mock_email.return_value.add_user_recipient.assert_called_once_with(recipient)
-        assert "https://evil.example.com" not in mock_email.call_args.kwargs["template_context"]["suggestion_rationale"]
+        context = mock_email.call_args.kwargs["template_context"]
+        assert "https://evil.example.com" not in context["suggestion_rationale"]
+        assert "attacker.example.com" not in context["workflow_name"]
+
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_a_retry_after_the_recipient_changes_does_not_notify_someone_else(
+        self, mock_email, _mock_available, _mock_flag
+    ):
+        flow_id = self._create_active_flow(optimize=False)
+        member = self._member_who_opts_in(flow_id)
+        proposal = self._propose(flow_id, source_id="run:1:finding:retry-identity")
+        MessagingRecord.objects.create(
+            email_hash=get_email_hash(member.email),
+            campaign_key=f"workflow_suggestion_{proposal['id']}",
+            sent_at=timezone.now(),
+        )
+        member.is_active = False
+        member.save()
+        mock_email.reset_mock()
+
+        retry = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Retry of the same finding",
+                "rationale": "The producer retried after a timeout.",
+                "content": {"actions": [_trigger_action(), _webhook_action()]},
+                "base_version": 1,
+                "source_id": "run:1:finding:retry-identity",
+            },
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+        assert retry.status_code == 200, retry.json()
+
+        mock_email.assert_not_called()
+        notification = stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id)
+        assert notification.resolved_user_ids == [member.id]
 
     @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
     @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
