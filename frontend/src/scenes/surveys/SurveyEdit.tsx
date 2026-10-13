@@ -1850,9 +1850,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               ) : (
                                                                   <SurveyEventTrigger />
                                                               )}
-                                                              {!!survey.appearance?.surveyPopupDelaySeconds && (
-                                                                  <SurveyCancelEventTrigger />
-                                                              )}
+                                                              {survey.type !== SurveyType.Widget &&
+                                                                  !!survey.appearance?.surveyPopupDelaySeconds && (
+                                                                      <SurveyCancelEventTrigger />
+                                                                  )}
                                                           </>
                                                       )}
                                                   </LemonField.Pure>
