@@ -33,6 +33,7 @@ from .test_suggestions import make_draft
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
@@ -180,28 +181,36 @@ class TestAcceptSuggestion(APIBaseTest):
 
     @parameterized.expand(
         [
-            (
-                "query_still_groups_by_the_key",
-                DAILY_COUNTS,
-                status.HTTP_200_OK,
-                {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0},
-            ),
+            ("query_still_groups_by_the_key", DAILY_COUNTS, "day", status.HTTP_200_OK, STORED_DAY_KEY),
             (
                 "query_changed_since_the_suggestion",
                 "SELECT timestamp, event FROM events",
+                "day",
                 status.HTTP_409_CONFLICT,
-                None,
+                STORED_DAY_KEY,
             ),
+            ("full_refresh_clears_leftover_keys", DAILY_COUNTS, None, status.HTTP_200_OK, None),
         ]
     )
-    def test_accepting_an_incremental_suggestion_stores_its_keys_while_the_query_allows_them(
-        self, _name: str, hogql: str, expected_status: int, expected_config: dict | None
+    def test_accepting_applies_the_refresh_mode_the_suggestion_shows(
+        self,
+        _name: str,
+        hogql: str,
+        incremental_key: str | None,
+        expected_status: int,
+        expected_config: dict | None,
     ) -> None:
-        DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(query={"kind": "HogQLQuery", "query": hogql})
-        incremental = replace(PAYLOADS[WarehouseSuggestionKind.MATERIALIZE], incremental_key="day", unique_key=("day",))
+        DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(
+            query={"kind": "HogQLQuery", "query": hogql}, incremental_config=STORED_DAY_KEY
+        )
+        payload = replace(
+            PAYLOADS[WarehouseSuggestionKind.MATERIALIZE],
+            incremental_key=incremental_key,
+            unique_key=("day",) if incremental_key else (),
+        )
         draft = make_draft(fingerprint="materialize:orders", subject_id=self.view.id)
         suggestion = ingest_surfaced(
-            self.team.id, replace(draft, kind=WarehouseSuggestionKind.MATERIALIZE, payload=incremental)
+            self.team.id, replace(draft, kind=WarehouseSuggestionKind.MATERIALIZE, payload=payload)
         )
 
         accepted = self._accept(suggestion.id)

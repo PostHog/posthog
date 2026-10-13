@@ -1,6 +1,9 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
+from functools import cache
 from uuid import UUID
+
+from posthog.hogql.database.database import Database
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -51,12 +54,15 @@ class MaterializeCandidate(Candidate):
     def evaluate(self, context: CandidateContext) -> CandidateResult:
         drafts = []
         rejections = []
+        team_database = cache(
+            lambda: Database.create_for(team_id=context.team_id, bypass_warehouse_access_control=True)
+        )
         for saved_query in context.inventory.saved_queries.values():
             subject = Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=saved_query.id)
             reads = context.reads.reads_of(subject)
             if reads is None or reads.human_requests == 0 or not self._is_unmaterialized(context, saved_query):
                 continue
-            outcome = self._propose(context, saved_query, reads)
+            outcome = self._propose(context, saved_query, reads, team_database)
             if isinstance(outcome, str):
                 rejections.append(Rejection(subject=subject, reason=outcome))
                 continue
@@ -94,7 +100,11 @@ class MaterializeCandidate(Candidate):
         return not saved_query.materializes and context.is_suggestible_view(saved_query)
 
     def _propose(
-        self, context: CandidateContext, saved_query: SavedQueryDefinition, reads: SubjectReads
+        self,
+        context: CandidateContext,
+        saved_query: SavedQueryDefinition,
+        reads: SubjectReads,
+        team_database: Callable[[], Database],
     ) -> _Proposal | str:
         rejection = self._read_floor_rejection(context, reads)
         if rejection is not None:
@@ -119,7 +129,7 @@ class MaterializeCandidate(Candidate):
         sources = _classify_sources(context, saved_query.id, frequency)
         freshness_today = int(frequency.max_data_age.total_seconds()) or None
         interval_seconds = int(estimate.interval.total_seconds())
-        incremental_config = self._incremental_config(context, saved_query)
+        incremental_config = self._incremental_config(context, saved_query, team_database)
         return _Proposal(
             payload=MaterializePayload(
                 subject_name=saved_query.name,
@@ -137,12 +147,14 @@ class MaterializeCandidate(Candidate):
         )
 
     def _incremental_config(
-        self, context: CandidateContext, saved_query: SavedQueryDefinition
+        self, context: CandidateContext, saved_query: SavedQueryDefinition, team_database: Callable[[], Database]
     ) -> IncrementalConfig | None:
         if not incremental_enabled(context.team_id):
             return None
         column_types = context.inventory.saved_query_columns.get(str(saved_query.id), {})
-        return propose_incremental_config(saved_query.hogql, column_types)
+        if propose_incremental_config(saved_query.hogql, column_types) is None:
+            return None
+        return propose_incremental_config(saved_query.hogql, column_types, database=team_database())
 
     def _read_floor_rejection(self, context: CandidateContext, reads: SubjectReads) -> str | None:
         rules = context.rules.materialize

@@ -25,7 +25,10 @@ BEFORE_THE_WINDOW = NOW - timedelta(days=2 * RULES.window_days)
 SCENES = ("SQLEditor", "Dashboard")
 INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.candidates.materialize.incremental_enabled"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
-DAILY_COUNT_COLUMNS = {"day": {"clickhouse": "DateTime64(6, 'UTC')"}, "c": {"clickhouse": "UInt64"}}
+DAILY_COUNT_COLUMNS = {
+    "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
+    "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
+}
 FULL_ROLLUP = RollupDays(days_with_data=RULES.window_days, recent_days_with_data=RULES.lifecycle.expire_after_days)
 
 

@@ -3,17 +3,23 @@ from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionAssetOutcome
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
-from products.warehouse_suggestions.backend.logic.candidates.materialize import allowed_intervals, estimate_savings
+from products.warehouse_suggestions.backend.logic.candidates.materialize import (
+    MaterializeCandidate,
+    allowed_intervals,
+    estimate_savings,
+)
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
@@ -28,6 +34,10 @@ VIEW_ID = uuid4()
 AT_CERTIFY_FLOORS = {"human_users": 5, "human_days": 20}
 HOUR = timedelta(hours=1)
 DAY = timedelta(hours=24)
+INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.candidates.materialize.incremental_enabled"
+DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+RECENT_EVENTS = "SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 100"
+DAILY_COUNT_TYPES = {"day": "DateTime64(6, 'UTC')", "c": "UInt64"}
 
 
 class TestCertifyCandidate(SimpleTestCase):
@@ -150,6 +160,43 @@ class TestMaterializeRules(SimpleTestCase):
         estimate = estimate_savings(context(team_reads({})), reads, DAY)
 
         assert estimate.clears_a_floor is expect_clear
+
+
+class TestMaterializeRefreshMode(BaseTest):
+    @parameterized.expand(
+        [
+            ("incremental", DAILY_COUNTS, True, "day", ("day",)),
+            ("flag_off", DAILY_COUNTS, False, None, ()),
+            ("limited_query", RECENT_EVENTS, True, None, ()),
+            ("no_key_column", "SELECT count() AS c FROM events", True, None, ()),
+            ("grouped_over_a_limited_view", DAILY_COUNTS.replace("FROM events", "FROM recent_events"), True, None, ()),
+        ]
+    )
+    def test_a_suggestion_names_its_refresh_mode(
+        self, _name: str, hogql: str, flag_on: bool, incremental_key: str | None, unique_key: tuple[str, ...]
+    ) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="recent_events",
+            query={"kind": "HogQLQuery", "query": RECENT_EVENTS},
+            columns={"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}},
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="daily_counts", query={"kind": "HogQLQuery", "query": hogql}
+        )
+        dag = DAG.objects.create(team=self.team, name="Default")
+        Node.objects.create(team=self.team, dag=dag, name="daily_counts", saved_query=saved_query, type=NodeType.VIEW)
+        candidate_context = context(
+            team_reads({view_subject(saved_query.id): busy_reads(human_duration_ms=200 * 10_000)}),
+            views=[view(saved_query.id, name="daily_counts", hogql=hogql)],
+            saved_query_columns={str(saved_query.id): DAILY_COUNT_TYPES},
+            team_id=self.team.pk,
+        )
+
+        with patch(INCREMENTAL_FLAG, return_value=flag_on):
+            [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
+
+        assert (draft.payload.incremental_key, draft.payload.unique_key) == (incremental_key, unique_key)
 
 
 class TestDeprecateCandidate(SimpleTestCase):
