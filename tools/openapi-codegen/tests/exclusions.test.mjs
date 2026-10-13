@@ -116,6 +116,70 @@ describe('applyNestedExclusions', () => {
         expect(innerProps).toHaveProperty('key')
     })
 
+    it('removes a nested property via wildcard path (dict values)', () => {
+        const spec = {
+            paths: {
+                '/api/functions/': {
+                    post: {
+                        operationId: 'functions_create',
+                        requestBody: {
+                            content: {
+                                'application/json': {
+                                    schema: { $ref: '#/components/schemas/Function' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            components: {
+                schemas: {
+                    Function: {
+                        type: 'object',
+                        properties: {
+                            inputs: {
+                                type: 'object',
+                                additionalProperties: { $ref: '#/components/schemas/Input' },
+                            },
+                            mappings: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        inputs: {
+                                            type: 'object',
+                                            additionalProperties: { $ref: '#/components/schemas/Input' },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    Input: {
+                        type: 'object',
+                        properties: {
+                            value: { type: 'string' },
+                            bytecode: { type: 'array', items: {} },
+                        },
+                    },
+                },
+            },
+        }
+
+        applyNestedExclusions(
+            spec,
+            new Map([['functions_create', ['inputs.*.bytecode', 'mappings.*.inputs.*.bytecode']]])
+        )
+
+        expect(spec.components.schemas.Input.properties).toHaveProperty('bytecode')
+
+        const body = spec.paths['/api/functions/'].post.requestBody.content['application/json'].schema
+        for (const input of [body.properties.inputs, body.properties.mappings.items.properties.inputs]) {
+            expect(input.additionalProperties.properties).not.toHaveProperty('bytecode')
+            expect(input.additionalProperties.properties).toHaveProperty('value')
+        }
+    })
+
     it('removes a property via object path (no wildcard)', () => {
         const spec = {
             paths: {

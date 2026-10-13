@@ -27,16 +27,7 @@ tools:
             convertToProjectTimezone, for example {"convertToProjectTimezone": true} to export them in the project
             timezone.
         exclude_params:
-            - id
-            - team_id
-            - created_at
-            - last_updated_at
-            - last_paused_at
-            - latest_runs
             - filters
-            - start_at
-            - end_at
-            - integration
     batch-export-delete:
         operation: batch_exports_destroy
         enabled: true
@@ -83,14 +74,8 @@ tools:
             and Redshift. The destination type cannot be changed. Do not change the model field on an existing batch
             export.
         exclude_params:
-            - id
-            - team_id
-            - created_at
-            - last_updated_at
-            - last_paused_at
-            - latest_runs
             - filters
-            - integration
+
     batch-exports-list:
         operation: batch_exports_list
         enabled: true

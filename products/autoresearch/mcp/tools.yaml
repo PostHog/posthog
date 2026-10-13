@@ -44,14 +44,6 @@ tools:
             target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique
             among the project's non-archived pipelines. After creating, call autoresearch-train-create to start an
             asynchronous agent training run.
-        exclude_params:
-            - id
-            - created_by
-            - created_at
-            - updated_at
-            - last_scored_at
-            - status
-            - iteration_budget_remaining
         feature_flag: autoresearch
     autoresearch-list:
         operation: autoresearch_list
@@ -208,12 +200,6 @@ tools:
             autoresearch-create with name set to suggested_name and the same five fields plus output_person_property.
             For an action target, pass the same target_definition to both calls; target_event then only labels it, and
             both calls need the action:read scope.
-        exclude_params:
-            - resolved_activity_event
-            - activity_event_alternatives
-            - display_name
-            - description
-            - notes
         feature_flag: autoresearch
     autoresearch-resume-create:
         operation: autoresearch_resume_create
@@ -319,12 +305,6 @@ tools:
             to see how the suggestion was interpreted. Examples: 'try a gradient boosting model', 'remove recency
             features — I suspect leakage', 'the target event has a 7-day spike on Mondays, account for day-of-week'.
             Suggestions survive pipeline pauses and are included in the next training batch when the pipeline resumes.
-        exclude_params:
-            - source
-            - status
-            - agent_response
-            - created_by
-            - linked_iteration_ids
         feature_flag: autoresearch
     autoresearch-suggestions-list:
         operation: autoresearch_suggestions_list

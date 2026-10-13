@@ -144,4 +144,3 @@ tools:
             'plan', 'role', or 'company'. Provide the property key and optionally a search value to filter results.
         exclude_params:
             - format
-            - force_refresh

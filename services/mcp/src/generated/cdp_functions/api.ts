@@ -134,11 +134,7 @@ export const HogFunctionsCreateBody = () => zod.object({
             zod.string(),
             zod.object({
                 value: zod.unknown().optional(),
-                templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()).optional(),
                 bytecode_contract: zod.string().optional(),
-                order: zod.number().optional(),
-                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -233,14 +229,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                         zod.string(),
                         zod.object({
                             value: zod.unknown().optional(),
-                            templating: zod
-                                .enum(['hog', 'liquid'])
-                                .optional()
-                                .describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()).optional(),
                             bytecode_contract: zod.string().optional(),
-                            order: zod.number().optional(),
-                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -402,11 +391,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
             zod.string(),
             zod.object({
                 value: zod.unknown().optional(),
-                templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()).optional(),
                 bytecode_contract: zod.string().optional(),
-                order: zod.number().optional(),
-                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -501,14 +486,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                         zod.string(),
                         zod.object({
                             value: zod.unknown().optional(),
-                            templating: zod
-                                .enum(['hog', 'liquid'])
-                                .optional()
-                                .describe('\* `hog` - hog\n\* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()).optional(),
                             bytecode_contract: zod.string().optional(),
-                            order: zod.number().optional(),
-                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
