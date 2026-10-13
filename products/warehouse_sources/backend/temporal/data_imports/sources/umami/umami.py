@@ -260,7 +260,7 @@ def get_rows(
                     manager.safe_point()
                     if "startDate" not in dates or "endDate" not in dates:
                         raise UmamiError("Umami returned an invalid date range. Check the server API version.")
-                    if dates["startDate"] is None and dates["endDate"] is None:
+                    if dates["startDate"] is None or dates["endDate"] is None:
                         state = replace(state, completed_websites=[*state.completed_websites, website_id])
                         manager.save_state(state)
                         manager.safe_point()

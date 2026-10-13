@@ -155,6 +155,17 @@ def test_invalid_or_capped_response_cannot_replace_the_table(body: dict[str, Any
     assert result.committed_states == []
 
 
+@pytest.mark.parametrize("dates", [{"startDate": None, "endDate": None}, {"startDate": "2024-01-01", "endDate": None}])
+def test_website_without_a_complete_date_range_is_treated_as_empty(dates: dict[str, str | None]) -> None:
+    result = driver().run(
+        "events",
+        route({"/websites": [page([{"id": "site-a"}]), page([])], "/site-a/daterange": [ScriptedResponse(json=dates)]}),
+    )
+    assert result.raised is None
+    assert result.rows == []
+    assert not any(request.path.endswith("/events") for request in result.requests)
+
+
 @pytest.mark.parametrize(
     "dates",
     [
