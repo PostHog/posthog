@@ -157,7 +157,7 @@
                                                         "type": "string"
                                                     },
                                                     "type": {
-                                                        "description": "Which kind of property the name refers to.\n\n* `event` - event\n* `person` - person\n* `group` - group\n* `session` - session",
+                                                        "description": "Which kind of property the name refers to.\n\n* `event` - Event\n* `person` - Person\n* `group` - Group\n* `session` - Session",
                                                         "enum": ["event", "person", "group", "session"],
                                                         "type": "string"
                                                     }

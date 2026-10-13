@@ -20869,10 +20869,10 @@ export namespace Schemas {
     }
 
     /**
-     * * `event` - event
-     * * `person` - person
-     * * `group` - group
-     * * `session` - session
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session
      */
     export type CanvasDataPropertyDeclarationTypeEnum = typeof CanvasDataPropertyDeclarationTypeEnum[keyof typeof CanvasDataPropertyDeclarationTypeEnum];
 
@@ -20895,10 +20895,10 @@ export namespace Schemas {
       name: string;
       /** Which kind of property the name refers to.
        *
-       * * `event` - event
-       * * `person` - person
-       * * `group` - group
-       * * `session` - session */
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
       type: CanvasDataPropertyDeclarationTypeEnum;
     }
 
@@ -21348,9 +21348,9 @@ export namespace Schemas {
     }
 
     /**
-     * * `unchecked` - unchecked
-     * * `ok` - ok
-     * * `drift` - drift
+     * * `unchecked` - Unchecked
+     * * `ok` - Ok
+     * * `drift` - Drift
      */
     export type CanvasDataCheckStatusEnum = typeof CanvasDataCheckStatusEnum[keyof typeof CanvasDataCheckStatusEnum];
 
@@ -21379,9 +21379,9 @@ export namespace Schemas {
     export interface CanvasDataCheck {
       /** 'unchecked' before the first nightly run, 'ok' when everything declared exists, else 'drift'.
        *
-       * * `unchecked` - unchecked
-       * * `ok` - ok
-       * * `drift` - drift */
+       * * `unchecked` - Unchecked
+       * * `ok` - Ok
+       * * `drift` - Drift */
       status: CanvasDataCheckStatusEnum;
       /**
          * When the check last ran, if ever.

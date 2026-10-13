@@ -261,12 +261,19 @@ class CanvasOperationDeclarationSerializer(serializers.Serializer):
         return attrs
 
 
+class CanvasDataPropertyDeclarationType(models.TextChoices):
+    EVENT = "event"
+    PERSON = "person"
+    GROUP = "group"
+    SESSION = "session"
+
+
 class CanvasDataPropertyDeclarationSerializer(serializers.Serializer):
     """One property a canvas reads, with the kind of property it is."""
 
     name = serializers.CharField(max_length=400, help_text="Property name, e.g. '$current_url' or 'plan'.")
     type = serializers.ChoiceField(
-        choices=["event", "person", "group", "session"], help_text="Which kind of property the name refers to."
+        choices=CanvasDataPropertyDeclarationType.choices, help_text="Which kind of property the name refers to."
     )
 
 
@@ -1289,11 +1296,17 @@ class CanvasDataCheckMissingSerializer(serializers.Serializer):
     )
 
 
+class CanvasDataCheckStatus(models.TextChoices):
+    UNCHECKED = "unchecked"
+    OK = "ok"
+    DRIFT = "drift"
+
+
 class CanvasDataCheckSerializer(serializers.Serializer):
     """The latest nightly data dependency check of a canvas."""
 
     status = serializers.ChoiceField(
-        choices=["unchecked", "ok", "drift"],
+        choices=CanvasDataCheckStatus.choices,
         help_text="'unchecked' before the first nightly run, 'ok' when everything declared exists, else 'drift'.",
     )
     checked_at = serializers.DateTimeField(allow_null=True, help_text="When the check last ran, if ever.")
