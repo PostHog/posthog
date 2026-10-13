@@ -204,7 +204,7 @@ class TestGroupTables:
         rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
 
         assert rebuilt is not None
-        assert rebuilt.key == table.key
+        assert rebuilt.same_location(table)
         assert (rebuilt.csv, rebuilt.pattern, rebuilt.source_format) == (
             CsvOptions(has_header=False, allow_double_quotes=False),
             "*.txt",

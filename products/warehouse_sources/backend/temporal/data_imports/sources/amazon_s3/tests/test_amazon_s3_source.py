@@ -1,9 +1,11 @@
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+import pyarrow as pa
 from fsspec import AbstractFileSystem
 from fsspec.implementations.local import LocalFileSystem
 
@@ -67,7 +69,7 @@ def read_rows(source: AmazonS3Source, config: AmazonS3SourceConfig, schema_name:
     inputs = source_inputs(schema_name)
     inputs.schema_metadata = metadata
     response = source.source_for_pipeline(config, inputs)
-    return [row for table in response.items() for row in table.to_pylist()]
+    return [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
 
 
 @pytest.mark.parametrize("with_metadata", [True, False])

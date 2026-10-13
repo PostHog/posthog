@@ -4,7 +4,7 @@ import gzip
 import json
 import zlib
 from collections.abc import Iterator
-from typing import IO, Any, cast
+from typing import IO, Any, Literal, cast
 
 import pyarrow as pa
 import pyarrow.csv as pa_csv
@@ -116,7 +116,7 @@ def iter_csv_tables(
 
     skipped_rows = 0
 
-    def skip_invalid_row(_row: Any) -> str:
+    def skip_invalid_row(_row: pa_csv.InvalidRow) -> Literal["skip", "error"]:
         nonlocal skipped_rows
         skipped_rows += 1
         return "skip"

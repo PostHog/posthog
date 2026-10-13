@@ -66,9 +66,13 @@ class TableDefinition:
     source_format: FileFormatChoice
     files: tuple[StoredObject, ...] = ()
 
-    @property
-    def key(self) -> tuple[str, str | None, str, str]:
-        return (self.kind, self.scope, self.path, self.file_format)
+    def same_location(self, other: "TableDefinition") -> bool:
+        return (
+            self.kind == other.kind
+            and self.scope == other.scope
+            and self.path == other.path
+            and self.file_format == other.file_format
+        )
 
     def schema_metadata(self) -> dict[str, Any]:
         return {
@@ -321,7 +325,7 @@ def resolve_table_files(
     )
     for candidate in group_tables(objects, options, root_name=table.name, logger=logger):
         # A combined table keeps its identity when a new file changes which formats it mixes.
-        if candidate.key == table.key or (table.scope == "all" and candidate.scope == "all"):
+        if candidate.same_location(table) or (table.scope == "all" and candidate.scope == "all"):
             return dataclasses.replace(candidate, name=table.name)
     raise ObjectStorageError(
         f"{NO_TABLE_FILES_ERROR} '{table.name}'. The files it was discovered from may have been renamed, moved, "
