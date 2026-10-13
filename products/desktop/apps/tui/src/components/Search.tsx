@@ -4,21 +4,24 @@ import type { SearchState } from "../hooks/useSearch";
 import { IndicatorGlyph } from "./Sidebar";
 import { Spinner } from "./Spinner";
 
-// Screen rows the results do not get: the query, the gap under it, the key hints, and the spare bottom row.
+// Rows the results do not get: the query, the gap under it, the key hints, and the spare bottom row.
 const CHROME_ROWS = 4;
 
+// The task search, full screen or in a pane that gives it its height.
 export function Search({
-  search: { query, rows, error, index },
+  search: { query, rows, loading, error, index },
+  height,
 }: {
   search: SearchState;
+  height?: number;
 }): ReactElement {
-  const { rows: height } = useWindowSize();
-  const count = Math.max(1, height - CHROME_ROWS);
-  // The window follows the cursor, so a long list scrolls instead of running off the screen.
-  const start = Math.max(
-    0,
-    Math.min(index - count + 1, (rows?.length ?? 0) - count),
+  const window = useWindowSize();
+  const count = Math.max(
+    1,
+    (height ?? window.rows) - CHROME_ROWS - (loading ? 1 : 0),
   );
+  // The window follows the cursor, so a long list scrolls instead of running off the screen.
+  const start = Math.max(0, Math.min(index - count + 1, rows.length - count));
 
   return (
     <Box flexGrow={1} flexDirection="column" paddingX={1} paddingBottom={1}>
@@ -31,9 +34,7 @@ export function Search({
         <Text color="red" wrap="truncate-end">
           Couldn't search tasks: {error}
         </Text>
-      ) : rows === null ? (
-        <Spinner label="Searching" />
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && !loading ? (
         <Text dimColor>No tasks found</Text>
       ) : (
         rows.slice(start, start + count).map((row, offset) => (
@@ -50,6 +51,7 @@ export function Search({
           </Box>
         ))
       )}
+      {loading && !error && <Spinner label="Searching" />}
       <Box flexGrow={1} />
       <Text dimColor>↑↓ move · Enter open · Esc close</Text>
     </Box>

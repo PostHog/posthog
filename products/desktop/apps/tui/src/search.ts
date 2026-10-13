@@ -45,6 +45,17 @@ export function searchRows(
   });
 }
 
+// The loaded tasks a query already matches, shown while the server's answer is on its way.
+export function cachedMatches(tasks: Task[], term: string): Task[] {
+  const needle = term.trim().toLowerCase();
+  if (!needle) return [];
+  return tasks.filter((task) =>
+    `${task.title ?? ""}\n${task.description ?? ""}`
+      .toLowerCase()
+      .includes(needle),
+  );
+}
+
 // The query after a key: typed or pasted text joins the end, and Backspace takes the last character.
 export function editQuery(query: string, sequence: string): string {
   if (matchesKey(sequence, "backspace")) return query.slice(0, -1);

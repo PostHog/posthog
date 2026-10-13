@@ -234,6 +234,7 @@ export function App({
   const search = useSearch({
     work,
     recent: page.tasks,
+    known,
     setLayout,
     working: turns.working,
     waiting: turns.waiting,
@@ -523,6 +524,7 @@ export function App({
       }}
       extraOffer={node.id === todayPaneId ? todayOffer : null}
       repoPicker={repoPicker.pickerFor(node.id) ?? null}
+      search={search.open && search.paneId === node.id ? search : null}
       onUndelivered={(at) =>
         node.taskId && undelivered(node.id, node.taskId, at)
       }
@@ -564,7 +566,7 @@ export function App({
     />
   );
 
-  if (search.open) return <Search search={search} />;
+  if (search.open && search.paneId === null) return <Search search={search} />;
   if (helpOpen) return <Help />;
   if (settings.open) return <Settings settings={settings} />;
   if (welcomeStep)

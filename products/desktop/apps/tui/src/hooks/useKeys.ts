@@ -122,7 +122,16 @@ export function useKeys({
 
   useInput((input, key) => {
     const shortcut = shortcutFor(input, key);
-    if (shortcut === "search") return search.toggle();
+    if (shortcut === "search") {
+      // From an empty pane in a split, the search draws in that pane and its pick fills it.
+      const focused = findPane(layout, workspace.focusedPaneId);
+      const inPane =
+        !search.open &&
+        layout.focus === "pane" &&
+        paneIds(workspace.root).length > 1 &&
+        focused?.taskId === null;
+      return search.toggle(inPane ? workspace.focusedPaneId : undefined);
+    }
     if (search.open && (shortcut === "close" || key.escape)) {
       return search.toggle();
     }
