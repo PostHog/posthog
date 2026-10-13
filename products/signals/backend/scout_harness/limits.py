@@ -30,14 +30,14 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
-# How many of a lane's newest runs the self-heal checks for a worker death after the TaskRun left
-# `QUEUED`/`IN_PROGRESS`. The Tasks inactivity timeout closes such a TaskRun on its own, so the
-# run is no longer stuck, only unreported. Every dispatch of the lane runs the self-heal first, so
+# How many of a lane's newest runs the self-heal checks for orphans. An orphan is a run stuck in
+# `QUEUED`/`IN_PROGRESS`, or a run that the Tasks inactivity timeout closed after a worker death,
+# which is no longer stuck, only unreported. Every dispatch of the lane runs the self-heal first, so
 # the orphan is one of the newest runs at the next dispatch. The bound is a run count and not an
 # age, because an age window expires before a 30-day interval, a monthly cron, or a paused lane
 # dispatches again. The count also keeps the per-dispatch scan to a short read of the
 # `(team, skill_name, -created_at)` index.
-FINISHED_ORPHAN_RECENT_RUNS = 10
+ORPHAN_RECENT_RUNS = 10
 
 # Bridge-row `metadata` key the self-heal stamps when it reports a run that the Tasks inactivity
 # timeout closed. It makes the reap a one-time claim, so a later dispatch does not report it again.

@@ -9,8 +9,6 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { humanList } from 'lib/utils/strings'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
-
 import { getServiceName } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/logContextUtils'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -52,12 +50,9 @@ export function MissingLinkInvestigate({
     surface: LogContextLinksSurface
     onLeave?: () => void
 }): JSX.Element {
-    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
-    const { todayRailEnabled } = useValues(todayShellLogic)
-    const { launching } = useValues(missingLinkInvestigateLogic)
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { launching, startsSidePanelTask } = useValues(missingLinkInvestigateLogic)
     const { startTask } = useActions(missingLinkInvestigateLogic)
-    // Only the new PostHog AI side panel turns a run prompt into a task; the legacy view would start a chat.
-    const canStartTask = isMaxAvailable && effectivePhaiView === 'new' && !todayRailEnabled
 
     useOnMountEffect(() => captureInvestigate('shown', log, missing, surface))
 
@@ -84,12 +79,12 @@ export function MissingLinkInvestigate({
                 }
                 data-attr={`logs-${surface}-missing-link-agent-prompt`}
             />
-            {canStartTask && (
+            {isMaxAvailable && (
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
                     icon={<IconSparkles />}
-                    loading={launching}
+                    loading={startsSidePanelTask && launching}
                     onClick={() => {
                         captureInvestigate('clicked', log, missing, surface, 'posthog-ai-task')
                         startTask(buildMissingLinkPrompt(log, missing), onLeave ?? (() => {}))
