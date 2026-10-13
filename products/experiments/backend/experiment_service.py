@@ -65,6 +65,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.logic.result_stats import MetricTimeseries
+from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
     MetricCalculationConfig,
@@ -4516,11 +4518,9 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
-        from ee.hogai.context.experiment.format import (
-            ExperimentTimeseriesFormatter,  # noqa: PLC0415 — keeps the heavy ee.hogai/langgraph chain off the import path
-        )
-
-        response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
+        response["formatted_results"] = ExperimentTimeseriesFormatter(
+            MetricTimeseries.from_stored(status=overall_status, timeseries=timeseries)
+        ).format()
         return response
 
     def request_timeseries_recalculation(self, experiment: Experiment, *, metric: dict) -> dict:
@@ -4540,6 +4540,9 @@ class ExperimentService:
             )
         metric = calculation_config.definition
         fingerprint = calculation_config.calculation_key()
+
+        # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
+        enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
 
         existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config)
 

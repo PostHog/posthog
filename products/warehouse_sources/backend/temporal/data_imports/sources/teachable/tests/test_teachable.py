@@ -2,32 +2,33 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teachable import (
+    TeachableSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.source import TeachableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable import (
     TeachableResumeConfig,
     TeachableUsersPaginator,
     _format_teachable_datetime,
     _rest_api_client_config,
     get_resource,
-    teachable_source,
     validate_credentials,
 )
 
 
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+def _driver() -> SourceDriver:
+    return SourceDriver(TeachableSource(), TeachableSourceConfig(api_key="key"))
 
 
 def _users_response(meta: dict[str, Any]) -> Mock:
@@ -116,11 +117,9 @@ class TestTeachableTransport:
             (500, False, "unexpected status code"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, status, expected_valid, message_fragment, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        is_valid, message = validate_credentials("teachable-key")
+    def test_validate_credentials_status_mapping(self, status, expected_valid, message_fragment) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            is_valid, message = validate_credentials("teachable-key")
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -128,11 +127,11 @@ class TestTeachableTransport:
         else:
             assert message is not None and message_fragment in message
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://developers.teachable.com/v1/courses"
-        assert call.kwargs["headers"]["apiKey"] == "teachable-key"
+        request = network.requests_log[0]
+        assert request.origin + request.path == "https://developers.teachable.com/v1/courses"
+        assert request.headers["apikey"] == "teachable-key"
         # The validation session must refuse redirects so a 3xx can't replay the apiKey off-host.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        assert network.session_options[0]["allow_redirects"] is False
 
     def test_rest_client_config_pins_host_and_blocks_redirects(self) -> None:
         # A redirect off the Teachable host would otherwise replay the apiKey credential header.
@@ -144,76 +143,52 @@ class TestTeachableTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource("course_enrollments", should_use_incremental_field=False)
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_enrollments_fanout_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("courses", [{"id": 11, "name": "Course"}]),
-            _FakeDltResource(
-                "course_enrollments",
-                [{"user_id": 7, "enrolled_at": "2026-01-01T00:00:00Z", "_courses_id": 11}],
+    def test_enrollments_fanout_row_format(self) -> None:
+        result = _driver().run(
+            "course_enrollments",
+            route(
+                {
+                    "/v1/courses": [ScriptedResponse(json={"courses": [{"id": 11, "name": "Course"}]})],
+                    "/v1/courses/11/enrollments": [
+                        ScriptedResponse(json={"enrollments": [{"user_id": 7, "enrolled_at": "2026-01-01T00:00:00Z"}]})
+                    ],
+                }
             ),
-        ]
-
-        response = teachable_source(
-            api_key="key",
-            endpoint="course_enrollments",
-            team_id=1,
-            job_id="job-1",
         )
 
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"user_id": 7, "enrolled_at": "2026-01-01T00:00:00Z", "course_id": 11}]
+        assert result.rows == [{"user_id": 7, "enrolled_at": "2026-01-01T00:00:00Z", "course_id": 11}]
+        assert result.response is not None
         # user_id is only unique per course, so the parent course id is part of the key.
-        assert response.primary_keys == ["course_id", "user_id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["enrolled_at"]
+        assert result.response.primary_keys == ["course_id", "user_id"]
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["enrolled_at"]
 
     @parameterized.expand(
         [
-            ("page_endpoint", TeachableResumeConfig(page=5), {"page": 5}),
-            ("users_endpoint", TeachableResumeConfig(search_after=99), {"search_after": 99}),
+            ("page_endpoint", "courses", TeachableResumeConfig(page=5), "page", "5"),
+            ("users_endpoint", "users", TeachableResumeConfig(search_after=99), "search_after", "99"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable.rest_api_resource")
-    def test_resume_state_seeds_paginator(self, _name, saved_state, expected_initial, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = saved_state
-
-        teachable_source(
-            api_key="key",
-            endpoint="users" if saved_state.search_after else "courses",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_resume_state_seeds_paginator(self, _name, endpoint, saved_state, param, expected) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={endpoint: [{"id": 100}], "meta": {"number_of_pages": 5, "per_page": 100}})],
+            resume_state=saved_state,
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == expected_initial
+        assert result.requests[0].param(param) == expected
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable.rest_api_resource")
-    def test_resume_hook_saves_state_only_when_resumable(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        teachable_source(
-            api_key="key",
-            endpoint="courses",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_resume_hook_saves_state_only_when_resumable(self) -> None:
+        result = _driver().run(
+            "courses",
+            [
+                ScriptedResponse(json={"courses": [{"id": 1}], "meta": {"number_of_pages": 2}}),
+                ScriptedResponse(json={"courses": [{"id": 2}], "meta": {"number_of_pages": 2}}),
+            ],
         )
 
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-
-        resume_hook({"page": 3})
-        assert manager.save_state.call_args.args[0] == TeachableResumeConfig(page=3, search_after=None)
-
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        resume_hook({})
-        manager.save_state.assert_not_called()
+        # The cursor is saved while another page remains, and not after the last page.
+        assert result.saved_states == [TeachableResumeConfig(page=2, search_after=None)]
 
     @parameterized.expand(
         [
@@ -221,17 +196,14 @@ class TestTeachableTransport:
             ("full_refresh_asc", False, "asc"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable.rest_api_resource")
-    def test_transactions_sort_mode(
-        self, _name, should_use_incremental_field, expected, mock_rest_api_resource
-    ) -> None:
-        response = teachable_source(
-            api_key="key",
-            endpoint="transactions",
-            team_id=1,
-            job_id="job-1",
+    def test_transactions_sort_mode(self, _name, should_use_incremental_field, expected) -> None:
+        result = _driver().run(
+            "transactions",
+            always(ScriptedResponse(json={"transactions": [], "meta": {"number_of_pages": 1}})),
             should_use_incremental_field=should_use_incremental_field,
         )
+        response = result.response
+        assert response is not None
         assert response.sort_mode == expected
         assert response.primary_keys == ["id"]
         assert response.partition_keys == ["created_at"]

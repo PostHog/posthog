@@ -1,10 +1,16 @@
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rocketlane import (
     RocketlaneSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.rocketlane import (
+    RocketlaneResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source import RocketlaneSource
 
@@ -60,44 +66,38 @@ class TestRocketlaneSource:
             ("unauthorized", 401, False, "Invalid Rocketlane API key"),
             ("forbidden", 403, False, "Invalid Rocketlane API key"),
             ("server_error", 500, False, "Rocketlane returned HTTP 500"),
-            ("connection_error", 0, False, "Could not connect to Rocketlane: boom"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source.check_access")
     def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_check: mock.MagicMock,
+        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        message = (
-            "Rocketlane returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Rocketlane: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message
+        assert network.requests_log[0].headers["api-key"] == "rl-key"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source.rocketlane_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_rocketlane_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "projects"
-        manager = mock.MagicMock()
+    def test_validate_credentials_connection_error(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        assert is_valid is False
+        assert returned is not None and returned.startswith("Could not connect to Rocketlane:")
+        assert "boom" in returned
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "projects",
+            [ScriptedResponse(json={"data": [], "pagination": {"hasMore": False}})],
+            resume_state=RocketlaneResumeConfig(page_token="t2"),
+        )
 
-        mock_rocketlane_source.assert_called_once()
-        kwargs = mock_rocketlane_source.call_args.kwargs
-        assert kwargs["api_key"] == "rl-key"
-        assert kwargs["endpoint"] == "projects"
-        assert kwargs["resumable_source_manager"] is manager
+        assert result.requests[0].headers["api-key"] == "rl-key"
+        assert result.paths == ["/api/1.0/projects"]
+        # The resume manager reaches the extraction: the first request carries the saved token.
+        assert result.requests[0].param("pageToken") == "t2"
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Rocketlane schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Rocketlane schema 'not_a_table'" in str(result.raised)
