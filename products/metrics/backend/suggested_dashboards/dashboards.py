@@ -22,10 +22,12 @@ from products.dashboards.backend.facade.dashboard_creation import (
     NewTextTile,
     TileLayout,
     create_dashboard_with_tiles,
+    delete_unlisted_dashboard,
 )
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.layout import MIN_INSIGHT_HEIGHT, MIN_INSIGHT_WIDTH
 from products.metrics.backend.dashboard_import.spec import GRID_COLUMNS, GridLayout
+from products.metrics.backend.models import MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards.matching import query_metric_names
 from products.metrics.backend.suggested_dashboards.spec import TemplatePanel
 
@@ -180,6 +182,15 @@ def panels_from_tiles(snapshots: Sequence[DashboardTileSnapshot]) -> list[Templa
         elif snapshot.body:
             panels.append(TemplatePanel(key=f"p{index + 1}", title="", text=snapshot.body, layout=box))
     return panels
+
+
+def drop_preview(template: MetricsDashboardTemplate) -> None:
+    """Delete the template's preview dashboard and forget it. The caller saves the template."""
+    if template.preview_team_id and template.preview_dashboard_id:
+        delete_unlisted_dashboard(team_id=template.preview_team_id, dashboard_id=template.preview_dashboard_id)
+    template.preview_team_id = None
+    template.preview_dashboard_id = None
+    template.preview_unbuilt_keys = []
 
 
 def acting_user(team: Team) -> User | None:

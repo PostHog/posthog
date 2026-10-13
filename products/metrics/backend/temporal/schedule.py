@@ -32,9 +32,9 @@ from products.metrics.backend.temporal.inputs import (
 SCHEDULE_ID = "metrics-suggested-dashboards-discovery-schedule"
 DISCOVERY_WORKFLOW_ID = "metrics-suggested-dashboards-discovery"
 INTERVAL = timedelta(minutes=5)
-# Covers the discovery activity's own timeout, so the workflow still starts the analyses after a slow sweep.
-# The schedule skips a run while the previous one is still going.
-DISCOVERY_TIMEOUT = timedelta(minutes=15)
+# Covers two attempts of the 10 minute discovery activity, so the workflow still starts the analyses after a
+# slow sweep. The schedule skips a run while the previous one is still going.
+DISCOVERY_TIMEOUT = timedelta(minutes=25)
 
 
 async def create_suggested_dashboards_discovery_schedule(client: Client) -> None:

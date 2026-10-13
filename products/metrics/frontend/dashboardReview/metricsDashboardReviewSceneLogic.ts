@@ -242,6 +242,9 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
         },
         previewDashboardId: {
             setTemplateId: () => null,
+            // A review deletes the preview, so the page stops showing it.
+            approveTemplateSuccess: () => null,
+            rejectTemplateSuccess: () => null,
         },
         previewError: [
             null as string | null,
@@ -285,8 +288,9 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
                 actions.loadTemplates()
             }
         },
-        loadTemplateSuccess: ({ template }) => {
-            if (template && template.status !== 'generating') {
+        loadTemplateSuccess: () => {
+            // Only a review deletes a preview, so a template that waits for no review gets none.
+            if (values.reviewable) {
                 actions.openPreview()
             }
         },

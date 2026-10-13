@@ -210,6 +210,22 @@ class Migration(migrations.Migration):
                     models.CharField(blank=True, default="", max_length=64),
                 ),
                 ("analyzed_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "noted_at",
+                    models.DateTimeField(
+                        blank=True,
+                        help_text="When a sweep saw a change that no analysis has read, because the flag check missed the team. The next open analyzes it.",
+                        null=True,
+                    ),
+                ),
+                (
+                    "attempted_at",
+                    models.DateTimeField(
+                        blank=True,
+                        help_text="When the last analysis started. The sweep waits before it starts another, so a failing one does not take every sweep.",
+                        null=True,
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (

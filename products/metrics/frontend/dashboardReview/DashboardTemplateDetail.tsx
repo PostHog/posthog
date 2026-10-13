@@ -76,12 +76,14 @@ export function DashboardTemplateDetail(): JSX.Element {
                             icon={<IconSparkles className="text-ai" />}
                             onClick={editWithAI}
                             disabledReason={
-                                !previewDashboardId
-                                    ? 'Open the preview first'
-                                    : !dataProcessingAccepted
-                                      ? (dataProcessingApprovalDisabledReason ??
-                                        'Approve AI data processing to use PostHog AI')
-                                      : undefined
+                                !reviewable
+                                    ? 'Only a dashboard that waits for review can be changed'
+                                    : !previewDashboardId
+                                      ? 'Open the preview first'
+                                      : !dataProcessingAccepted
+                                        ? (dataProcessingApprovalDisabledReason ??
+                                          'Approve AI data processing to use PostHog AI')
+                                        : undefined
                             }
                             data-attr="metrics-dashboard-review-edit-with-ai"
                         >

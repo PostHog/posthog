@@ -39,7 +39,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.models import MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards import prompts
-from products.metrics.backend.suggested_dashboards.dashboards import acting_user, create_dashboard
+from products.metrics.backend.suggested_dashboards.dashboards import acting_user, create_dashboard, drop_preview
 from products.metrics.backend.suggested_dashboards.llm import MODEL, ask_model, image_block, text_block
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import (
@@ -374,12 +374,9 @@ def finish_generation(template_id: str, *, error: str | None = None) -> None:
         template.status = (
             MetricsDashboardTemplate.Status.FAILED if error else MetricsDashboardTemplate.Status.PENDING_REVIEW
         )
-        if error and template.preview_team_id and template.preview_dashboard_id:
+        if error:
             # Nobody reviews a failed template, so its preview would stay in the project for good.
-            delete_unlisted_dashboard(team_id=template.preview_team_id, dashboard_id=template.preview_dashboard_id)
-            template.preview_team_id = None
-            template.preview_dashboard_id = None
-            template.preview_unbuilt_keys = []
+            drop_preview(template)
         _save_record(template, record, "status", "preview_team_id", "preview_dashboard_id", "preview_unbuilt_keys")
     _capture_generated(template, record)
 
@@ -398,8 +395,11 @@ def fail_stale_generations(now: dt.datetime) -> int:
         try:
             finish_generation(str(template_id), error="The generation stopped before it finished.")
         except Exception:
-            # One broken template must not stop the sweep for every team.
-            logger.exception("metrics_suggested_dashboards_stale_generation_not_failed", template_id=str(template_id))
+            # One broken template must not stop the sweep for every team, nor stay generating for good.
+            logger.exception("metrics_suggested_dashboards_stale_generation_not_finished", template_id=str(template_id))
+            MetricsDashboardTemplate.objects.filter(
+                id=template_id, status=MetricsDashboardTemplate.Status.GENERATING
+            ).update(status=MetricsDashboardTemplate.Status.FAILED)
             continue
         count += 1
     return count

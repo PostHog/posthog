@@ -114,6 +114,16 @@ class MetricsDashboardDiscovery(TeamScopedRootMixin, UUIDModel):
     )
     bank_revision = models.CharField(max_length=64, blank=True, default="")
     analyzed_at = models.DateTimeField(null=True, blank=True)
+    noted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a sweep saw a change that no analysis has read, because the flag check missed the team. The next open analyzes it.",
+    )
+    attempted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last analysis started. The sweep waits before it starts another, so a failing one does not take every sweep.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

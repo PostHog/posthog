@@ -147,7 +147,7 @@ def get_template(template_id: str) -> DashboardTemplateSummary:
 def open_preview(team: Team, user: User, template_id: str) -> int:
     try:
         return review.open_preview(template=_get_template(template_id), team=team, user=user)
-    except review.NoPanelsWithData as error:
+    except (review.NoPanelsWithData, review.TemplateNotReviewable) as error:
         raise SuggestedDashboardError(str(error)) from error
 
 

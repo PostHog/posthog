@@ -234,9 +234,10 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
             # The workflow's own finish arrives late. The sweep's verdict stays.
             finish_generation(str(stopped.id))
 
+        broken.refresh_from_db()
         stopped.refresh_from_db()
         running.refresh_from_db()
-        assert (stopped.status, running.status) == ("failed", "generating")
+        assert (broken.status, stopped.status, running.status) == ("failed", "failed", "generating")
         assert background.return_value.call_count == 1
         assert stopped.preview_dashboard_id is None
         assert Dashboard.objects_including_soft_deleted.get(id=preview.id).deleted
@@ -303,21 +304,30 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         suggestions = MetricsDashboardSuggestion.objects.for_team(self.team.id).select_related("template")
         assert [suggestion.template.key for suggestion in suggestions] == ["orders"]
 
-    def test_opening_a_preview_does_not_change_the_bank(self) -> None:
+    def test_a_template_that_waits_for_no_review_gets_no_preview(self) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         revision = bank_revision()
 
         preview = self.client.post(f"{self.base_url}/dashboard_templates/{self.orders.id}/preview/")
 
-        assert preview.json()["dashboard_id"]
+        # No review would ever delete it, so it would stay in the reviewer's project.
+        assert preview.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Dashboard.objects.filter(team=self.team).exists()
         assert bank_revision() == revision
 
     def test_opening_suggestions_analyzes_changes_that_the_sweep_only_noted(self) -> None:
-        # The flag check missed the team, so the sweep noted its new names without an analysis.
         MetricsDashboardDiscovery.objects.for_team(self.team.id).create(
-            team_id=self.team.id, analyzed_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=2)
+            team_id=self.team.id, names_fingerprint=1, analyzed_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=2)
         )
+        # The flag check misses the team, so the sweep only notes its new names.
+        self.flags.discard("metrics-suggested-dashboards")
+        with patch(
+            "products.metrics.backend.suggested_dashboards.discovery.name_fingerprints",
+            return_value={self.team.id: 2},
+        ):
+            assert teams_to_analyze() == {}
+        self.flags.add("metrics-suggested-dashboards")
 
         self.client.get(f"{self.base_url}/suggested_dashboards/")
 

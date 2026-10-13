@@ -11,11 +11,11 @@ from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 
 from products.dashboards.backend.facade.api import unknown_dashboard_ids
-from products.dashboards.backend.facade.dashboard_creation import delete_unlisted_dashboard, read_dashboard_tiles
+from products.dashboards.backend.facade.dashboard_creation import read_dashboard_tiles
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.spec import GridLayout
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
-from products.metrics.backend.suggested_dashboards.dashboards import create_dashboard, panels_from_tiles
+from products.metrics.backend.suggested_dashboards.dashboards import create_dashboard, drop_preview, panels_from_tiles
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import TemplatePanel, template_panels
 
@@ -40,16 +40,14 @@ def _capture_reviewed(user: User, template: MetricsDashboardTemplate) -> None:
     )
 
 
-def _drop_preview(template: MetricsDashboardTemplate) -> None:
-    if template.preview_team_id and template.preview_dashboard_id:
-        delete_unlisted_dashboard(team_id=template.preview_team_id, dashboard_id=template.preview_dashboard_id)
-    template.preview_team_id = None
-    template.preview_dashboard_id = None
-    template.preview_unbuilt_keys = []
-
-
 def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) -> int:
     """The unlisted preview dashboard of the template in this team, built now when it does not exist."""
+    # Only a review clears the preview, so a template that waits for no review gets none.
+    if template.source == MetricsDashboardTemplate.Source.CURATED or template.status not in (
+        MetricsDashboardTemplate.Status.PENDING_REVIEW,
+        MetricsDashboardTemplate.Status.REJECTED,
+    ):
+        raise TemplateNotReviewable("Only a dashboard that waits for review has a preview.")
     if template.preview_team_id == team.id and template.preview_dashboard_id:
         if read_dashboard_tiles(team_id=team.id, dashboard_id=template.preview_dashboard_id):
             return template.preview_dashboard_id
@@ -69,7 +67,7 @@ def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) 
         raise NoPanelsWithData("This project sends none of the metrics of this dashboard.")
     with transaction.atomic():
         locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
-        _drop_preview(locked)
+        drop_preview(locked)
         locked.preview_team_id = team.id
         locked.preview_dashboard_id = created.id
         locked.preview_unbuilt_keys = list(built.dropped_keys)
@@ -118,7 +116,7 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
                 panels = _restore_unbuilt(panels, template_panels(locked.panels), set(locked.preview_unbuilt_keys))
                 locked.panels = [panel.model_dump(mode="json") for panel in panels]
                 locked.metric_names = template_metric_names(panels)
-        _drop_preview(locked)
+        drop_preview(locked)
         locked.status = MetricsDashboardTemplate.Status.APPROVED
         locked.reviewed_by = user
         locked.reviewed_at = timezone.now()
@@ -134,7 +132,7 @@ def reject(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboar
             raise TemplateNotReviewable("A curated dashboard comes from the code. Remove its file to withdraw it.")
         if locked.status == MetricsDashboardTemplate.Status.GENERATING:
             raise TemplateNotReviewable("This dashboard is still being generated. Review it when it is ready.")
-        _drop_preview(locked)
+        drop_preview(locked)
         locked.status = MetricsDashboardTemplate.Status.REJECTED
         locked.reviewed_by = user
         locked.reviewed_at = timezone.now()
@@ -157,7 +155,8 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
         # Concurrent requests wait here, so a double click creates one dashboard.
         locked = (
             MetricsDashboardSuggestion.objects.for_team(team.id)
-            .select_for_update()
+            # Locks only the suggestion row. Other teams create from the same template at the same time.
+            .select_for_update(of=("self",))
             .filter(id=suggestion.id, template__status=MetricsDashboardTemplate.Status.APPROVED)
             .first()
         )

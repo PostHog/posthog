@@ -139,6 +139,7 @@ def _record_analysis(team: Team, names: list[str], revision: str, names_fingerpr
         "analyzed_metric_names": names,
         "bank_revision": revision,
         "analyzed_at": timezone.now(),
+        "noted_at": None,
     }
     if names_fingerprint is not None:
         values["names_fingerprint"] = names_fingerprint
@@ -152,9 +153,8 @@ def analyze_team(team_id: int, *, force: bool = False, names_fingerprint: int | 
     consent or without a gateway, only the templates that most of the team's metrics fit are suggested.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
-    # Marks the start, so the sweep waits before it picks a team whose analysis fails or still runs.
     MetricsDashboardDiscovery.objects.for_team(team.id).update_or_create(
-        team_id=team.id, defaults={"updated_at": timezone.now()}
+        team_id=team.id, defaults={"attempted_at": timezone.now()}
     )
     catalog = MetricCatalog.load(team)
     entries = catalog.entries(limit=CATALOG_LIMIT)
@@ -162,9 +162,14 @@ def analyze_team(team_id: int, *, force: bool = False, names_fingerprint: int | 
     revision = bank_revision()
     state = MetricsDashboardDiscovery.objects.for_team(team.id).first()
     new_names = set(names) - set(state.analyzed_metric_names if state else [])
-    if not force and state is not None and not new_names and state.bank_revision == revision:
-        # Only names went away, so there is nothing to suggest. The team counts as analyzed.
-        _record_analysis(team, names, revision, names_fingerprint)
+    noted = state is not None and state.noted_at is not None
+    if not force and state is not None and not noted and not new_names and state.bank_revision == revision:
+        # Only names went away, so there is nothing to suggest. The analyzed names stay, so a name that
+        # comes back is not new.
+        if names_fingerprint is not None:
+            MetricsDashboardDiscovery.objects.for_team(team.id).filter(id=state.id).update(
+                names_fingerprint=names_fingerprint
+            )
         return AnalysisResult(analyzed=False)
     if not names:
         _record_analysis(team, names, revision, names_fingerprint)

@@ -30,8 +30,6 @@ RETRY_AFTER = dt.timedelta(minutes=30)
 # A team whose users opened its suggestions this recently gets background analyses, whatever the flag
 # says for the team. The flag can target people, which the sweep cannot evaluate.
 OPENED_WINDOW = dt.timedelta(days=7)
-# A row that changed this long after its last analysis holds changes that no analysis has read.
-NOTED_AFTER = dt.timedelta(minutes=1)
 _NEVER = dt.datetime.min.replace(tzinfo=dt.UTC)
 
 # `metrics4_names` is the physical table behind the HogQL `metric_names` table: one row for each
@@ -121,13 +119,13 @@ def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
             continue
         state = states.get(team_id)
         if team_id in opened or suggestions_enabled(team):
-            # An analysis marks the row when it starts, so a failed or running one waits RETRY_AFTER.
-            if state is not None and state.updated_at > now - RETRY_AFTER:
+            if state is not None and state.attempted_at is not None and state.attempted_at > now - RETRY_AFTER:
                 continue
             picked[team_id] = fingerprints[team_id]
             continue
         MetricsDashboardDiscovery.objects.for_team(team_id).update_or_create(
-            team_id=team_id, defaults={"names_fingerprint": fingerprints[team_id], "bank_revision": revision}
+            team_id=team_id,
+            defaults={"names_fingerprint": fingerprints[team_id], "bank_revision": revision, "noted_at": now},
         )
     return picked
 
@@ -163,8 +161,8 @@ def needs_analysis_on_open(team_id: int) -> bool:
     A sweep only notes the changes of a team that the flag check missed. Its next open analyzes them.
     The menu lists suggestions on every open, so without the cache each open would start a workflow.
     """
-    state = MetricsDashboardDiscovery.objects.for_team(team_id).only("analyzed_at", "updated_at").first()
-    if state is not None and state.analyzed_at is not None and state.updated_at - state.analyzed_at < NOTED_AFTER:
+    state = MetricsDashboardDiscovery.objects.for_team(team_id).only("analyzed_at", "noted_at").first()
+    if state is not None and state.analyzed_at is not None and state.noted_at is None:
         return False
     try:
         return cache.add(_analysis_on_open_key(team_id), True, timeout=int(SUGGEST_TIMEOUT.total_seconds()))
