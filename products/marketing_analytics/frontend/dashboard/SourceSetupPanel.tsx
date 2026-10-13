@@ -98,7 +98,7 @@ export function SourceSetupPanel({
         <LemonCard
             hoverEffect={false}
             className={
-                compact ? 'w-full mt-6 !p-0 overflow-hidden' : 'max-w-3xl w-full mx-auto mt-6 !p-0 overflow-hidden'
+                compact ? 'w-full mt-6 p-0 overflow-hidden' : 'max-w-3xl w-full mx-auto mt-6 p-0 overflow-hidden'
             }
         >
             <div className={compact ? 'p-4 space-y-3' : 'p-6 space-y-5'}>
@@ -108,7 +108,7 @@ export function SourceSetupPanel({
                 <div className="flex items-start gap-4" role={busy ? 'status' : undefined}>
                     {busy ? <Spinner className="mt-1 shrink-0" /> : null}
                     <div className="min-w-0 flex-1">
-                        <h3 className={compact ? 'text-base mb-1' : 'text-xl mb-2'}>{title}</h3>
+                        <h3 className={compact ? 'text-base mb-1' : 'mb-2'}>{title}</h3>
                         <p className="text-secondary mb-0 max-w-xl">{description}</p>
                     </div>
                     {!busy && <HedgehogMoney className={compact ? 'w-12 shrink-0' : 'w-20 shrink-0'} />}

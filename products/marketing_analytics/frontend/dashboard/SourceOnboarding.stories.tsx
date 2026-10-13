@@ -16,7 +16,6 @@ import { MARKETING_INTEGRATION_CONFIGS, NodeKind } from '~/queries/schema/schema
 import { expect, userEvent } from 'storybook/test'
 
 import type { SuggestionApi } from '../generated/api.schemas'
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceOnboardingScan } from './SourceOnboardingScan'
@@ -350,20 +349,6 @@ function useDashboardWithoutSourcesMocks(
     })
 }
 
-export function DashboardWithoutSources(): JSX.Element {
-    useDashboardWithoutSourcesMocks()
-    const { completeOnboarding } = useActions(marketingOnboardingLogic)
-    useEffect(() => completeOnboarding(), [completeOnboarding])
-    return <NewMarketingAnalyticsDashboard />
-}
-DashboardWithoutSources.parameters = { mockDate: '2026-09-16' }
-DashboardWithoutSources.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Choose an ad platform')).resolves.toBeVisible()
-    expect((await canvas.findAllByText('128'))[0]).toBeVisible()
-    expect(canvas.queryByRole('button', { name: 'Continue to dashboard' })).not.toBeInTheDocument()
-}
-
 export function AdPerformanceWithoutSources(): JSX.Element {
     useDashboardWithoutSourcesMocks()
     const { completeOnboarding } = useActions(marketingOnboardingLogic)
@@ -588,30 +573,6 @@ function InitialOnboardingDisabledWithSearch(): JSX.Element {
     const { resetOnboarding } = useActions(marketingOnboardingLogic)
     useEffect(() => resetOnboarding(), [resetOnboarding])
     return <MarketingAnalyticsScene />
-}
-
-export function NewDashboardOnboardingDisabledWithSearch(): JSX.Element {
-    useDashboardWithoutSourcesMocks()
-    const { resetOnboarding } = useActions(marketingOnboardingLogic)
-    useEffect(() => resetOnboarding(), [resetOnboarding])
-    return <NewMarketingAnalyticsDashboard />
-}
-NewDashboardOnboardingDisabledWithSearch.parameters = {
-    featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
-}
-NewDashboardOnboardingDisabledWithSearch.play = async ({
-    canvasElement,
-}: {
-    canvasElement: HTMLElement
-}): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Visitors over time')).resolves.toBeVisible()
-    expect(canvas.getByLabelText('Acquisition')).toBeVisible()
-    expect(canvas.queryByText('Welcome to Marketing analytics')).not.toBeInTheDocument()
-    expect(
-        canvas.queryByRole('navigation', { name: 'Marketing analytics onboarding progress' })
-    ).not.toBeInTheDocument()
-    expect(canvas.queryByText('Scan again')).not.toBeInTheDocument()
 }
 
 export function LegacySourceConnectionStep(): JSX.Element {

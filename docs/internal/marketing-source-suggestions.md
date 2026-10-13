@@ -250,3 +250,6 @@ The redesigned dashboard preserves its existing source suggestions and dashboard
 After ad data is ready, remaining source suggestions use a compact card without first-sync messages or already-ready connections.
 Connections needing attention remain actionable beside the suggestions.
 Source setup component stories cover panel states; source onboarding stories cover only dashboard integration, independent search sources, and flag rollback.
+
+Ad and Search setup cards use the same heading size and content inset.
+Source onboarding stories cover the current dashboard; they do not add snapshots for the experimental dashboard.
