@@ -113,7 +113,6 @@ export interface setupPlanLogicValues {
 export interface setupPlanLogicActions {
     loadMarketingAnalyticsConfig: () => any // marketingAnalyticsSettingsLogic
     loadCurrentTeam: () => any // teamLogic
-    loadAuditData: () => any // utmAuditLogic
     applyAllSafe: () => {
         value: true
     }
@@ -217,7 +216,8 @@ export interface setupPlanLogicMeta {
         sourceScanDisabledReason: (
             sourceScanTimes: Record<number, number>,
             currentTeamId: number | null,
-            scanClock: number
+            scanClock: number,
+            setupPlan: SetupPlanResponse | null
         ) => string | null
         suggestions: (setupPlan: SetupPlanResponse | null) => Suggestion[]
         readiness: (setupPlan: SetupPlanResponse | null) => CapabilityReadiness[]
@@ -246,14 +246,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
     path(['scenes', 'web-analytics', 'tabs', 'marketing-analytics', 'frontend', 'logic', 'setupPlanLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], marketingAnalyticsSettingsLogic, ['setupEntryPointLabel']],
-        actions: [
-            teamLogic,
-            ['loadCurrentTeam'],
-            marketingAnalyticsSettingsLogic,
-            ['loadMarketingAnalyticsConfig'],
-            utmAuditLogic,
-            ['loadAuditData'],
-        ],
+        actions: [teamLogic, ['loadCurrentTeam'], marketingAnalyticsSettingsLogic, ['loadMarketingAnalyticsConfig']],
     })),
     actions({
         rescanSources: true,
@@ -390,8 +383,16 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
     }),
     selectors({
         sourceScanDisabledReason: [
-            (s) => [s.sourceScanTimes, s.currentTeamId, s.scanClock],
-            (times: Record<number, number>, teamId: number | null, now: number): string | null => {
+            (s) => [s.sourceScanTimes, s.currentTeamId, s.scanClock, s.setupPlan],
+            (
+                times: Record<number, number>,
+                teamId: number | null,
+                now: number,
+                plan: SetupPlanResponse | null
+            ): string | null => {
+                if (!plan) {
+                    return null
+                }
                 const remaining = (times[teamId ?? 0] ?? 0) + 60 * 60 * 1000 - now
                 return remaining > 0 ? `You can scan again in ${Math.ceil(remaining / 60000)} minutes.` : null
             },
@@ -450,16 +451,13 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
         rescanSources: () => {
             actions.setScanClock(Date.now())
             if (!values.setupPlanLoading && !values.sourceScanDisabledReason) {
-                actions.loadSetupPlan({ refresh: true })
+                actions.loadSetupPlan({ refresh: !!values.setupPlan })
             }
         },
-        loadSetupPlanSuccess: ({ setupPlan, payload }) => {
-            if (
-                !setupPlan.degraded.length &&
-                values.currentTeamId !== null &&
-                (payload?.refresh || !values.sourceScanTimes[values.currentTeamId])
-            ) {
-                actions.recordSourceScan(values.currentTeamId, Date.now())
+        loadSetupPlanSuccess: ({ setupPlan }) => {
+            if (values.currentTeamId !== null) {
+                const scannedAt = setupPlan.source_scanned_at ? Date.parse(setupPlan.source_scanned_at) : 0
+                actions.recordSourceScan(values.currentTeamId, Number.isFinite(scannedAt) ? scannedAt : 0)
                 actions.setScanClock(Date.now())
             }
         },
@@ -696,7 +694,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                 // UTM-catalogue and campaign-spend ClickHouse queries the plan just ran,
                 // so a conversion-goal change would pay for a scan it can't affect.
                 if (ops.some((candidate) => AUDIT_AFFECTING_OPS.has(candidate.op))) {
-                    actions.loadAuditData()
+                    utmAuditLogic.findMounted()?.actions.loadAuditData()
                 }
             }
         },
