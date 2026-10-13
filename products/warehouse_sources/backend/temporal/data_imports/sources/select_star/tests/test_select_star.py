@@ -1,16 +1,19 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, Optional, cast
-
-from unittest import mock
+from typing import Any, Optional
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.selectstar import (
+    SelectStarSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.select_star import (
     SelectStarResumeConfig,
-    select_star_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.settings import (
@@ -18,101 +21,58 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.select_sta
     SELECTSTAR_BASE_URL,
     SELECTSTAR_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the select_star module.
-SELECT_STAR_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.select_star.select_star.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.source import SelectStarSource
 
 TABLES_URL = f"{SELECTSTAR_BASE_URL}/v1/tables/"
 TAGS_URL = f"{SELECTSTAR_BASE_URL}/v1/tags/"
 
 
-def _json_response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(SelectStarSource(), SelectStarSourceConfig(api_token="tok"))
 
 
-def _page(results: list[dict[str, Any]], *, next_url: Optional[str] = None) -> Response:
-    return _json_response({"count": len(results), "next": next_url, "previous": None, "results": results})
-
-
-def _make_manager(resume_state: SelectStarResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's (url, params, auth) at send time."""
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> Any:
-        snapshots.append({"url": request.url, "params": request.params, "auth": request.auth})
-        # Return the request itself rather than a bare MagicMock: RESTClient now checks
-        # `prepared.url` against the allowed-hosts pin before sending (see select_star.py's
-        # `allowed_hosts`), and `urlsplit()` on an unconfigured MagicMock attribute raises
-        # TypeError. A real `Request` carries a real `.url` string, matching the pattern used
-        # by ably/conekta's tests for the same allowed-hosts-pinned client.
-        return request
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
+def _page(results: list[dict[str, Any]], *, next_url: Optional[str] = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"count": len(results), "next": next_url, "previous": None, "results": results})
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_url_until_null(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_follows_next_url_until_null(self) -> None:
         second = f"{TABLES_URL}?page=2"
-        snapshots = _wire(session, [_page([{"guid": "a"}], next_url=second), _page([{"guid": "b"}])])
 
-        manager = _make_manager()
-        rows = _rows(select_star_source("tok", "Tables", team_id=1, job_id="j", resumable_source_manager=manager))
+        result = _driver().run("Tables", [_page([{"guid": "a"}], next_url=second), _page([{"guid": "b"}])])
 
-        assert rows == [{"guid": "a"}, {"guid": "b"}]
-        assert snapshots[0]["url"] == TABLES_URL
-        assert snapshots[1]["url"] == second
-        manager.save_state.assert_called_once_with(SelectStarResumeConfig(next_url=second))
+        assert result.rows == [{"guid": "a"}, {"guid": "b"}]
+        assert result.urls[0].split("?")[0] == TABLES_URL
+        assert result.urls[1] == second
+        assert result.saved_states == [SelectStarResumeConfig(next_url=second)]
+
+    def test_resumes_from_the_saved_cursor(self) -> None:
+        saved = f"{TABLES_URL}?page=7"
+
+        result = _driver().run("Tables", [_page([{"guid": "z"}])], resume_state=SelectStarResumeConfig(next_url=saved))
+
+        assert result.rows == [{"guid": "z"}]
+        assert result.urls == [saved]
 
 
 class TestIncrementalFilter:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_default_incremental_field_used_when_none_selected(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_page([])])
-
-        _rows(
-            select_star_source(
-                "tok",
-                "Tables",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+    def test_default_incremental_field_used_when_none_selected(self) -> None:
+        result = _driver().run(
+            "Tables",
+            [_page([])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert snapshots[0]["params"]["updated_on__gte"] == datetime(2026, 1, 1, tzinfo=UTC)
+        assert result.requests[0].param("updated_on__gte") == "2026-01-01 00:00:00+00:00"
 
 
 class TestValidateCredentials:
-    @mock.patch(SELECT_STAR_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("tok") == (True, None)
+    def test_ok(self) -> None:
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            assert validate_credentials("tok") == (True, None)
+
+        assert network.requests_log[0].headers["authorization"] == "Token tok"
 
     @parameterized.expand(
         [
@@ -121,10 +81,9 @@ class TestValidateCredentials:
             ("server_error", 500),
         ]
     )
-    @mock.patch(SELECT_STAR_SESSION_PATCH)
-    def test_status_mapping_is_a_failure(self, _name: str, status: int, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        ok, message = validate_credentials("tok")
+    def test_status_mapping_is_a_failure(self, _name: str, status: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+            ok, message = validate_credentials("tok")
         assert ok is False
         assert message
 
@@ -132,11 +91,12 @@ class TestValidateCredentials:
 class TestSelectStarSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        # Construction does no I/O (items is a lazy generator), so no session patch is needed.
-        response = select_star_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == ["guid"]
-        assert response.sort_mode == "asc"
+        result = _driver().run(endpoint, [_page([])])
+
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == ["guid"]
+        assert result.response.sort_mode == "asc"
 
     def test_every_endpoint_uses_guid_primary_key(self) -> None:
         assert all(config.primary_keys == ["guid"] for config in SELECTSTAR_ENDPOINTS.values())

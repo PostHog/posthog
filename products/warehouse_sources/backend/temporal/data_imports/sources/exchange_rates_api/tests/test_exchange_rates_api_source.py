@@ -1,6 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source import (
     ExchangeRatesApiSource,
 )
@@ -35,19 +39,15 @@ class TestExchangeRatesApiSource:
             ),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source.validate_exchange_rates_api_credentials"
-    )
-    def test_validate_credentials(
-        self, mock_validate: mock.MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, mock_return: bool, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=200 if mock_return else 401)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("era-test")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/v1/symbols"
+        assert network.requests_log[0].param("access_key") == "era-test"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source.exchange_rates_api_source"

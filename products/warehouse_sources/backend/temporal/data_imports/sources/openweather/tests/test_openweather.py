@@ -7,6 +7,15 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
+    OpenWeatherSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather import (
     MAX_LOCATIONS,
     OPENWEATHER_BASE_URL,
@@ -16,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     _fetch,
     _normalize_rows,
     _redact_appid,
-    get_rows,
     openweather_source,
     parse_locations,
     validate_credentials,
@@ -28,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     OPENWEATHER_ENDPOINTS,
     endpoints_for_version,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.source import OpenWeatherSource
 
 # (version, endpoint) pairs across every supported version, so the request-path dispatch is
 # exercised for each.
@@ -36,8 +45,6 @@ _ALL_VERSIONED_ENDPOINTS = [
     for version in (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
     for endpoint in endpoints_for_version(version)
 ]
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather"
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
@@ -190,30 +197,29 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    def test_status_mapping(self, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status)
-
+    def test_status_mapping(self, status: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             is_valid, _ = validate_credentials("test-key", "51.5,-0.12", API_VERSION_2_5)
 
         assert is_valid is expected_valid
+        assert {request.path for request in network.requests_log} == {"/data/2.5/weather"}
+        assert all(request.param("appid") == "test-key" for request in network.requests_log)
 
-    def test_malformed_locations_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+    def test_malformed_locations_is_invalid_without_request(self) -> None:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("test-key", "not-a-location", API_VERSION_2_5)
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
-    def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+    def test_network_error_is_invalid(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("test-key", "51.5,-0.12", API_VERSION_2_5)
 
         assert is_valid is False
         assert message is not None
+        assert {request.path for request in network.requests_log} == {"/data/2.5/weather"}
 
 
 class TestGetRows:
@@ -234,19 +240,18 @@ class TestGetRows:
             (API_VERSION_4_0, "daily", {"data": [{"dt": 1, "temp": {"day": 280}}]}, "/data/4.0/onecall/timeline/1day"),
         ],
     )
-    def test_requests_the_pinned_versions_path(self, api_version, endpoint, body, expected_path):
+    def test_requests_the_pinned_versions_path(
+        self, api_version: str, endpoint: str, body: dict[str, Any], expected_path: str
+    ) -> None:
         # Each pin must hit its own product's paths — a wrong path 404s or bills the wrong subscription.
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, body)
+        driver = SourceDriver(OpenWeatherSource(), OpenWeatherSourceConfig(api_key="test-key", locations="51.5,-0.12"))
+        result = driver.run(endpoint, [ScriptedResponse(json=body)], api_version=api_version)
 
-            batches = list(
-                get_rows("test-key", endpoint, [Location(51.5, -0.12, None)], structlog.get_logger(), api_version)
-            )
-
-            called_url = mock_session.return_value.get.call_args[0][0]
-
-        assert called_url.startswith(f"{OPENWEATHER_BASE_URL}{expected_path}?")
-        assert batches[0][0]["dt"] == 1
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.urls[0].startswith(f"{OPENWEATHER_BASE_URL}{expected_path}?")
+        assert result.requests[0].param("appid") == "test-key"
+        assert result.items[0][0]["dt"] == 1
 
 
 class TestOpenWeatherSource:

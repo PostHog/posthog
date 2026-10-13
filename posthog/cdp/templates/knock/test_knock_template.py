@@ -4,7 +4,8 @@ from parameterized import parameterized
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.knock.template_knock import template as template_knock
-from posthog.cdp.validation import generate_template_bytecode
+
+from products.cdp.backend.validation import generate_template_bytecode
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.utils import HogVMException
