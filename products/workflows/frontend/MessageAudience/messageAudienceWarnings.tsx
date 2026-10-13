@@ -17,6 +17,7 @@ import {
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
+import { checkPreviousRecipients, openBroadcastAfterCheck } from './previousRecipients'
 
 export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
     const senders = integrations.filter((integration) => integration.kind === 'email')
@@ -83,6 +84,11 @@ export async function openMessageAudience(
     opening = true
     try {
         const navigate = async (): Promise<void> => {
+            if (destination === 'broadcast' && audience.sourceRecord) {
+                const projectId = String(ApiConfig.getCurrentProjectId())
+                await openBroadcastAfterCheck(audience, await checkPreviousRecipients(projectId, audience))
+                return
+            }
             router.actions.push(messageAudienceUrl(audience, destination))
         }
         const startedOn = router.values.location.pathname

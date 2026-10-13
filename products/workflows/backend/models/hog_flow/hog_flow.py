@@ -143,6 +143,9 @@ class HogFlow(UUIDTModel):
     origin_product = models.CharField(
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )
+    # The record another product's "message these people" entry point started this flow from, as
+    # "<kind>:<id>". A later send from the same record skips the people this one already emailed.
+    source_record = models.CharField(max_length=255, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")

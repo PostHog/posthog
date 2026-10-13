@@ -13,8 +13,7 @@ import {
 
 export function IssueAffectedBroadcastModal(props: IssueAffectedBroadcastLogicProps): JSX.Element {
     const logic = issueAffectedBroadcastLogic(props)
-    const { isModalOpen, affectedCount, affectedCountLoading, countFailed, audienceCohortLoading, sendWarnings } =
-        useValues(logic)
+    const { isModalOpen, affectedCount, affectedCountLoading, countFailed, continuing, sendWarnings } = useValues(logic)
     const { closeModal, createAudience } = useActions(logic)
 
     const lookback = `the last ${AFFECTED_LOOKBACK_DAYS} days`
@@ -42,7 +41,7 @@ export function IssueAffectedBroadcastModal(props: IssueAffectedBroadcastLogicPr
                     <LemonButton
                         type="primary"
                         onClick={createAudience}
-                        loading={audienceCohortLoading}
+                        loading={continuing}
                         disabledReason={disabledReason}
                         data-attr="issue-affected-broadcast-continue"
                     >

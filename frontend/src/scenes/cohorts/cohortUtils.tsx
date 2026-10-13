@@ -727,5 +727,7 @@ export function cohortBroadcastAudience(cohort: Pick<CohortType, 'id' | 'name'>)
     return {
         properties: typeof cohort.id === 'number' ? cohortAudienceProperties({ id: cohort.id, name: cohort.name }) : [],
         source: 'cohort',
+        sourceRecord: typeof cohort.id === 'number' ? `cohort:${cohort.id}` : undefined,
+        sourceRecordName: cohort.name ?? undefined,
     }
 }

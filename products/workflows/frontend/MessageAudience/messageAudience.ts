@@ -24,6 +24,10 @@ export interface MessageAudience {
     workflowTrigger?: WorkflowTriggerConfig
     broadcastEmail?: MessageDraft
     workflowEmail?: MessageDraft
+    /** The record the email is about, as "<kind>:<id>". A broadcast skips the people already emailed about it. */
+    sourceRecord?: string
+    /** What the record is called, for naming the cohort of people already emailed about it. */
+    sourceRecordName?: string
 }
 
 export function cohortAudienceProperties(cohort: { id: number; name?: string | null }): AnyPropertyFilter[] {
@@ -44,6 +48,7 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
             properties: audience.properties,
             name: audience.broadcastName,
             source: audience.source,
+            sourceRecord: audience.sourceRecord,
             email: audience.broadcastEmail,
         })
     }
