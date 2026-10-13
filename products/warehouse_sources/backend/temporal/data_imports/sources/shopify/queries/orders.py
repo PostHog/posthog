@@ -9,7 +9,6 @@ from .fragments import (
     METAFIELD_CONNECTIONS_FRAGMENT,
     MONEY_BAG_FRAGMENT,
     MONEY_V2_FRAGMENT,
-    NODE_CONNECTION_ID_FRAGMENT,
     TAX_LINES_FRAGMENT,
 )
 
@@ -18,15 +17,8 @@ ORDERS_SORTKEY = "UPDATED_AT"
 # Fields gated behind scopes beyond `read_orders` -> scopes that unlock them (any one suffices).
 # Lets a `read_orders`-only token still import the rest of the order instead of "Access denied".
 ORDERS_PROTECTED_FIELDS: dict[str, set[str]] = {
-    "fulfillmentOrders": {
-        "read_merchant_managed_fulfillment_orders",
-        "read_third_party_fulfillment_orders",
-        "read_assigned_fulfillment_orders",
-    },
     "paymentTerms": {"read_payment_terms"},
 }
-
-_FULFILLMENT_ORDERS_BLOCK = f"fulfillmentOrders(first: 250) {NODE_CONNECTION_ID_FRAGMENT}"
 
 _PAYMENT_TERMS_BLOCK = f"""paymentTerms {{
                 due
@@ -42,9 +34,6 @@ _PAYMENT_TERMS_BLOCK = f"""paymentTerms {{
 
 def build_orders_query(granted_scopes: set[str]) -> str:
     """Orders query with each protected-field selection included only when its scope is granted."""
-    fulfillment_orders = (
-        _FULFILLMENT_ORDERS_BLOCK if granted_scopes & ORDERS_PROTECTED_FIELDS["fulfillmentOrders"] else ""
-    )
     payment_terms = _PAYMENT_TERMS_BLOCK if granted_scopes & ORDERS_PROTECTED_FIELDS["paymentTerms"] else ""
 
     # NOTE: 250 is the max allowable query size for nested connections
@@ -118,9 +107,7 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
             edited
             email
             estimatedTaxes
-            events(first: 250) {NODE_CONNECTION_ID_FRAGMENT}
             fulfillable
-            {fulfillment_orders}
             fulfillments(first: 250) {{
                 id
                 createdAt

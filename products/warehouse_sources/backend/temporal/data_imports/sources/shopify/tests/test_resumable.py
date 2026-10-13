@@ -90,6 +90,58 @@ class TestMakePaginatedShopifyRequest:
         assert saved_configs[0] == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-1")
         assert saved_configs[1] == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-2")
 
+    @pytest.mark.parametrize(
+        "object_name, expected_page_sizes",
+        [
+            # 450 points at 20 rows leaves room for 40 rows under the 900 point target.
+            (ORDERS, [20, 40]),
+            (ABANDONED_CHECKOUTS, [100, 100]),
+        ],
+    )
+    def test_grows_page_from_reported_cost_only_for_cost_limited_objects(
+        self, object_name: str, expected_page_sizes: list[int]
+    ) -> None:
+        sess = MagicMock()
+        first_page = _build_response(object_name, [{"id": "1"}], has_next_page=True, end_cursor="cursor-1")
+        first_page.json.return_value["extensions"] = {"cost": {"requestedQueryCost": 450, "actualQueryCost": 30}}
+        captured = _record_post_vars(
+            sess, [first_page, _build_response(object_name, [{"id": "2"}], has_next_page=False, end_cursor=None)]
+        )
+
+        list(
+            _make_paginated_shopify_request(
+                "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[object_name], MagicMock()
+            )
+        )
+
+        assert [variables["pageSize"] for variables in captured] == expected_page_sizes
+
+    def test_cost_rejection_of_grown_page_retries_same_cursor_at_starting_size(self) -> None:
+        sess = MagicMock()
+        first_page = _build_response(ORDERS, [{"id": "1"}], has_next_page=True, end_cursor="cursor-1")
+        first_page.json.return_value["extensions"] = {"cost": {"requestedQueryCost": 450}}
+        rejected = MagicMock()
+        rejected.status_code = 200
+        rejected.json.return_value = {
+            "errors": [{"message": "Query cost is too high", "extensions": {"code": "MAX_COST_EXCEEDED"}}]
+        }
+        last_page = _build_response(ORDERS, [{"id": "2"}], has_next_page=False, end_cursor=None)
+        last_page.json.return_value["extensions"] = {"cost": {"requestedQueryCost": 450}}
+        captured = _record_post_vars(sess, [first_page, rejected, last_page])
+
+        batches = list(
+            _make_paginated_shopify_request(
+                "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ORDERS], MagicMock()
+            )
+        )
+
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        assert [(variables["pageSize"], variables.get("cursor")) for variables in captured] == [
+            (20, None),
+            (40, "cursor-1"),
+            (20, "cursor-1"),
+        ]
+
     def test_seeds_initial_cursor_on_resume(self) -> None:
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS]
         logger = MagicMock()

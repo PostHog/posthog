@@ -39,6 +39,8 @@ from .constants import (
     SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
+    SHOPIFY_MAX_PAGE_SIZE,
+    SHOPIFY_MAX_QUERY_COST,
     SHOPIFY_PAGE_SIZE_OVERRIDES,
 )
 
@@ -300,6 +302,46 @@ def _shopify_retry_wait(retry_state: RetryCallState) -> float:
     return backoff
 
 
+# The share of Shopify's single-query cost limit that a resized page aims for. The margin covers
+# the part of the cost that does not grow with the page size.
+_SHOPIFY_QUERY_COST_TARGET = 0.9
+
+_SHOPIFY_MAX_COST_EXCEEDED_CODE = "MAX_COST_EXCEEDED"
+_SHOPIFY_MAX_COST_EXCEEDED_MESSAGE = "exceeds the single query max cost limit"
+
+
+class ShopifyQueryCostExceededError(Exception):
+    """Shopify rejected the query because its requested cost is above the single-query limit."""
+
+
+def _is_max_cost_exceeded(errors: Any) -> bool:
+    if not isinstance(errors, list):
+        return False
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        extensions = error.get("extensions")
+        if isinstance(extensions, dict) and extensions.get("code") == _SHOPIFY_MAX_COST_EXCEEDED_CODE:
+            return True
+        if _SHOPIFY_MAX_COST_EXCEEDED_MESSAGE in str(error.get("message", "")):
+            return True
+    return False
+
+
+def _page_size_for_cost(page_size: int, payload: Any) -> int:
+    """The page size that brings the requested cost of this query near Shopify's single-query limit.
+
+    Shopify sizes the requested cost from the `first` arguments, not from the rows it returns, so
+    the cost of one page predicts the cost of a larger one. Returns `page_size` when the response
+    has no usable cost.
+    """
+    requested, ok = safe_unwrap(payload, path="extensions.cost.requestedQueryCost")
+    if not ok or isinstance(requested, bool) or not isinstance(requested, int | float) or requested <= 0:
+        return page_size
+    target = SHOPIFY_MAX_QUERY_COST * _SHOPIFY_QUERY_COST_TARGET
+    return max(1, min(SHOPIFY_MAX_PAGE_SIZE, int(page_size * target / requested)))
+
+
 def _make_paginated_shopify_request(
     url: str,
     sess: requests.Session,
@@ -345,6 +387,8 @@ def _make_paginated_shopify_request(
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]
             joined = "; ".join(error_messages)
+            if _is_max_cost_exceeded(payload["errors"]):
+                raise ShopifyQueryCostExceededError(f"Shopify GraphQL error: {joined}")
             raise Exception(f"Shopify GraphQL error: {joined}")
 
         if "data" not in payload:
@@ -353,6 +397,8 @@ def _make_paginated_shopify_request(
         return payload
 
     pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
+    # Only an object whose page size is limited by the query cost is resized from that cost.
+    size_page_from_cost = graphql_object.name in SHOPIFY_PAGE_SIZE_OVERRIDES
     vars: dict[str, Any] = {"pageSize": pageSize}
     logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
     if query:
@@ -362,7 +408,25 @@ def _make_paginated_shopify_request(
     has_next_page = True
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
-        payload = execute(vars)
+        try:
+            payload = execute(vars)
+        except ShopifyQueryCostExceededError:
+            if not size_page_from_cost or vars["pageSize"] <= pageSize:
+                raise
+            # The cost estimate was wrong for this query, so go back to the size that is known to fit.
+            logger.debug(f"Shopify rejected page size {vars['pageSize']} for {graphql_object.name}, using {pageSize}")
+            size_page_from_cost = False
+            vars["pageSize"] = pageSize
+            continue
+        if size_page_from_cost:
+            # The starting size already works, so the cost only ever grows the page from it.
+            next_page_size = max(pageSize, _page_size_for_cost(vars["pageSize"], payload))
+            if next_page_size != vars["pageSize"]:
+                logger.debug(
+                    f"Changing page size for {graphql_object.name} from {vars['pageSize']} to {next_page_size}. "
+                    f"Query cost: {payload['extensions']['cost']}"
+                )
+                vars["pageSize"] = next_page_size
         data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
         if endpoint_config is not None:
             if endpoint_config.incremental_field_resolver:
