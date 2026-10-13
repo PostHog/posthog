@@ -1,16 +1,16 @@
-from typing import Any
-
 import pytest
-from unittest.mock import MagicMock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
     PerigonSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
-
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source.validate_perigon_credentials"
-)
 
 
 class TestPerigonSource:
@@ -31,44 +31,43 @@ class TestPerigonSource:
         ],
     )
     def test_validate_credentials_status_mapping(
-        self, monkeypatch: Any, probe_result: tuple[bool, int | None], schema_name: str | None, expected_valid: bool
+        self, probe_result: tuple[bool, int | None], schema_name: str | None, expected_valid: bool
     ) -> None:
-        monkeypatch.setattr(VALIDATE_PATCH, lambda api_key, path=None: probe_result)
+        status = probe_result[1]
+        script: Script = [ScriptedResponse(status=status)] if status is not None else always(ConnectionError("boom"))
         config = PerigonSourceConfig(api_key="key")
-        valid, error = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
+        with scripted_network(script) as network:
+            valid, error = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
+
         assert valid is expected_valid
+        assert network.requests_log[0].path == ("/v1/stories/all" if schema_name == "stories" else "/v1/articles/all")
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
         if not expected_valid:
             assert error is not None
 
-    def test_source_for_pipeline_plumbs_endpoint_and_incremental(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source.perigon_source",
-            lambda **kwargs: captured.update(kwargs),
+    def test_source_for_pipeline_plumbs_endpoint_and_incremental(self) -> None:
+        result = SourceDriver(self.source, PerigonSourceConfig(api_key="key")).run(
+            "articles",
+            [ScriptedResponse(json={"articles": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-04T00:00:00Z",
         )
 
-        inputs = MagicMock()
-        inputs.schema_name = "articles"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-03-04T00:00:00Z"
+        assert result.raised is None
+        assert result.paths == ["/v1/articles/all"]
+        assert result.requests[0].headers["authorization"] == "Bearer key"
+        assert result.params("from") == ["2026-03-04T00:00:00Z"]
+        assert result.params("sortBy") == ["reverseDate"]
 
-        self.source.source_for_pipeline(PerigonSourceConfig(api_key="key"), MagicMock(), inputs)
-        assert captured["api_key"] == "key"
-        assert captured["endpoint"] == "articles"
-        assert captured["should_use_incremental_field"] is True
-        assert captured["db_incremental_field_last_value"] == "2026-03-04T00:00:00Z"
-
-    def test_source_for_pipeline_drops_incremental_value_when_full_refresh(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source.perigon_source",
-            lambda **kwargs: captured.update(kwargs),
+    def test_source_for_pipeline_drops_incremental_value_when_full_refresh(self) -> None:
+        result = SourceDriver(self.source, PerigonSourceConfig(api_key="key")).run(
+            "articles",
+            [ScriptedResponse(json={"articles": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="ignored",
         )
 
-        inputs = MagicMock()
-        inputs.schema_name = "topics"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "ignored"
-
-        self.source.source_for_pipeline(PerigonSourceConfig(api_key="key"), MagicMock(), inputs)
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.paths == ["/v1/articles/all"]
+        assert result.params("from") == [None]
+        assert result.params("sortBy") == ["reverseAddDate"]

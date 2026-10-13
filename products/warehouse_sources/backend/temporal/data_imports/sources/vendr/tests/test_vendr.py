@@ -1,37 +1,27 @@
 from typing import Any, cast
 
 import pytest
-from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vendr import VendrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.settings import VENDR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.source import VendrSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr import (
     VendrResumeConfig,
     _get_resource,
     validate_credentials,
-    vendr_source,
 )
 
 
-class _FakeResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
-def _make_manager(resume_state: VendrResumeConfig | None = None) -> Mock:
-    manager = Mock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(VendrSource(), VendrSourceConfig(api_key="key"))
 
 
 class TestVendrTransport:
@@ -65,84 +55,71 @@ class TestVendrTransport:
             (429, False, 429),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, status, expected_ok, expected_status, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        result = validate_credentials("secret-key")
+    def test_validate_credentials_status_mapping(self, status, expected_ok, expected_status) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
+            result = validate_credentials("secret-key")
 
         assert result == (expected_ok, expected_status)
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.vendr.com/v1/catalog/companies?limit=1"
-        assert call.kwargs["headers"]["X-API-Key"] == "secret-key"
-        assert call.kwargs["allow_redirects"] is False
+        request = network.requests_log[0]
+        assert request.url == "https://api.vendr.com/v1/catalog/companies?limit=1"
+        assert request.headers["x-api-key"] == "secret-key"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.rest_api_resource")
-    def test_top_level_source_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager(VendrResumeConfig(paginator_state={"offset": 200}))
+    def test_validate_credentials_does_not_follow_redirects(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://evil.example.com/"}), ScriptedResponse()]
+        ) as network:
+            result = validate_credentials("secret-key")
 
-        vendr_source(
-            api_key="key",
-            endpoint="Companies",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+        assert result == (False, 302)
+        assert len(network.requests_log) == 1
+
+    def test_top_level_source_resumes_from_saved_state(self) -> None:
+        result = _driver().run(
+            "Companies",
+            [ScriptedResponse(json={"data": []})],
+            resume_state=VendrResumeConfig(paginator_state={"offset": 200}),
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"offset": 200}
+        assert result.params("offset") == ["200"]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.rest_api_resource")
-    def test_top_level_source_saves_checkpoints_after_batches(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager()
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _driver().run("Companies", [ScriptedResponse(json={"data": []})])
 
-        vendr_source(
-            api_key="key",
-            endpoint="Companies",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+        assert result.params("offset") == ["0"]
+
+    def test_top_level_source_saves_checkpoints_after_batches(self) -> None:
+        full_page = [{"id": str(i)} for i in range(100)]
+
+        result = _driver().run(
+            "Companies",
+            [ScriptedResponse(json={"data": full_page}), ScriptedResponse(json={"data": [{"id": "last"}]})],
         )
 
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-        resume_hook({"offset": 100})
-        manager.save_state.assert_called_once_with(VendrResumeConfig(paginator_state={"offset": 100}))
-
+        assert result.params("offset") == ["0", "100"]
         # A terminal (falsy) checkpoint is not persisted - the Redis TTL handles cleanup.
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        manager.save_state.assert_not_called()
+        assert result.saved_states == [VendrResumeConfig(paginator_state={"offset": 100})]
 
-    @parameterized.expand([("ProductFamilies",), ("Products",)])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.build_dependent_resource")
-    def test_fanout_wiring(self, endpoint, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = _FakeResource(endpoint, [])
-        manager = _make_manager()
-
-        response = vendr_source(
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    @parameterized.expand([("ProductFamilies", "product-families"), ("Products", "products")])
+    def test_fanout_wiring(self, endpoint, path_segment) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"data": [{"id": "c1"}, {"id": "c2"}]}),
+                ScriptedResponse(json={"data": [{"id": "a"}]}),
+                ScriptedResponse(json={"data": [{"id": "b"}]}),
+            ],
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["child_endpoint"] == endpoint
-        assert kwargs["fanout"].parent_name == "Companies"
-        assert kwargs["fanout"].resolve_param == "companyId"
-        assert kwargs["fanout"].resolve_field == "id"
-        assert kwargs["path_format_values"] == {}
-        assert kwargs["page_size_param"] == "limit"
-        assert kwargs["parent_endpoint_extra"] == {
-            "paginator": {"type": "offset", "limit": 100, "total_path": None},
-            "data_selector": "data",
-        }
-        assert kwargs["child_endpoint_extra"] == {
-            "paginator": {"type": "offset", "limit": 100, "total_path": None},
-            "data_selector": "data",
-        }
-        assert kwargs["child_params_extra"] == {"sortBy": "sortOrder", "sortOrder": "asc"}
-        assert kwargs["resume_hook"] is not None
-        assert response.primary_keys == ["id"]
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/catalog/companies",
+            f"/v1/catalog/companies/c1/{path_segment}",
+            f"/v1/catalog/companies/c2/{path_segment}",
+        ]
+        # The parent list is sorted by name, the company-scoped children by sortOrder.
+        assert [request.param("sortBy") for request in result.requests] == ["name", "sortOrder", "sortOrder"]
+        assert result.params("sortOrder") == ["asc"] * 3
+        assert result.params("limit") == ["100"] * 3
+        assert [(row["id"], row["company_id"]) for row in result.rows] == [("a", "c1"), ("b", "c2")]
+        assert result.response is not None
+        assert result.response.primary_keys == ["id"]

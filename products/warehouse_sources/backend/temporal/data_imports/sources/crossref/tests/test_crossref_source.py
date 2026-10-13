@@ -3,6 +3,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source import CrossrefSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crossref import (
     CrossrefSourceConfig,
@@ -84,29 +88,25 @@ class TestCrossrefSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00"
         assert kwargs["incremental_field"] == "indexed_date"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_crossref_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Members"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00"
+    def test_source_for_pipeline_omits_cursor_when_not_incremental(self):
+        result = SourceDriver(self.source, CrossrefSourceConfig(member_id="301")).run(
+            "Works",
+            [ScriptedResponse(json={"message": {"items": [{"DOI": "1"}]}})],
+            db_incremental_field_last_value="2026-01-01T00:00:00",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert result.raised is None
+        assert result.requests[0].param("filter") == "member:301"
+        assert result.requests[0].param("sort") is None
 
-        assert mock_crossref_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
-    def test_source_for_pipeline_rejects_unscoped_works_even_if_stored_config_lost_its_scope(
-        self, mock_crossref_source
-    ):
+    def test_source_for_pipeline_rejects_unscoped_works_even_if_stored_config_lost_its_scope(self):
         # Setup-time validation can't stop a scope from being cleared after Works is already
         # enabled, so source_for_pipeline must re-check it on every run before an unscoped sync
         # of the full 160M+ row Works registry can happen.
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Works"
         config = CrossrefSourceConfig()  # no member_id/funder_id/issn
 
-        with pytest.raises(ValueError, match="Set a member ID, funder ID, or journal ISSN"):
-            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, config).run("Works", [])
 
-        mock_crossref_source.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert "Set a member ID, funder ID, or journal ISSN" in str(result.raised)
+        assert result.requests == []

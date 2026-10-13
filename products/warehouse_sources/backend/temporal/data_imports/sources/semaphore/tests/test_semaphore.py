@@ -1,18 +1,17 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
-from http import HTTPStatus
-from typing import Any, cast
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semaphore import (
     SemaphoreSourceConfig,
 )
@@ -27,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.
 BASE_URL = "https://example.semaphoreci.com/api/v1alpha/"
 PROJECT_ID = "00000000-0000-4000-8000-000000000001"
 TOKEN = "test-semaphore-token"
-SEND = "requests.sessions.Session.send"
 
 
 @pytest.fixture
@@ -35,41 +33,11 @@ def config() -> SemaphoreSourceConfig:
     return SemaphoreSourceConfig(api_token=TOKEN, organization="example", project_id=PROJECT_ID)
 
 
-@pytest.fixture
-def inputs() -> SourceInputs:
-    return SourceInputs(
-        schema_name="workflows",
-        schema_id="schema-id",
-        source_id="source-id",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field="created_at",
-        incremental_field_type=None,
-        job_id="job-id",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
-
-
-@pytest.fixture
-def manager() -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = False
-    return result
-
-
-def response(body: object, status: int = 200, next_url: str | None = None) -> Response:
-    result = Response()
-    result.status_code = status
-    result.reason = HTTPStatus(status).phrase
-    result.url = BASE_URL + "plumber-workflows"
-    result._content = json.dumps(body).encode()
-    result.headers["Content-Type"] = "application/json"
+def response(body: object, status: int = 200, next_url: str | None = None) -> ScriptedResponse:
+    headers = {"Content-Type": "application/json"}
     if next_url:
-        result.headers["Link"] = f'<{next_url}>; rel="next"'
-    return result
+        headers["Link"] = f'<{next_url}>; rel="next"'
+    return ScriptedResponse(status=status, body=json.dumps(body).encode(), headers=headers)
 
 
 @pytest.mark.parametrize(
@@ -83,33 +51,29 @@ def response(body: object, status: int = 200, next_url: str | None = None) -> Re
 @pytest.mark.parametrize("empty_terminal", [False, True])
 def test_transport_and_terminal_page(
     config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     table: str,
     path: str,
     key: str,
     empty_terminal: bool,
 ) -> None:
-    inputs.schema_name = table
     next_url = f"{BASE_URL}{path}?project_id={PROJECT_ID}&page=2"
     first = {key: "row-1", "created_at": {"seconds": 1704067200, "nanos": 123456000}}
     last = [] if empty_terminal else [{key: "row-2", "created_at": "2024-01-02T00:00:00Z"}]
-    with patch(SEND, side_effect=[response([first], next_url=next_url), response(last)]) as send:
-        result = SemaphoreSource().source_for_pipeline(config, manager, inputs)
-        rows = [row for page in cast(Iterable[Any], result.items()) for row in page]
+    result = SourceDriver(SemaphoreSource(), config).run(table, [response([first], next_url=next_url), response(last)])
+    rows = result.rows
     assert [row[key] for row in rows] == (["row-1"] if empty_terminal else ["row-1", "row-2"])
     assert rows[0]["created_at"] == datetime(2024, 1, 1, 0, 0, 0, 123456, UTC)
-    assert result.primary_keys == [key]
-    requests = [call.args[0] for call in send.call_args_list]
+    assert result.response is not None
+    assert result.response.primary_keys == [key]
+    requests = result.requests
     assert urlsplit(requests[0].url).path == f"/api/v1alpha/{path}"
     assert parse_qs(urlsplit(requests[0].url).query) == {"project_id": [PROJECT_ID]}
     assert requests[1].url == next_url
     for request in requests:
-        assert request.headers["Authorization"] == f"Token {TOKEN}"
-        assert request.headers["User-Agent"] == "SemaphoreCI v2.0 Client"
-    assert all(call.kwargs["allow_redirects"] is False for call in send.call_args_list)
-    assert manager.save_state.call_args_list[0].args[0] == SemaphoreResumeConfig(next_url=next_url)
-    assert manager.save_state.call_args_list[-1].args[0] == SemaphoreResumeConfig(completed=True)
+        assert request.headers["authorization"] == f"Token {TOKEN}"
+        assert request.headers["user-agent"] == "SemaphoreCI v2.0 Client"
+    assert result.saved_states[0] == SemaphoreResumeConfig(next_url=next_url)
+    assert result.saved_states[-1] == SemaphoreResumeConfig(completed=True)
 
 
 @pytest.mark.parametrize(
@@ -125,45 +89,39 @@ def test_transport_and_terminal_page(
 )
 def test_incremental_filter(
     config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     table: str,
     incremental: bool,
     watermark: datetime | str | None,
     expected: str | None,
 ) -> None:
-    inputs.schema_name = table
-    inputs.should_use_incremental_field = incremental
-    inputs.db_incremental_field_last_value = watermark
-    with patch(SEND, return_value=response([])) as send:
-        result = SemaphoreSource().source_for_pipeline(config, manager, inputs)
-        list(cast(Iterable[Any], result.items()))
-    params = parse_qs(urlsplit(cast(str, send.call_args.args[0].url)).query)
+    result = SourceDriver(SemaphoreSource(), config).run(
+        table,
+        [response([])],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
+    params = parse_qs(urlsplit(result.requests[-1].url).query)
     assert params == {"project_id": [PROJECT_ID], **({"created_after": [expected]} if expected else {})}
     if table == "workflows" and incremental:
-        assert result.sort_mode == "desc"
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
 
 
 @pytest.mark.parametrize("completed", [False, True])
-def test_resume_skips_saved_pages(
-    config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    completed: bool,
-) -> None:
+def test_resume_skips_saved_pages(config: SemaphoreSourceConfig, completed: bool) -> None:
     next_url = f"{BASE_URL}plumber-workflows?project_id={PROJECT_ID}&page=3"
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = SemaphoreResumeConfig(next_url=next_url, completed=completed)
-    with patch(SEND, return_value=response([{"wf_id": "last"}])) as send:
-        result = SemaphoreSource().source_for_pipeline(config, manager, inputs)
-        rows = [row for page in cast(Iterable[Any], result.items()) for row in page]
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "workflows",
+        [response([{"wf_id": "last"}])],
+        resume_state=SemaphoreResumeConfig(next_url=next_url, completed=completed),
+    )
     if completed:
-        assert rows == []
-        send.assert_not_called()
+        assert result.rows == []
+        assert result.requests == []
     else:
-        assert rows == [{"wf_id": "last"}]
-        assert send.call_args.args[0].url == next_url
-        manager.save_state.assert_called_once_with(SemaphoreResumeConfig(completed=True))
+        assert result.rows == [{"wf_id": "last"}]
+        assert result.requests[-1].url == next_url
+        assert result.saved_states == [SemaphoreResumeConfig(completed=True)]
 
 
 @pytest.mark.parametrize(
@@ -172,33 +130,29 @@ def test_resume_skips_saved_pages(
 )
 def test_auth_errors_are_actionable_and_non_retryable(
     config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     status: int,
     expected_message: str,
 ) -> None:
     source = SemaphoreSource()
-    with patch(SEND, return_value=response({}, status)) as send:
+    with scripted_network([response({}, status)]) as network:
         valid, message = source.validate_credentials(config, 1)
     assert valid is False
     assert message == expected_message
-    send.assert_called_once()
-    with patch(SEND, return_value=response({}, status)) as send:
-        result = source.source_for_pipeline(config, manager, inputs)
-        with pytest.raises(HTTPError) as error:
-            list(cast(Iterable[Any], result.items()))
-    assert f"{status} Client Error" in str(error.value)
-    assert TOKEN not in str(error.value)
-    send.assert_called_once()
+    assert len(network.requests_log) == 1
+    result = SourceDriver(source, config).run("workflows", [response({}, status)])
+    assert isinstance(result.raised, HTTPError)
+    assert f"{status} Client Error" in str(result.raised)
+    assert TOKEN not in str(result.raised)
+    assert len(result.requests) == 1
 
 
 def test_validation_reads_only_one_page(config: SemaphoreSourceConfig) -> None:
-    with patch(SEND, return_value=response([], next_url=BASE_URL + "plumber-workflows?page=2")) as send:
+    with scripted_network([response([], next_url=BASE_URL + "plumber-workflows?page=2")]) as network:
         assert SemaphoreSource().validate_credentials(config, 1) == (True, None)
-    send.assert_called_once()
-    request: PreparedRequest = send.call_args.args[0]
-    assert request.headers["Authorization"] == f"Token {TOKEN}"
-    assert parse_qs(urlsplit(cast(str, request.url)).query) == {"project_id": [PROJECT_ID]}
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.headers["authorization"] == f"Token {TOKEN}"
+    assert parse_qs(urlsplit(request.url).query) == {"project_id": [PROJECT_ID]}
 
 
 @pytest.mark.parametrize(
@@ -215,17 +169,16 @@ def test_validation_reads_only_one_page(config: SemaphoreSourceConfig) -> None:
 )
 def test_invalid_configuration_never_sends_credentials(
     config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     field: str,
     value: str,
 ) -> None:
     setattr(config, field, value)
-    with patch(SEND) as send:
+    with scripted_network([]) as network:
         assert SemaphoreSource().validate_credentials(config, 1)[0] is False
-        with pytest.raises(ValueError):
-            SemaphoreSource().source_for_pipeline(config, manager, inputs)
-    send.assert_not_called()
+    result = SourceDriver(SemaphoreSource(), config).run("workflows", [])
+    assert isinstance(result.raised, ValueError)
+    assert network.requests_log == []
+    assert result.requests == []
 
 
 @pytest.mark.parametrize(
@@ -234,53 +187,47 @@ def test_invalid_configuration_never_sends_credentials(
 @pytest.mark.parametrize("resumed", [False, True])
 def test_pagination_cannot_send_token_to_another_origin(
     config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     next_url: str,
     resumed: bool,
 ) -> None:
-    manager.can_resume.return_value = resumed
-    manager.load_state.return_value = SemaphoreResumeConfig(next_url=next_url)
-    with patch(SEND, return_value=response([{"wf_id": "first"}], next_url=next_url)) as send:
-        result = SemaphoreSource().source_for_pipeline(config, manager, inputs)
-        with pytest.raises(ValueError):
-            list(cast(Iterable[Any], result.items()))
-    assert send.call_count == (0 if resumed else 1)
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "workflows",
+        [response([{"wf_id": "first"}], next_url=next_url)],
+        resume_state=SemaphoreResumeConfig(next_url=next_url) if resumed else None,
+    )
+    assert isinstance(result.raised, ValueError)
+    assert len(result.requests) == (0 if resumed else 1)
 
 
 @pytest.mark.parametrize("body", [{"error": "unexpected"}, None])
-def test_malformed_success_does_not_silently_complete(
-    config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    body: Any,
-) -> None:
-    with patch(SEND, return_value=response(body)):
-        result = SemaphoreSource().source_for_pipeline(config, manager, inputs)
-        with pytest.raises(ValueError):
-            list(cast(Iterable[Any], result.items()))
-    manager.save_state.assert_not_called()
+def test_malformed_success_does_not_silently_complete(config: SemaphoreSourceConfig, body: Any) -> None:
+    result = SourceDriver(SemaphoreSource(), config).run("workflows", [response(body)])
+    assert isinstance(result.raised, ValueError)
+    assert result.saved_states == []
 
 
-def test_invalid_watermark_does_not_run_a_full_refresh(
-    config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-) -> None:
-    inputs.should_use_incremental_field = True
-    inputs.db_incremental_field_last_value = "invalid"
-    with patch(SEND) as send, pytest.raises(ValueError, match="sync position"):
-        SemaphoreSource().source_for_pipeline(config, manager, inputs)
-    send.assert_not_called()
+def test_invalid_watermark_does_not_run_a_full_refresh(config: SemaphoreSourceConfig) -> None:
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "workflows", [], should_use_incremental_field=True, db_incremental_field_last_value="invalid"
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "sync position" in str(result.raised)
+    assert result.requests == []
 
 
-def test_invalid_created_at_does_not_save_a_checkpoint(
-    config: SemaphoreSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-) -> None:
-    with patch(SEND, return_value=response([{"wf_id": "invalid", "created_at": "invalid"}])):
-        result = SemaphoreSource().source_for_pipeline(config, manager, inputs)
-        with pytest.raises(ValueError, match="invalid creation time"):
-            list(cast(Iterable[Any], result.items()))
-    manager.save_state.assert_not_called()
+def test_invalid_created_at_does_not_save_a_checkpoint(config: SemaphoreSourceConfig) -> None:
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "workflows", [response([{"wf_id": "invalid", "created_at": "invalid"}])]
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "invalid creation time" in str(result.raised)
+    assert result.saved_states == []
+
+
+def test_redirects_are_not_followed(config: SemaphoreSourceConfig) -> None:
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "workflows",
+        [ScriptedResponse(status=302, headers={"Location": "https://example.com/steal"}, json={})],
+    )
+    assert isinstance(result.raised, ValueError)
+    assert len(result.requests) == 1
