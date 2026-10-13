@@ -24,8 +24,7 @@ export function filterProjects(projects: AuthProject[], query: string): AuthProj
     if (!needle) {
         return projects
     }
-    return projects.filter(
-        (project) =>
-            project.name.toLowerCase().includes(needle) || project.organizationName.toLowerCase().includes(needle)
-    )
+    // Project names only, like the web app's switcher: a query that is part of an organization's name must not keep
+    // every project of that organization in the list.
+    return projects.filter((project) => project.name.toLowerCase().includes(needle))
 }

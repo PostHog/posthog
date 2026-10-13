@@ -12,7 +12,7 @@ describe('projectList', () => {
         ['an empty query returns every project', '', projects],
         ['a whitespace query returns every project', '   ', projects],
         ['matches by project name', 'api', [api]],
-        ['matches by organization name', 'sample', [docs]],
+        ['ignores the organization name', 'sample', []],
         ['ignores case and surrounding spaces', '  WEB ', [web]],
         ['returns nothing when no project matches', 'mobile', []],
     ])('filterProjects: %s', (_name, query, expected) => {
