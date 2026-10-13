@@ -216,7 +216,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/adjust.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/adobe_analytics.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_commerce/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/adroll.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/settings.py
