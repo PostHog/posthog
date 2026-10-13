@@ -129,6 +129,7 @@ export function StepRandomCohortBranchConfiguration({
                         key={index}
                         actionId={action.id}
                         index={index}
+                        tagLabel={`${cohort.percentage}%`}
                         name={localCohortNames[index] || ''}
                         onNameChange={(value) => handleNameChange(index, value)}
                         placeholder={`Cohort ${index + 1}`}

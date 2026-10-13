@@ -1,11 +1,10 @@
-import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { HogFlowInsertStepIcon } from '../HogFlowInsertStepIcon'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
 import type { HogFlowEdge } from '../types'
 
@@ -57,14 +56,7 @@ export function HogFlowEdgeInsertButton({
                     className="group/insert !size-4 !min-h-0 border-0 !bg-transparent"
                     data-attr={joinEdges ? 'workflow-graph-insert-action-join' : 'workflow-graph-insert-action'}
                 >
-                    <span
-                        className={clsx(
-                            'flex size-4 items-center justify-center rounded-full border bg-surface-primary text-secondary transition-colors group-hover/insert:border-accent group-hover/insert:text-accent',
-                            pickerOpen && 'border-accent text-accent'
-                        )}
-                    >
-                        <IconPlus className="size-3" />
-                    </span>
+                    <HogFlowInsertStepIcon active={pickerOpen} />
                 </LemonButton>
             </LemonDropdown>
         </div>

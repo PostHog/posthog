@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { createContext, useContext, useEffect, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 
@@ -30,24 +30,6 @@ const HogFlowBranchSelectionContext = createContext<HogFlowBranchSelectionContex
 
 export function getHogFlowBranchColor(index: number | null): string {
     return index === null ? 'var(--muted-foreground)' : BRANCH_COLORS[index % BRANCH_COLORS.length]
-}
-
-export function getHogFlowBranchTint(index: number | null): string {
-    return `color-mix(in oklab, ${getHogFlowBranchColor(index)} 8%, var(--color-bg-surface-primary))`
-}
-
-export function getHogFlowBranchStyle(index: number | null, selected: boolean): CSSProperties {
-    const color = getHogFlowBranchColor(index)
-
-    return {
-        borderColor: color,
-        ...(selected
-            ? {
-                  backgroundColor: getHogFlowBranchTint(index),
-                  boxShadow: `0 0 0 2px color-mix(in oklab, ${color} 35%, transparent)`,
-              }
-            : {}),
-    }
 }
 
 export function HogFlowBranchSelectionProvider({ children }: { children: ReactNode }): JSX.Element {

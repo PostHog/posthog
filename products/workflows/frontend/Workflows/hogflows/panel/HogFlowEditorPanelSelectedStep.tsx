@@ -4,12 +4,12 @@ import { IconTrash, IconTrends, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { urls } from 'scenes/urls'
 
-import { EXIT_NODE_ID, TRIGGER_NODE_ID, workflowLogic } from '../../workflowLogic'
+import { workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isScheduleTrigger } from '../steps/types'
+import { getStepMetricsUrl } from './stepMetricsUrl'
 
 export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
     const { selectedNode, selectedNodeCanBeDeleted, workflow } = useValues(hogFlowEditorLogic)
@@ -25,12 +25,7 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
     const validationResult = actionValidationErrorsById[action.id]
     const hasValidationIssue =
         validationResult?.valid === false || Object.keys(validationResult?.warnings ?? {}).length > 0
-    // The metrics tab can drill into a single step, but trigger and exit only exist in its workflow totals.
-    const showStepMetricsLink =
-        !!workflow.id &&
-        workflow.id !== 'new' &&
-        workflow.trigger?.type !== 'batch' &&
-        ![TRIGGER_NODE_ID, EXIT_NODE_ID].includes(action.id)
+    const stepMetricsUrl = getStepMetricsUrl(workflow, action.id)
 
     return (
         <div className="flex shrink-0 items-start gap-2 border-b bg-surface-primary p-2">
@@ -86,11 +81,11 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
                         </span>
                     </Tooltip>
                 )}
-                {showStepMetricsLink && (
+                {stepMetricsUrl && (
                     <LemonButton
                         size="small"
                         icon={<IconTrends />}
-                        to={`${urls.workflow(workflow.id, 'metrics')}?action=${encodeURIComponent(action.id)}`}
+                        to={stepMetricsUrl}
                         tooltip="View metrics for this step"
                         data-attr="workflow-step-metrics-link"
                     />

@@ -143,6 +143,8 @@ export function StepConditionalBranchConfiguration({
                         key={index}
                         actionId={action.id}
                         index={index}
+                        tagLabel={`If #${index + 1}`}
+                        emphasizedTag
                         name={localConditionNames[index] || ''}
                         onNameChange={(value) => handleNameChange(index, value)}
                         placeholder={`Condition ${index + 1}`}

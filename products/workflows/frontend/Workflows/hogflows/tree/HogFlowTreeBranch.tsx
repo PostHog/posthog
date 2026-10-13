@@ -6,10 +6,10 @@ import { IconArrowRight, IconChevronDown, IconEllipsis } from '@posthog/icons'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
 
 import { getHogFlowBranchColor, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
+import { HogFlowBranchTag } from '../HogFlowBranchTag'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
 import { HogFlowTreeBranchConnector } from './HogFlowTreeBranchConnector'
@@ -123,22 +123,11 @@ export function HogFlowTreeBranch({
                                 data-attr="workflow-tree-select-branch"
                             >
                                 <span className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <LemonTag
-                                        size={node.action.type === 'conditional_branch' ? 'medium' : 'small'}
-                                        className={cn(
-                                            'shrink-0',
-                                            node.action.type === 'conditional_branch' && 'uppercase'
-                                        )}
-                                        style={{
-                                            color:
-                                                node.action.type === 'conditional_branch'
-                                                    ? `color-mix(in srgb, ${pathColor} 60%, var(--text-3000))`
-                                                    : pathColor,
-                                            borderColor: pathColor,
-                                        }}
-                                    >
-                                        {badge}
-                                    </LemonTag>
+                                    <HogFlowBranchTag
+                                        index={branchIndex}
+                                        label={badge}
+                                        emphasized={node.action.type === 'conditional_branch'}
+                                    />
                                     <span className="break-words whitespace-normal">{branch.label}</span>
                                 </span>
                             </LemonButton>

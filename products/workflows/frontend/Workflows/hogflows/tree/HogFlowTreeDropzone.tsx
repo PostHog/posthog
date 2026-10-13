@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 
 import { type CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { HogFlowInsertStepIcon } from '../HogFlowInsertStepIcon'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
 import type { HogFlowEdge } from '../types'
 import { computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
@@ -99,7 +100,7 @@ export function HogFlowTreeDropzone({
         <div
             className={cn(
                 'group relative flex w-full items-center justify-center',
-                alwaysVisible ? 'min-h-8' : compact ? 'h-2' : 'h-4'
+                alwaysVisible ? 'min-h-8' : compact ? 'h-7' : 'h-8'
             )}
             data-workflow-tree-dropzone-candidate
             data-workflow-tree-dropzone-disabled={isAdjacentToDraggedAction || undefined}
@@ -110,14 +111,9 @@ export function HogFlowTreeDropzone({
                     active ? 'hidden' : 'group-data-[workflow-tree-dragging=true]/tree:hidden'
                 )}
             >
-                <div
-                    aria-hidden="true"
-                    className={cn(
-                        'absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-muted-foreground/50 opacity-0 transition-opacity',
-                        pickerOpen && 'opacity-100',
-                        (showConnector || insertionLabel) && 'group-hover:opacity-100 group-focus-within:opacity-100'
-                    )}
-                />
+                {showConnector && !alwaysVisible && (
+                    <div aria-hidden="true" className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+                )}
                 <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                     <PopoverTrigger
                         render={
@@ -125,13 +121,14 @@ export function HogFlowTreeDropzone({
                                 htmlType="button"
                                 type="tertiary"
                                 size="xsmall"
-                                tooltip={insertionLabel ?? 'Insert step here'}
+                                tooltip={pickerOpen ? undefined : (insertionLabel ?? 'Add step here')}
+                                noPadding={!alwaysVisible}
                                 className={cn(
                                     alwaysVisible
                                         ? 'relative z-10 me-auto min-w-0 max-w-full bg-transparent text-muted-foreground'
-                                        : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 !bg-transparent !p-0'
+                                        : 'group/insert relative z-10 !size-6 !min-h-0 border-0 !bg-transparent'
                                 )}
-                                aria-label={insertionLabel ?? 'Insert step here'}
+                                aria-label={insertionLabel ?? 'Add step here'}
                                 data-attr="workflow-tree-insert-action"
                             />
                         }
@@ -142,17 +139,14 @@ export function HogFlowTreeDropzone({
                                 <span className="truncate">{insertionLabel}</span>
                             </>
                         ) : (
-                            <span
-                                className={cn(
-                                    'flex size-4 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-0 transition-[opacity,box-shadow] group-hover:opacity-100 group-focus-within:opacity-100 group-hover:shadow-sm',
-                                    pickerOpen && 'opacity-100 shadow-sm'
-                                )}
-                            >
-                                <IconPlus className="size-3" />
-                            </span>
+                            <HogFlowInsertStepIcon active={pickerOpen} size="medium" />
                         )}
                     </PopoverTrigger>
-                    <PopoverContent side="bottom" align="end" className="w-72 max-h-96 overflow-hidden p-0">
+                    <PopoverContent
+                        side="bottom"
+                        align={alwaysVisible ? 'start' : 'center'}
+                        className="w-72 max-h-96 overflow-hidden p-0"
+                    >
                         <HogFlowEditorPanelBuild className="max-h-96 p-2" onActionSelect={handleInsertAction} />
                     </PopoverContent>
                 </Popover>
@@ -179,7 +173,7 @@ export function HogFlowTreeDropzone({
                 <span
                     aria-hidden="true"
                     className={cn(
-                        'absolute -right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-30 transition-[opacity,transform,box-shadow] duration-150 group-data-[workflow-tree-dropzone-closest=true]:scale-110 group-data-[workflow-tree-dropzone-closest=true]:opacity-100 group-data-[workflow-tree-dropzone-closest=true]:shadow-sm',
+                        'absolute left-1/2 top-1/2 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-30 transition-[opacity,transform,box-shadow] duration-150 group-data-[workflow-tree-dropzone-closest=true]:scale-110 group-data-[workflow-tree-dropzone-closest=true]:opacity-100 group-data-[workflow-tree-dropzone-closest=true]:shadow-sm',
                         highlighted && 'scale-110 opacity-100 shadow-sm'
                     )}
                 >
