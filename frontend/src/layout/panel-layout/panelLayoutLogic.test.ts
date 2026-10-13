@@ -32,10 +32,11 @@ describe('panelLayoutLogic', () => {
 
     // Regression: a scene that collapses the nav for itself must not write the saved choice. A write
     // leaves the nav collapsed on every other screen, and so does a toggle made inside that scene.
+    // A late clear from another scene must not expand the nav under the scene that owns the override.
     it('collapses for a scene without changing the saved choice', () => {
         panelLayoutLogic.actions.toggleLayoutNavCollapsed(false)
 
-        panelLayoutLogic.actions.setLayoutNavCollapsedOverride(true)
+        panelLayoutLogic.actions.setLayoutNavCollapsedOverride('scene-a', true)
         expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
 
         panelLayoutLogic.actions.toggleLayoutNavCollapsed()
@@ -44,7 +45,9 @@ describe('panelLayoutLogic', () => {
         expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
         expect(panelLayoutLogic.values.isLayoutNavCollapsedDesktop).toBe(false)
 
-        panelLayoutLogic.actions.setLayoutNavCollapsedOverride(null)
+        panelLayoutLogic.actions.setLayoutNavCollapsedOverride('scene-b', null)
+        expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
+        panelLayoutLogic.actions.setLayoutNavCollapsedOverride('scene-a', null)
         expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(false)
     })
 

@@ -45,7 +45,10 @@ export interface panelLayoutLogicValues {
     isLayoutPanelCloseable: boolean
     isLayoutPanelVisible: boolean
     isNavOverlayOpen: boolean
-    layoutNavCollapsedOverride: boolean | null
+    layoutNavCollapsedOverride: {
+        collapsed: boolean
+        owner: string
+    } | null
     mainContentRect: DOMRect | null
     mainContentRef: PanelLayoutMainContentRef
     navExperimentActiveTab: NavExperimentTab
@@ -77,8 +80,12 @@ export interface panelLayoutLogicActions {
     setLayoutNavCollapsedDesktop: (collapsed: boolean) => {
         collapsed: boolean
     }
-    setLayoutNavCollapsedOverride: (collapsed: boolean | null) => {
+    setLayoutNavCollapsedOverride: (
+        owner: string,
         collapsed: boolean | null
+    ) => {
+        collapsed: boolean | null
+        owner: string
     }
     setMainContentRect: (rect: DOMRect) => {
         rect: DOMRect
@@ -129,7 +136,10 @@ export interface panelLayoutLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isLayoutNavCollapsed: (
             isLayoutNavCollapsedDesktop: boolean,
-            layoutNavCollapsedOverride: boolean | null,
+            layoutNavCollapsedOverride: {
+                collapsed: boolean
+                owner: string
+            } | null,
             mobileLayout: boolean
         ) => boolean
         activePanelIdentifierFromUrl: (location: {
@@ -169,7 +179,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setLayoutNavCollapsedDesktop: (collapsed: boolean) => ({ collapsed }),
-        setLayoutNavCollapsedOverride: (collapsed: boolean | null) => ({ collapsed }),
+        setLayoutNavCollapsedOverride: (owner: string, collapsed: boolean | null) => ({ owner, collapsed }),
         setVisibleSideAction: (sideAction: string) => ({ sideAction }),
         setPanelWidth: (width: number) => ({ width }),
         setPanelIsResizing: (isResizing: boolean) => ({ isResizing }),
@@ -270,11 +280,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         // A scene sets this to collapse the nav while it shows. It is not persisted, so the saved
-        // choice applies again when the scene clears it.
+        // choice applies again when the scene clears it. Only the owner can clear it, because the
+        // logic of one scene tab can unmount after the next scene tab set its own override.
         layoutNavCollapsedOverride: [
-            null as boolean | null,
+            null as { owner: string; collapsed: boolean } | null,
             {
-                setLayoutNavCollapsedOverride: (_, { collapsed }) => collapsed,
+                setLayoutNavCollapsedOverride: (state, { owner, collapsed }) =>
+                    collapsed === null ? (state?.owner === owner ? null : state) : { owner, collapsed },
             },
         ],
         visibleSideAction: [
@@ -344,8 +356,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
     listeners(({ actions, values, cache }) => ({
         toggleLayoutNavCollapsed: ({ override }) => {
             // A toggle during a scene override changes the override only, so the saved choice survives the scene.
-            if (values.layoutNavCollapsedOverride !== null) {
-                actions.setLayoutNavCollapsedOverride(override ?? !values.layoutNavCollapsedOverride)
+            const sceneOverride = values.layoutNavCollapsedOverride
+            if (sceneOverride) {
+                actions.setLayoutNavCollapsedOverride(sceneOverride.owner, override ?? !sceneOverride.collapsed)
             } else {
                 actions.setLayoutNavCollapsedDesktop(override ?? !values.isLayoutNavCollapsedDesktop)
             }
@@ -404,9 +417,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             (s) => [s.isLayoutNavCollapsedDesktop, s.layoutNavCollapsedOverride, s.mobileLayout],
             (
                 isLayoutNavCollapsedDesktop: boolean,
-                layoutNavCollapsedOverride: boolean | null,
+                layoutNavCollapsedOverride: { owner: string; collapsed: boolean } | null,
                 mobileLayout: boolean
-            ): boolean => !mobileLayout && (layoutNavCollapsedOverride ?? isLayoutNavCollapsedDesktop),
+            ): boolean => !mobileLayout && (layoutNavCollapsedOverride?.collapsed ?? isLayoutNavCollapsedDesktop),
         ],
         activePanelIdentifierFromUrl: [
             () => [router.selectors.location],
