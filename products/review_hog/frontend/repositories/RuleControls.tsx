@@ -9,7 +9,7 @@ import type {
 import { PeopleList } from './PeopleList'
 import { FLASH_FOR_OPTIONS, peopleKindFor } from './repositoryChoices'
 
-/** Who gets automatic reviews, for the project settings and for a repository exception alike. */
+/** Who gets automatic reviews, for the project rule and for a repository exception alike. */
 export function RuleControls({
     label,
     flashFor,
@@ -32,19 +32,8 @@ export function RuleControls({
     dataAttr: string
 }): JSX.Element {
     const kind = peopleKindFor(flashFor)
-    const peopleList = kind && (
-        <PeopleList
-            kind={kind}
-            people={people}
-            canEdit={canEdit}
-            disabledReason={disabledReason}
-            onAdd={(userId) => onAddPerson(userId, kind)}
-            onRemove={onRemovePerson}
-        />
-    )
     return (
-        // The except list continues the "for everyone" sentence, so it shares the select's line.
-        <div className={kind === 'excepted' ? 'flex flex-wrap items-center gap-1.5' : 'flex flex-col gap-1.5'}>
+        <div className="flex min-w-0 flex-col items-start gap-1.5">
             <LemonSelect
                 size="small"
                 aria-label={label}
@@ -53,11 +42,18 @@ export function RuleControls({
                 onChange={(value) => value !== flashFor && onChangeFlashFor(value)}
                 disabledReason={disabledReason}
                 data-attr={dataAttr}
-                className="max-w-full self-start"
+                className="max-w-full"
             />
-            {/* A separate item, so a wrapped except list never starts its line with the comma. */}
-            {kind === 'excepted' && <span className="-ml-1 text-xs text-secondary">,</span>}
-            {peopleList}
+            {kind && (
+                <PeopleList
+                    kind={kind}
+                    people={people}
+                    canEdit={canEdit}
+                    disabledReason={disabledReason}
+                    onAdd={(userId) => onAddPerson(userId, kind)}
+                    onRemove={onRemovePerson}
+                />
+            )}
         </div>
     )
 }

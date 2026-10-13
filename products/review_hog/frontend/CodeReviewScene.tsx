@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconDirectedGraph, IconExternal, IconGithub, IconPullRequest } from '@posthog/icons'
+import { IconChevronDown, IconExternal } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -24,6 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type {
@@ -47,9 +48,9 @@ import { CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './review
 import { ReviewModeTag } from './ReviewModeTag'
 import { ReviewsFilters } from './ReviewsFilters'
 import { ReviewsTable } from './ReviewsTable'
-import { SectionHeader } from './SectionHeader'
 import { DeepArea } from './settings/DeepArea'
 import { InboxSection } from './settings/InboxSection'
+import { ReviewSkillsPanel } from './settings/ReviewSkillsPanel'
 import { StandardArea } from './settings/StandardArea'
 import { prettifySkillName } from './skillNames'
 
@@ -95,7 +96,7 @@ function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
     const scopeOption = REVIEWS_SCOPE_OPTIONS.find((option) => option.value === reviewsScope)
     return (
-        <Tooltip title={`${scopeOption?.tooltip}. Set by the Mine / Everyone filter on reviews.`}>
+        <Tooltip title={scopeOption?.tooltip}>
             <span className="text-xxs text-tertiary">
                 <span translate="no">{`Last ${reportCount} completed review${reportCount === 1 ? '' : 's'} · ${scopeOption?.label}`}</span>
             </span>
@@ -108,11 +109,10 @@ function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element
  * stats the effectiveness cards use. Hidden while there are no reviewed findings in scope yet.
  */
 function ProofCard(): JSX.Element | null {
-    const { perspectiveStats, reviewsScope } = useValues(reviewHogSettingsLogic)
-    const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
+    const { perspectiveStats } = useValues(reviewHogSettingsLogic)
 
     if (perspectiveStats === null) {
-        return <LemonSkeleton className="h-24 w-full" />
+        return <LemonSkeleton className="h-16 w-full" />
     }
     const raised = perspectiveStats.perspectives.reduce((sum, p) => sum + p.raised, 0)
     const kept = perspectiveStats.perspectives.reduce((sum, p) => sum + p.kept, 0)
@@ -122,58 +122,23 @@ function ProofCard(): JSX.Element | null {
     }
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-5">
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <span className="text-3xl font-bold tabular-nums text-warning">{kept}</span>
-                <span className="text-sm font-semibold">
-                    {everyone ? "findings worth the team's time" : 'findings worth your time'}
+                <span className="text-xl font-bold tabular-nums">{kept}</span>
+                <span className="text-sm">
+                    of <span className="font-semibold">{raised}</span> findings kept
                 </span>
                 <span className="text-xs text-secondary">
-                    from <span className="font-semibold text-default">{raised}</span> raised ·{' '}
-                    <span className="font-semibold text-default">{dismissed}</span> filtered as noise
+                    <span className="font-semibold text-default">{dismissed}</span> dismissed
                 </span>
                 <span className="ml-auto">
                     <StatsWindowLabel reportCount={perspectiveStats.report_count} />
                 </span>
             </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-fill-highlight-100">
-                <div className="h-full rounded-full bg-warning" style={{ width: `${(kept / raised) * 100}%` }} />
-            </div>
-            <div className="flex items-center gap-4 text-xs text-tertiary">
-                <span className="flex items-center gap-1.5">
-                    <span className="inline-block size-2 rounded-full bg-warning" /> Worth your time
-                </span>
-                <span className="flex items-center gap-1.5">
-                    <span className="inline-block size-2 rounded-full bg-border-bold" /> Filtered as noise
-                </span>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-fill-highlight-100">
+                <div className="h-full rounded-full bg-success" style={{ width: `${(kept / raised) * 100}%` }} />
             </div>
         </LemonCard>
-    )
-}
-
-/** Where the review pipeline is explained: the full walk-through lives in the Detailed view. */
-function PipelineSection(): JSX.Element {
-    const { openPipelineDetail } = useActions(reviewHogSettingsLogic)
-    return (
-        <section className="flex flex-col gap-4">
-            <SectionHeader
-                icon={<IconDirectedGraph />}
-                title="How we review your PRs"
-                action={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => openPipelineDetail()}
-                        data-attr="review-pipeline-detailed-view"
-                    >
-                        Detailed view
-                    </LemonButton>
-                }
-            >
-                Every review runs through the same steps before it's published, then works through the comment threads
-                it leaves open.
-            </SectionHeader>
-        </section>
     )
 }
 
@@ -193,7 +158,7 @@ function prettifyCategory(category: string): string {
 const SINGLE_AGENT_MAIN_SOURCE = 'flash-single-agent'
 const SINGLE_AGENT_LENS_PREFIX = 'flash-lens-'
 
-/** Scoreboard label for a finding's source skill — blind-spot skills all read as one sweep. */
+/** Scoreboard label for a finding's source skill. Blind-spot skills all read as one sweep. */
 function perspectiveLabel(skillName: string): string {
     if (skillName.startsWith('review-hog-blind-spots-')) {
         return 'Blind spots'
@@ -227,60 +192,41 @@ function singleAgentCounts(review: ReviewRecentReviewApi): { posted: number; rai
     return { posted, raised: raised !== null && raised > posted ? raised : null }
 }
 
-/** The drawer header for a single-agent turn: how it ran, and why the posted count can be lower than the raised count. */
+/** The drawer header for a single-agent turn: how many issues it posted, and how many it raised but left out. */
 function SingleAgentDrawerSummary({ review }: { review: ReviewDetailApi }): JSX.Element {
     const { setReviewDrawerTab } = useActions(reviewHogSettingsLogic)
     const { posted, raised } = singleAgentCounts(review)
-    const lenses = singleAgentLensCount(review)
-    const dropped = raised !== null ? raised - posted : 0
-    const otherLabel = dropped === 1 ? 'The other one' : `The other ${dropped}`
+    const notPostedLabel = `${raised !== null ? raised - posted : 0} not posted`
     return (
-        <div className="flex flex-col gap-1 text-sm text-secondary">
-            <div>
-                Standard review: one main pass over the whole pull request
-                {lenses
-                    ? ` plus ${lenses} ${lenses === 1 ? 'lens that focuses' : 'lenses that each focus'} on one area`
-                    : ''}
-                . No separate validation step.
-            </div>
-            <div>
-                {/* A turn whose GitHub publish failed kept its findings without posting them. */}
-                <span>{review.turn_published ? 'Posted' : 'Kept'}</span>{' '}
-                <span className="font-semibold text-default">{posted}</span>
-                {raised !== null ? (
-                    <>
-                        {' '}
-                        of <span className="font-semibold text-default">{raised}</span> issues raised.{' '}
-                        {/* Turns that predate the dropped-finding record have nothing to switch to. */}
-                        {review.dropped_findings.length ? (
-                            <Link onClick={() => setReviewDrawerTab('not_posted')}>{otherLabel}</Link>
-                        ) : (
-                            otherLabel
-                        )}{' '}
-                        repeated another finding or comment, {dropped === 1 ? 'was' : 'were'} on code this pull request
-                        did not change, or went over the per-review limit.
-                    </>
-                ) : (
-                    ` issue${posted === 1 ? '' : 's'}.`
-                )}
-            </div>
+        <div className="text-sm text-secondary">
+            {/* A turn whose GitHub publish failed kept its findings without posting them. */}
+            <span>{review.turn_published ? 'Posted' : 'Kept'}</span>{' '}
+            <span className="font-semibold text-default">{posted}</span>
+            {raised !== null ? (
+                <>
+                    {' '}
+                    of <span className="font-semibold text-default">{raised}</span> issues raised ·{' '}
+                    {/* Turns that predate the dropped-finding record have nothing to switch to. */}
+                    {review.dropped_findings.length ? (
+                        <Link onClick={() => setReviewDrawerTab('not_posted')}>{notPostedLabel}</Link>
+                    ) : (
+                        <span>{notPostedLabel}</span>
+                    )}
+                </>
+            ) : (
+                ` issue${posted === 1 ? '' : 's'}`
+            )}
         </div>
     )
 }
 
 function ReviewsSection(): JSX.Element {
-    const { reviewsScope } = useValues(reviewHogSettingsLogic)
     return (
-        <section className="flex flex-col gap-4">
-            <SectionHeader icon={<IconPullRequest />} title="Reviews" action={<ReviewsScopeFilter />}>
-                {reviewsScope === ReviewHogReviewsListScope.Everyone
-                    ? 'PostHog Review runs on pull requests across this project, latest activity first. Open a review for its findings.'
-                    : 'PostHog Review runs on pull requests you authored, plus reviews you started, latest activity first. Open a review for its findings.'}
-            </SectionHeader>
+        <SceneSection title="Reviews" actions={<ReviewsScopeFilter />}>
             <ProofCard />
             <ReviewsFilters />
             <ReviewsTable />
-        </section>
+        </SceneSection>
     )
 }
 
@@ -293,7 +239,7 @@ function ReviewsSection(): JSX.Element {
 function TriggerReviewSection(): JSX.Element {
     const { triggerPrUrl, triggeringReview, triggerUrlResolving, triggerUrlHasFullReview } =
         useValues(reviewHogSettingsLogic)
-    const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
+    const { setTriggerPrUrl, submitTriggerReview, openPipelineDetail } = useActions(reviewHogSettingsLogic)
 
     const noUrlReason = !triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined
     // Mirrors the server-side busy-guard for PRs visible in the list; pasted URLs outside it still
@@ -304,14 +250,22 @@ function TriggerReviewSection(): JSX.Element {
         ? 'This pull request already has a Deep review. Standard does not run after one.'
         : undefined
     return (
-        <section className="flex flex-col gap-4">
-            <SectionHeader icon={<IconGithub />} title="Review a pull request">
-                Start a Deep review of any pull request the GitHub App can access. The review is posted back to the pull
-                request and shows up under Reviews below. Your perspectives and other review skills apply to Deep
-                reviews only.
-            </SectionHeader>
+        <SceneSection
+            title="Review a pull request"
+            description="Runs a Deep review and posts it to the pull request."
+            actions={
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => openPipelineDetail()}
+                    data-attr="review-pipeline-detailed-view"
+                >
+                    How we review your PRs
+                </LemonButton>
+            }
+        >
             <form
-                className="ml-9 flex flex-wrap items-center gap-2"
+                className="flex flex-wrap items-center gap-2"
                 onSubmit={(e) => {
                     e.preventDefault()
                     submitTriggerReview()
@@ -320,6 +274,7 @@ function TriggerReviewSection(): JSX.Element {
                 <LemonInput
                     className="min-w-80 flex-1"
                     placeholder="https://github.com/PostHog/posthog.com/pull/1234"
+                    aria-label="Pull request URL"
                     value={triggerPrUrl}
                     onChange={setTriggerPrUrl}
                 />
@@ -340,7 +295,7 @@ function TriggerReviewSection(): JSX.Element {
                                         onClick={() =>
                                             submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ReviewOnly)
                                         }
-                                        tooltip="Review the pull request but leave its comment threads alone, whatever your setting says."
+                                        tooltip="Leaves comment threads alone, whatever your Resolve setting."
                                     >
                                         Review without resolving comments
                                     </LemonButton>
@@ -349,14 +304,14 @@ function TriggerReviewSection(): JSX.Element {
                                         onClick={() =>
                                             submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
                                         }
-                                        tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
+                                        tooltip="Skips the review and works through the unresolved comment threads."
                                     >
                                         Only resolve existing comments
                                     </LemonButton>
                                     <LemonButton
                                         fullWidth
                                         onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
-                                        tooltip="A lower-cost review that never resolves comments and uses none of your review skills. Its status comment is marked as standard."
+                                        tooltip="Lower cost. Does not resolve comments or use your review skills."
                                         disabledReason={flashAfterFullReason}
                                     >
                                         Standard review
@@ -369,7 +324,7 @@ function TriggerReviewSection(): JSX.Element {
                     Review
                 </LemonButton>
             </form>
-        </section>
+        </SceneSection>
     )
 }
 
@@ -393,7 +348,7 @@ function FindingCard({
     const judged = isJudgedFinding(finding) ? finding : null
     const priority = PRIORITY_TAG[isJudgedFinding(finding) ? finding.effective_priority : finding.priority]
     const location = finding.lines.length
-        ? `${finding.file}:${finding.lines.map((r) => (r.end && r.end !== r.start ? `${r.start}–${r.end}` : `${r.start}`)).join(', ')}`
+        ? `${finding.file}:${finding.lines.map((r) => (r.end && r.end !== r.start ? `${r.start}-${r.end}` : `${r.start}`)).join(', ')}`
         : finding.file
     const firstRange = finding.lines[0]
     // Deep link to the exact reviewed code: the head SHA pins the lines even after later pushes.
@@ -436,7 +391,7 @@ function FindingCard({
             ) : (
                 <span className="font-mono text-xs text-tertiary">{location}</span>
             )}
-            {/* Collapsed by default, like the published PR comment — title + location scan, text on demand. */}
+            {/* Collapsed by default, like the published PR comment, so the title and location stay scannable. */}
             <LemonCollapse<FindingSection>
                 multiple
                 size="small"
@@ -469,7 +424,7 @@ function FindingCard({
                         ? [
                               {
                                   key: 'validator' as const,
-                                  header: dismissed ? 'Why it was dismissed' : "Why we think it's a valid issue",
+                                  header: dismissed ? 'Why it was dismissed' : 'Why it was kept',
                                   content: (
                                       <LemonMarkdown className="text-sm text-secondary" disableImages>
                                           {judged.validator_note}
@@ -503,25 +458,20 @@ function DrawerPublishedTab(): JSX.Element {
     }
     const isPublished = reviewDetail?.published ?? false
     if (!reviewFindingsSplit.published.length && isSingleAgentReview(reviewDetail)) {
-        return <div className="text-sm text-secondary">This review found nothing to post to the pull request.</div>
+        return <div className="text-sm text-secondary">This review found nothing to post.</div>
     }
     if (!reviewFindingsSplit.published.length) {
         return (
             <div className="text-sm text-secondary">
                 {isPublished
-                    ? "Nothing crossed the review's urgency threshold — no comments were posted to the pull request."
-                    : "Nothing crossed the review's urgency threshold, and this review hasn't been published to the pull request."}
+                    ? 'No findings met the threshold, so nothing was posted.'
+                    : 'No findings met the threshold, and the review was not posted.'}
             </div>
         )
     }
     return (
         <div className="flex flex-col gap-2">
-            {!isPublished && (
-                <p className="m-0 text-xs text-secondary">
-                    This review hasn't been published to the pull request yet — these findings crossed the review's
-                    urgency threshold, but no comments have been posted.
-                </p>
-            )}
+            {!isPublished && <p className="m-0 text-xs text-secondary">Not posted to the pull request yet.</p>}
             <div className="flex flex-col divide-y divide-primary">
                 {reviewFindingsSplit.published.map((finding, i) => (
                     <FindingCard key={i} finding={finding} />
@@ -581,15 +531,10 @@ function DrawerNotPostedTab(): JSX.Element {
             (a.rank ?? 0) - (b.rank ?? 0)
     )
     return (
-        <div className="flex flex-col gap-2">
-            <p className="m-0 text-xs text-secondary">
-                Raised during this review but not posted to the pull request, each with the reason.
-            </p>
-            <div className="flex flex-col divide-y divide-primary">
-                {dropped.map((finding, i) => (
-                    <FindingCard key={i} finding={finding} reason={<DropReason finding={finding} />} />
-                ))}
-            </div>
+        <div className="flex flex-col divide-y divide-primary">
+            {dropped.map((finding, i) => (
+                <FindingCard key={i} finding={finding} reason={<DropReason finding={finding} />} />
+            ))}
         </div>
     )
 }
@@ -602,17 +547,12 @@ function DrawerBelowThresholdTab(): JSX.Element {
         return <DrawerFindingsSkeleton />
     }
     if (!reviewFindingsSplit.belowThreshold.length) {
-        return (
-            <div className="text-sm text-secondary">
-                Nothing was held back — every validated finding crossed the review's urgency threshold.
-            </div>
-        )
+        return <div className="text-sm text-secondary">No findings below the threshold.</div>
     }
     return (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-xs text-secondary">
-                Validated as real, but under the urgency bar this review ran with — kept here instead of the pull
-                request.
+                Kept, but below this review's threshold. Not posted to the pull request.
             </p>
             <div className="flex flex-col divide-y divide-primary">
                 {reviewFindingsSplit.belowThreshold.map((finding, i) => (
@@ -631,18 +571,13 @@ function DrawerDismissedTab(): JSX.Element {
         return <DrawerFindingsSkeleton />
     }
     if (!reviewDetail.dismissed_findings.length) {
-        return <div className="text-sm text-secondary">The validator dismissed nothing on this review.</div>
+        return <div className="text-sm text-secondary">No dismissed findings.</div>
     }
     return (
-        <div className="flex flex-col gap-2">
-            <p className="m-0 text-xs text-secondary">
-                Raised during review, judged not worth your time — each with the validator's reasoning.
-            </p>
-            <div className="flex flex-col divide-y divide-primary">
-                {reviewDetail.dismissed_findings.map((finding, i) => (
-                    <FindingCard key={i} finding={finding} dismissed />
-                ))}
-            </div>
+        <div className="flex flex-col divide-y divide-primary">
+            {reviewDetail.dismissed_findings.map((finding, i) => (
+                <FindingCard key={i} finding={finding} dismissed />
+            ))}
         </div>
     )
 }
@@ -656,18 +591,12 @@ function DrawerChunksTab(): JSX.Element {
     }
     const selection = reviewDetail.perspective_selection
     if (!selection) {
-        return (
-            <div className="text-sm text-secondary">
-                No chunk plan was recorded for this review — it ran before per-chunk planning existed, or the planner
-                fell back to running every perspective on every chunk.
-            </div>
-        )
+        return <div className="text-sm text-secondary">No chunk plan was recorded for this review.</div>
     }
     return (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-xs text-secondary">
-                How the pull request was split for review, and which perspectives each chunk actually needed — every
-                skipped lens saves a full review session.
+                How the pull request was split, and the perspectives each chunk ran. Skipped ones are struck through.
             </p>
             <div className="flex flex-col divide-y divide-primary">
                 {selection.chunks.map((chunk) => (
@@ -776,7 +705,7 @@ function ReviewDetailDrawer(): JSX.Element {
     const tabs: (LemonTab<ReviewDrawerTab> | false)[] = [
         {
             key: 'published',
-            // "Published" is a claim about the PR — only make it when the review
+            // "Published" is a claim about the PR, so only make it when the review
             // actually posted; findings a store-only run kept above the bar read
             // "Kept". `review` falls back to the list row, so a published review
             // doesn't flash "Kept" while its detail loads.
@@ -814,7 +743,7 @@ function ReviewDetailDrawer(): JSX.Element {
                         {reviewDetail.report_markdown}
                     </LemonMarkdown>
                 ) : (
-                    <div className="text-sm text-secondary">No review body was rendered for this pull request.</div>
+                    <div className="text-sm text-secondary">No review body for this pull request.</div>
                 )
             ) : (
                 <LemonSkeleton className="h-40 w-full" />
@@ -859,9 +788,7 @@ function ReviewDetailDrawer(): JSX.Element {
                     <div className="text-sm text-secondary">
                         <span className="font-semibold text-default">{reviewDetail.candidate_count}</span> findings
                         raised · <span className="font-semibold text-default">{reviewDetail.findings.length}</span> kept
-                        after validation ·{' '}
-                        <span className="font-semibold text-default">{reviewDetail.dismissed_count}</span> dismissed by
-                        your quality bar
+                        · <span className="font-semibold text-default">{reviewDetail.dismissed_count}</span> dismissed
                     </div>
                 ) : (
                     <LemonSkeleton className="h-5 w-80" />
@@ -898,7 +825,6 @@ function ActivityTab(): JSX.Element {
         <>
             <TriggerReviewSection />
             <ReviewsSection />
-            <PipelineSection />
         </>
     )
 }
@@ -908,6 +834,7 @@ function SettingsTab(): JSX.Element {
         <>
             <StandardArea />
             <DeepArea />
+            <ReviewSkillsPanel />
             <InboxSection />
         </>
     )
@@ -915,8 +842,8 @@ function SettingsTab(): JSX.Element {
 
 /**
  * The "Code review" scene: ReviewHog's activity and settings page, split into an Activity tab
- * (trigger a review, recent reviews, the pipeline) and a Settings tab (the Standard area with who gets
- * automatic reviews, the Deep area with its settings and review skills, then Inbox).
+ * (trigger a review, recent reviews) and a Settings tab (who gets automatic Standard reviews, the
+ * Deep review settings, the review skills, then Inbox).
  * Every control is live from load, no save step. See `reviewHogSettingsLogic` for the data flow.
  * Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same flag that shows the menu entry, so whoever
  * discovers the entry can open the page.
@@ -934,7 +861,7 @@ export function CodeReviewScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Code review"
-                description="PostHog Review reads your pull requests and posts the findings worth fixing. Start a review, see recent ones, and choose what gets reviewed."
+                description="Automated code reviews of your pull requests."
                 resourceType={{ type: 'code_review' }}
             />
             <LemonTabs<CodeReviewTab>

@@ -66,7 +66,7 @@ export function SingleActiveSkillGroup({
                 // An archived skill leaves the rest inactive and the review falls back to the built-in skill,
                 // so the select must stay reachable.
                 <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
-                    <span className="text-xs text-secondary">None selected, so the built-in default runs.</span>
+                    <span className="text-xs text-secondary">None selected. The built-in default runs.</span>
                     {select}
                 </div>
             ) : (
@@ -76,11 +76,7 @@ export function SingleActiveSkillGroup({
                     kept={keptFor ? keptFor(active.skill_name) : undefined}
                     mine={
                         // A select with one option leads nowhere, so say why there is no choice yet.
-                        hasAlternative ? (
-                            select
-                        ) : (
-                            <span className="text-xs text-secondary">Runs. The only one so far.</span>
-                        )
+                        hasAlternative ? select : <span className="text-xs text-secondary">The only one available</span>
                     }
                 />
             )}

@@ -4,7 +4,6 @@ import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import type { UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 import { reviewHogProjectSettingsLogic } from 'products/review_hog/frontend/repositories/reviewHogProjectSettingsLogic'
-import { YouMark } from 'products/review_hog/frontend/repositories/YouMark'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
 import { SettingRow } from './SettingRow'
@@ -68,24 +67,22 @@ export function FullReviewSettingsSection(): JSX.Element {
         <SettingsTable>
             <SettingRow
                 title="Resolve comments on my pull requests"
-                description="Applies on your PRs. After a Deep review, ReviewHog pushes fix commits to your branch. Only your own opt-in counts, whoever starts the review. Never commits while the pull request is in the merge queue or has another pull request stacked on it. Without a PostHog account behind a PR, nothing is pushed."
-                project={<span className="text-xs text-secondary">Personal only. Default: off</span>}
+                description="After a Deep review, PostHog Review pushes fix commits to your branch."
+                info="Only your own setting counts, whoever starts the review. Nothing is pushed while the pull request is in the merge queue, has another pull request stacked on it, or has no PostHog account behind it."
+                project={<span className="text-xs text-secondary">Personal only</span>}
                 mine={
-                    <>
-                        <YouMark shown={settings?.resolve_comments ?? false} />
-                        <LemonSwitch
-                            aria-label="Resolve comments on my pull requests"
-                            checked={settings?.resolve_comments ?? false}
-                            onChange={(checked) => updateSettings({ resolve_comments: checked })}
-                            disabledReason={mineDisabledReason}
-                            data-attr="review-hog-resolve-comments"
-                        />
-                    </>
+                    <LemonSwitch
+                        aria-label="Resolve comments on my pull requests"
+                        checked={settings?.resolve_comments ?? false}
+                        onChange={(checked) => updateSettings({ resolve_comments: checked })}
+                        disabledReason={mineDisabledReason}
+                        data-attr="review-hog-resolve-comments"
+                    />
                 }
             />
             <SettingRow
                 title="Post findings at or above"
-                description="Applies to Deep reviews you start. Findings below this stay in the review report in PostHog."
+                description="Findings below this stay in the review in PostHog."
                 project={
                     <LemonSelect<UrgencyThresholdEnumApi>
                         size="small"
@@ -98,29 +95,26 @@ export function FullReviewSettingsSection(): JSX.Element {
                     />
                 }
                 mine={
-                    <>
-                        <YouMark shown={ownThreshold !== undefined} />
-                        <LemonSelect<UrgencyThresholdEnumApi | 'project'>
-                            size="small"
-                            className="min-w-0 shrink"
-                            truncateText={{ maxWidthClass: 'max-w-full' }}
-                            aria-label="Mine: Post findings at or above"
-                            value={ownThreshold ?? 'project'}
-                            options={mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold)}
-                            onChange={(value) =>
-                                value === 'project'
-                                    ? followProjectDefault('urgency_threshold')
-                                    : updateSettings({ urgency_threshold: value })
-                            }
-                            disabledReason={mineDisabledReason}
-                            data-attr="review-hog-urgency-threshold"
-                        />
-                    </>
+                    <LemonSelect<UrgencyThresholdEnumApi | 'project'>
+                        size="small"
+                        className="min-w-0 shrink"
+                        truncateText={{ maxWidthClass: 'max-w-full' }}
+                        aria-label="Mine: Post findings at or above"
+                        value={ownThreshold ?? 'project'}
+                        options={mineOptions(THRESHOLD_OPTIONS, projectThreshold, ownThreshold)}
+                        onChange={(value) =>
+                            value === 'project'
+                                ? followProjectDefault('urgency_threshold')
+                                : updateSettings({ urgency_threshold: value })
+                        }
+                        disabledReason={mineDisabledReason}
+                        data-attr="review-hog-urgency-threshold"
+                    />
                 }
             />
             <SettingRow
                 title="Celebrate clean reviews"
-                description="Applies to Deep reviews you start. A clean Deep review gets a small celebration in the status comment."
+                description="A review with no findings gets a small celebration in its status comment."
                 project={
                     <LemonSelect<OnOff>
                         size="small"
@@ -133,24 +127,21 @@ export function FullReviewSettingsSection(): JSX.Element {
                     />
                 }
                 mine={
-                    <>
-                        <YouMark shown={ownCelebrate !== undefined} />
-                        <LemonSelect<OnOff | 'project'>
-                            size="small"
-                            className="min-w-0 shrink"
-                            truncateText={{ maxWidthClass: 'max-w-full' }}
-                            aria-label="Mine: Celebrate clean reviews"
-                            value={ownCelebrate ?? 'project'}
-                            options={mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate)}
-                            onChange={(value) =>
-                                value === 'project'
-                                    ? followProjectDefault('celebrate_clean_reviews')
-                                    : updateSettings({ celebrate_clean_reviews: value === 'on' })
-                            }
-                            disabledReason={mineDisabledReason}
-                            data-attr="review-hog-celebrate-clean-reviews"
-                        />
-                    </>
+                    <LemonSelect<OnOff | 'project'>
+                        size="small"
+                        className="min-w-0 shrink"
+                        truncateText={{ maxWidthClass: 'max-w-full' }}
+                        aria-label="Mine: Celebrate clean reviews"
+                        value={ownCelebrate ?? 'project'}
+                        options={mineOptions(ON_OFF_OPTIONS, projectCelebrate, ownCelebrate)}
+                        onChange={(value) =>
+                            value === 'project'
+                                ? followProjectDefault('celebrate_clean_reviews')
+                                : updateSettings({ celebrate_clean_reviews: value === 'on' })
+                        }
+                        disabledReason={mineDisabledReason}
+                        data-attr="review-hog-celebrate-clean-reviews"
+                    />
                 }
             />
         </SettingsTable>

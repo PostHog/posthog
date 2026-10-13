@@ -1505,7 +1505,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             }
         },
         blockSingleActiveDeactivation: ({ kindLabel }) => {
-            lemonToast.info(`One ${kindLabel} always runs — switch by selecting another one`)
+            lemonToast.info(`One ${kindLabel} always runs. Select another one to switch.`)
         },
         openAdoptSkillModal: () => {
             actions.loadAdoptableSkills()
@@ -1551,7 +1551,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             } catch {
                 // The copy exists even though switching it on failed: close to its new card and let
                 // the user flip it on there.
-                lemonToast.error("Copied the skill, but couldn't switch it on. Turn it on from its card.")
+                lemonToast.error("Copied the skill, but couldn't switch it on. Turn it on under Review skills.")
             }
             if (kind === 'perspective') {
                 actions.loadPerspectives()
@@ -1606,9 +1606,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 } else if (runMode === ReviewTriggerRequestRunModeEnumApi.ResolveOnly) {
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.
-                    lemonToast.success(
-                        'Resolving comments on the pull request. Replies and fixes will land there as threads settle.'
-                    )
+                    lemonToast.success('Resolving comments. Replies and fixes will appear on the pull request.')
                 } else {
                     lemonToast.success('Review started. It will appear under Reviews as it runs.')
                     // The review's report row is created seconds later by the workflow's fetch step,

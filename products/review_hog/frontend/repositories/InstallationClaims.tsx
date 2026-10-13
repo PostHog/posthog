@@ -11,12 +11,12 @@ import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 function claimHint(installation: ReviewInstallationApi): string {
     if (installation.scope === 'all') {
-        return 'Every repository, including ones created later, except the ones another project selected. Only one project can take all repositories of a GitHub account.'
+        return 'Includes repositories created later, except ones another project selected.'
     }
     if (installation.scope === 'selected') {
-        return 'Only the repositories included below. New repositories are not reviewed until you include them. Each repository belongs to one project.'
+        return 'New repositories are not reviewed until you include them below.'
     }
-    return 'This project reviews no repository here yet. Pick all repositories, or only selected ones and include them below.'
+    return 'Pick all repositories, or select some and include them below.'
 }
 
 function InstallationClaim({ installation }: { installation: ReviewInstallationApi }): JSX.Element {

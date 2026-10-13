@@ -4,7 +4,6 @@ import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui
 
 import { ReviewHogRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { PANE_LEFT, PANE_ROW } from './paneClasses'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
@@ -21,11 +20,11 @@ export function RepositoryListToolbar(): JSX.Element {
     const { selectInstallation, setSearch, setView } = useActions(reviewHogRepositoriesLogic)
 
     return (
-        <div className={`col-span-full flex flex-wrap items-center gap-2 px-4 py-2.5 ${PANE_LEFT} ${PANE_ROW}`}>
+        <div className="flex flex-wrap items-center gap-2">
             <LemonInput
                 type="search"
                 size="small"
-                className="min-w-48 flex-1"
+                className="min-w-48 max-w-80 flex-1"
                 placeholder="Filter repositories"
                 aria-label="Filter repositories"
                 value={search}

@@ -1,5 +1,5 @@
 import { IconExternal } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -43,20 +43,24 @@ export function SkillRow({
     mine: JSX.Element
 }): JSX.Element {
     return (
-        <div className="grid grid-cols-1 items-center gap-2 px-4 py-2 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,16rem)] @min-[48rem]:gap-3">
+        <div className="grid grid-cols-1 items-center gap-2 px-4 py-2 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,18rem)] @min-[48rem]:gap-3">
             <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-sm font-semibold">{prettifySkillName(skillName)}</span>
-                <span className="text-xs text-secondary">{description}</span>
+                <Tooltip title={description}>
+                    <span className="line-clamp-1 text-xs text-secondary">{description}</span>
+                </Tooltip>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     {kept !== undefined && <KeptCount kept={kept} />}
-                    <Link
-                        to={urls.skill(skillName)}
-                        target="_blank"
-                        className="inline-flex items-center gap-0.5 text-xs"
-                        data-attr="review-hog-edit-skill-text"
-                    >
-                        Edit text for the project <IconExternal className="size-3" />
-                    </Link>
+                    <Tooltip title="Changes the skill for everyone in the project">
+                        <Link
+                            to={urls.skill(skillName)}
+                            target="_blank"
+                            className="inline-flex items-center gap-0.5 text-xs"
+                            data-attr="review-hog-edit-skill-text"
+                        >
+                            Edit skill <IconExternal className="size-3" />
+                        </Link>
+                    </Tooltip>
                 </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-1">

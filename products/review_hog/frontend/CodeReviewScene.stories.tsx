@@ -862,7 +862,7 @@ export const Settings: Story = {
         await expect(await canvas.findByText('This project reviews example-org:')).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
-        await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
+        await expect(canvas.getByLabelText('Project rule')).not.toHaveAttribute('aria-disabled', 'true')
         await expect(canvas.getByText('Review skills')).toBeVisible()
         await expect(canvas.getByText('Kept counts: your last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
@@ -879,7 +879,7 @@ export const SettingsForMember: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Project admins edit')).toBeVisible()
+        await expect(await canvas.findByLabelText('Project rule')).toHaveAttribute('aria-disabled', 'true')
         await expect(
             await canvas.findByText(
                 'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'

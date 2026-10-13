@@ -16,17 +16,13 @@ export interface ChoiceOption<T extends string> {
 }
 
 export const FLASH_FOR_OPTIONS: ChoiceOption<AutomaticFlashForEnumApi>[] = [
-    { value: 'everyone', label: 'Automatic review for everyone' },
-    { value: 'listed', label: 'Automatic review for these people' },
+    { value: 'everyone', label: 'Everyone' },
+    { value: 'listed', label: 'Selected people' },
     { value: 'off', label: 'Only people who opt in' },
 ]
 
-export function flashForLabel(flashFor: AutomaticFlashForEnumApi): string {
-    return FLASH_FOR_OPTIONS.find((option) => option.value === flashFor)?.label ?? flashFor
-}
-
 export const DEFAULT_REVIEW_MODE_OPTIONS: ChoiceOption<DefaultReviewModeEnumApi>[] = [
-    { value: 'follow', label: 'Let each repository decide' },
+    { value: 'follow', label: 'Follow the project rules' },
     { value: 'flash', label: 'On everywhere' },
     { value: 'off', label: 'Off everywhere' },
 ]
