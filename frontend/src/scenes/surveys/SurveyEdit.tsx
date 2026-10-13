@@ -265,6 +265,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         survey,
         editingLanguage,
         urlMatchTypeValidationError,
+        targetingFullRolloutError,
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
@@ -1758,6 +1759,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               </LemonField>
                                                               <LemonField.Pure
                                                                   label="Audience filters"
+                                                                  error={targetingFullRolloutError}
                                                                   info="User counts shown here estimate how many people match these filters across your project. The survey's actual reach is usually smaller, because display conditions like URL and device targeting still control where it appears."
                                                               >
                                                                   <BindLogic
