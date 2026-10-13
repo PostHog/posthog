@@ -102,14 +102,55 @@ describe('broadcastAudienceListLogic', () => {
         cohort_name: 'Spring sale recipients',
     }
 
+    const IMPORTED = [
+        201,
+        {
+            cohort_id: 42,
+            row_count: 1,
+            new_people: 1,
+            columns: ['email'],
+            dropped_invalid_email: 0,
+            dropped_duplicate_email: 0,
+            dropped_too_large: 0,
+        },
+    ]
+    const ADDED = { isListModalOpen: false, createError: null }
+
     it.each([
         {
             outcome: 'imports the people and adds their cohort to the audience',
             csv: 'email,plan\nada@example.com,Pro\n',
-            response: [201, { cohort_id: 42, row_count: 1, new_people: 1, columns: ['email', 'plan'] }],
-            expected: { isListModalOpen: false, createError: null },
+            response: IMPORTED,
+            expected: ADDED,
             audience: [SPRING_SALE_COHORT],
             importedRows: [{ email: 'ada@example.com', plan: 'Pro' }],
+        },
+        {
+            outcome: 'keeps quoted column names that contain commas',
+            csv: 'email,"Address, line 1","Address, line 2"\nada@example.com,1 Main St,Flat 2\n',
+            response: IMPORTED,
+            expected: ADDED,
+            audience: [SPRING_SALE_COHORT],
+            importedRows: [{ email: 'ada@example.com', 'Address, line 1': '1 Main St', 'Address, line 2': 'Flat 2' }],
+        },
+        {
+            outcome: 'drops an empty column with no name',
+            csv: 'email,\nada@example.com,\n',
+            response: IMPORTED,
+            expected: ADDED,
+            audience: [SPRING_SALE_COHORT],
+            importedRows: [{ email: 'ada@example.com' }],
+        },
+        {
+            outcome: 'rejects a column with data but no name',
+            csv: 'email,\nada@example.com,Acme\n',
+            response: [500, {}],
+            expected: {
+                isListModalOpen: true,
+                createError: 'A column with data in it has no name. Name it and try again.',
+            },
+            audience: [],
+            importedRows: undefined,
         },
         {
             outcome: 'shows why the API rejected the file and keeps the audience',
@@ -123,9 +164,9 @@ describe('broadcastAudienceListLogic', () => {
             importedRows: [{ name: 'Ada' }],
         },
         {
-            // Papa would rename the second column, so the API could not see the repeat.
+            // The two columns would collapse into one key, so the API could not see the repeat.
             outcome: 'rejects two email columns before sending anything',
-            csv: 'email,email\nada@example.com,grace@example.com\n',
+            csv: '\nemail,email\nada@example.com,grace@example.com\n',
             response: [500, {}],
             expected: {
                 isListModalOpen: true,
