@@ -117,7 +117,7 @@ DEFAULT_BASE_LANGUAGE = "en"
 # Sentinel keys we explicitly reject — these used to appear in customer data and never
 # resolved to anything in the SDK. Block them at the API so they don't keep accumulating.
 REJECTED_TRANSLATION_KEYS = frozenset({"default", "original", "base"})
-SURVEY_SCREEN_TEXT_FIELDS = (
+SURVEY_APPEARANCE_HTML_FIELDS = (
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
@@ -135,7 +135,7 @@ SURVEY_QUESTION_HTML_FIELDS = (
 SURVEY_TRANSLATION_HTML_FIELDS = (
     "name",
     "description",
-    *SURVEY_SCREEN_TEXT_FIELDS,
+    *SURVEY_APPEARANCE_HTML_FIELDS,
     *SURVEY_QUESTION_HTML_FIELDS,
 )
 
@@ -147,7 +147,7 @@ def _normalize_language_code(raw: str) -> str:
 
 def sanitize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
     sanitized_appearance = dict(appearance)
-    for field in SURVEY_SCREEN_TEXT_FIELDS:
+    for field in SURVEY_APPEARANCE_HTML_FIELDS:
         field_value = sanitized_appearance.get(field)
         if isinstance(field_value, str) and nh3.is_html(field_value):
             sanitized_appearance[field] = nh3_clean_with_allow_list(field_value)
@@ -222,7 +222,7 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
 SURVEY_API_TRANSLATION_FIELDS = frozenset(
     [
         "name",
-        *SURVEY_SCREEN_TEXT_FIELDS,
+        *SURVEY_APPEARANCE_HTML_FIELDS,
     ]
 )
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -269,7 +269,7 @@ class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
         appearance = draft.get("appearance")
         if isinstance(appearance, dict):
             draft["appearance"] = {
-                field: appearance[field] for field in SURVEY_SCREEN_TEXT_FIELDS if field in appearance
+                field: appearance[field] for field in SURVEY_APPEARANCE_HTML_FIELDS if field in appearance
             }
 
         questions = draft.get("questions")
@@ -1250,7 +1250,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Translation for '{raw_lang_code}' must be an object")
 
             cleaned_translation: dict[str, str] = {}
-            for field in ["name", "description", *SURVEY_SCREEN_TEXT_FIELDS]:
+            for field in ["name", "description", *SURVEY_APPEARANCE_HTML_FIELDS]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(
