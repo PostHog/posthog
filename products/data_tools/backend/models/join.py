@@ -31,6 +31,7 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     to_join_key = models.CharField(max_length=400)
 
 
+# nosemgrep: no-new-uuidt-models -- an existing model, and a new primary key default would need a migration.
 class DataWarehouseJoin(ModelActivityMixin, CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     # The join API hard deletes. Only a table delete soft deletes its joins.
     activity_logging_on_delete = True

@@ -4,6 +4,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
 
+# nosemgrep: no-new-uuidt-models -- an existing model, and a new primary key default would need a migration.
 class AccessControl(ModelActivityMixin, UUIDTModel):
     activity_logging_on_delete = True
 
