@@ -1,16 +1,18 @@
-import { calendarDaysBetween, formatClock, formatMonthDay, weekdayName } from '@/lib/dates'
-import { asRecord } from '@/lib/records'
+import type { ProjectScope, ReportChartApi, ReportMetricApi } from '@/api/reports'
+import { asRecord, isRecord } from '@/lib/records'
 
-import type { Metric, MetricBar } from '../types'
+import type {
+    MetricChartKind,
+    MetricData,
+    MetricFormat,
+    MetricInterval,
+    MetricSeries,
+    MetricSnapshot,
+    MetricValueFormat,
+    MetricView,
+    ReportChartView,
+} from '../types'
 import { groupThousands } from './text'
-
-export const MAX_BARS = 14
-
-/** A bar is hot when it is further than this share of the series' spread from the baseline. */
-const DEPARTURE_SHARE = 0.15
-
-/** A tail this long back at the baseline means the problem ended, so the tail is cold. */
-const RECOVERY_RUN = 2
 
 export interface MetricInput {
     title: string
@@ -21,59 +23,6 @@ export interface MetricInput {
     unit: string | null
     caption: string | null
     query?: unknown
-}
-
-export function downsample(series: readonly number[], max: number = MAX_BARS): number[] {
-    const values = series.filter((value) => Number.isFinite(value))
-    if (values.length <= max) {
-        return values
-    }
-    const buckets: number[] = []
-    for (let bucket = 0; bucket < max; bucket++) {
-        const start = Math.floor((bucket * values.length) / max)
-        const end = Math.floor(((bucket + 1) * values.length) / max)
-        const slice = values.slice(start, end)
-        buckets.push(slice.reduce((sum, value) => sum + value, 0) / slice.length)
-    }
-    return buckets
-}
-
-function median(values: readonly number[]): number {
-    const sorted = [...values].sort((a, b) => a - b)
-    const middle = Math.floor(sorted.length / 2)
-    return sorted.length % 2 === 1 ? (sorted[middle] ?? 0) : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
-}
-
-export function hotBars(values: readonly number[]): boolean[] {
-    const hot = values.map(() => false)
-    if (values.length < 2) {
-        return hot
-    }
-    const baseline = median(values.slice(0, Math.max(1, Math.floor(values.length / 4))))
-    const spread = Math.max(...values) - Math.min(...values)
-    if (!(spread > 0)) {
-        return hot
-    }
-    const departs = (value: number): boolean => Math.abs(value - baseline) > spread * DEPARTURE_SHARE
-    const first = values.findIndex(departs)
-    if (first === -1) {
-        return hot
-    }
-    let end = values.length
-    let run = 0
-    for (let index = values.length - 1; index > first && !departs(values[index] ?? baseline); index--) {
-        run++
-    }
-    if (run >= RECOVERY_RUN) {
-        end = values.length - run
-    }
-    return hot.map((_, index) => index >= first && index < end)
-}
-
-export function metricBars(series: readonly number[]): MetricBar[] {
-    const values = downsample(series)
-    const hot = hotBars(values)
-    return values.map((value, index) => ({ value, hot: hot[index] ?? false }))
 }
 
 const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' }
@@ -114,62 +63,315 @@ export function formatMetricValue(value: number, format: string, unit: string | 
     }
 }
 
-const RELATIVE_DATE = /^-(\d+)([hdwmy])$/
-const UNIT_MS: Record<string, number> = {
-    h: 3_600_000,
-    d: 86_400_000,
-    w: 7 * 86_400_000,
-    m: 30 * 86_400_000,
-    y: 365 * 86_400_000,
-}
-const INTERVAL_MS: Record<string, number> = {
-    hour: UNIT_MS.h ?? 0,
-    day: UNIT_MS.d ?? 0,
-    week: UNIT_MS.w ?? 0,
-    month: UNIT_MS.m ?? 0,
+export function primaryMetric<T extends MetricInput>(metrics: readonly T[]): T | undefined {
+    return metrics.find((metric) => metric.role === 'primary' && metric.value !== null)
 }
 
-export function metricWindowStart(query: unknown, points: number, now: Date): Date | null {
+// Live metrics and charts. Ported from the web inbox: `utils/reportMetrics.ts`, `utils/reportChartQuery.ts` and
+// `utils/chartOpenTarget.ts` in `products/signals/frontend/inbox/`.
+
+type JsonRecord = Record<string, unknown>
+
+export interface TrendsInsight extends JsonRecord {
+    kind: 'InsightVizNode'
+    source: JsonRecord & { kind: 'TrendsQuery' }
+}
+
+export function asTrendsInsight(query: unknown): TrendsInsight | undefined {
     const node = asRecord(query)
-    const source = asRecord(node?.source) ?? node
-    const dateFrom = asRecord(source?.dateRange)?.date_from
-    const relative = typeof dateFrom === 'string' ? RELATIVE_DATE.exec(dateFrom) : null
-    if (relative?.[1] && relative[2]) {
-        return new Date(now.getTime() - Number(relative[1]) * (UNIT_MS[relative[2]] ?? 0))
-    }
-    const interval = typeof source?.interval === 'string' ? INTERVAL_MS[source.interval] : undefined
-    if (interval && points > 1) {
-        return new Date(now.getTime() - (points - 1) * interval)
-    }
-    return null
+    const source = asRecord(node?.source)
+    return node?.kind === 'InsightVizNode' && source?.kind === 'TrendsQuery' ? (node as TrendsInsight) : undefined
 }
 
-export function metricRange(start: Date | null, now: Date): string {
-    if (!start) {
-        return ''
-    }
-    const days = calendarDaysBetween(start, now)
-    const label = days <= 0 ? formatClock(start) : days < 7 ? weekdayName(start) : formatMonthDay(start)
-    return `${label} → now`
+const VALUE_FORMATS: ReadonlySet<string> = new Set<MetricValueFormat>([
+    'number',
+    'count',
+    'percentage',
+    'percentage_scaled',
+    'duration',
+    'currency',
+])
+
+export function metricValueFormat(value: unknown): MetricValueFormat {
+    return typeof value === 'string' && VALUE_FORMATS.has(value) ? (value as MetricValueFormat) : 'number'
 }
 
-export function metricView(metrics: readonly MetricInput[], now: Date): Metric | undefined {
-    const primary = metrics.find((metric) => metric.role === 'primary' && (metric.series?.length ?? 0) > 0)
-    if (!primary?.series) {
+const INTERVALS: ReadonlySet<string> = new Set<MetricInterval>(['hour', 'day', 'week', 'month'])
+
+export function trendsInterval(trendsQuery: unknown): MetricInterval {
+    const interval = asRecord(trendsQuery)?.interval
+    return typeof interval === 'string' && INTERVALS.has(interval) ? (interval as MetricInterval) : 'day'
+}
+
+export function metricInterval(insight: TrendsInsight | undefined): MetricInterval {
+    return trendsInterval(insight?.source)
+}
+
+function seriesNodes(insight: TrendsInsight): JsonRecord[] {
+    return Array.isArray(insight.source.series) ? insight.source.series.filter(isRecord) : []
+}
+
+/**
+ * Bars for a metric whose buckets add up (a count, or revenue summed per bucket), a line for a level (a rate, a
+ * duration, an average). Bars invite the reader to add the buckets up, which misreads a rate.
+ */
+export function metricChartKind(valueFormat: MetricValueFormat, insight: TrendsInsight | undefined): MetricChartKind {
+    if (valueFormat === 'count') {
+        return 'bar'
+    }
+    if (valueFormat === 'currency') {
+        const maths = insight ? seriesNodes(insight).map((series) => series.math) : []
+        return maths.length > 0 && maths.every((math) => math === 'sum') ? 'bar' : 'line'
+    }
+    return 'line'
+}
+
+function withDisplay(insight: TrendsInsight, display: string, resetView: boolean): JsonRecord {
+    const trendsFilter: JsonRecord = { ...asRecord(insight.source.trendsFilter), display }
+    if (resetView) {
+        // One series is drawn, so a stored percent-stack view would flatten every bucket to 100% and a hidden
+        // legend index could hide the only series.
+        trendsFilter.showPercentStackView = false
+        delete trendsFilter.hiddenLegendIndexes
+    }
+    return { ...insight.source, kind: 'TrendsQuery', trendsFilter }
+}
+
+export function metricSeriesQuery(insight: TrendsInsight, chart: MetricChartKind): JsonRecord {
+    return withDisplay(insight, chart === 'bar' ? 'ActionsBar' : 'ActionsLineGraph', true)
+}
+
+/**
+ * The `TrendsQuery` for the one number over the whole window. The server aggregates it, which matters for distinct
+ * users: summing the buckets would count a returning person once per bucket.
+ */
+export function metricAggregateQuery(insight: TrendsInsight): JsonRecord {
+    return withDisplay(insight, 'BoldNumber', false)
+}
+
+const RELATIVE_WINDOW = /^-(\d+)([hdwmy])$/
+const WINDOW_NOUNS: Record<string, string> = { h: 'hour', d: 'day', w: 'week', m: 'month', y: 'year' }
+export const CURRENT_WINDOW_LABEL = 'Current window'
+
+/** "Last 14 days" for a relative `date_from`, as the web labels it. */
+export function metricWindowLabel(insight: TrendsInsight | undefined): string {
+    const dateFrom = asRecord(insight?.source.dateRange)?.date_from
+    const match = typeof dateFrom === 'string' ? RELATIVE_WINDOW.exec(dateFrom) : null
+    const noun = match?.[2] ? WINDOW_NOUNS[match[2]] : undefined
+    if (!match || !noun) {
+        return CURRENT_WINDOW_LABEL
+    }
+    const amount = Number(match[1])
+    return amount === 1 ? `Last ${noun}` : `Last ${amount} ${noun}s`
+}
+
+function countPropertyFilters(properties: unknown): number {
+    if (Array.isArray(properties)) {
+        return properties.reduce<number>((count, item) => count + countPropertyFilters(item), 0)
+    }
+    const node = asRecord(properties)
+    if (!node) {
+        return 0
+    }
+    // A property group nests its filters under `values`; a leaf filter has a `key`.
+    if (Array.isArray(node.values)) {
+        return countPropertyFilters(node.values)
+    }
+    return typeof node.key === 'string' ? 1 : 0
+}
+
+export function metricFilterCount(insight: TrendsInsight | undefined): number {
+    if (!insight) {
+        return 0
+    }
+    const inSeries = seriesNodes(insight).reduce((count, series) => count + countPropertyFilters(series.properties), 0)
+    return inSeries + countPropertyFilters(insight.source.properties)
+}
+
+// nginx refuses a request line over 8 KiB by default, so a longer link would open on an error page.
+export const MAX_OPEN_URL_LENGTH = 8000
+
+// The insight scene honors these, so a link that kept them would open an insight with no filter bar.
+const EMBED_FLAGS = [
+    'full',
+    'embedded',
+    'showFilters',
+    'showHeader',
+    'showTable',
+    'showCorrelationTable',
+    'showResults',
+]
+
+function withoutEmbedFlags(node: JsonRecord): JsonRecord {
+    const copy = { ...node }
+    for (const key of EMBED_FLAGS) {
+        delete copy[key]
+    }
+    return copy
+}
+
+export function insightOpenUrl(scope: ProjectScope, query: unknown): string | undefined {
+    const node = asRecord(query)
+    if (!node) {
         return undefined
     }
-    const bars = metricBars(primary.series)
-    if (bars.length === 0) {
+    const base = `${scope.host}/project/${scope.projectId}`
+    if (node.kind === 'SavedInsightNode') {
+        return typeof node.shortId === 'string' && node.shortId
+            ? `${base}/insights/${encodeURIComponent(node.shortId)}`
+            : undefined
+    }
+    const json = encodeURIComponent(JSON.stringify(withoutEmbedFlags(node)))
+    const url =
+        node.kind === 'DataVisualizationNode' && asRecord(node.source)?.kind === 'HogQLQuery'
+            ? `${base}/sql?open_query=${json}`
+            : `${base}/insights/new#q=${json}`
+    return url.length > MAX_OPEN_URL_LENGTH ? undefined : url
+}
+
+function finite(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function firstTrendsResult(response: unknown): JsonRecord | undefined {
+    const body = asRecord(response)
+    const results = Array.isArray(body?.result) ? body.result : Array.isArray(body?.results) ? body.results : undefined
+    return asRecord(results?.[0])
+}
+
+/** The first series' buckets. Days and values are zipped to the shorter list; a bucket with no number is NaN. */
+export function trendsSeries(response: unknown, interval: MetricInterval): MetricSeries | undefined {
+    const first = firstTrendsResult(response)
+    if (!Array.isArray(first?.days) || !Array.isArray(first.data)) {
+        return undefined
+    }
+    const days = first.days.filter((day): day is string => typeof day === 'string')
+    const length = Math.min(days.length, first.data.length)
+    if (length === 0) {
+        return undefined
+    }
+    const data = first.data
+    return {
+        interval,
+        points: days.slice(0, length).map((at, index) => ({ at, value: finite(data[index]) ?? Number.NaN })),
+    }
+}
+
+/** The server's total for the window, from a `BoldNumber` response. Never a sum of buckets. */
+export function trendsAggregate(response: unknown): number | undefined {
+    return finite(firstTrendsResult(response)?.aggregated_value)
+}
+
+function snapshotOf(metric: ReportMetricApi): MetricSnapshot | undefined {
+    const value = finite(metric.value)
+    if (value === undefined) {
         return undefined
     }
     return {
-        label: primary.title.toUpperCase(),
-        range: metricRange(metricWindowStart(primary.query, primary.series.length, now), now),
-        max: Math.max(...bars.map((bar) => bar.value)),
-        bars,
+        value,
+        at: metric.value_at ?? null,
+        series: (metric.series ?? []).filter((point) => Number.isFinite(point)),
     }
 }
 
-export function primaryMetric<T extends MetricInput>(metrics: readonly T[]): T | undefined {
-    return metrics.find((metric) => metric.role === 'primary' && metric.value !== null)
+function captionOf(caption: string | null | undefined): string | undefined {
+    const trimmed = caption?.trim()
+    return trimmed ? trimmed : undefined
+}
+
+/** A metric with no query (redacted, or a list response) keeps its snapshot and gets `data: none`. */
+export function metricView(metric: ReportMetricApi, scope: ProjectScope): MetricView {
+    const insight = asTrendsInsight(metric.query)
+    const format: MetricFormat = { valueFormat: metricValueFormat(metric.value_format), unit: metric.unit ?? null }
+    const chart = metricChartKind(format.valueFormat, insight)
+    const data: MetricData = insight
+        ? {
+              kind: 'query',
+              seriesQuery: metricSeriesQuery(insight, chart),
+              aggregateQuery: metricAggregateQuery(insight),
+          }
+        : { kind: 'none' }
+    const caption = captionOf(metric.caption)
+    const snapshot = snapshotOf(metric)
+    const openUrl = insight ? insightOpenUrl(scope, insight) : undefined
+    return {
+        metricId: metric.metric_id,
+        role: metric.role === 'primary' ? 'primary' : 'supporting',
+        title: metric.title,
+        ...(caption ? { caption } : {}),
+        format,
+        chart,
+        interval: metricInterval(insight),
+        ...(snapshot ? { snapshot } : {}),
+        data,
+        windowLabel: metricWindowLabel(insight),
+        filterCount: metricFilterCount(insight),
+        ...(openUrl ? { openUrl } : {}),
+    }
+}
+
+// Trends displays that draw buckets over time. Pie, bold number, table, world map and value bars aggregate the
+// window away, so the app cannot draw them.
+const LINE_DISPLAYS: ReadonlySet<string> = new Set([
+    'ActionsLineGraph',
+    'ActionsLineGraphCumulative',
+    'ActionsAreaGraph',
+])
+const BAR_DISPLAYS: ReadonlySet<string> = new Set(['ActionsBar', 'ActionsStackedBar', 'ActionsUnstackedBar'])
+
+/** The chart kind when the app can draw the chart, else undefined. The app draws one series without a breakdown. */
+export function drawableChartKind(insight: TrendsInsight | undefined): MetricChartKind | undefined {
+    if (!insight || seriesNodes(insight).length !== 1 || asRecord(insight.source.breakdownFilter)?.breakdown) {
+        return undefined
+    }
+    const display = asRecord(insight.source.trendsFilter)?.display
+    if (display === undefined || display === null || (typeof display === 'string' && LINE_DISPLAYS.has(display))) {
+        return 'line'
+    }
+    return typeof display === 'string' && BAR_DISPLAYS.has(display) ? 'bar' : undefined
+}
+
+/** Keeps the authored display, such as a cumulative line, which the server computes. */
+function chartSeriesQuery(insight: TrendsInsight, kind: MetricChartKind): JsonRecord {
+    const display = asRecord(insight.source.trendsFilter)?.display
+    const fallback = kind === 'bar' ? 'ActionsBar' : 'ActionsLineGraph'
+    return withDisplay(insight, typeof display === 'string' ? display : fallback, true)
+}
+
+const AXIS_FORMATS: Record<string, MetricFormat> = {
+    percentage: { valueFormat: 'percentage', unit: null },
+    percentage_scaled: { valueFormat: 'percentage_scaled', unit: null },
+    duration: { valueFormat: 'duration', unit: 's' },
+    duration_ms: { valueFormat: 'duration', unit: 'ms' },
+}
+
+function chartFormat(insight: TrendsInsight | undefined): MetricFormat {
+    const axis = asRecord(insight?.source.trendsFilter)?.aggregationAxisFormat
+    return (typeof axis === 'string' ? AXIS_FORMATS[axis] : undefined) ?? { valueFormat: 'number', unit: null }
+}
+
+/** A chart the app cannot draw keeps its title and a link to the web, with no `data`. */
+export function reportChartView(chart: ReportChartApi, scope: ProjectScope): ReportChartView {
+    const insight = asTrendsInsight(chart.query)
+    const kind = drawableChartKind(insight)
+    const caption = captionOf(chart.caption)
+    const openUrl = insightOpenUrl(scope, chart.query)
+    return {
+        chartId: chart.chart_id,
+        title: chart.title,
+        ...(caption ? { caption } : {}),
+        ...(insight && kind
+            ? {
+                  data: {
+                      kind: 'query' as const,
+                      seriesQuery: chartSeriesQuery(insight, kind),
+                      aggregateQuery: metricAggregateQuery(insight),
+                  },
+              }
+            : {}),
+        format: chartFormat(insight),
+        chart: kind ?? 'line',
+        interval: metricInterval(insight),
+        ...(openUrl ? { openUrl } : {}),
+    }
 }

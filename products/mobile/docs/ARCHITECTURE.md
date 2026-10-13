@@ -34,6 +34,7 @@ products/mobile/
                           prefetchPlan (prefetch window and queue), usePrefetchReports
       report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)
+        metrics/          ObservationCard, ImpactMetrics, ReportCharts, OpenInsightLink, query and value hooks
       handoff/            ActionBar and its cards, HandoffSheet, actionBarState, kickoff, prompt,
                           runStream (reducer), toolPolicy, permissionRequest, commands, useTaskRun,
                           useReportWithLiveRun, handoffStore, hooks
@@ -110,6 +111,9 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 | `useReportWithLiveRun(id)` | `features/handoff/useReportWithLiveRun.ts` | `QueryState<ReportView>` with the live run merged in |
 | `useReportActions(id)` | `features/report/hooks.ts` | `ReportActions` (`handOff`, `answerDecision`, `undoDecision`, `snooze`, `setReviewers`, `setPriority`, `markRead`, `pending`) |
 | `useReportNeighbors(items, id)` | `features/report/hooks.ts` | `{ previousId, nextId }`, wrapping |
+| `useMetricSeries(data)`, `useMetricAggregate(data)` | `features/report/metrics/hooks.ts` | `QueryState<MetricSeries>`, `QueryState<number>` from the query endpoint or fixture data |
+| `useMetricValue(metric)` | `features/report/metrics/useMetricValue.ts` | `MetricValueState`: the live value, else the snapshot with its measured time |
+| `useChartPoints(data, fallback?)` | `features/report/metrics/useChartPoints.ts` | `{ points, isLoading, isError }` for `MetricChart`, from live buckets or the snapshot series |
 | `useHandoffActions(id)`, `useDecisionAnswer(id)`, `useHandoffNotice(id)` | `features/handoff/hooks.ts` | actions, the device-side answer, the footer error line |
 | `useTaskRun(taskId, runId)` | `features/handoff/useTaskRun.ts` | live run state from the stream |
 | `useSnoozeAction(id)`, `useSnoozeEntries()` | `features/snooze/hooks.ts` | `AsyncAction<[SnoozeChoice]>`, active snoozes |

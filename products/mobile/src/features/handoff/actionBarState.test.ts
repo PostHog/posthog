@@ -17,6 +17,8 @@ function report(work: WorkView, task?: TaskRunView): ReportView {
         evidence: [],
         owner: { kind: 'none' },
         facts: [],
+        supportingMetrics: [],
+        charts: [],
         activity: [],
         work,
         ...(task ? { task } : {}),

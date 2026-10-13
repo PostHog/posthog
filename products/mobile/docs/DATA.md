@@ -6,7 +6,7 @@ Demo mode never reaches any of this: every hook keeps its demo branch.
 ## Endpoints
 
 All paths are project scoped (`/api/projects/{project_id}/...`) and go through `apiJson` in `src/api/client.ts`.
-Fetchers live in `src/api/today.ts` and `src/api/reports.ts`, typed by hand with only the fields the app reads.
+Fetchers live in `src/api/today.ts`, `src/api/reports.ts` and `src/api/query.ts`, typed by hand with only the fields the app reads.
 Each interface names the serializer it mirrors.
 
 | Use | Request | Serializer | Scope |
@@ -24,6 +24,8 @@ Each interface names the serializer it mirrors.
 | Set reviewers | `PUT signals/reports/{id}/reviewers/` `{content: [{user_uuid} or {github_login}]}` | `SignalReportSuggestedReviewersArtefactSerializer` | `task:write` |
 | Set priority | `POST signals/reports/{id}/artefacts/` `{artefact_type: 'priority_judgment', content: {priority, explanation}}` | `SignalReportArtefactLogCreateSerializer`, content `PriorityAssessment` | `task:write` |
 | Reviewer search | `GET signals/reports/available_reviewers/?query=` | `{uuid: {name, email}}` | `task:read` |
+| Metric and chart data | `POST query/` `{query: <TrendsQuery>, client_query_id, refresh: 'blocking'}` | `TrendsQueryResponse` | `query:read` |
+| Running query | `GET query/{query_id}/` | `QueryStatusResponse` | `query:read` |
 
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
 `useProjectScope()` reads both from the auth store and returns null until the session is signed in.
@@ -97,7 +99,7 @@ A failed background refetch keeps the cached copy.
 - **Owner.** `{ kind: 'user', name }` for a user claim; `{ kind: 'agent', name }` with "PostHog" for a task or system claim, or the MCP client ("Claude Code") for an external agent claim; `{ kind: 'none' }` when unclaimed. The owner chip under the lede shows it.
 - **Facts**, the rows the byline and chips do not show. The adapter emits only Impact, dropped when it has no source: the primary metric's value and title ("612 affected users", or "612 users" with the title under it when the metric has its own unit) and its caption; else the first Today impact number.
   The byline takes the source from `sourceProduct` and `sourceLabel`, so the facts carry no Source row.
-- **Sparkline.** The primary metric's `series`, averaged into at most 14 bars. `max` is the tallest bar. The baseline is the median of the first quarter of the bars; a bar departs when it is more than 15% of the series spread away from it, up or down. Every bar from the first departure on is hot, except a tail of two or more bars back at the baseline, which reads as recovered. The range label comes from the metric query's relative `date_from` ("Tue → now"), else from its `interval` times the series length.
+- **Observation, supporting metrics and charts.** See [Metrics and charts](#metrics-and-charts).
 - **Activity**, oldest first, starting with "PostHog created the report" at `created_at`:
   - `work_claim`: "{name} handed off to **PostHog**" for a task claim when the task's creator is known, else "PostHog claimed the report"; "{actor} claimed the report" for users and agents.
   - `task_run` of type `implementation`: "PostHog started working". Other run types are left out.
@@ -109,6 +111,63 @@ A failed background refetch keeps the cached copy.
 - **Task.** The claim's task when a task owns the report, else the newest `implementation` task run. `runId`, `status` and `stage` come from the task's `latest_run`. The hand-off feature streams it from there.
 - **Reviewers.** The newest `suggested_reviewers` artefact, entries with a PostHog user only.
 - **Other fields.** `status` and `priority` when they are known values, `summary`, `webUrl` (`reportWebUrl()`: `{host}/project/{id}/inbox/reports/{report_id}`, also used for chat context), `canAct` (the web's `isActionCapableReport`: `ready` or `pending_input`, not already addressed, not `not_actionable`, no pull request), up to 3 `suggestedPrompts`, and the fixed `contextNote`. `useReport` adds `prompt`, the hand-off feature's implementation prompt for `webUrl`.
+
+## Metrics and charts
+
+The report detail carries `metrics` (`ReportMetricSerializer`) and `charts` (`ReportChartSerializer`).
+The rules port the web inbox (`products/signals/frontend/inbox/utils/reportMetrics.ts`, `reportChartQuery.ts`, `chartOpenTarget.ts`).
+
+A metric has a saved snapshot (`value`, `value_at`, up to 14 undated `series` points) and a live `query`, an `InsightVizNode` with a `TrendsQuery` source.
+`value: null` means no snapshot for this viewer, never zero.
+`query` is absent on list responses and null when access rules redact it.
+
+`metricView(metric, scope)` in `src/model/adapters/metric.ts` builds a `MetricView`:
+
+- **Role.** The single `primary` metric becomes `ReportView.observation`. Every other metric is a `supportingMetrics` tile, in the order the report lists them.
+- **Chart kind.** `count` is a bar chart. `currency` is a bar chart only when every series has `math: 'sum'`. Everything else is a line, because bars invite the reader to add up a rate.
+- **Data.** With a trends query, `data` is `{kind: 'query', seriesQuery, aggregateQuery}`. Both are copies of the `TrendsQuery` source. `seriesQuery` sets `trendsFilter.display` to `ActionsBar` or `ActionsLineGraph`, turns `showPercentStackView` off and drops `hiddenLegendIndexes`. `aggregateQuery` sets `display: 'BoldNumber'`, so the server totals the window: summing buckets would count a returning user once per bucket. Without a query, `data` is `{kind: 'none'}` and the snapshot is all there is.
+- **Window label.** From the relative `dateRange.date_from`, as the web words it: `-14d` is "Last 14 days", `-24h` "Last 24 hours", `-1m` "Last month". Anything else is "Current window".
+- **Filter count.** The property filters on every series plus the query's own `properties`. Groups count their leaf filters.
+- **Interval.** `source.interval` (`hour`, `day`, `week`, `month`), `day` when unset.
+- **Open link.** `{host}/project/{id}/insights/new#q=<query>` with the embed flags (`full`, `embedded`, `show*`) removed. A link over 8,000 characters is dropped, because nginx refuses a longer request line.
+
+`reportChartView(chart, scope)` builds a `ReportChartView`.
+The app draws a chart only when it is an `InsightVizNode` with a `TrendsQuery` source, one series, no breakdown, and a display that draws buckets over time (`ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, the three bar displays, or none).
+Such a chart gets `data` (its own display kept, the same clean-up as a metric) and a format from `aggregationAxisFormat`.
+Any other chart (SQL, saved insight, pie, number, table, breakdown) has no `data` and stays in the list with its title and open link:
+`/sql?open_query=` for a `DataVisualizationNode` with a `HogQLQuery` source, `/insights/{shortId}` for a `SavedInsightNode`.
+
+### Running a query
+
+`runQuery(query)` in `src/api/query.ts` posts the `TrendsQuery` to the plain `query/` route.
+The server also routes `query/{Kind}/`, which only checks that the path matches the body.
+With `refresh: 'blocking'` the server usually answers inline.
+When it answers with a `query_status` that is not complete, the app polls `GET query/{id}/` every second for at most 30 seconds, and stops when the request is aborted.
+
+`useMetricSeries(data, enabled?)` and `useMetricAggregate(data, enabled?)` in `src/features/report/metrics/hooks.ts` return a `QueryState`:
+
+- `static` (demo fixtures) succeeds at once with no request; `none` or an undefined `data` succeeds with `data` undefined.
+- `query` runs in live mode only. The cache key is the host, the project and the query with its keys sorted. A result stays fresh for 15 minutes, as the web treats a snapshot. A failure is retried once, except a 403 or 404.
+- The series is the first result's `days` zipped with its `data`, cut to the shorter list, with `NaN` for a bucket that has no number. The aggregate is the first result's `aggregated_value`. A response with neither succeeds with `data` undefined, and the screen falls back to the snapshot.
+- `enabled: false` leaves a query idle: not loading, no data, no error.
+
+The query endpoint needs the `query:read` scope. Without it the request answers 403 and the screen shows the snapshot.
+
+### Showing a metric
+
+`metricValueState` in `src/features/report/metrics/metricValue.ts` picks the value an observation or a tile shows:
+
+- A live aggregate wins, also while it refetches.
+- Without one, the snapshot value shows with "Measured {time ago}" from `value_at`. This covers a redacted metric (`data: none`), a query that returned no value, and a query still loading.
+- When the live query failed, the snapshot shows with "Couldn't refresh this metric. Showing the latest saved value." A tile says "Couldn't refresh".
+- With no snapshot, a loading query shows a spinner, and a settled one shows "Not available". After a failure the observation offers Try again.
+
+`useChartPoints` in `src/features/report/metrics/useChartPoints.ts` feeds the chart:
+
+- Live buckets win. A bucket label without an offset (`2026-10-13`, `2026-10-13 14:00:00`) is read as local wall-clock time, because `Date.parse` reads a bare date as UTC midnight, which is the day before west of UTC.
+- Without live buckets, the observation draws the snapshot's undated series. The points are one interval apart and the last one sits at `value_at`, or at the current time when that is unknown.
+- While the live query loads, nothing is drawn, so the chart does not draw the snapshot and then redraw.
+- With no points at all, the observation leaves the chart out. A drawable chart in the Charts section shows a spinner while it loads, then "No data in this window." or an error line.
 
 ## Actions
 

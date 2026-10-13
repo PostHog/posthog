@@ -48,12 +48,6 @@ export const accentColor: Record<Accent, string> = {
     resolved: colors.ink,
 }
 
-export const sparklineHotColor: Record<Accent, string> = {
-    alert: colors.orangeLight,
-    opportunity: colors.blueLight,
-    resolved: colors.tertiary,
-}
-
 const BASE_LINE_HEIGHT = 1.4
 
 export function lineHeight(fontSize: number, ratio: number = BASE_LINE_HEIGHT): number {

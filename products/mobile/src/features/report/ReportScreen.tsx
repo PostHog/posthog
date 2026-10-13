@@ -11,7 +11,6 @@ import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import type { ReportPriority, ReportView, SnoozeChoice } from '@/model/types'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
-import { Sparkline } from '@/ui/Sparkline'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -31,6 +30,9 @@ import { Evidence } from './Evidence'
 import { Facts } from './Facts'
 import { Headline, headlineText } from './Headline'
 import { useReportActions, useReportNeighbors } from './hooks'
+import { ImpactMetrics } from './metrics/ImpactMetrics'
+import { ObservationCard } from './metrics/ObservationCard'
+import { ReportCharts } from './metrics/ReportCharts'
 import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { TOP_CHROME_BOTTOM, TopChrome } from './TopChrome'
@@ -239,11 +241,11 @@ function ReportBody({
                 <ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />
                 <Evidence blocks={report.evidence} />
                 <Facts facts={report.facts} />
-                {report.metric ? (
-                    <View style={styles.metric}>
-                        <Sparkline metric={report.metric} accent={report.accent} />
-                    </View>
+                {report.observation ? (
+                    <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />
                 ) : null}
+                <ImpactMetrics metrics={report.supportingMetrics} reportId={report.id} />
+                <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
                 <Activity events={report.activity} viewerName={viewerName} />
             </Animated.ScrollView>
             <TopChrome
@@ -274,8 +276,5 @@ const styles = StyleSheet.create({
     content: {
         paddingHorizontal: layout.detailGutter,
         paddingBottom: 28,
-    },
-    metric: {
-        marginTop: 24,
     },
 })

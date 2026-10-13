@@ -40,7 +40,17 @@ export interface ReportMetricApi {
     value_format: 'number' | 'count' | 'percentage' | 'percentage_scaled' | 'duration' | 'currency'
     unit: string | null
     caption: string | null
+    /** An `InsightVizNode` with a `TrendsQuery` source. */
     query?: unknown
+}
+
+export interface ReportChartApi {
+    chart_id: string
+    title: string
+    /** An `InsightVizNode`, a `DataVisualizationNode` (a `HogQLQuery` source) or a `SavedInsightNode` (a `shortId`). */
+    query: unknown
+    caption?: string | null
+    size?: 'small' | 'medium' | 'large' | null
 }
 
 export interface SignalReportApi {
@@ -55,6 +65,7 @@ export interface SignalReportApi {
     created_at: string
     updated_at: string
     metrics: ReportMetricApi[]
+    charts: ReportChartApi[]
     suggested_prompts: string[]
     priority: string | null
     actionability: string | null
@@ -133,7 +144,7 @@ export function retryUnlessMissing(failureCount: number, error: unknown): boolea
     return !isMissingFeature(error) && failureCount < 1
 }
 
-type ScopeKey = readonly [string, number] | readonly ['none']
+export type ScopeKey = readonly [string, number] | readonly ['none']
 
 export function scopeKey(scope: ProjectScope | null): ScopeKey {
     return scope ? [scope.host, scope.projectId] : ['none']

@@ -1,4 +1,4 @@
-import { formatActivityTime } from '@/lib/dates'
+import { formatActivityTime, isoDay } from '@/lib/dates'
 
 import { DEMO_BRIEFINGS } from './briefings'
 import { buildDemoFixtures, DEMO_DECISION_QUESTION } from './fixtures'
@@ -27,9 +27,23 @@ describe('demo fixtures', () => {
             expect(report.title).toBe(item.title)
             expect(report.headline.rest).not.toBe('')
             expect(report.facts.length).toBeGreaterThan(0)
-            expect(report.metric?.bars).toHaveLength(14)
             expect(report.prompt).not.toBe('')
+            const observation = report.observation
+            if (observation?.data.kind !== 'static') {
+                throw new Error(`${report.id} has no static observation`)
+            }
+            const { points } = observation.data.series
+            expect(points).toHaveLength(14)
+            expect(points[13]?.at).toBe(isoDay(ANCHORS[0] as Date))
+            expect(points.every((point) => Number.isFinite(point.value))).toBe(true)
+            for (const chart of report.charts) {
+                expect(chart.data === undefined || chart.data.kind === 'static').toBe(true)
+            }
         }
+        const reports = fixtures.list.map(({ report }) => report)
+        expect(reports.filter((report) => report.supportingMetrics.length >= 2).length).toBeGreaterThanOrEqual(4)
+        expect(reports.filter((report) => report.charts.some((chart) => chart.data)).length).toBeGreaterThanOrEqual(2)
+        expect(reports.filter((report) => report.charts.some((chart) => !chart.data)).length).toBeGreaterThanOrEqual(2)
         const waiting = fixtures.list.filter(({ item }) => item.needsInput)
         expect(waiting.map(({ report }) => report.task?.pendingDecision)).toEqual([DEMO_DECISION_QUESTION])
     })

@@ -17,6 +17,7 @@ import type {
     ActivityEvent,
     EvidenceBlock,
     Fact,
+    MetricView,
     PullRequestView,
     Quote,
     ReportOwner,
@@ -31,7 +32,7 @@ import type {
     WorkView,
 } from '../types'
 import { accentFor } from './inbox'
-import { formatMetricValue, metricView, primaryMetric } from './metric'
+import { formatMetricValue, metricView, primaryMetric, reportChartView } from './metric'
 import { displayTitle, firstSentence, headlineFor, plainText, plural, truncate } from './text'
 
 export const CONTEXT_NOTE = "Sends the report, its evidence and the agent's research as context"
@@ -521,6 +522,20 @@ export function reportWebUrl(scope: ProjectScope, reportId: string): string {
     return `${scope.host}/project/${scope.projectId}/inbox/reports/${encodeURIComponent(reportId)}`
 }
 
+/** The primary metric is the observation; every other metric is a supporting tile, in authored order. */
+function metricViews(
+    report: SignalReportApi,
+    scope: ProjectScope
+): { observation?: MetricView; supportingMetrics: MetricView[] } {
+    const primary = report.metrics.find((metric) => metric.role === 'primary')
+    return {
+        ...(primary ? { observation: metricView(primary, scope) } : {}),
+        supportingMetrics: report.metrics
+            .filter((metric) => metric !== primary)
+            .map((metric) => metricView(metric, scope)),
+    }
+}
+
 /** `prompt` belongs to the hand-off feature, which builds it from `webUrl`. */
 export type AdaptedReportView = Omit<ReportView, 'prompt'> & { webUrl: string }
 
@@ -537,7 +552,7 @@ export function reportView(input: ReportViewInput): AdaptedReportView {
         ? evidenceFromPage(page, signals, host, projectId)
         : evidenceFromSignals(signals ?? [], host, projectId)
     const impact = impactFact(report, page)
-    const metric = metricView(report.metrics, now)
+    const { observation, supportingMetrics } = metricViews(report, { host, projectId })
     const taskRun = taskView(reportTaskId(report, artefacts), task)
     const summary = text(report.summary)
     return {
@@ -558,7 +573,9 @@ export function reportView(input: ReportViewInput): AdaptedReportView {
         since: formatActivityTime(report.created_at, now),
         owner: ownerView(report.assignee),
         facts: impact ? [impact] : [],
-        ...(metric ? { metric } : {}),
+        ...(observation ? { observation } : {}),
+        supportingMetrics,
+        charts: report.charts.map((chart) => reportChartView(chart, { host, projectId })),
         activity: activityFor(report, artefacts, { task }),
         work: workView(report),
         ...(taskRun ? { task: taskRun } : {}),

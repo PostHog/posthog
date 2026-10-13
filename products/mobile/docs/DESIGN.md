@@ -10,7 +10,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 - `colors`: every color in the handoff, named by role (`ink`, `muted`, `secondary`, `tertiary`,
   `border`, `hairline`, `rowDivider`, `sunken`, `pressed`, `background`, `orange`, `blue`, ...),
   plus the scrims and the white overlays used on the orange button.
-- `avatarPalette`, `accentColor`, `sparklineHotColor`: keyed by the report `Accent`
+- `avatarPalette`, `accentColor`: keyed by the report `Accent`
   (`alert` orange, `opportunity` blue, `resolved` ink).
 - `type`: the type scale. React Native letter spacing is in points, so `letterSpacing(size, em)`
   converts the handoff's em values per size. Text without an explicit line height uses the
@@ -55,6 +55,10 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `Scrim` | `ui/Scrim.tsx` | Fades with the overlay; optional tap to close |
 | `BottomSheet` | `ui/BottomSheet.tsx` | Grabber, radius 22, slides up 200ms, closes on scrim tap or a downward drag |
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
+| `MetricChart` | `ui/chart/MetricChart.tsx` | Line or bar chart on Skia (victory-native). The y axis floats for lines and starts at zero for bars. Hairline gridlines, 11pt mono ticks. Tap or drag to scrub, with a selection haptic and a tooltip that stays after release. 144pt high by default |
+| `ObservationCard` | `features/report/metrics/ObservationCard.tsx` | White card: "Observation" eyebrow, title, caption, 28pt mono value, chart, then the window and filter count with Open insight |
+| `ImpactMetrics` | `features/report/metrics/ImpactMetrics.tsx` | "Impact" eyebrow over a two-column grid of tiles: 20pt mono value, title, and the window or measured time. A tile with a link opens the insight |
+| `ReportCharts` | `features/report/metrics/ReportCharts.tsx` | "Charts" eyebrow over one card per chart: title, caption, the chart when the app can draw it, and Open insight |
 | `ReportContextMenu` | `features/inbox/ReportContextMenu.tsx` | Inbox row long-press menu on `FloatingCard`; nav menu width; opens 8pt below the row, or above it when the bottom bar is in the way (`contextMenuPlacement.ts`) |
 | `ReportMeta` | `features/report/ReportMeta.tsx` | Byline under the lede (source glyph and label · "Since …"), then the Owner and Priority chips: 32pt bordered pills with a chevron that open the Assignee card and the Priority sheet. No owner shows a dashed orange circle and "Assign"; P0 and P1 color their code orange |
 | `Sparkline` | `ui/Sparkline.tsx` | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`) |
@@ -84,7 +88,8 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
   says so and offers Try again.
 - **Nav menu**: project name (opens the Project card), Inbox (selected), Settings, Sign out.
 - **Report**: top chrome, headline, lede, the byline with the Owner and Priority chips (`ReportMeta`),
-  evidence (trace, quotes, replay), facts, sparkline, activity, and the action bar.
+  evidence (trace, quotes, replay), facts, the observation card, impact tiles, charts,
+  activity, and the action bar.
 - **Action bar** (`actionBarStateFor`): `idle` (Hand off to PostHog + chevron),
   `handed` (dark "PostHog is on it" card), `decision` (NEEDS YOUR DECISION card, collapsible),
   `decided` (dark card with the answer and Undo), `pr_ready` (READY FOR REVIEW card with one

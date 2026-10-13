@@ -14,3 +14,6 @@ expo-env.d.ts
 # Argent flows are committed; recordings and local state are not.
 .argent/*
 !.argent/flows/
+
+# Copied from canvaskit-wasm by `pnpm web` (setup-skia-web); Expo web serves it from the site root.
+public/canvaskit.wasm
