@@ -319,7 +319,8 @@ class TrackedHTTPAdapter(HTTPAdapter):
                 response = super().send(
                     request,
                     stream=stream,
-                    timeout=_deadline_timeout(resolve_request_timeout(timeout), deadline),
+                    # `requests` accepts a urllib3 `Timeout` here, which its stubs do not list.
+                    timeout=cast(Any, _deadline_timeout(resolve_request_timeout(timeout), deadline)),
                     verify=verify,
                     cert=cert,
                     proxies=proxies,
