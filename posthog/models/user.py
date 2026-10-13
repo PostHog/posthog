@@ -65,6 +65,8 @@ class Notifications(TypedDict, total=False):
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
     data_catalog_weekly_digest: bool
+    approval_requested: bool  # Email to each approver when a change request needs their sign-off
+    approval_resolved: bool  # Email to the requester when their change request is decided, expires, or is applied
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
@@ -92,6 +94,8 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "materialized_view_sync_failed_immediate": False,
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "data_catalog_weekly_digest": True,  # Data catalog pending-review digest enabled by default
+    "approval_requested": True,
+    "approval_resolved": True,
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
     "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
