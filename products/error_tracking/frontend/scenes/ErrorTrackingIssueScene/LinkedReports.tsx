@@ -53,7 +53,8 @@ function LinkedReportRow({ report }: { report: SignalReportApi }): JSX.Element {
  *
  * This is a section of the right pane, not a card sitting on top of one, so it wears the pane's own
  * chrome: square corners, no outer border, and rows that run the full width. The name takes the AI
- * color, which is how the app marks the work its own software did.
+ * color, which is how the app marks the work its own software did. The name opens the inbox, the same
+ * as the Self-driving nav item it copies.
  *
  * The section never takes more than half the pane. An issue the agent looked at many times would
  * otherwise push the exception card, and with it the stack trace, off the bottom of the pane.
@@ -67,10 +68,14 @@ export function LinkedReportsSection({ reports }: { reports: SignalReportApi[] }
         // exception card below it paints. Without it the rows show the page behind the pane.
         <div className="min-h-0 max-h-[50%] flex flex-col bg-surface-primary">
             <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
-                <div className="flex items-center gap-1 text-lg h-full">
+                <Link
+                    to={urls.inbox()}
+                    className="group flex items-center gap-1 text-lg h-full text-inherit no-underline hover:text-inherit"
+                    data-attr="error-tracking-linked-reports-inbox"
+                >
                     <IconLogomark />
-                    <span className="text-sm text-ai">Self-driving</span>
-                </div>
+                    <span className="text-sm text-ai group-hover:underline">Self-driving</span>
+                </Link>
                 <Tooltip title="A PostHog agent that investigates errors against your codebase. Not a teammate.">
                     <span className="text-xs text-muted-alt">PostHog agent</span>
                 </Tooltip>
