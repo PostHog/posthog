@@ -2248,7 +2248,7 @@
                     }
                 }
             },
-            "type": "resource_category"
+            "type": "resource"
         },
         {
             "metadata": {
@@ -2258,13 +2258,6 @@
                     "can_manage_access": {},
                     "can_share": {},
                     "can_view": {},
-                    "category": {
-                        "directly_related_user_types": [
-                            {
-                                "type": "resource_category"
-                            }
-                        ]
-                    },
                     "collaborator": {
                         "directly_related_user_types": [
                             {
@@ -2296,6 +2289,13 @@
                         "directly_related_user_types": [
                             {
                                 "type": "project"
+                            }
+                        ]
+                    },
+                    "resource": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "resource"
                             }
                         ]
                     },
@@ -2363,9 +2363,6 @@
                         "relation": "viewer"
                     }
                 },
-                "category": {
-                    "this": {}
-                },
                 "collaborator": {
                     "this": {}
                 },
@@ -2421,7 +2418,7 @@
                                                             "relation": "editor"
                                                         },
                                                         "tupleset": {
-                                                            "relation": "category"
+                                                            "relation": "resource"
                                                         }
                                                     }
                                                 },
@@ -2542,7 +2539,7 @@
                                                             "relation": "manager"
                                                         },
                                                         "tupleset": {
-                                                            "relation": "category"
+                                                            "relation": "resource"
                                                         }
                                                     }
                                                 },
@@ -2563,6 +2560,9 @@
                     "this": {}
                 },
                 "project": {
+                    "this": {}
+                },
+                "resource": {
                     "this": {}
                 },
                 "restricted": {
@@ -2633,7 +2633,7 @@
                                                             "relation": "viewer"
                                                         },
                                                         "tupleset": {
-                                                            "relation": "category"
+                                                            "relation": "resource"
                                                         }
                                                     }
                                                 },
@@ -2661,13 +2661,6 @@
                     "can_manage_access": {},
                     "can_share": {},
                     "can_view": {},
-                    "category": {
-                        "directly_related_user_types": [
-                            {
-                                "type": "resource_category"
-                            }
-                        ]
-                    },
                     "creator": {
                         "directly_related_user_types": [
                             {
@@ -2706,6 +2699,13 @@
                         "directly_related_user_types": [
                             {
                                 "type": "project"
+                            }
+                        ]
+                    },
+                    "resource": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "resource"
                             }
                         ]
                     },
@@ -2765,9 +2765,6 @@
                         "relation": "viewer"
                     }
                 },
-                "category": {
-                    "this": {}
-                },
                 "creator": {
                     "this": {}
                 },
@@ -2823,7 +2820,7 @@
                                                             "relation": "editor"
                                                         },
                                                         "tupleset": {
-                                                            "relation": "category"
+                                                            "relation": "resource"
                                                         }
                                                     }
                                                 },
@@ -2937,7 +2934,7 @@
                                                             "relation": "manager"
                                                         },
                                                         "tupleset": {
-                                                            "relation": "category"
+                                                            "relation": "resource"
                                                         }
                                                     }
                                                 },
@@ -2958,6 +2955,9 @@
                     "this": {}
                 },
                 "project": {
+                    "this": {}
+                },
+                "resource": {
                     "this": {}
                 },
                 "viewer": {
@@ -3009,7 +3009,7 @@
                                                             "relation": "viewer"
                                                         },
                                                         "tupleset": {
-                                                            "relation": "category"
+                                                            "relation": "resource"
                                                         }
                                                     }
                                                 },

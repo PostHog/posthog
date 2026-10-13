@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: 7f3d3bcec2f7f035
+# Content digest: 331c370af3c276e5
 model
   schema 1.1
 
@@ -127,7 +127,7 @@ type access_policy
     define viewer: (member_viewer_or_higher or (role_viewer_or_higher but not member_override) or (default_viewer_or_higher but not member_or_role_override)) and has_rule
     define editor: (member_editor_or_higher or (role_editor_or_higher but not member_override) or (default_editor_or_higher but not member_or_role_override)) and has_rule
     define manager: (member_manager or (role_manager but not member_override) or (default_manager but not member_or_role_override)) and has_rule
-type resource_category
+type resource
   relations
     define project: [project]
     define policy: [access_policy]
@@ -143,13 +143,13 @@ type resource_category
 type dashboard
   relations
     define project: [project]
-    define category: [resource_category]
+    define resource: [resource]
     define policy: [access_policy]
     define creator: [organization_member#user]
     define has_rule: has_rule from policy
-    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from category) but not has_rule))
-    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from category) but not has_rule))
-    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from category) but not has_rule))
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
     # Legacy collaborator restrictions remain an independent write gate.
     define restricted: [user:*] and access_control_enabled from project
     # Members with a legacy collaborator privilege can edit a restricted dashboard.
@@ -166,13 +166,13 @@ type dashboard
 type insight
   relations
     define project: [project]
-    define category: [resource_category]
+    define resource: [resource]
     define policy: [access_policy]
     define creator: [organization_member#user]
     define has_rule: has_rule from policy
-    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from category) but not has_rule))
-    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from category) but not has_rule))
-    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from category) but not has_rule))
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
     # An insight takes the legacy edit rule from the dashboards that show it.
     define dashboard: [dashboard]
     # This marker distinguishes an unattached insight from one with no editable dashboards.

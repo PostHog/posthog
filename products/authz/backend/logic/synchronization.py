@@ -83,12 +83,12 @@ class OrganizationProjection:
 
         for team in Team.objects.filter(organization_id=self.organization_id):
             project_key = self.key("project", team.id)
-            category_key = self.key("resource_category", f"{team.id}/dashboard")
-            category_policy_key = self.key("access_policy", f"{team.id}/dashboard/default")
+            resource_key = self.key("resource", f"{team.id}/dashboard")
+            resource_policy_key = self.key("access_policy", f"{team.id}/dashboard/default")
             self.add(self.organization_key, "organization", project_key)
-            self.add(project_key, "project", category_key)
-            self.add(category_policy_key, "policy", category_key)
-            self.add(self.organization_key, "organization", category_policy_key)
+            self.add(project_key, "project", resource_key)
+            self.add(resource_policy_key, "policy", resource_key)
+            self.add(self.organization_key, "organization", resource_policy_key)
 
             dashboards = authorization_dashboards(team.id)
             dashboard_ids = {str(dashboard.id) for dashboard in dashboards}
@@ -96,7 +96,7 @@ class OrganizationProjection:
                 object_key = self.key("dashboard", f"{team.id}/{dashboard.id}")
                 policy_key = self.key("access_policy", f"{team.id}/dashboard/{dashboard.id}")
                 self.add(project_key, "project", object_key)
-                self.add(category_key, "category", object_key)
+                self.add(resource_key, "resource", object_key)
                 self.add(policy_key, "policy", object_key)
                 self.add(self.organization_key, "organization", policy_key)
                 creator_membership = (

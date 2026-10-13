@@ -36,7 +36,7 @@ DASHBOARD_PERMISSIONS = {
 
 @frozen
 class Rule:
-    scope: Literal["object", "category", "project"]
+    scope: Literal["object", "resource", "project"]
     subject: Literal["member", "role", "default"]
     level: str
 
@@ -73,7 +73,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
             self.second_dashboard_id = dashboard_testing.create_dashboard(
                 team_id=self.team.id, created_by_id=self.user.id
             )
-            self.category_rule_id = access_control_testing.create_access_control(
+            self.resource_rule_id = access_control_testing.create_access_control(
                 team_id=self.team.id, resource="dashboard", access_level="none"
             )
         self.subject = Subject(user_id=self.other_user.id)
@@ -155,7 +155,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
     def test_viewer_default_with_member_editor_grant_on_only_one_dashboard(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level="viewer"
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level="viewer"
             )
             third_dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
             another_reader = User.objects.create_and_join(
@@ -208,12 +208,12 @@ class TestOpenFgaDashboardMirror(BaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level="viewer"
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level="viewer"
             )
         assert self._check(Action.VIEW) and not self._check(Action.EDIT)
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level=None
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level=None
             )
         assert self._check(Action.EDIT)
         self._grant("none")
@@ -292,23 +292,23 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 Rule(scope="object", subject="member", level=level),
                 Rule(scope="object", subject="role", level=level),
                 Rule(scope="object", subject="default", level=level),
-                Rule(scope="category", subject="member", level=level),
-                Rule(scope="category", subject="role", level=level),
-                Rule(scope="category", subject="default", level=level),
+                Rule(scope="resource", subject="member", level=level),
+                Rule(scope="resource", subject="role", level=level),
+                Rule(scope="resource", subject="default", level=level),
             )
         ]
     )
     def test_user_has_the_dashboard_permissions_their_rule_grants(self, _name: str, rule: Rule) -> None:
         with self.captureOnCommitCallbacks(execute=True):
-            if rule.scope == "category" and rule.subject == "default":
+            if rule.scope == "resource" and rule.subject == "default":
                 access_control_testing.set_access_control_level(
-                    team_id=self.team.id, rule_id=self.category_rule_id, access_level=rule.level
+                    team_id=self.team.id, rule_id=self.resource_rule_id, access_level=rule.level
                 )
             else:
                 self._add_rule(rule)
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS[rule.level])
         expected_second = (
-            DASHBOARD_PERMISSIONS[rule.level] if rule.scope == "category" else DASHBOARD_PERMISSIONS["none"]
+            DASHBOARD_PERMISSIONS[rule.level] if rule.scope == "resource" else DASHBOARD_PERMISSIONS["none"]
         )
         self._assert_dashboard_permissions(expected_second, dashboard_id=self.second_dashboard_id)
 
@@ -379,82 +379,82 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 "viewer",
             ),
             (
-                "object_default_viewer_beats_category_member_manager",
+                "object_default_viewer_beats_resource_member_manager",
                 (
                     Rule(scope="object", subject="default", level="viewer"),
-                    Rule(scope="category", subject="member", level="manager"),
+                    Rule(scope="resource", subject="member", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "object_default_none_beats_category_member_manager",
+                "object_default_none_beats_resource_member_manager",
                 (
                     Rule(scope="object", subject="default", level="none"),
-                    Rule(scope="category", subject="member", level="manager"),
+                    Rule(scope="resource", subject="member", level="manager"),
                 ),
                 "none",
             ),
             (
-                "object_default_editor_beats_category_member_none",
+                "object_default_editor_beats_resource_member_none",
                 (
                     Rule(scope="object", subject="default", level="editor"),
-                    Rule(scope="category", subject="member", level="none"),
+                    Rule(scope="resource", subject="member", level="none"),
                 ),
                 "editor",
             ),
             (
-                "object_role_editor_beats_category_member_none",
+                "object_role_editor_beats_resource_member_none",
                 (
                     Rule(scope="object", subject="role", level="editor"),
-                    Rule(scope="category", subject="member", level="none"),
+                    Rule(scope="resource", subject="member", level="none"),
                 ),
                 "editor",
             ),
             (
-                "object_role_viewer_beats_category_role_manager",
+                "object_role_viewer_beats_resource_role_manager",
                 (
                     Rule(scope="object", subject="role", level="viewer"),
-                    Rule(scope="category", subject="role", level="manager"),
+                    Rule(scope="resource", subject="role", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "object_member_viewer_beats_category_member_manager",
+                "object_member_viewer_beats_resource_member_manager",
                 (
                     Rule(scope="object", subject="member", level="viewer"),
-                    Rule(scope="category", subject="member", level="manager"),
+                    Rule(scope="resource", subject="member", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "category_member_viewer_beats_role_manager",
+                "resource_member_viewer_beats_role_manager",
                 (
-                    Rule(scope="category", subject="member", level="viewer"),
-                    Rule(scope="category", subject="role", level="manager"),
+                    Rule(scope="resource", subject="member", level="viewer"),
+                    Rule(scope="resource", subject="role", level="manager"),
                 ),
                 "viewer",
             ),
             (
-                "category_member_none_beats_role_editor",
+                "resource_member_none_beats_role_editor",
                 (
-                    Rule(scope="category", subject="member", level="none"),
-                    Rule(scope="category", subject="role", level="editor"),
+                    Rule(scope="resource", subject="member", level="none"),
+                    Rule(scope="resource", subject="role", level="editor"),
                 ),
                 "none",
             ),
             (
-                "category_member_editor_beats_role_none",
+                "resource_member_editor_beats_role_none",
                 (
-                    Rule(scope="category", subject="member", level="editor"),
-                    Rule(scope="category", subject="role", level="none"),
+                    Rule(scope="resource", subject="member", level="editor"),
+                    Rule(scope="resource", subject="role", level="none"),
                 ),
                 "editor",
             ),
             (
-                "category_highest_role_manager_beats_none",
+                "resource_highest_role_manager_beats_none",
                 (
-                    Rule(scope="category", subject="role", level="none"),
-                    Rule(scope="category", subject="role", level="manager"),
+                    Rule(scope="resource", subject="role", level="none"),
+                    Rule(scope="resource", subject="role", level="manager"),
                 ),
                 "manager",
             ),
@@ -479,7 +479,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
             self.membership.save(update_fields=["level"])
             self._add_rule(Rule(scope="project", subject="default", level="none"))
             self._add_rule(Rule(scope="project", subject="member", level="none"))
-            self._add_rule(Rule(scope="category", subject="member", level="none"))
+            self._add_rule(Rule(scope="resource", subject="member", level="none"))
             self._add_rule(Rule(scope="object", subject="member", level="none"))
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["manager"])
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["manager"], dashboard_id=self.second_dashboard_id)
@@ -629,9 +629,9 @@ class TestOpenFgaDashboardMirror(BaseTest):
     ) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             access_control_testing.set_access_control_level(
-                team_id=self.team.id, rule_id=self.category_rule_id, access_level=default_level
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level=default_level
             )
-            self._add_rule(Rule(scope="category", subject="role", level=role_level))
+            self._add_rule(Rule(scope="resource", subject="role", level=role_level))
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS[role_level])
         with self.captureOnCommitCallbacks(execute=True):
             self.organization.available_product_features = [
@@ -696,7 +696,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
             ids = {
                 dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id) for _ in range(32)
             }
-            self._add_rule(Rule(scope="category", subject="member", level="editor"))
+            self._add_rule(Rule(scope="resource", subject="member", level="editor"))
         expected_ids = ids | {self.dashboard_id, self.second_dashboard_id}
         api.synchronize_organization(self.organization.id)
         api.synchronize_organization(self.organization.id)

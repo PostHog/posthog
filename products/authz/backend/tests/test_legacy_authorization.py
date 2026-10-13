@@ -28,7 +28,7 @@ class TestLegacyAuthorization(BaseTest):
         self.subject = Subject(user_id=self.reader.id)
         self.dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
         self.resource = Resource(type=ResourceType.DASHBOARD, id=str(self.dashboard_id), project_id=self.team.id)
-        self.category = Resource(type=ResourceType.DASHBOARD, project_id=self.team.id)
+        self.dashboards = Resource(type=ResourceType.DASHBOARD, project_id=self.team.id)
         self.enterContext(api.authorization_session())
 
     @parameterized.expand(
@@ -62,10 +62,10 @@ class TestLegacyAuthorization(BaseTest):
                 CheckRequest(resource=self.resource, action=Action.EDIT, subject=self.subject),
             ]
         ) == [Action.VIEW in expected, Action.EDIT in expected]
-        listed = api.list_resources(resource=self.category, action=Action.VIEW, subject=self.subject)
+        listed = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject)
         assert listed.complete
         assert listed.ids == (frozenset({str(self.dashboard_id)}) if Action.VIEW in expected else frozenset())
-        assert not api.check(resource=self.category, action=Action.CREATE, subject=self.subject)
+        assert not api.check(resource=self.dashboards, action=Action.CREATE, subject=self.subject)
 
     def test_project_denial_tenant_scope_and_missing_objects_fail_closed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
@@ -87,7 +87,7 @@ class TestLegacyAuthorization(BaseTest):
             team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
         )
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
-        assert not api.list_resources(resource=self.category, action=Action.VIEW, subject=self.subject).ids
+        assert not api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject).ids
         dashboard_testing.delete_dashboard(team_id=self.team.id, dashboard_id=self.dashboard_id)
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=Subject(user_id=self.user.id))
 
@@ -136,6 +136,6 @@ class TestLegacyAuthorization(BaseTest):
         )
         assert api.check(resource=self.resource, action=Action.EDIT, subject=self.subject)
         dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
-        capped = api.list_resources(resource=self.category, action=Action.VIEW, subject=self.subject, limit=1)
+        capped = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject, limit=1)
         assert not capped.complete and not capped.ids
         assert api.check(resource=self.resource, action=Action.MANAGE_ACCESS, subject=Subject(user_id=self.user.id))

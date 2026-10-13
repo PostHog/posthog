@@ -12,13 +12,13 @@ class TestDashboardAuthorizationAPI(APIBaseTest):
         self.dashboard = Dashboard.objects.create(team=self.team, name="Authorization test", created_by=self.user)
         self.other_dashboard = Dashboard.objects.create(team=self.team, name="Other dashboard", created_by=self.user)
         self.allowed_relations = {"can_view", "can_edit", "can_delete", "can_manage_access", "can_share"}
-        self.allow_category = True
+        self.allow_resource = True
         self.listed_ids = [self.dashboard.pk]
         self.client_fga = MagicMock()
         self.client_fga.client_batch_check.side_effect = lambda checks, options: [
             MagicMock(
-                allowed=self.allow_category
-                if check.object.startswith("resource_category:")
+                allowed=self.allow_resource
+                if check.object.startswith("resource:")
                 else check.relation in self.allowed_relations,
                 error=None,
             )
@@ -70,8 +70,8 @@ class TestDashboardAuthorizationAPI(APIBaseTest):
         assert response.status_code == 200, response.data
         assert response.data["access_level"] == "viewer"
 
-    def test_category_denial_prevents_creation(self) -> None:
-        self.allow_category = False
+    def test_resource_denial_prevents_creation(self) -> None:
+        self.allow_resource = False
         response = self.client.post(f"/api/projects/{self.team.pk}/dashboards/", {"name": "Denied"})
         assert response.status_code == 403, response.data
         assert not Dashboard.objects.filter(team=self.team, name="Denied").exists()
@@ -85,7 +85,7 @@ class TestDashboardAuthorizationAPI(APIBaseTest):
         assert Dashboard.objects.filter(team=self.team).count() == 2
 
     def test_authorized_restore_uses_the_dashboard_policy(self) -> None:
-        self.allow_category = False
+        self.allow_resource = False
         self.dashboard.deleted = True
         self.dashboard.save()
         response = self.client.patch(

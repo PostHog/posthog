@@ -4,7 +4,7 @@ tuple_files:
     - ../fixtures.yaml
 tuples:
     - { user: 'project:project', relation: project, object: 'dashboard:dashboard' }
-    - { user: 'resource_category:dashboards', relation: category, object: 'dashboard:dashboard' }
+    - { user: 'resource:dashboards', relation: resource, object: 'dashboard:dashboard' }
     - { user: 'access_policy:object', relation: policy, object: 'dashboard:dashboard' }
     - { user: 'organization_member:creator#user', relation: creator, object: 'dashboard:dashboard' }
 
@@ -23,7 +23,7 @@ tests:
           - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:object' }
           - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
           - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
-          - { user: 'user:*', relation: default_manager, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:resource' }
       check:
           - user: user:member
             object: dashboard:dashboard
@@ -77,18 +77,18 @@ tests:
             object: dashboard:dashboard
             assertions: { can_view: false, can_edit: false, can_manage_access: false }
 
-    - name: Object default none overrides category member manager
+    - name: Object default none overrides resource member manager
       tuples:
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
-          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:category' }
+          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:resource' }
       check:
           - user: user:member
             object: dashboard:dashboard
             assertions: { can_view: false, can_edit: false, can_manage_access: false }
 
-    - name: Object editor overrides category member none without allowing creation
+    - name: Object editor overrides resource member none without allowing creation
       tuples:
-          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:category' }
+          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
       check:
           - user: user:member
@@ -102,11 +102,11 @@ tests:
             type: dashboard
             assertions: { can_view: [] }
 
-    - name: Category member viewer overrides roles and defaults on objects without rules
+    - name: Resource member viewer overrides roles and defaults on objects without rules
       tuples:
-          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:category' }
-          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:category' }
-          - { user: 'user:*', relation: default_editor, object: 'access_policy:category' }
+          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:resource' }
+          - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:resource' }
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:resource' }
       check:
           - user: user:member
             object: dashboard:dashboard
@@ -114,7 +114,7 @@ tests:
 
     - name: Organization admins and owners bypass all resource denies
       tuples:
-          - { user: 'user:*', relation: default_none, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
           - { user: 'organization_member:admin#user', relation: member_none, object: 'project:project' }
           - { user: 'organization_member:owner#user', relation: member_none, object: 'project:project' }
@@ -148,9 +148,9 @@ tests:
             object: dashboard:dashboard
             assertions: { can_manage_access: true }
 
-    - name: Creators bypass object and category restrictions
+    - name: Creators bypass object and resource restrictions
       tuples:
-          - { user: 'user:*', relation: default_none, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
       check:
           - user: user:creator
@@ -223,10 +223,10 @@ tests:
           - { user: 'user:*', relation: default_none, object: 'project:free' }
           - { user: 'organization:free', relation: organization, object: 'access_policy:free' }
           - { user: 'organization_member:free#user', relation: member_none, object: 'access_policy:free' }
-          - { user: 'project:free', relation: project, object: 'resource_category:free' }
-          - { user: 'access_policy:free', relation: policy, object: 'resource_category:free' }
+          - { user: 'project:free', relation: project, object: 'resource:free' }
+          - { user: 'access_policy:free', relation: policy, object: 'resource:free' }
           - { user: 'project:free', relation: project, object: 'dashboard:free' }
-          - { user: 'resource_category:free', relation: category, object: 'dashboard:free' }
+          - { user: 'resource:free', relation: resource, object: 'dashboard:free' }
           - { user: 'access_policy:free', relation: policy, object: 'dashboard:free' }
           - { user: 'user:*', relation: restricted, object: 'dashboard:free' }
       check:

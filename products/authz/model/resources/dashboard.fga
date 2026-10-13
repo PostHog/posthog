@@ -1,4 +1,4 @@
-type dashboard extends shareable_resource
+type dashboard extends shareable_object
   relations
     # Legacy collaborator restrictions remain an independent write gate.
     define restricted: [user:*] and access_control_enabled from project

@@ -85,7 +85,7 @@ def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
     if resource.project_id is None:
         raise ValueError("Provide a project id for dashboard authorization")
     if resource.id is None:
-        return f"resource_category:{org_id}/{resource.project_id}/dashboard"
+        return f"resource:{org_id}/{resource.project_id}/dashboard"
     if not resource.id.isdecimal() or int(resource.id) <= 0:
         raise ValueError("Provide the dashboard's numeric id")
     return f"dashboard:{org_id}/{resource.project_id}/{int(resource.id)}"
@@ -160,7 +160,7 @@ def list_resources(
 ) -> ResourceIds:
     validate_context(context)
     if resource.id is not None or resource.type != ResourceType.DASHBOARD or resource.project_id is None:
-        raise ValueError("List resources requires a dashboard category scoped to a project")
+        raise ValueError("List resources requires the dashboard resource of a project, without an object id")
     if limit is not None and limit < 1:
         raise ValueError("Resource limit must be positive")
     org_id = organization_id(resource)

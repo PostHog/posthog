@@ -7,7 +7,7 @@ tests:
     - name: Baselines and organization boundaries
       check:
           - user: user:member
-            objects: [resource_category:dashboards, resource_category:insights]
+            objects: [resource:dashboards, resource:insights]
             assertions: { can_list: true, can_create: true, can_manage_access: false }
           - user: user:member
             object: organization:org
@@ -117,33 +117,33 @@ tests:
           - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:object' }
           - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
           - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
-          - { user: 'user:*', relation: default_manager, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:resource' }
       check:
           - user: user:member
-            objects: [resource_category:dashboards, resource_category:insights]
+            objects: [resource:dashboards, resource:insights]
             assertions: { can_create: true, can_manage_access: true }
 
-    - name: Object default none overrides category member manager
+    - name: Object default none overrides resource member manager
       tuples:
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
-          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:category' }
+          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:resource' }
       check:
           - user: user:member
-            objects: [resource_category:dashboards, resource_category:insights]
+            objects: [resource:dashboards, resource:insights]
             assertions: { can_list: true, can_create: true, can_manage_access: true }
 
-    - name: Object editor overrides category member none without allowing creation
+    - name: Object editor overrides resource member none without allowing creation
       tuples:
-          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:category' }
+          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
       check:
           - user: user:member
-            objects: [resource_category:dashboards, resource_category:insights]
+            objects: [resource:dashboards, resource:insights]
             assertions: { can_create: false, can_manage_access: false }
 
     - name: Organization admins and owners bypass all resource denies
       tuples:
-          - { user: 'user:*', relation: default_none, object: 'access_policy:category' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
           - { user: 'organization_member:admin#user', relation: member_none, object: 'project:project' }
           - { user: 'organization_member:owner#user', relation: member_none, object: 'project:project' }
@@ -240,14 +240,14 @@ tests:
           - { user: 'role:unlicensed#member', relation: role_none, object: 'project:unlicensed' }
           - { user: 'organization:unlicensed', relation: organization, object: 'access_policy:unlicensed' }
           - { user: 'role:unlicensed#member', relation: role_none, object: 'access_policy:unlicensed' }
-          - { user: 'project:unlicensed', relation: project, object: 'resource_category:unlicensed' }
-          - { user: 'access_policy:unlicensed', relation: policy, object: 'resource_category:unlicensed' }
+          - { user: 'project:unlicensed', relation: project, object: 'resource:unlicensed' }
+          - { user: 'access_policy:unlicensed', relation: policy, object: 'resource:unlicensed' }
       check:
           - user: user:unlicensed
             object: project:unlicensed
             assertions: { member: true, admin: false }
           - user: user:unlicensed
-            object: resource_category:unlicensed
+            object: resource:unlicensed
             assertions: { can_list: true, can_create: true, can_manage_access: false }
 
     - name: Access rules and legacy restrictions are inert without access control
@@ -261,10 +261,10 @@ tests:
           - { user: 'user:*', relation: default_none, object: 'project:free' }
           - { user: 'organization:free', relation: organization, object: 'access_policy:free' }
           - { user: 'organization_member:free#user', relation: member_none, object: 'access_policy:free' }
-          - { user: 'project:free', relation: project, object: 'resource_category:free' }
-          - { user: 'access_policy:free', relation: policy, object: 'resource_category:free' }
+          - { user: 'project:free', relation: project, object: 'resource:free' }
+          - { user: 'access_policy:free', relation: policy, object: 'resource:free' }
           - { user: 'project:free', relation: project, object: 'dashboard:free' }
-          - { user: 'resource_category:free', relation: category, object: 'dashboard:free' }
+          - { user: 'resource:free', relation: resource, object: 'dashboard:free' }
           - { user: 'access_policy:free', relation: policy, object: 'dashboard:free' }
           - { user: 'user:*', relation: restricted, object: 'dashboard:free' }
       check:
@@ -293,10 +293,10 @@ tests:
             object: project:project
             assertions: { can_view: false, can_edit: false, can_delete: false }
           - user: user:member
-            objects: [resource_category:dashboards, resource_category:insights]
+            objects: [resource:dashboards, resource:insights]
             assertions: { can_view: true }
           - user: user:outsider
-            objects: [resource_category:dashboards, resource_category:insights]
+            objects: [resource:dashboards, resource:insights]
             assertions: { can_view: false, can_list: false }
 
     - name: A project creator manages access without project admin
@@ -367,12 +367,12 @@ tests:
 
     - name: A role rule on a policy wins over the default rule
       tuples:
-          - { user: 'role:writer#member', relation: role_editor, object: 'access_policy:category' }
-          - { user: 'user:*', relation: default_viewer, object: 'access_policy:category' }
+          - { user: 'role:writer#member', relation: role_editor, object: 'access_policy:resource' }
+          - { user: 'user:*', relation: default_viewer, object: 'access_policy:resource' }
       check:
           - user: user:member
-            object: access_policy:category
+            object: access_policy:resource
             assertions: { editor: true, manager: false }
           - user: user:creator
-            object: access_policy:category
+            object: access_policy:resource
             assertions: { viewer: true, editor: false }

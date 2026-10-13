@@ -1,4 +1,4 @@
-type insight extends shareable_resource
+type insight extends shareable_object
   relations
     # An insight takes the legacy edit rule from the dashboards that show it.
     define dashboard: [dashboard]

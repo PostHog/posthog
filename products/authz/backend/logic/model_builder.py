@@ -26,7 +26,7 @@ MODEL_PATH = PRODUCT_DIR / "model.fga"
 JSON_MODEL_PATH = PRODUCT_DIR / "openfga_model.json"
 
 CORE_FILE = "core.fga"
-BASES_FILE = "resource.fga"
+BASES_FILE = "object.fga"
 RESOURCES_DIR = "resources"
 TESTS_SUFFIX = ".fga.yaml"
 CORE_TESTS = "core"

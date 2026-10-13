@@ -189,17 +189,18 @@ Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next
   Link it to its organization.
   Project overrides use `member_*`, `role_*`, and `default_*` relations with `none`, `member`, or `admin` levels.
   The model accepts `owner` as an admin-equivalent project relation; persisted project levels stop at `admin`.
-- Create one `resource_category` per project and resource type, with its own `access_policy`.
-  Link each dashboard or insight to its project and category, and to a separate object policy when it has overrides.
+- Create one `resource` per project and resource type, with its own `access_policy`.
+  For example, `resource:<org_id>/3/dashboard` holds the dashboards in project 3.
+  Link each object, such as a dashboard or an insight, to its project and resource, and to a separate object policy when it has overrides.
   Link each policy to its organization.
   Policies resolve member overrides first, then the highest matching role override, then the default.
-  An object policy with any applicable rule overrides the category, including a `none` or lower-level rule.
-  Without a category rule, dashboards and insights default to `editor`.
+  An object policy with any applicable rule overrides the resource, including a `none` or lower-level rule.
+  Without a resource rule, dashboards and insights default to `editor`.
 - Set default levels and organization settings with `user:*` tuples.
   Set `access_control_enabled` and `role_based_access_enabled` from the organization's entitlements.
   Rules are inert without the relevant entitlement.
   Without project rules, access-control-enabled organizations default to project admin; other organizations default to project member.
-- Organization admins and owners bypass resource restrictions.
+- Organization admins and owners bypass resource and object rules.
   Creators bypass object restrictions but still require project membership.
   Explicit project admins can manage access and bypass legacy dashboard collaborator restrictions, but cannot bypass resource or object rules.
   The implicit project-admin default alone does not grant `can_manage_access`.
@@ -209,12 +210,12 @@ Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next
   An insight passes this legacy write gate if any attached dashboard permits editing, or if it has no attachments.
 - When member visibility is restricted, link a membership's `project` relations only to projects that grant that member scoped access, excluding the organization-admin bypass.
   This lets peers with access to a shared project see the membership.
-- Check `can_create` on the category for creation and use `ListObjects` with `can_view` to filter individual objects.
+- Check `can_create` on the resource for creation and use `ListObjects` with `can_view` to filter individual objects.
   Object grants do not grant creation rights.
 
 Tuple writers must keep these relationships consistent with the database.
 Write only active, valid role memberships from the same organization as the policy or project.
-Keep each object's project, category, and policy in the same organization and project.
+Keep each object's project, resource, and policy in the same organization and project.
 Store one member/default level per scope and replace the old level when it changes.
 OpenFGA does not enforce relationship cardinality or compare organization IDs across tuple paths.
 Application checks still enforce request-specific rules such as API scopes, reauthentication, verified domains, and the last-owner invariant.
@@ -233,7 +234,7 @@ API queries and authorization listings omit deleted dashboards.
 Legacy dashboard collaborator privileges also trigger reconciliation.
 Rolled-back transactions enqueue nothing.
 The worker retries failed reconciliations and reads current database state, so a delayed event does not replay an obsolete grant.
-The mirror covers project rules and dashboard category/object rules; other resource types, including insights, are not mirrored yet.
+The mirror covers project rules and dashboard resource and object rules; other resource types, including insights, are not mirrored yet.
 
 The worker uses organization- and project-qualified tuple IDs and a per-organization lock.
 It deletes obsolete grants before writing replacements.
@@ -275,7 +276,7 @@ Create the flag with these variant keys before testing a rollout.
   A supplied limit returns an empty, incomplete result if exceeded.
 - `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
 
-The pilot supports dashboards, dashboard categories, projects, organizations, and roles.
+The pilot supports dashboard objects, the dashboard resource, projects, organizations, and roles.
 It does not replace API scope checks, reauthentication, or other request-specific enforcement.
 Shadow comparisons run synchronously after the authoritative check.
 `authz_decision_comparison` logs both decisions, whether they match, the rollout mode, and the user/resource identifiers.

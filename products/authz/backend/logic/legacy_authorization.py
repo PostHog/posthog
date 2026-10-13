@@ -99,7 +99,7 @@ class LegacyAuthorization:
         self, resource: Resource, action: Action, subject: Subject | None, limit: int | None
     ) -> ResourceIds:
         if resource.id is not None or resource.type != ResourceType.DASHBOARD or resource.project_id is None:
-            raise ValueError("List resources requires a dashboard category scoped to a project")
+            raise ValueError("List resources requires the dashboard resource of a project, without an object id")
         if limit is not None and limit < 1:
             raise ValueError("Resource limit must be positive")
         authorization.action_relation("dashboard:0", action)
