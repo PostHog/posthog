@@ -14,6 +14,7 @@ import requests
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
@@ -64,6 +65,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
                     source="plugins",
                     headers=headers,
                     installation_id=None,
+                    priority=Priority.CRITICAL,
                 ).json()
 
                 if isinstance(commits, dict):

@@ -11,6 +11,7 @@ from enum import StrEnum
 from django.db import models
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
@@ -159,7 +160,9 @@ def request_pr_review(
     repository = f"{owner}/{repo}"
     # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
     # asynchronously the fetch activity would fail before the report row exists, showing nothing.
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.CRITICAL
+    )
     if github is None:
         return PRReviewRequestOutcome(
             status=PRReviewRequestStatus.INVALID,

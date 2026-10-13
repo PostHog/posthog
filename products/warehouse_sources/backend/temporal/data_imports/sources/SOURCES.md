@@ -54,6 +54,7 @@ the row lists both.
 | abnormal_security                | HTTP                        | requests                                                        | ✅                          |
 | acast                            | HTTP                        | requests                                                        | ✅                          |
 | acculynx                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| adapty                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | adjust                           | HTTP                        | requests                                                        | ✅                          |
 | adobe_analytics                  | HTTP                        | requests                                                        | ✅                          |
 | adobe_commerce                   | HTTP                        | requests                                                        | ✅                          |
@@ -803,6 +804,7 @@ the row lists both.
 | stytch                           | HTTP                        | requests                                                        | ✅                          |
 | sumo_logic                       | HTTP                        | requests                                                        | ✅                          |
 | supabase                         | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
+| superwall                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | surveymonkey                     | HTTP                        | requests                                                        | ✅                          |
 | surveysparrow                    | HTTP                        | requests                                                        | ✅                          |
 | survicate                        | HTTP                        | requests                                                        | ✅                          |
@@ -909,6 +911,7 @@ the row lists both.
 | yoco                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | youtube_analytics                | HTTP                        | requests                                                        | ✅                          |
+| youtube_data                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zapier_supported_storage         | HTTP                        | requests                                                        | ✅                          |
 | zapsign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | zendesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -970,7 +973,6 @@ doesn't conflict with concurrent PRs.
 - actionstep
 - active_campaign
 - acuity_scheduling
-- adapty
 - adobe_commerce
 - adp_workforce_now
 - aikido_security
@@ -1459,7 +1461,6 @@ doesn't conflict with concurrent PRs.
 - substack
 - sumsub
 - supermetrics
-- superwall
 - surveymonkey
 - svix
 - swan
@@ -1536,7 +1537,6 @@ doesn't conflict with concurrent PRs.
 - yandex_metrica
 - yotpo
 - younium
-- youtube_data
 - zalando_zdirect
 - zapsign
 - zellify
