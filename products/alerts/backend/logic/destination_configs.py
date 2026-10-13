@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 from urllib.parse import urlsplit
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -114,6 +114,30 @@ def pagerduty_custom_details(spec: EventKindSpec) -> dict[str, str]:
 
 def pagerduty_links(spec: EventKindSpec) -> list[dict[str, str]]:
     return [{"href": action.url, "text": action.label} for action in spec_actions(spec)]
+
+
+# The headers every stock webhook destination is built with. The native transport sets its own.
+_STOCK_WEBHOOK_HEADER_NAMES: Final = frozenset(name.lower() for name in WEBHOOK_HEADERS)
+
+
+def _added_webhook_headers(headers: Any) -> tuple[tuple[str, str], ...]:
+    """The headers a user added to a webhook destination, such as an auth token.
+
+    A value with a `{` is a Hog template, which only the HogFunction path can render. Sending it
+    unrendered would send the template text as the credential, so it is left out.
+    """
+    if not isinstance(headers, dict):
+        return ()
+    return tuple(
+        sorted(
+            (name, value)
+            for name, value in headers.items()
+            if isinstance(name, str)
+            and isinstance(value, str)
+            and name.lower() not in _STOCK_WEBHOOK_HEADER_NAMES
+            and "{" not in value
+        )
+    )
 
 
 def _input_value(inputs: dict[str, Any], key: str) -> Any:
@@ -227,6 +251,21 @@ class WebhookDestination(_WebhookUrlDestination):
     type = DestinationType.WEBHOOK
     template_id = "template-webhook"
     url_input_key = "url"
+
+    def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
+        data = super().read(inputs)
+        headers = _added_webhook_headers(_input_value(inputs, "headers"))
+        if headers:
+            data["webhook_headers"] = headers
+        return data
+
+    def redact(self, data: AlertDestinationData) -> AlertDestinationData:
+        redacted = super().redact(data)
+        if "webhook_headers" not in redacted:
+            return redacted
+        redacted = redacted.copy()
+        del redacted["webhook_headers"]
+        return redacted
 
     def build_name(self, data: AlertDestinationData) -> str:
         return f"Webhook {url_hostname(data['webhook_url'])}"

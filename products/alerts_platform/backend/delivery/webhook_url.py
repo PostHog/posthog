@@ -40,9 +40,9 @@ class WebhookUrlTransport(ABC):
         if not url:
             raise DeliveryError(f"This {self.display_name} destination has no webhook URL.")
         self.check_url(url)
-        post_json(
-            self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for()
-        )
+        # The transport's own headers come last, so a stored header cannot change the body version.
+        headers = {**dict(target.get("webhook_headers", ())), **self.headers_for()}
+        post_json(self.send_url(url), self.body_for(message), display_name=self.display_name, headers=headers)
         return None
 
     def check_url(self, url: str) -> None:

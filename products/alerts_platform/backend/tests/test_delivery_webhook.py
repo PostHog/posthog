@@ -138,6 +138,21 @@ class TestWebhookTransport(SimpleTestCase):
         assert handle is None
         assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
 
+    def test_a_stored_header_is_sent_but_cannot_change_the_body_version(self) -> None:
+        target = cast(
+            AlertDestinationData,
+            {
+                **TARGET,
+                "webhook_headers": (("Authorization", "Bearer not-a-real-token"), ("X-PostHog-Webhook-Version", "9")),
+            },
+        )
+
+        with pinned_post(200) as adapter:
+            WebhookTransport().deliver(team_id=2, target=target, message=alert_message())
+
+        assert adapter.sent[-1].headers["Authorization"] == "Bearer not-a-real-token"
+        assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
+
     def test_a_redirect_is_refused_without_reading_its_body(self) -> None:
         with pinned_post(302, headers={"Location": "https://elsewhere.example.com/"}, body=b"x" * 1_000_000) as adapter:
             with pytest.raises(DeliveryError):
