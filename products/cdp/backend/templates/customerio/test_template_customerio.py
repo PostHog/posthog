@@ -1,5 +1,6 @@
 import pytest
-from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from products.cdp.backend.models.plugin import PluginConfig
 from products.cdp.backend.templates.customerio.template_customerio import (
@@ -157,7 +158,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         assert e.value.message == "Error from customer.io api: 400: {'error': 'error'}"
 
 
-class TestTemplateMigration(BaseTest):
+class TestTemplateMigration(SimpleTestCase):
     def get_plugin_config(self, config: dict):
         _config = {
             "host": "track.customer.io",
