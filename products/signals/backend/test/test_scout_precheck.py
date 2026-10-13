@@ -303,7 +303,9 @@ class TestCodeCheckSkillDefault(BaseTest):
         LLMSkill.objects.create(
             team=self.team, name=WORKFLOWS_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
         )
-        SignalScoutConfig.all_teams.create(team=self.team, skill_name=WORKFLOWS_SKILL)
+        SignalScoutConfig.all_teams.create(
+            team=self.team, skill_name=WORKFLOWS_SKILL, write_scopes=["hog_flow_proposal:write"]
+        )
         self.calls: list[datetime | None] = []
 
     def _check(self, answer: str | None | Exception):
@@ -315,7 +317,7 @@ class TestCodeCheckSkillDefault(BaseTest):
 
         return check
 
-    def _last_run(self, status: str, *, hours_ago: float = 24, check: bool = False) -> datetime:
+    def _last_run(self, status: str, *, hours_ago: float = 24, check: bool = False, dry_run: bool = False) -> datetime:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
@@ -326,7 +328,10 @@ class TestCodeCheckSkillDefault(BaseTest):
             task_run=TaskRun.objects.create(task=task, team=self.team, status=status),
             skill_name=WORKFLOWS_SKILL,
             skill_version=1,
-            metadata={"check_id": "check-1"} if check else {},
+            metadata={
+                **({"check_id": "check-1"} if check else {}),
+                **({} if dry_run else {"write_scopes": ["hog_flow_proposal:write"]}),
+            },
         )
         SignalScoutRun.all_teams.filter(pk=run.pk).update(created_at=NOW - timedelta(hours=hours_ago))
         return NOW - timedelta(hours=hours_ago)
@@ -365,9 +370,10 @@ class TestCodeCheckSkillDefault(BaseTest):
         assert self.calls == ([last_run_at] if checked else [])
         assert capture.call_args.kwargs["properties"]["detail"] == detail
 
-    def test_report_check_runs_do_not_move_the_cut_off(self) -> None:
+    @parameterized.expand([("report_check", True, False), ("dry_run", False, True)])
+    def test_runs_that_could_not_act_do_not_move_the_cut_off(self, _name, check, dry_run) -> None:
         last_run_at = self._last_run("completed", hours_ago=24)
-        self._last_run("completed", hours_ago=2, check=True)
+        self._last_run("completed", hours_ago=2, check=check, dry_run=dry_run)
 
         self._evaluate(None)
 

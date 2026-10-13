@@ -233,6 +233,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
             "precheck_disabled",
             "run_interval_minutes",
             "run_cron_schedule",
+            "write_scopes",
         )
         .first()
     )
@@ -330,16 +331,17 @@ def _evaluate_code_precheck(
 
 
 def _code_precheck_reason(config: SignalScoutConfig, now: datetime) -> str | None:
-    latest = (
+    runs = (
         SignalScoutRun.objects.for_team(config.team_id)
         .filter(skill_name=config.skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         # A report check reads only its report's claim, not the scout's input.
         .exclude(metadata__has_key="check_id")
-        .order_by("-created_at")
-        .values_list("created_at", "task_run__status")
-        .first()
     )
+    if config.write_scopes:
+        # A dry run holds no write grant, so it could not act on what it read.
+        runs = runs.filter(metadata__has_key="write_scopes")
+    latest = runs.order_by("-created_at").values_list("created_at", "task_run__status").first()
     # A failed, cancelled or stranded run has not read its input, and only a run that starts can retry
     # it or let the runner fail a stranded run, so the check never skips after one.
     if latest is not None and latest[1] != tasks_facade.TaskRunStatus.COMPLETED:
