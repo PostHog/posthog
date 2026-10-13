@@ -27759,26 +27759,6 @@ export namespace Schemas {
       status?: CustomerTaskStatusEnum;
     }
 
-    export interface Dag {
-      readonly id: string;
-      /**
-         * Human-readable name for this DAG
-         * @maxLength 2048
-         */
-      name: string;
-      /** Optional description of the DAG's purpose */
-      description?: string;
-      /**
-         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-         * @nullable
-         */
-      sync_frequency?: string | null;
-      readonly node_count: number;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
     export type DashboardFilters = { [key: string]: unknown };
 
     /**
@@ -30413,11 +30393,6 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
-      /**
-         * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
-         * @nullable
-         */
-      dag_id?: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Where this SavedQuery is created.
@@ -38525,8 +38500,6 @@ export namespace Schemas {
       readonly source_id: string;
       /** ID of the downstream node. */
       readonly target_id: string;
-      dag: string;
-      readonly dag_name: string;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -62027,8 +62000,6 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name: string;
       type?: NodeTypeEnum;
-      dag: string;
-      readonly dag_name: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -70459,15 +70430,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CustomerProfileConfig[];
-    }
-
-    export interface PaginatedDAGList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Dag[];
     }
 
     export interface PaginatedDashboardBasicList {
@@ -79155,26 +79117,6 @@ export namespace Schemas {
       status?: CustomerTaskStatusEnum;
     }
 
-    export interface PatchedDAG {
-      readonly id?: string;
-      /**
-         * Human-readable name for this DAG
-         * @maxLength 2048
-         */
-      name?: string;
-      /** Optional description of the DAG's purpose */
-      description?: string;
-      /**
-         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-         * @nullable
-         */
-      sync_frequency?: string | null;
-      readonly node_count?: number;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-    }
-
     export interface PatchedDashboardTemplate {
       readonly id?: string;
       /**
@@ -79594,11 +79536,6 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
-      /**
-         * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
-         * @nullable
-         */
-      dag_id?: string | null;
       /** @nullable */
       readonly is_materialized?: boolean | null;
       /** Where this SavedQuery is created.
@@ -79787,8 +79724,6 @@ export namespace Schemas {
       readonly source_id?: string;
       /** ID of the downstream node. */
       readonly target_id?: string;
-      dag?: string;
-      readonly dag_name?: string;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -82593,8 +82528,6 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name?: string;
       type?: NodeTypeEnum;
-      dag?: string;
-      readonly dag_name?: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -116317,9 +116250,9 @@ export namespace Schemas {
          * @nullable
          */
       formula?: string | null;
-      /** Lower bound (inclusive) for the query range. ISO 8601. */
-      dateFrom: string;
-      /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+      /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+      dateFrom?: string;
+      /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
     }
 
@@ -120185,6 +120118,10 @@ export namespace Schemas {
      */
     channel?: string;
     /**
+     * Only return canvases created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
      * Only return canvases of this kind. kind=component lists the component store.
      */
     kind?: CanvasesListKind;
@@ -121043,6 +120980,10 @@ export namespace Schemas {
 
     export type DashboardsListParams = {
     /**
+     * Optional. Return only dashboards created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
      * Optional. Exclude dashboards that PostHog generated.
      */
     exclude_generated?: boolean;
@@ -121527,30 +121468,11 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type DataModelingDagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type DataModelingEdgesListParams = {
-    /**
-     * Return only the edges of this DAG.
-     */
-    dag?: string;
     /**
      * A page number within the paginated result set.
      */
     page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type DataModelingJobsListParams = {
@@ -121585,10 +121507,6 @@ export namespace Schemas {
     } as const;
 
     export type DataModelingNodesListParams = {
-    /**
-     * Scope the lineage counts to this DAG.
-     */
-    dag?: string;
     /**
      * A page number within the paginated result set.
      */

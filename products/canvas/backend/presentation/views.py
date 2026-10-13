@@ -503,6 +503,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 description="Only return canvases whose name or description contains this text (case-insensitive).",
             ),
             OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                required=False,
+                description="Only return canvases created by the user with this UUID.",
+            ),
+            OpenApiParameter(
                 "ordering",
                 OpenApiTypes.STR,
                 required=False,
@@ -518,6 +524,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             "channel_id": request.query_params.get("channel"),
             "kind": request.query_params.get("kind"),
             "search": request.query_params.get("search"),
+            "created_by": request.query_params.get("created_by"),
             # Service credentials skip access-control filtering, as the model viewset list did.
             "user_access_control": None if is_service_auth(request) else self.user_access_control,
             "include_all_if_admin": request.query_params.get("admin_include_all") == "true",
