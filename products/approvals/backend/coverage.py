@@ -6,7 +6,7 @@ removes every one of them. That makes adoption a way around a policy rather than
 so the paths that adopt a flag ask here first.
 """
 
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from posthog.dataclasses import frozen
 
@@ -59,14 +59,17 @@ def families_by_owner_kind() -> dict[Optional[str], set[str]]:
     return families
 
 
-def _covered_operations(owner_kind: Optional[str], team, organization) -> set[str]:
-    """Which writes an enabled policy governs for a flag this product owns."""
+def _governing_conditions(owner_kind: Optional[str], team, organization) -> dict[str, dict[str, Any]]:
+    """For each write an enabled policy governs on this product's flags, that policy's conditions."""
     engine = PolicyEngine()
-    return {
-        action.operation
-        for action in _flag_write_actions()
-        if action.owner_scope == owner_kind and engine.get_policy(action.key, team, organization) is not None
-    }
+    governed: dict[str, dict[str, Any]] = {}
+    for action in _flag_write_actions():
+        if action.owner_scope != owner_kind:
+            continue
+        policy = engine.get_policy(action.key, team, organization)
+        if policy is not None:
+            governed[action.operation] = policy.conditions or {}
+    return governed
 
 
 def adoption_drops_approval_cover(
@@ -75,17 +78,31 @@ def adoption_drops_approval_cover(
     team,
     organization,
 ) -> bool:
-    """Whether pointing this product at the flag would leave some write of it ungoverned.
+    """Whether pointing this product at the flag would leave some write of it less governed.
 
-    Compared operation by operation, not family by family. A family covering *something* is not
-    enough: a flag protected against being enabled, adopted into a family that gates only pausing,
-    would lose exactly the protection it had. So each write governed now must still be governed
-    after, and losing any one of them refuses the adoption.
+    Compared write by write. For each write governed now, the target family must gate at least
+    the same changes, which a policy does in two cases:
+
+    - It has no conditions, so it gates every such write.
+    - It has the same conditions, so it gates the same writes. Each experiment action subclasses
+      the flag action for the same write and builds the same intent, so equal conditions evaluate
+      equally. This is what keeps the synced mirrors, which copy conditions exactly, allowed.
+
+    A target policy that merely exists is not enough. One whose conditions name a field the write
+    never carries matches nothing, and the gate reads an unmatched condition as "allow", so it
+    would let through the write the current policy stopped.
 
     False before the organization is scoped by flag owner: `feature_flag.*` still covers every
     flag whoever owns it, so no owner change can drop the cover.
     """
     if not scope_by_owner_enabled(organization):
         return False
-    governed_now = _covered_operations(current_owner_kind, team, organization)
-    return bool(governed_now - _covered_operations(target_owner_kind, team, organization))
+    governed_now = _governing_conditions(current_owner_kind, team, organization)
+    governed_after = _governing_conditions(target_owner_kind, team, organization)
+    for operation, conditions in governed_now.items():
+        if operation not in governed_after:
+            return True
+        target_conditions = governed_after[operation]
+        if target_conditions and target_conditions != conditions:
+            return True
+    return False

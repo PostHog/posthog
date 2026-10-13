@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Optional
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -895,6 +896,9 @@ class TestFeatureFlagApprovalIntegration(APIBaseTest):
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
 
+_ROLLOUT_OVER_50 = {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50}
+
+
 # TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
 class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
@@ -920,12 +924,12 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
             created_by=self.user,
         )
 
-    def _policy(self, action_key: str) -> ApprovalPolicy:
+    def _policy(self, action_key: str, conditions: Optional[dict] = None) -> ApprovalPolicy:
         return ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
             action_key=action_key,
-            conditions={},
+            conditions=conditions or {},
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
@@ -972,6 +976,36 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
             self._adopt("experiment")
 
         assert "need approval" in str(caught.exception)
+
+    @parameterized.expand(
+        [
+            # The target policy exists but its condition names a field a launch never carries,
+            # so it matches nothing and the gate allows the launch it was meant to stop.
+            (
+                "narrower_target",
+                {},
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50},
+                True,
+            ),
+            # The synced mirror copies conditions exactly, and both families build the same
+            # intent, so the same conditions gate the same writes.
+            ("mirrored_conditions", _ROLLOUT_OVER_50, _ROLLOUT_OVER_50, False),
+            # A target with no conditions gates every write the conditional source gated.
+            ("broader_target", _ROLLOUT_OVER_50, {}, False),
+        ]
+    )
+    def test_a_target_policy_counts_only_if_it_gates_at_least_as_much(
+        self, _mock_enabled, _name: str, source: dict, target: dict, refused: bool
+    ) -> None:
+        self._policy("feature_flag.enable", conditions=source)
+        self._policy("experiment.launch", conditions=target)
+
+        with self._scoped_by_owner(True):
+            if refused:
+                with self.assertRaises(ValidationError):
+                    self._adopt("experiment")
+            else:
+                self._adopt("experiment")
 
     def test_a_partial_overlap_still_refuses(self, _mock_enabled) -> None:
         """Covering some of the writes is not covering them, so one gap is enough to refuse."""
