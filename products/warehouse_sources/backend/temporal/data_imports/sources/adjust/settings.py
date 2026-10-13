@@ -61,7 +61,7 @@ _RETENTION_LOOKBACK_DAYS = 31
 _SKAD_LOOKBACK_DAYS = 35
 
 
-@dataclass
+@dataclass(frozen=True)
 class AdjustReportConfig:
     name: str
     # `dimensions` / `metrics` are sent verbatim as the Report Service API's comma-separated
