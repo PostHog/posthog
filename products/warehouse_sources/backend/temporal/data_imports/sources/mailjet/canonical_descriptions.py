@@ -148,6 +148,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "UserAgent": "The user agent of the device that clicked the link.",
         },
     },
+    "bouncestatistics": {
+        "description": "A bounce event recording that a message could not be delivered to a recipient in Mailjet.",
+        "docs_url": "https://dev.mailjet.com/openapi/openapi-mailjet/message-events/get_v3_bouncestatistics",
+        "columns": {
+            "ID": "Unique identifier of the bounced message.",
+            "ContactID": "The identifier of the recipient contact the bounce is linked to.",
+            "CampaignID": "The identifier of the campaign the bounce is linked to.",
+            "BouncedAt": "Time the bounce occurred.",
+            "IsBlocked": "Whether the contact was blocked as a result of this bounce.",
+            "IsStatePermanent": "Whether this is a permanent (hard) bounce.",
+            "StateID": "The bounce reason code, such as 1 for an unknown user or 4 for an invalid domain.",
+        },
+    },
+    "statcounters": {
+        "description": (
+            "Daily delivery and engagement counters for the whole Mailjet API key, counted by the "
+            "day each event happened."
+        ),
+        "docs_url": "https://dev.mailjet.com/openapi/openapi-mailjet/statistics/get_v3_statcounters",
+        "columns": {
+            "Timeslice": "Start of the day the counters cover.",
+            "APIKeyID": "The identifier of the API key the counters belong to.",
+            "SourceID": "The identifier of the aggregation source. For API key counters, the API key.",
+            "Total": "Total number of processed messages.",
+            "MessageSentCount": "Number of sent messages.",
+            "MessageQueuedCount": "Number of queued messages.",
+            "MessageDeferredCount": "Number of deferred messages.",
+            "MessageBlockedCount": "Number of blocked messages.",
+            "MessageSoftBouncedCount": "Number of soft-bounced messages.",
+            "MessageHardBouncedCount": "Number of hard-bounced messages.",
+            "MessageOpenedCount": "Number of opened messages.",
+            "MessageClickedCount": "Number of clicked messages.",
+            "MessageSpamCount": "Number of messages marked as spam.",
+            "MessageUnsubscribedCount": "Number of messages with unsubscribe requests.",
+            "MessageWorkFlowExitedCount": "Number of contacts that exited a workflow.",
+            "EventOpenedCount": "Total number of open events.",
+            "EventClickedCount": "Total number of click events.",
+            "EventSpamCount": "Total number of spam reports.",
+            "EventUnsubscribedCount": "Total number of unsubscriptions.",
+            "EventWorkflowExitedCount": "Total number of workflow exits.",
+            "EventOpenDelay": "Sum of the delays in seconds between sending and the first open, over all opened messages.",
+            "EventClickDelay": "Sum of the delays in seconds between sending and the first click, over all clicked messages.",
+        },
+    },
     "messageevent": {
         "description": (
             "A delivery or engagement event pushed by the Mailjet Event API: sent, open, click, "

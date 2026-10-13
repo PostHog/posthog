@@ -71,9 +71,7 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
-from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries, metric_calculation_keys
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentSavedMetric,
@@ -1759,15 +1757,9 @@ class HedgeboxMatrix(Matrix):
 
         # Inline metrics need stored fingerprints (normally stamped by the experiment service on
         # create/launch) — the timeseries endpoint looks results up by them.
+        calculation_keys = metric_calculation_keys(new_experiment.id, team_id=team.id).inline
         for metric_dict in metrics:
-            metric_dict["fingerprint"] = compute_metric_fingerprint(
-                metric_dict,
-                new_experiment.start_date,
-                get_experiment_stats_method(new_experiment),
-                new_experiment.exposure_criteria,
-                only_count_matured_users=new_experiment.only_count_matured_users,
-                excluded_variants=new_experiment.excluded_variants or [],
-            )
+            metric_dict["fingerprint"] = calculation_keys[metric_dict["uuid"]]
         new_experiment.metrics = metrics
         new_experiment.save(update_fields=["metrics"])
 

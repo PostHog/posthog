@@ -1,7 +1,7 @@
 // Tests for TaskRunRedisStream.
 //
 // Wire protocol must stay byte-identical to the Python implementation in
-// products/tasks/backend/stream/redis_stream.py. Both sides share the same
+// products/tasks/backend/logic/stream/redis_stream.py. Both sides share the same
 // Redis stream during the cutover window; any drift corrupts live runs.
 //
 // Uses a small in-memory fake instead of ioredis-mock to avoid an extra

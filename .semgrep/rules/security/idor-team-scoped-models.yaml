@@ -291,6 +291,8 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricsDashboardDiscovery
+                              |MetricsDashboardSuggestion
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
@@ -338,6 +340,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -743,6 +746,8 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricsDashboardDiscovery
+                        |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
                         |MCPGatewayServer
@@ -788,6 +793,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner

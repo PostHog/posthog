@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
+    _INVALID_CREDENTIALS_VALIDATION_ERROR,
     PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
@@ -175,6 +176,27 @@ def test_non_direct_host_failure_uses_postgres_error(host):
 
     assert success is False
     assert error == "postgres error"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "aws-0-us-east-1.pooler.supabase.com",
+        "db.abcdefghijklmnop.supabase.co",
+    ],
+)
+def test_rejected_password_points_at_the_supabase_database_password(host):
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(
+        PostgresSource, "validate_credentials", return_value=(False, _INVALID_CREDENTIALS_VALIDATION_ERROR)
+    ):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error is not None
+    assert "database password" in error
+    assert "ipv4" not in error.lower()
 
 
 def _incremental_field(name: str, field_type: IncrementalFieldType) -> IncrementalField:
