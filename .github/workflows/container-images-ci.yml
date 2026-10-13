@@ -95,6 +95,8 @@ jobs:
                         - pnpm-workspace.yaml
                         - tsconfig.json
                         - turbo.json
+                        - bin/turbo
+                        - patches/**
                         - frontend/**
                         - products/**/frontend/**
                         - products/**/*.ts

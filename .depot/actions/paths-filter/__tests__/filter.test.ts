@@ -44,6 +44,8 @@ describe('matching tests', () => {
       'products/cdp/frontend/emptyState/WebScriptPreview.scss',
       'products/cdp/frontend/emptyState/preview.svg',
       'packages/agent/packages/agent-contracts/src/acp-conversation.ts',
+      'bin/turbo',
+      'patches/kea@4.0.0-pre.6.patch',
       'frontend/src/logics/example.test.ts',
       'frontend/src/logics/example.spec.tsx',
       'products/cdp/frontend/emptyState/WebScriptPreview.stories.tsx',
@@ -53,7 +55,7 @@ describe('matching tests', () => {
       'posthog/api/example.py'
     ])
 
-    expect(new Filter(filtersYaml).match(files).build_inputs).toEqual(files.slice(0, 4))
+    expect(new Filter(filtersYaml).match(files).build_inputs).toEqual(files.slice(0, 6))
   })
 
   test('runs frontend consumer tests when replay-shared source changes', () => {
