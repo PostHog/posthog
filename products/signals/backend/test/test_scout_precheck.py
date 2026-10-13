@@ -289,6 +289,12 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
         report = SignalReport.objects.create(team=self.team, status=status, title="r")
         SignalReport.objects.filter(pk=report.pk).update(updated_at=NOW - timedelta(days=days_since_update))
 
+    def _seed_alert(self, *, enabled: bool) -> None:
+        insight = apps.get_model("product_analytics", "Insight").objects.create(team=self.team)
+        apps.get_model("alerts", "AlertConfiguration").objects.create(
+            team=self.team, insight=insight, name="a", enabled=enabled
+        )
+
     @parameterized.expand(
         [
             ("customer_analytics_no_accounts", "signals-scout-customer-analytics", None, "skip"),
@@ -307,6 +313,9 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             ("inbox_validation_old_resolution", "signals-scout-inbox-validation", "resolved_15d", "skip"),
             ("inbox_validation_recent_unresolved", "signals-scout-inbox-validation", "ready_1d", "skip"),
             ("inbox_validation_recent_resolution", "signals-scout-inbox-validation", "resolved_13d", "run"),
+            ("insight_alerts_absent", "signals-scout-insight-alerts", None, "skip"),
+            ("insight_alerts_disabled_only", "signals-scout-insight-alerts", "disabled_alert", "skip"),
+            ("insight_alerts_enabled", "signals-scout-insight-alerts", "enabled_alert", "run"),
         ]
     )
     def test_system_table_defaults_skip_only_on_absence(self, _name, skill, seed, outcome) -> None:
@@ -339,6 +348,10 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             self._seed_report(SignalReport.Status.READY, days_since_update=1)
         elif seed == "resolved_13d":
             self._seed_report(SignalReport.Status.RESOLVED, days_since_update=13)
+        elif seed == "disabled_alert":
+            self._seed_alert(enabled=False)
+        elif seed == "enabled_alert":
+            self._seed_alert(enabled=True)
 
         with (
             patch(ROLLOUT_PERCENT, return_value=100),
