@@ -230,6 +230,13 @@ def build_poller_autoscaling(
 ) -> PollerBehaviorAutoscaling | None:
     """Return an autoscaling poller behavior, or None to keep the SDK default when maximum is unset."""
     if maximum is None:
+        if minimum is not None:
+            logger.warning(
+                "poller_autoscaling_minimum_ignored",
+                task_type=task_type,
+                minimum=minimum,
+                reason="maximum is not set, so the SDK default poller behavior is used",
+            )
         return None
     effective_minimum = PollerBehaviorAutoscaling.minimum if minimum is None else minimum
     if effective_minimum < 1:
