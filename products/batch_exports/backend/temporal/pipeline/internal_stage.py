@@ -50,7 +50,7 @@ from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
-    BatchExportModel,
+    BatchExportModelInput,
     afetch_last_run_records_completed,
     migrate_batch_export_model,
 )
@@ -293,7 +293,7 @@ class BatchExportInsertIntoInternalStageInputs:
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     is_workflows: bool = False
     on_demand: bool = False
     destination_default_fields: list[BatchExportField] | None = None
