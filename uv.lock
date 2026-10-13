@@ -4854,7 +4854,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.10.2.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fa/41/e79269ce215c857c935fd86bcfe91a451a584dfc27f1e068f568b9ad1ab7/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:c9132cc3f8958447b4910a1720036d9eff5928cc3179b0a51fb6d167c6cc87d8", size = 705026878, upload-time = "2025-06-06T21:52:51.348Z" },
@@ -4867,7 +4867,7 @@ name = "nvidia-cufft-cu12"
 version = "11.3.3.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/bc/7771846d3a0272026c416fbb7e5f4c1f146d6d80704534d0b187dd6f4800/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:848ef7224d6305cdb2a4df928759dca7b1201874787083b6e7550dd6765ce69a", size = 193109211, upload-time = "2025-03-07T01:44:56.873Z" },
@@ -4899,9 +4899,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.3.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "sys_platform != 'emscripten'" },
-    { name = "nvidia-cusparse-cu12", marker = "sys_platform != 'emscripten'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-cusparse-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/32/f7cd6ce8a7690544d084ea21c26e910a97e077c9b7f07bf5de623ee19981/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:db9ed69dbef9715071232caa9b69c52ac7de3a95773c2db65bdba85916e4e5c0", size = 267229841, upload-time = "2025-03-07T01:46:54.356Z" },
@@ -4914,7 +4914,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.8.93"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/f7/cd777c4109681367721b00a106f491e0d0d15cfa1fd59672ce580ce42a97/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:9b6c161cb130be1a07a27ea6923df8141f3c295852f4b260c65f18f3e0a091dc", size = 288117129, upload-time = "2025-03-07T01:47:40.407Z" },
@@ -6383,7 +6383,7 @@ dev = [
 hogql-parser-parity = [{ name = "shrinkray", specifier = "==26.4.14.0" }]
 inbox-ranking = [
     { name = "onnx", specifier = "~=1.21.0" },
-    { name = "onnxruntime", specifier = "~=1.24.1" },
+    { name = "onnxruntime", specifier = "~=1.30.0" },
     { name = "torch", specifier = "~=2.9.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "posthog", group = "inbox-ranking" } },
 ]
 proto-codegen = [
@@ -7957,7 +7957,7 @@ name = "shadowcopy"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "wmi", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "wmi", marker = "(platform_machine == 's390x' and sys_platform == 'darwin') or (platform_python_implementation == 'PyPy' and sys_platform == 'darwin') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and sys_platform != 'emscripten') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/12/44/c00420a3b7bcdf830529b933392b566c876a4944a24f31e126eb6fd28647/shadowcopy-0.0.4.tar.gz", hash = "sha256:ed89817dda065f893607a04c0b7d6b3b34c3507a4711f441111a4bcb1b1826c0", size = 4138, upload-time = "2023-07-08T00:01:35.266Z" }
 wheels = [
@@ -8404,7 +8404,7 @@ name = "tbb"
 version = "2022.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tcmlib" },
+    { name = "tcmlib", marker = "(platform_machine != 's390x' and platform_python_implementation == 'PyPy' and sys_platform == 'darwin') or (platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten') or (platform_machine != 's390x' and sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking') or (platform_machine == 's390x' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment') or (platform_machine == 's390x' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking' and extra != 'group-7-posthog-sentiment') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/08/59/8d381a2cfe8d36c4f4ff9f94769ff2809bfc16014d888360b0e24c7e5c6b/tbb-2022.3.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:534c089eca6bcf148408684c156229d5f09c01d323b685b15739f41985b529d7", size = 4178630, upload-time = "2026-01-22T05:30:20.589Z" },
@@ -9629,7 +9629,7 @@ name = "wmi"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pywin32", marker = "sys_platform != 'emscripten' or (extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
+    { name = "pywin32", marker = "(platform_machine == 's390x' and sys_platform == 'darwin') or (platform_python_implementation == 'PyPy' and sys_platform == 'darwin') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra != 'group-7-posthog-inbox-ranking') or (platform_python_implementation != 'PyPy' and sys_platform == 'darwin' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment') or (sys_platform != 'darwin' and sys_platform != 'emscripten') or (sys_platform == 'emscripten' and extra == 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d4/66/6364deb0a03415f96c66803d8c4379f808f2401da3bdb183348487b10510/WMI-1.5.1.tar.gz", hash = "sha256:b6a6be5711b1b6c8d55bda7a8befd75c48c12b770b9d227d31c1737dbf0d40a6", size = 26254, upload-time = "2020-04-28T08:22:58.096Z" }
 wheels = [

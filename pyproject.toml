@@ -306,7 +306,7 @@ sentiment = [
 # no image installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
 inbox-ranking = [
     "onnx~=1.21.0",
-    "onnxruntime~=1.24.1",
+    "onnxruntime~=1.30.0",
     "torch~=2.9.0",
 ]
 hogql-parser-parity = [
