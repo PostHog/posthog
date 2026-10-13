@@ -1873,15 +1873,9 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     label?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
-    /**
-     * Keep this series out of the tooltip's total row, e.g. a target line over stacked bars.
-     * A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack.
-     */
+    /** Leave this series out of the tooltip total. */
     excludeFromTotal?: boolean
-    /**
-     * Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the
-     * chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.
-     */
+    /** Overrides `showValuesOnSeries` for this series. */
     valueLabels?: 'auto' | 'show' | 'hide'
 }
 

@@ -527,14 +527,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
             " chart-level display type."
         ),
     )
-    excludeFromTotal: bool | None = Field(
-        default=None,
-        description=(
-            "Keep this series out of the tooltip's total row, e.g. a target line over"
-            " stacked bars. A bar series still stacks, so set `displayType` to `line`"
-            " for a series drawn over the stack."
-        ),
-    )
+    excludeFromTotal: bool | None = Field(default=None, description="Leave this series out of the tooltip total.")
     label: str | None = Field(
         default=None,
         description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
@@ -543,14 +536,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
         default=None,
         description=("Draw a linear trend line for this series. Only meaningful for line, bar, and area charts."),
     )
-    valueLabels: ValueLabels | None = Field(
-        default=None,
-        description=(
-            "Per-series override of chart-level `showValuesOnSeries`. `show` labels"
-            " this series even when the chart setting is off, `hide` leaves it"
-            " unlabeled when the setting is on, `auto` follows the chart."
-        ),
-    )
+    valueLabels: ValueLabels | None = Field(default=None, description="Overrides `showValuesOnSeries` for this series.")
     yAxisPosition: YAxisPosition | None = Field(
         default=None,
         description=("Which Y axis this numeric series should use. Use `right` for a secondary Y axis."),
