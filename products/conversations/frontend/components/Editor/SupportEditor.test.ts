@@ -1,7 +1,7 @@
 import { JSONContent, getSchema } from '@tiptap/core'
-import { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { DOMParser, Node as ProseMirrorNode } from '@tiptap/pm/model'
 
-import { SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown } from './SupportEditor'
+import { SUPPORT_EXTENSIONS, SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown } from './SupportEditor'
 
 // jest.setup.ts stubs this module out, which would make schema construction meaningless here
 jest.unmock('@tiptap/extension-code-block-lowlight')
@@ -96,6 +96,27 @@ describe('SupportEditor serialization and preview schema', () => {
         }
         const schema = getSchema([...SUPPORT_PREVIEW_EXTENSIONS])
         expect(() => ProseMirrorNode.fromJSON(schema, hogdeskDoc).check()).not.toThrow()
+    })
+
+    const SQL_LINES = ['WITH keyed AS (', '    SELECT uuid', '    FROM events', ')', 'SELECT * FROM keyed']
+    const SQL = SQL_LINES.join('\n')
+
+    // Only `content` reaches the server, so a pasted line that leaves the code block or is
+    // dropped while parsing never arrives, even though the editor showed the full message.
+    test.each<[string, string]>([
+        ['newlines', `<pre><code>${SQL}</code></pre>`],
+        ['br per line', `<pre><code>${SQL_LINES.join('<br>')}</code></pre>`],
+        ['div per line', `<pre>${SQL_LINES.map((line) => `<div>${line}</div>`).join('')}</pre>`],
+        [
+            'div per line with highlight spans',
+            `<pre><code>${SQL_LINES.map((line) => `<div><span class="token">${line}</span></div>`).join('')}</code></pre>`,
+        ],
+    ])('pasted code block with %s keeps every line inside the block', (_name, html) => {
+        const container = document.createElement('div')
+        container.innerHTML = `<p>Hi</p>${html}`
+        const doc = DOMParser.fromSchema(getSchema([...SUPPORT_EXTENSIONS])).parse(container)
+
+        expect(serializeToMarkdown(doc.toJSON())).toBe(`Hi\n\n\`\`\`\n${SQL}\n\`\`\``)
     })
 
     it('preview schema rejects unknown node types so the plain-content fallback kicks in', () => {

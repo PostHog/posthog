@@ -6,6 +6,7 @@ import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
+import { Fragment } from '@tiptap/pm/model'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import {
     EditorContent,
@@ -70,7 +71,57 @@ function SupportCodeBlockComponent({ node }: NodeViewProps): JSX.Element {
     )
 }
 
+const CODE_LINE_ELEMENTS = new Set(['DIV', 'P', 'LI', 'TR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'])
+
+/** The text of a pasted `<pre>`, with line elements and `<br>` turned into newlines. */
+export function codeTextFromPre(pre: HTMLElement): string {
+    let text = ''
+    const startNewLine = (): void => {
+        if (text && !text.endsWith('\n')) {
+            text += '\n'
+        }
+    }
+    const walk = (node: Node): void => {
+        if (node.nodeType === Node.TEXT_NODE) {
+            text += node.textContent ?? ''
+            return
+        }
+        if (!(node instanceof HTMLElement)) {
+            return
+        }
+        if (node.tagName === 'BR') {
+            text += '\n'
+            return
+        }
+        const isLine = CODE_LINE_ELEMENTS.has(node.tagName)
+        if (isLine) {
+            startNewLine()
+        }
+        node.childNodes.forEach(walk)
+        if (isLine) {
+            startNewLine()
+        }
+    }
+    pre.childNodes.forEach(walk)
+    return text.replace(/\n$/, '')
+}
+
 const SupportCodeBlockExtension = CodeBlockLowlight.extend({
+    // Some editors copy a code block as a <pre> with one <div> per line. The default rule parses
+    // those divs as separate blocks, so only the first line stays in the code block and the rest
+    // leaves it. Read the whole <pre> as text instead, so every pasted line stays in the block.
+    parseHTML() {
+        return [
+            {
+                tag: 'pre',
+                preserveWhitespace: 'full',
+                getContent: (dom, schema) => {
+                    const text = codeTextFromPre(dom as HTMLElement)
+                    return text ? Fragment.from(schema.text(text)) : Fragment.empty
+                },
+            },
+        ]
+    },
     addNodeView() {
         return ReactNodeViewRenderer(SupportCodeBlockComponent)
     },
