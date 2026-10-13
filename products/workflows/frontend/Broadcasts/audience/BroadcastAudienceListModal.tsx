@@ -68,7 +68,7 @@ export function BroadcastAudienceListModal(): JSX.Element {
                 />
                 <div className="text-xs text-secondary">
                     {importsPeople
-                        ? "People who aren't in PostHog yet are created. A column with the same name as an existing property replaces its value."
+                        ? "People who aren't in PostHog yet are created. A column with the same name as an existing property replaces its value, and a blank cell leaves it as it is. Each row is sent as one event, so it counts toward your event usage and triggers any destinations that run on all events."
                         : "Only people who are already in PostHog are included. Anyone else on the list won't receive the email."}
                     {audienceProperties.length > 0
                         ? ' People must be on every list and match your other conditions to get the email.'
