@@ -673,6 +673,8 @@ export namespace Schemas {
       available_resource_levels: string[];
       /** Whether the caller may change access rules in this project. */
       can_edit: boolean;
+      /** Whether the access rules of this project are locked to Terraform. */
+      is_managed_by_terraform: boolean;
       /** The default project access level for members. */
       project_access_level: string;
       /** The default level per resource type, keyed by resource name. */
@@ -701,6 +703,23 @@ export namespace Schemas {
       Editor: 'editor',
       Manager: 'manager',
     } as const;
+
+    export interface AccessControlManagement {
+      /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+      managed: boolean;
+      /**
+         * When Terraform last wrote an access rule in this project, or null.
+         * @nullable
+         */
+      terraform_last_applied_at: string | null;
+      /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+      has_terraform_account: boolean;
+    }
+
+    export interface AccessControlManagementRequest {
+      /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+      managed: boolean;
+    }
 
     /**
      * * `object` - object
@@ -2765,6 +2784,8 @@ export namespace Schemas {
     }
 
     export interface DataWarehouseSyncWarning {
+      /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+      data_is_current?: boolean | null;
       /** Human-readable warning shown to the user */
       message: string;
       /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -15479,6 +15500,20 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    /**
+     * * `realized` - Realized
+     * * `training` - Training
+     * * `fixed` - Fixed
+     */
+    export type BaseRateSourceEnum = typeof BaseRateSourceEnum[keyof typeof BaseRateSourceEnum];
+
+
+    export const BaseRateSourceEnum = {
+      Realized: 'realized',
+      Training: 'training',
+      Fixed: 'fixed',
+    } as const;
+
     export interface UserBasicInfo {
       id: number;
       first_name: string;
@@ -22375,6 +22410,62 @@ export namespace Schemas {
       proposed_status?: ProposedStatusEnum;
     }
 
+    /**
+     * * `feature_flag` - Feature flag
+     * * `experiment` - Experiment
+     * * `release` - Release
+     * * `annotation` - Annotation
+     */
+    export type ChangeKindEnum = typeof ChangeKindEnum[keyof typeof ChangeKindEnum];
+
+
+    export const ChangeKindEnum = {
+      FeatureFlag: 'feature_flag',
+      Experiment: 'experiment',
+      Release: 'release',
+      Annotation: 'annotation',
+    } as const;
+
+    export interface ChangeFeedItem {
+      /** The source of the change.
+       *
+       * * `feature_flag` - Feature flag
+       * * `experiment` - Experiment
+       * * `release` - Release
+       * * `annotation` - Annotation */
+      kind: ChangeKindEnum;
+      /** When the change happened. For annotations, this is the time the annotation marks. */
+      timestamp: string;
+      /** ID of the changed object: the feature flag, experiment, release, or annotation ID. */
+      item_id: string;
+      /**
+         * Display name: the flag key, experiment name, release version, or annotation text.
+         * @nullable
+         */
+      name: string | null;
+      /** What happened, for example `created`, `updated`, `deleted`, `released`, or `annotated`. */
+      activity: string;
+      /** For flag and experiment updates, the names of the fields that changed. Empty for other kinds. */
+      changed_fields: string[];
+      /**
+         * For releases, the project or service the release belongs to. Null for other kinds.
+         * @nullable
+         */
+      service: string | null;
+      /**
+         * Name or email of the person who made the change. Null for automated changes.
+         * @nullable
+         */
+      actor_name: string | null;
+    }
+
+    export interface ChangeFeed {
+      /** Changes in the time window, newest first. */
+      results: ChangeFeedItem[];
+      /** True when the window holds more changes than `limit`. Narrow the window to see the rest. */
+      has_more: boolean;
+    }
+
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
 
     /**
@@ -23921,6 +24012,10 @@ export namespace Schemas {
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
+      /**
+         * Person UUIDs to add to a new static cohort.
+         * @maxItems 1000
+         */
       _create_static_person_ids?: string[];
     }
 
@@ -24572,8 +24667,11 @@ export namespace Schemas {
          * @maxLength 500
          */
       email_subject?: string;
-      /** ID of the EmailChannel to send from. */
-      email_config_id: string;
+      /**
+         * ID of the support email channel to send from. Omit it to send from the team's default support channel.
+         * @nullable
+         */
+      email_config_id?: string | null;
       /**
          * Message content in markdown.
          * @maxLength 5000
@@ -68748,19 +68846,25 @@ export namespace Schemas {
     }
 
     export interface PredictionSegmentThresholds {
-      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed. */
       likely_threshold: number;
-      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed. */
       possible_threshold: number;
       /** How many times the base rate a score must reach to be in the Likely segment. */
       likely_lift: number;
       /**
-         * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+         * The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the fraction of the champion's training population that did it. Null when base_rate_source is fixed.
          * @nullable
          */
       base_rate: number | null;
       /** Number of checked prediction dates the base rate pools. */
       base_rate_dates: number;
+      /** Where the cut points come from. realized: the checked dates hold enough positives. training: no realized base rate yet, so the champion's training population sets it. fixed: neither is available, so fixed cut points apply.
+       *
+       * * `realized` - Realized
+       * * `training` - Training
+       * * `fixed` - Fixed */
+      base_rate_source: BaseRateSourceEnum;
       /**
          * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
          * @nullable
@@ -78508,6 +78612,10 @@ export namespace Schemas {
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
       _create_in_folder?: string;
+      /**
+         * Person UUIDs to add to a new static cohort.
+         * @maxItems 1000
+         */
       _create_static_person_ids?: string[];
     }
 
@@ -120066,6 +120174,23 @@ export namespace Schemas {
      * Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every server the caller has connected in the MCP store.
      */
     mcp_hosts?: string;
+    };
+
+    export type ChangeFeedListParams = {
+    /**
+     * Start of the time window (inclusive), ISO 8601. Defaults to 24 hours before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the time window (inclusive), ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Maximum number of changes to return, newest first. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
     };
 
     export type ChangeRequestsListParams = {

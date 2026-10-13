@@ -94,8 +94,9 @@ class MailgunSource(
             "403 Client Error: Forbidden for url: https://api.eu.mailgun.net": "Mailgun denied access. Please check that your API key has the required permissions.",
             # Raised by get_rows when every sending domain on the account rejected a domain-scoped
             # endpoint (inactive/unverified domains, or a key without access to them) — retrying
-            # hits the same domains with the same result.
-            "request for every sending domain": "Mailgun rejected every sending domain on this account for this table. Check that your sending domains are active in Mailgun and that your API key can read them.",
+            # hits the same domains with the same result. Keep the raw message: it names the HTTP
+            # status per domain, which tells disabled domains apart from a key without access.
+            "request for every sending domain": None,
         }
 
     @property
