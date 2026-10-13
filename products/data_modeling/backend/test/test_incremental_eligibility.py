@@ -537,13 +537,33 @@ class TestStarExpansion:
         assert not result.eligible
         assert any(expected in blocker for blocker in result.blockers), result.blockers
 
-    def test_an_unresolved_query_is_not_blamed_on_the_key_type(self) -> None:
+    def test_an_unresolved_query_is_blocked_without_blaming_the_key_type(self) -> None:
         result = self._check(
             "SELECT timestamp, uuid FROM no_such_table",
             IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",)),
         )
 
-        assert not any("could not be determined" in blocker for blocker in result.blockers), result.blockers
+        assert not result.eligible
+        assert any("could not be resolved" in blocker for blocker in result.blockers), result.blockers
+        assert not any("toDateTime()" in blocker for blocker in result.blockers), result.blockers
+
+    @parameterized.expand(
+        [
+            ("year", "toStartOfYear(timestamp)"),
+            ("quarter", "toStartOfQuarter(timestamp)"),
+            ("five_minutes", "toStartOfFiveMinutes(timestamp)"),
+        ]
+    )
+    def test_time_bucketing_functions_without_a_hogql_return_type_are_valid_keys(
+        self, _name: str, expression: str
+    ) -> None:
+        result = self._check(
+            f"SELECT {expression} AS bucket, count() AS c FROM events GROUP BY bucket",
+            IncrementalConfig(incremental_key="bucket", unique_key=("bucket",)),
+        )
+
+        assert result.eligible, result.blockers
+        assert "bucket" in result.key_candidates
 
     @parameterized.expand(
         [

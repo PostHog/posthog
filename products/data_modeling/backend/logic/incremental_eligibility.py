@@ -111,6 +111,18 @@ _TYPE_LABEL_PHRASES = {
 
 _NUMERIC_TYPE_LABELS = {"integer", "decimal", "float"}
 
+# HogQL has no return type for these time-bucketing functions, so their results would read as unknown.
+_TIME_FUNCTION_LABELS = {
+    "toStartOfYear": "date",
+    "toStartOfISOYear": "date",
+    "toStartOfQuarter": "date",
+    "toMonday": "date",
+    "toLastDayOfMonth": "date",
+    "toStartOfFiveMinutes": "datetime",
+    "toStartOfTenMinutes": "datetime",
+    "toStartOfFifteenMinutes": "datetime",
+}
+
 # The unique key has looser needs: it only has to identify a row, so any equatable type works —
 # and it MUST admit strings and booleans, since every GROUP BY column (event names, ids, flags)
 # has to be coverable. UUIDs qualify too: equality is exactly what they are for.
@@ -206,6 +218,11 @@ def check_incremental_eligibility(
 
     if types_known:
         _check_key_type(selects, config, key_candidate_types, blockers)
+    elif database is not None:
+        blockers.append(
+            "The query could not be resolved against the schema, so the type of the incremental key cannot "
+            "be checked. Fix the query's errors first."
+        )
     _check_nullable_unique_key(config, column_types, blockers)
     _check_determinism(node, warnings)
 
@@ -370,6 +387,8 @@ def _item_type_label(item: ast.Expr, context: HogQLContext) -> Optional[str]:
             label = _CONSTANT_TYPE_LABELS.get(type(expr.type.resolve_constant_type(context)))
         except Exception:
             label = None
+    if label is None and isinstance(expr, ast.Call):
+        label = _TIME_FUNCTION_LABELS.get(expr.name)
     return label
 
 
