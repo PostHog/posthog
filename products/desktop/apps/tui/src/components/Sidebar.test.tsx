@@ -43,7 +43,7 @@ describe("Sidebar", () => {
     chalk.level = level;
   });
 
-  it("keeps a working chat's spinner and a done-but-unread chat's orange at full strength while the rest of the sidebar dims", () => {
+  it("keeps every row at full strength when the sidebar loses focus", () => {
     const output = renderToString(
       <Sidebar
         notice={null}
@@ -60,12 +60,11 @@ describe("Sidebar", () => {
     );
 
     const [done, quiet, busy] = output.split("\n");
-    expect(dimAt(done, "●")).toBe(false);
     expect(output).not.toContain("✗");
-    expect(dimAt(done, "Done")).toBe(true);
-    expect(dimAt(quiet, "●")).toBe(true);
+    expect(dimAt(done, "Done")).toBe(false);
+    expect(dimAt(quiet, "●")).toBe(false);
     expect(dimAt(busy, "⠋")).toBe(false);
-    expect(dimAt(busy, "Busy")).toBe(true);
+    expect(dimAt(busy, "Busy")).toBe(false);
   });
 
   it("marks a failed chat with a cross, since its run cannot be picked up again", () => {
