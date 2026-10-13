@@ -1317,6 +1317,7 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    SEVERITY = "severity"
 
 
 class ErrorTrackingQueryIssueSeverity(StrEnum):

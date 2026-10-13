@@ -23877,7 +23877,7 @@
             "type": "string"
         },
         "ErrorTrackingOrderBy": {
-            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
             "title": "ErrorTrackingOrderBy",
             "type": "string"
         },

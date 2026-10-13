@@ -9903,6 +9903,7 @@ export namespace Schemas {
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
@@ -53325,6 +53326,12 @@ export namespace Schemas {
       thankYouMessageDescription?: string;
       /** Translated thank-you close button text. */
       thankYouMessageCloseButtonText?: string;
+      /** Translated intro screen header. */
+      introScreenHeader?: string;
+      /** Translated intro screen description. */
+      introScreenDescription?: string;
+      /** Translated intro screen button text. */
+      introScreenButtonText?: string;
     }
 
     /**
@@ -101000,6 +101007,11 @@ export namespace Schemas {
     }
 
     export interface SetupPlanResponse {
+      /**
+         * Time of the latest seven-day source scan, including cached scans. Null if no scan time is available.
+         * @nullable
+         */
+      readonly source_scanned_at: string | null;
       /** Ranked suggestions, most important first */
       suggestions: Suggestion[];
       /** Per-capability readiness, with the suggestions blocking each */
