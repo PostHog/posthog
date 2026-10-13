@@ -1,4 +1,6 @@
 import json
+import base64
+import hashlib
 
 import time_machine
 from posthog.test.base import (
@@ -87,15 +89,19 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
-    def test_hogql_binary_hash_results_are_json_safe_and_cached(self):
+    @parameterized.expand([("abc",), ("99937",), ("25",), ("19130574",)])
+    def test_hogql_binary_hash_results_are_json_safe_and_cached(self, value):
         query = HogQLQuery(
-            query="""
-                SELECT SHA1('abc'), [SHA1('abc')], tuple(SHA1('abc'), 'plain text'),
-                    map('digest', SHA1('abc')), map(SHA1('abc'), 'digest'),
-                    lower(hex(SHA1('abc'))), length(SHA1('abc')), SHA1(NULL)
+            query=f"""
+                SELECT SHA1('{value}'), [SHA1('{value}')], tuple(SHA1('{value}'), 'plain text'),
+                    map('digest', SHA1('{value}')), map(SHA1('{value}'), 'digest'),
+                    lower(hex(SHA1('{value}'))), length(SHA1('{value}')), SHA1(NULL),
+                    accurateCast(SHA1('{value}'), 'Nullable(FixedString(20))'),
+                    accurateCast(tuple(SHA1('{value}'), 'plain text'), 'Tuple(digest FixedString(20), label String)')
             """
         )
-        digest_base64 = "qZk+NkcGgWq6PiVxeFDCbJzQ2J0="
+        digest = hashlib.sha1(value.encode()).digest()
+        digest_base64 = base64.b64encode(digest).decode("ascii")
         expected = [
             [
                 digest_base64,
@@ -103,9 +109,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 [digest_base64, "plain text"],
                 {"digest": digest_base64},
                 {digest_base64: "digest"},
-                "a9993e364706816aba3e25717850c26c9cd0d89d",
+                digest.hex(),
                 20,
                 None,
+                digest_base64,
+                [digest_base64, "plain text"],
             ]
         ]
         for refresh, is_cached in (("force_blocking", False), ("force_cache", True)):

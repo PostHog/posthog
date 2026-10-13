@@ -26,6 +26,7 @@ from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.type_system import RuntimeType, parse_clickhouse_type
 from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
 
@@ -45,15 +46,29 @@ _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
 
 
-def _encode_binary_results(value: Any) -> Any:
+def _encode_binary_results(value: Any, runtime_type: RuntimeType | None = None) -> Any:
     """Reuse unchanged containers so ordinary queries do not allocate a second result tree."""
     match value:
+        case str() | bytes() if (
+            runtime_type and runtime_type.family == "fixed_string" and runtime_type.bits is not None
+        ):
+            # The driver decodes valid UTF-8 FixedString values and strips trailing NULs.
+            # Its declared byte length lets us restore them before encoding the full digest.
+            raw = value.encode("utf-8") if isinstance(value, str) else value
+            return base64.b64encode(raw.ljust(runtime_type.bits, b"\0")).decode("ascii")
         case bytes():
             return base64.b64encode(value).decode("ascii")
         case list() | tuple():
             encoded_items = None
             for index, item in enumerate(value):
-                encoded_item = _encode_binary_results(item)
+                item_type = None
+                if runtime_type:
+                    item_type = (
+                        runtime_type.item_types[index]
+                        if runtime_type.family == "tuple" and index < len(runtime_type.item_types)
+                        else runtime_type.item_type
+                    )
+                encoded_item = _encode_binary_results(item, item_type)
                 if encoded_item is not item:
                     if encoded_items is None:
                         encoded_items = list(value)
@@ -64,8 +79,11 @@ def _encode_binary_results(value: Any) -> Any:
         case dict():
             encoded_map = None
             for key, item in value.items():
-                encoded_key = _encode_binary_results(key)
-                encoded_item = _encode_binary_results(item)
+                item_type = runtime_type.value_type if runtime_type else None
+                if runtime_type and runtime_type.family == "tuple" and key in runtime_type.field_names:
+                    item_type = runtime_type.item_types[runtime_type.field_names.index(key)]
+                encoded_key = _encode_binary_results(key, runtime_type.key_type if runtime_type else None)
+                encoded_item = _encode_binary_results(item, item_type)
                 if encoded_key is key and encoded_item is item:
                     continue
                 if encoded_map is None:
@@ -358,7 +376,14 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # Normalize the final rows after pagination, before the shared runner caches them,
         # so fresh and cached responses use the same Base64 representation. Keep this out
         # of execute_hogql_query so internal callers retain native database values.
-        response.results = _encode_binary_results(response.results)
+        result_type = RuntimeType(
+            family="array",
+            item_type=RuntimeType(
+                family="tuple",
+                item_types=tuple(parse_clickhouse_type(column_type) for _, column_type in response.types or []),
+            ),
+        )
+        response.results = _encode_binary_results(response.results, result_type)
         return response
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
