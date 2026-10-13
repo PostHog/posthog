@@ -105,7 +105,7 @@ def copied(event: SourceEvent) -> StoredRow:
 
 INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=12))
 # The events column has no DEFAULT. An events row inserted without person properties holds ''.
-# The copy must store '{}' instead, because the property-removal UDF fails on ''.
+# The copy must store '{}' instead, as the flag_evaluations DEFAULT does. The JSONDropKeys UDFs fail on ''.
 INSIDE_TEAM_THREE = replace(flag_called("inside_team_three", TEAM_THREE, timedelta(days=30)), person_properties="")
 # The default one-hour lag limit and the five-minute delivery timeout put the cutoff 65 minutes before the check.
 # A row that ingestion produced two hours ago is older than the cutoff, so the job copies it.
@@ -257,8 +257,8 @@ def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
     labels = {event.uuid: event.label for event in [*SOURCE_EVENTS, KAFKA_ROW_IN_ITS_EVENT_SECOND]}
 
     def select(client: Client) -> list[tuple[UUID, str, str, str, UUID, str, datetime, str, int]]:
-        # The driver returns a DateTime64 as a naive datetime in the column's time zone.
-        # The query sets that zone to UTC.
+        # The driver returns a naive datetime unless the column type names a time zone.
+        # toTimeZone names one, so person_created_at compares equal to the aware PERSON_CREATED_AT.
         return client.execute(
             """SELECT uuid, flag_key, response, session_id, person_id, person_properties,
                 toTimeZone(person_created_at, 'UTC'), person_mode, inserted_at = timestamp
@@ -275,7 +275,7 @@ def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
             session_id=session_id,
             person_id=person_id,
             person_properties=person_properties,
-            person_created_at=person_created_at.replace(tzinfo=UTC),
+            person_created_at=person_created_at,
             person_mode=person_mode,
             inserted_at_is_timestamp=bool(inserted_at_is_timestamp),
         )
