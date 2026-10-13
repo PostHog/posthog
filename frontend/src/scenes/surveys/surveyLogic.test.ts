@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import {
+    getSurveyTranslationDraftPayload,
     mergeResponsesByQuestion,
     processOpenEndedResults,
     processResultsForSurveyQuestions,
@@ -312,6 +313,16 @@ describe('translation validation', () => {
         await expectLogic(logic, () => {
             logic.actions.loadSurveySuccess(survey)
         }).toMatchValues({ translationValidationErrors: [] })
+    })
+
+    it.each([
+        ['an enabled intro with no button text', { displayIntroScreen: true }, 'Get started'],
+        ['an enabled intro with button text', { displayIntroScreen: true, introScreenButtonText: 'Go' }, 'Go'],
+        ['a disabled intro', { displayIntroScreen: false }, undefined],
+    ] as const)('sends the effective intro button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.introScreenButtonText).toBe(expected)
     })
 
     it('does not validate survey root description translations', async () => {

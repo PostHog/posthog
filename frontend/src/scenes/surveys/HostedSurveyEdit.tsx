@@ -422,7 +422,7 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         [survey, activeLanguage]
     )
     const maxPageIndex = Math.max(survey.questions.length + (survey.appearance?.displayThankYouMessage ? 1 : 0) - 1, 0)
-    const activePageIndex = Math.min(selectedPageIndex ?? 0, maxPageIndex)
+    const activePageIndex = Math.min(Math.max(selectedPageIndex ?? 0, 0), maxPageIndex)
     const isConfirmationSelected =
         !!survey.appearance?.displayThankYouMessage && activePageIndex === survey.questions.length
     const hostedSurveyUrl = id === 'new' ? null : getHostedSurveyUrl(id)
