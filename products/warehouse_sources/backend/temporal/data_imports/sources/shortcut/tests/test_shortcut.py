@@ -1,4 +1,3 @@
-import json
 import random
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -7,69 +6,31 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from requests import Response
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortcut import (
+    ShortcutSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import SHORTCUT_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut import (
     SHORTCUT_BASE_URL,
     STORY_SEARCH_EPOCH_START,
     _build_search_body,
     _format_incremental_value,
-    shortcut_source,
     validate_credentials,
 )
-
-# RESTClient builds its request session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the shortcut module.
-SHORTCUT_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.make_tracked_session"
-)
-# Neutralize tenacity's backoff sleeps so the retry path runs instantly.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source import ShortcutSource
 
 
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _wire(
-    session: mock.MagicMock, responses: list[Response] | Callable[[dict[str, Any]], Response]
-) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's method/url/json/auth AT SEND TIME.
-
-    The framework builds a single ``Request`` and mutates it in place across pages, so inspecting it
-    after the run shows only the final state — snapshot a copy when each request is prepared instead.
-    ``responses`` is either a list consumed in order, or a callable answering each request snapshot.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append(
-            {
-                "method": request.method,
-                "url": request.url,
-                "json": dict(request.json) if isinstance(request.json, dict) else request.json,
-                "params": dict(request.params or {}),
-                "auth": request.auth,
-            }
-        )
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    if callable(responses):
-        respond = responses
-        session.send.side_effect = lambda *args, **kwargs: respond(snapshots[-1])
-    else:
-        session.send.side_effect = responses
-    return snapshots
+def _driver(token: str = "secret-token") -> SourceDriver:
+    return SourceDriver(ShortcutSource(), ShortcutSourceConfig(api_token=token))
 
 
 def _story(story_id: int, created_at: str) -> dict[str, Any]:
@@ -78,7 +39,7 @@ def _story(story_id: int, created_at: str) -> dict[str, Any]:
 
 def _stories_search_fake(
     stories: list[dict[str, Any]], cap: int | None = None, order: str = "asc", exclusive_bounds: bool = False
-) -> Callable[[dict[str, Any]], Response]:
+) -> Callable[[RecordedRequest], ScriptedResponse]:
     """Answer `POST /stories/search` the way the live endpoint might.
 
     Filters on the created_at window in the body (inclusive bounds unless ``exclusive_bounds``),
@@ -86,8 +47,8 @@ def _stories_search_fake(
     rows without saying so.
     """
 
-    def respond(snapshot: dict[str, Any]) -> Response:
-        body = snapshot["json"]
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        body = request.json()
         start, end = body["created_at_start"], body["created_at_end"]
         if exclusive_bounds:
             rows = [s for s in stories if start < s["created_at"] < end]
@@ -96,13 +57,9 @@ def _stories_search_fake(
         rows.sort(key=lambda s: s["created_at"], reverse=order == "desc")
         if order == "shuffled":
             random.Random(len(rows)).shuffle(rows)
-        return _response(rows if cap is None else rows[:cap])
+        return ScriptedResponse(json=rows if cap is None else rows[:cap])
 
     return respond
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
 
 
 class TestFormatIncrementalValue:
@@ -159,20 +116,14 @@ class TestBuildSearchBody:
 
 
 class TestRequests:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_uses_shortcut_token_header_and_content_headers(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"id": 1}])])
+    def test_auth_uses_shortcut_token_header_and_content_headers(self) -> None:
+        result = _driver().run("members", [ScriptedResponse(json=[{"id": 1}])])
 
-        _rows(shortcut_source("secret-token", "members", 1, "j"))
-
-        auth = snaps[0]["auth"]
-        assert auth.name == "Shortcut-Token"
-        assert auth.location == "header"
-        assert auth.api_key == "secret-token"
+        headers = result.requests[0].headers
+        assert headers["shortcut-token"] == "secret-token"
         # Non-secret content headers ride on the session, not the redacted auth.
-        assert session.headers.get("Accept") == "application/json"
-        assert session.headers.get("Content-Type") == "application/json"
+        assert headers["accept"] == "application/json"
+        assert headers["content-type"] == "application/json"
 
     @pytest.mark.parametrize(
         "cap, order, exclusive_bounds, split_threshold",
@@ -190,51 +141,44 @@ class TestRequests:
             (2, "asc", False, 2),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stories_reads_every_story_whatever_the_cap_and_order(
-        self, MockSession, cap: int | None, order: str, exclusive_bounds: bool, split_threshold: int
+        self, cap: int | None, order: str, exclusive_bounds: bool, split_threshold: int
     ) -> None:
-        session = MockSession.return_value
         stories = [
             _story(i, f"2025-{month:02d}-{day:02d}T0{day}:00:00Z")
             for i, (month, day) in enumerate(
                 [(1, 1), (1, 1), (2, 3), (5, 7), (5, 7), (6, 8), (9, 1), (9, 2), (11, 4), (12, 9)], start=1
             )
         ]
-        _wire(session, _stories_search_fake(stories, cap=cap, order=order, exclusive_bounds=exclusive_bounds))
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.STORY_SEARCH_SPLIT_THRESHOLD",
             split_threshold,
         ):
-            rows = _rows(shortcut_source("token", "stories", 1, "j"))
+            result = _driver().run(
+                "stories", _stories_search_fake(stories, cap=cap, order=order, exclusive_bounds=exclusive_bounds)
+            )
 
         # Every story lands exactly once, whatever the endpoint held back or how it ordered rows.
-        assert sorted(row["id"] for row in rows) == list(range(1, 11))
+        assert result.raised is None
+        assert sorted(row["id"] for row in result.rows) == list(range(1, 11))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_response_fails_loud(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"unexpected": "shape"})])
-
+    def test_non_list_response_fails_loud(self) -> None:
         # A 200 body that isn't the expected bare array means the API shape changed — fail loud
         # rather than syncing the stray object as a single row.
-        with pytest.raises(ValueError, match="list response body"):
-            _rows(shortcut_source("token", "epics", 1, "j"))
+        result = _driver().run("epics", [ScriptedResponse(json={"unexpected": "shape"})])
+
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
 
 
 class TestRetryAndErrorClassification:
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_without_retry(self, MockSession, _mock_sleep, status_code: int) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "nope"}, status_code)])
+    def test_client_errors_raise_without_retry(self, status_code: int) -> None:
+        result = _driver().run("members", [ScriptedResponse(status=status_code, json={"error": "nope"})])
 
-        with pytest.raises(HTTPError):
-            _rows(shortcut_source("token", "members", 1, "j"))
-
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:
@@ -247,18 +191,16 @@ class TestValidateCredentials:
             (418, False, "unexpected status: 418"),
         ],
     )
-    @mock.patch(SHORTCUT_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected_valid, message_substr) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, error = validate_credentials("token")
+    def test_status_mapping(self, status_code, expected_valid, message_substr) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, error = validate_credentials("token")
 
         assert is_valid is expected_valid
         if expected_valid:
             assert error is None
         else:
             assert message_substr in (error or "")
-        assert mock_session.return_value.get.call_args.args[0] == f"{SHORTCUT_BASE_URL}/member"
+        assert network.requests_log[0].url == f"{SHORTCUT_BASE_URL}/member"
 
 
 class TestShortcutSourceShape:

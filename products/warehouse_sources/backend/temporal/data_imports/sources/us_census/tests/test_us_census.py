@@ -1,13 +1,25 @@
-import json
-from typing import Any, Optional
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.settings import MAX_VARIABLES_PER_QUERY
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uscensus import (
+    USCensusSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.settings import (
+    CUSTOM_QUERY_ENDPOINT,
+    MAX_VARIABLES_PER_QUERY,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.source import USCensusSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.us_census import (
     build_query_url,
-    get_rows,
     rows_from_payload,
     validate_credentials,
     validate_custom_query,
@@ -16,26 +28,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.us_census.us_census"
 
 
-def _mock_response(
-    status_code: int = 200,
-    json_data: Any = None,
-    headers: Optional[dict[str, str]] = None,
-    text: str = "",
-) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = status_code < 400
-    response.headers = headers or {}
-    response.text = text
-    body = json.dumps(json_data).encode() if json_data is not None else text.encode()
-    response.iter_content.return_value = iter([body])
-    return response
-
-
-def _patched_session(response: MagicMock):
-    session = MagicMock()
-    session.get.return_value = response
-    return patch(f"{_MODULE}.make_tracked_session", return_value=session), session
+def _run_query(api_key: str, variables: str, script: Any) -> DriveResult:
+    config = USCensusSourceConfig(
+        api_key=api_key,
+        custom_dataset="2024/acs/acs5",
+        custom_variables=variables,
+        custom_geography="state:*",
+    )
+    return SourceDriver(USCensusSource(), config).run(CUSTOM_QUERY_ENDPOINT, script)
 
 
 class TestUSCensus:
@@ -59,14 +59,11 @@ class TestUSCensus:
 
     def test_get_rows_yields_row_dicts(self):
         payload = [["NAME", "state"], ["California", "06"], ["Texas", "48"]]
-        patcher, session = _patched_session(_mock_response(json_data=payload))
 
-        with patcher:
-            batches = list(get_rows("key", "2024/acs/acs5", ("NAME",), "state:*", None, ()))
+        result = _run_query("key", "NAME", [ScriptedResponse(json=payload)])
 
-        assert batches == [[{"NAME": "California", "state": "06"}, {"NAME": "Texas", "state": "48"}]]
-        requested_url = session.get.call_args.args[0]
-        assert "key=key" in requested_url
+        assert result.items == [[{"NAME": "California", "state": "06"}, {"NAME": "Texas", "state": "48"}]]
+        assert result.requests[0].param("key") == "key"
 
     @pytest.mark.parametrize(
         ("headers", "location"),
@@ -77,31 +74,37 @@ class TestUSCensus:
         ],
     )
     def test_get_rows_raises_auth_error_on_key_redirect(self, headers, location):
-        response = _mock_response(status_code=302, headers={**headers, "Location": location})
+        response_headers = {**headers, **({"Location": location} if location else {})}
 
-        patcher, _ = _patched_session(response)
-        with patcher, pytest.raises(ValueError, match="US Census API key is missing or invalid"):
-            list(get_rows("bad-key", "2024/acs/acs5", ("NAME",), "state:*", None, ()))
+        result = _run_query("bad-key", "NAME", [ScriptedResponse(status=302, headers=response_headers)])
+
+        assert isinstance(result.raised, ValueError)
+        assert "US Census API key is missing or invalid" in str(result.raised)
 
     def test_get_rows_surfaces_api_error_body(self):
-        response = _mock_response(status_code=400, text="error: unknown variable 'B99999_999E'")
+        result = _run_query(
+            "key",
+            "B99999_999E",
+            [ScriptedResponse(status=400, body=b"error: unknown variable 'B99999_999E'")],
+        )
 
-        patcher, _ = _patched_session(response)
-        with patcher, pytest.raises(ValueError, match="unknown variable"):
-            list(get_rows("key", "2024/acs/acs5", ("B99999_999E",), "state:*", None, ()))
+        assert isinstance(result.raised, ValueError)
+        assert "unknown variable" in str(result.raised)
 
     def test_get_rows_rejects_non_json_success_body(self):
-        patcher, _ = _patched_session(_mock_response(text="<html>...</html>"))
+        result = _run_query("key", "NAME", [ScriptedResponse(body=b"<html>...</html>")])
 
-        with patcher, pytest.raises(ValueError, match="not valid JSON"):
-            list(get_rows("key", "2024/acs/acs5", ("NAME",), "state:*", None, ()))
+        assert isinstance(result.raised, ValueError)
+        assert "not valid JSON" in str(result.raised)
 
     def test_get_rows_rejects_oversized_response(self):
         payload = [["NAME", "state"], ["California", "06"]]
-        patcher, _ = _patched_session(_mock_response(json_data=payload))
 
-        with patcher, patch(f"{_MODULE}._MAX_RESPONSE_BYTES", 8), pytest.raises(ValueError, match="too large"):
-            list(get_rows("key", "2024/acs/acs5", ("NAME",), "state:*", None, ()))
+        with patch(f"{_MODULE}._MAX_RESPONSE_BYTES", 8):
+            result = _run_query("key", "NAME", [ScriptedResponse(json=payload)])
+
+        assert isinstance(result.raised, ValueError)
+        assert "too large" in str(result.raised)
 
     @pytest.mark.parametrize(
         ("status_code", "headers", "expected_valid", "expected_error_fragment"),
@@ -113,9 +116,8 @@ class TestUSCensus:
     )
     def test_validate_credentials_status_mapping(self, status_code, headers, expected_valid, expected_error_fragment):
         payload = [["NAME"], ["United States"]] if status_code == 200 else None
-        patcher, _ = _patched_session(_mock_response(status_code=status_code, json_data=payload, headers=headers))
 
-        with patcher:
+        with scripted_network(always(ScriptedResponse(status=status_code, json=payload, headers=headers))):
             valid, error = validate_credentials("some-key")
 
         assert valid is expected_valid
@@ -131,10 +133,7 @@ class TestUSCensus:
         assert error is not None and "required" in error
 
     def test_validate_credentials_handles_network_failure(self):
-        session = MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-
-        with patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             valid, error = validate_credentials("some-key")
 
         assert valid is False
