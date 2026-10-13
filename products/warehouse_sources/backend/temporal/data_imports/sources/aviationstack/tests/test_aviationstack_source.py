@@ -1,25 +1,21 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source import AviationstackSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviationstack import (
+    AviationstackSourceConfig,
+)
 
 
-def _make_manager() -> Any:
-    manager = MagicMock()
-    manager.can_resume.return_value = False
-    return manager
-
-
-def _make_config(access_key: str = "key", airport_iata_codes: str | None = "JFK") -> Any:
-    config = MagicMock()
-    config.access_key = access_key
-    config.airport_iata_codes = airport_iata_codes
-    config.flights_future_days = None
-    return config
+def _make_config(access_key: str = "key", airport_iata_codes: str | None = "JFK") -> AviationstackSourceConfig:
+    return AviationstackSourceConfig(access_key=access_key, airport_iata_codes=airport_iata_codes)
 
 
 class TestAviationstackSource:
@@ -36,55 +32,52 @@ class TestAviationstackSource:
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = AviationstackSource().get_schemas(_make_config(), team_id=1, names=["airlines", "airports"])
-        assert {s.name for s in schemas} == {"airlines", "airports"}
+        assert {schema.name for schema in schemas} == {"airlines", "airports"}
 
     @parameterized.expand(
         [
-            ("valid", True, True, None),
-            ("invalid", False, False, "Invalid aviationstack access key"),
+            ("valid", 200, {"data": []}, True, None),
+            ("invalid", 401, {"error": {"code": "invalid_access_key"}}, False, "Invalid aviationstack access key"),
         ]
     )
     def test_validate_credentials(
-        self, _name: str, probe_result: bool, expected_ok: bool, expected_message: str | None
+        self, _name: str, status: int, body: dict[str, Any], expected_ok: bool, expected_message: str | None
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source.validate_aviationstack_credentials",
-            return_value=probe_result,
-        ):
+        with scripted_network([ScriptedResponse(status=status, json=body)]):
             ok, message = AviationstackSource().validate_credentials(_make_config(), team_id=1)
+
         assert ok is expected_ok
         assert message == expected_message
 
     @parameterized.expand([("timetable",), ("flights_future",)])
     def test_validate_credentials_rejects_per_airport_table_without_airports(self, schema_name: str) -> None:
         # The probe must not even run: a valid key still cannot sync these tables with no airport.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source.validate_aviationstack_credentials",
-            return_value=True,
-        ) as probe:
+        with scripted_network([]) as network:
             ok, message = AviationstackSource().validate_credentials(
                 _make_config(airport_iata_codes=None), team_id=1, schema_name=schema_name
             )
+
         assert ok is False
         assert message is not None and "airport IATA code" in message
-        probe.assert_not_called()
+        assert network.requests_log == []
 
     def test_validate_credentials_ignores_airports_for_other_tables(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source.validate_aviationstack_credentials",
-            return_value=True,
-        ):
+        with scripted_network([ScriptedResponse(json={"data": []})]) as network:
             ok, _ = AviationstackSource().validate_credentials(
                 _make_config(airport_iata_codes=None), team_id=1, schema_name="airlines"
             )
+
         assert ok is True
+        assert len(network.requests_log) == 1
 
     def test_source_for_pipeline_keyless_for_flight_feeds(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "flights"
-        inputs.logger = MagicMock()
-        response = AviationstackSource().source_for_pipeline(_make_config(), _make_manager(), inputs)
-        assert response.primary_keys is None
+        result = SourceDriver(AviationstackSource(), _make_config()).run(
+            "flights", [ScriptedResponse(json={"data": [], "pagination": {"total": 0}})]
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys is None
 
     @parameterized.expand(
         [

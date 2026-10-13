@@ -2,6 +2,12 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
 
 
@@ -25,18 +31,24 @@ class TestBunnySource:
             ((False, None), False, "Could not connect to bunny.net"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source.check_access")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
         probe_result: tuple[bool, int | None],
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        mock_check.return_value = probe_result
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        script = always(
+            ConnectionError("boom") if probe_result[1] is None else ScriptedResponse(status=probe_result[1])
+        )
+        with scripted_network(script) as network:
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message
+        assert network.requests_log
+        assert {request.path for request in network.requests_log} == {"/pullzone"}
+        assert network.requests_log[0].path == "/pullzone"
+        assert network.requests_log[0].param("page") == "1"
+        assert network.requests_log[0].headers["accesskey"] == "bunny-key"
 
     @pytest.mark.parametrize("should_use_incremental_field, expected_last_value", [(True, "2024-05-02"), (False, None)])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source.bunny_source")
@@ -64,7 +76,6 @@ class TestBunnySource:
         assert kwargs["db_incremental_field_last_value"] == expected_last_value
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown bunny.net schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown bunny.net schema 'not_a_table'"

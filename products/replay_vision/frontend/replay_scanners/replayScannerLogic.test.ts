@@ -15,6 +15,7 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
@@ -725,7 +726,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.creditLimitState).toMatchObject({ limit: null, isOn: true })
             expect(logic.values.scannerValidationErrors).toMatchObject({
-                credit_limit: 'Enter a credit limit, or turn the limit off',
+                credit_limit: 'Enter a limit, or turn the limit off',
             })
         })
 
@@ -1057,10 +1058,10 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('seeds at least one credit for a tiny but non-zero forecast', async () => {
+        it('seeds at least one scan for a tiny but non-zero forecast', async () => {
             estimate(0.3)
             await expectLogic(logic).toMatchValues({
-                creditLimitState: expect.objectContaining({ seedValue: 1 }),
+                creditLimitState: expect.objectContaining({ seedValue: 15 }),
             })
         })
 
@@ -1076,7 +1077,11 @@ describe('replayScannerLogic', () => {
 
         it('flags a limit below the forecast and one below a single scan', async () => {
             estimate(100, 15)
-            logic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 10 })
+            logic.actions.setScannerValues({
+                model: ScannerModelEnumApi.Gemini38Flash,
+                credit_limit_enabled: true,
+                credit_limit: 10,
+            })
             await expectLogic(logic).toMatchValues({
                 creditLimitState: expect.objectContaining({
                     limit: 10,
@@ -1084,6 +1089,33 @@ describe('replayScannerLogic', () => {
                     isBelowEstimate: true,
                     cannotAffordOneScan: true,
                 }),
+            })
+        })
+
+        it.each([
+            ['the loaded estimate, which is authoritative', false, 7],
+            ['the model table while the estimate reloads for a new model', true, 5],
+        ])('prices an observation from %s', async (_name, reloading, expectedPrice) => {
+            logic.actions.setScannerValues({ model: ScannerModelEnumApi.Gemini3FlashPreview })
+            estimate(100, 7)
+            if (reloading) {
+                logic.actions.requestScannerEstimate()
+            }
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ creditsPerObservation: expectedPrice }),
+            })
+        })
+
+        it('keeps the credits and recounts the observations when the model changes', async () => {
+            logic.actions.setScannerValues({
+                model: ScannerModelEnumApi.Gemini3FlashPreview,
+                credit_limit_enabled: true,
+                credit_limit: 40,
+            })
+            logic.actions.setCreditLimitUnit('observations')
+            logic.actions.setScannerValue('model', ScannerModelEnumApi.Gemini38Flash)
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ limit: 40, observationLimit: 2 }),
             })
         })
     })
@@ -1121,7 +1153,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(editLogic).toMatchValues({
                 creditLimitState: expect.objectContaining({ limit: null, isOn: true }),
                 scannerValidationErrors: expect.objectContaining({
-                    credit_limit: 'Enter a credit limit, or turn the limit off',
+                    credit_limit: 'Enter a limit, or turn the limit off',
                 }),
             })
         })

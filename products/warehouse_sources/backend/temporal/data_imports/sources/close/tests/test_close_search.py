@@ -7,13 +7,17 @@ from unittest.mock import MagicMock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.close import search as close_search
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import close_search_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
     CloseCursorExpiredError,
     CloseSearchError,
     iter_search_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
 
 BASE_URL = "https://api.close.com/api/v1"
 
@@ -216,26 +220,15 @@ class TestSearchSourceWiring:
         last_value: Optional[str],
         expected_cursor_field: str,
         expected_anchor: Optional[str],
-        monkeypatch: Any,
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        session = FakeSession([_response({"data": []})])
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_session",
-            lambda _api_key, **_kwargs: session,
-        )
-
-        response = close_search_source(
-            api_key="test-key",
-            endpoint="Contacts",
-            resumable_source_manager=manager,
-            logger=MagicMock(),
+        result = SourceDriver(CloseSource(), CloseSourceConfig(api_key="test-key")).run(
+            "Contacts",
+            [ScriptedResponse(json={"data": []})],
             db_incremental_field_last_value=last_value,
             should_use_incremental_field=incremental,
             incremental_field=field,
         )
-        list(cast(Any, response.items()))
 
-        assert session.bodies[0]["sort"][0]["field"]["field_name"] == expected_cursor_field
-        assert _anchor_of(session.bodies[0]) == expected_anchor
+        assert result.raised is None
+        assert result.requests[0].json()["sort"][0]["field"]["field_name"] == expected_cursor_field
+        assert _anchor_of(result.requests[0].json()) == expected_anchor
