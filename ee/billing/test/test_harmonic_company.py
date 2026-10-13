@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -34,7 +36,7 @@ class TestWebsitePathIsRoot(SimpleTestCase):
             ("login_page", "https://example.com/login", False),
         ]
     )
-    def test_website_path_is_root(self, _name, url, expected):
+    def test_website_path_is_root(self, _name: str, url: str, expected: bool) -> None:
         assert website_path_is_root(url) is expected
 
 
@@ -49,5 +51,5 @@ class TestIsSubEntity(SimpleTestCase):
             ("path_url", {"website": {"url": "https://example.com/ventures"}}, True),
         ]
     )
-    def test_is_sub_entity(self, _name, company, expected):
+    def test_is_sub_entity(self, _name: str, company: dict[str, Any], expected: bool) -> None:
         assert is_sub_entity(company) is expected

@@ -70,7 +70,7 @@ class TestAccountIndustry(SimpleTestCase):
             ("tag_that_is_not_a_record_is_skipped", {"tags": [None, _tag("SaaS")]}, "Software"),
         ]
     )
-    def test_account_industry(self, _name, company, expected):
+    def test_account_industry(self, _name: str, company: dict[str, Any], expected: str | None) -> None:
         assert account_industry(company) == expected
 
 
@@ -93,7 +93,9 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("industry_in_picklist", "Industry", "Retail", False, None),
         ]
     )
-    def test_fill_rule_follows_the_current_value(self, _name, field, current, written, expected):
+    def test_fill_rule_follows_the_current_value(
+        self, _name: str, field: str, current: str | int | None, written: bool, expected: str | int | None
+    ) -> None:
         fields = _fields(_company(), {field: current})
         if written:
             assert fields[field] == expected
@@ -101,7 +103,7 @@ class TestCanonicalAccountFields(SimpleTestCase):
             assert field not in fields
 
     @parameterized.expand([("NumberOfEmployees",), ("Company_LinkedIn__c",), ("Industry",)])
-    def test_field_not_read_is_unknown_not_empty(self, field):
+    def test_field_not_read_is_unknown_not_empty(self, field: str) -> None:
         assert field not in _fields(_company(), {})
 
     @parameterized.expand(
@@ -112,7 +114,9 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("one_side_not_read", {"LinkedIn_Engineer_Count__c": None}, False),
         ]
     )
-    def test_linkedin_counts_are_written_only_as_an_empty_pair(self, _name, account, written):
+    def test_linkedin_counts_are_written_only_as_an_empty_pair(
+        self, _name: str, account: dict[str, Any], written: bool
+    ) -> None:
         fields = _fields(_company(), account)
         if written:
             assert fields["LinkedIn_Engineer_Count__c"] == 40
@@ -128,7 +132,7 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("zero_total", {"headcount": {"latestMetricValue": 0}, "headcountEngineering": {"latestMetricValue": 0}}),
         ]
     )
-    def test_linkedin_counts_need_both_traction_metrics(self, _name, traction):
+    def test_linkedin_counts_need_both_traction_metrics(self, _name: str, traction: dict[str, Any]) -> None:
         fields = _fields(
             _company(tractionMetrics=traction),
             {"LinkedIn_Engineer_Count__c": None, "LinkedIn_Rolecount__c": None},
@@ -146,7 +150,9 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("positive_without_headcount", {"headcount": None, "tractionMetrics": {}}, 250000, True),
         ]
     )
-    def test_total_funding_zero_is_written_only_for_a_described_company(self, _name, overrides, total, written):
+    def test_total_funding_zero_is_written_only_for_a_described_company(
+        self, _name: str, overrides: dict[str, Any], total: int, written: bool
+    ) -> None:
         company = _company(funding={"fundingTotal": total}, **overrides)
         fields = _fields(company)
         if written:
@@ -169,13 +175,13 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ),
         ]
     )
-    def test_number_of_employees_source(self, _name, overrides, expected):
+    def test_number_of_employees_source(self, _name: str, overrides: dict[str, Any], expected: int) -> None:
         assert _fields(_company(**overrides), {"NumberOfEmployees": None})["NumberOfEmployees"] == expected
 
-    def test_every_fill_only_field_is_read_before_the_write(self):
+    def test_every_fill_only_field_is_read_before_the_write(self) -> None:
         assert set(fill_only_account_fields(_company(), queried_domain=DOMAIN)) == set(ACCOUNT_FILL_FIELDS)
 
-    def test_zero_headcount_is_not_written(self):
+    def test_zero_headcount_is_not_written(self) -> None:
         company = _company(headcount=0, tractionMetrics={"headcount": {"latestMetricValue": 0}})
         assert "NumberOfEmployees" not in _fields(company, {"NumberOfEmployees": None})
 
@@ -187,12 +193,12 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("no_domain", {}, False),
         ]
     )
-    def test_linkedin_url_needs_the_queried_domain(self, _name, website, written):
+    def test_linkedin_url_needs_the_queried_domain(self, _name: str, website: dict[str, Any], written: bool) -> None:
         fields = _fields(_company(website=website), {"Company_LinkedIn__c": None})
         assert ("Company_LinkedIn__c" in fields) is written
 
     @parameterized.expand([("at_limit", 255, True), ("over_limit", 256, False)])
-    def test_linkedin_url_length_limit(self, _name, length, written):
+    def test_linkedin_url_length_limit(self, _name: str, length: int, written: bool) -> None:
         url = "https://www.linkedin.example/" + "a" * (length - len("https://www.linkedin.example/"))
         company = _company(socials={"linkedin": {"url": url}})
         assert ("Company_LinkedIn__c" in _fields(company, {"Company_LinkedIn__c": None})) is written
@@ -204,7 +210,7 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("missing_date", {}, None),
         ]
     )
-    def test_founded_year(self, _name, founding_date, expected):
+    def test_founded_year(self, _name: str, founding_date: dict[str, Any], expected: int | None) -> None:
         fields = _fields(_company(foundingDate=founding_date))
         if expected is None:
             assert "Founded_year__c" not in fields

@@ -219,7 +219,9 @@ async def test_strict_sends_api_key_as_header_not_in_url_or_params_and_uses_clie
     ]
 )
 @pytest.mark.asyncio
-async def test_strict_sends_the_query_the_client_was_built_with(_name, kwargs, expected_query, fetches_socials):
+async def test_strict_sends_the_query_the_client_was_built_with(
+    _name: str, kwargs: dict[str, Any], expected_query: str, fetches_socials: bool
+) -> None:
     with override_settings(HARMONIC_API_KEY="test-key"):
         client = AsyncHarmonicClient(**kwargs)
     client.session = MagicMock()

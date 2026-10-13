@@ -281,7 +281,7 @@ class TestHarmonicDataTransformation(SimpleTestCase):
             assert value is not None, f"Field {key} should not be None"
 
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
-    def test_mirror_clearing_data_covers_every_stamped_field_and_no_canonical_field(self):
+    def test_mirror_clearing_data_covers_every_stamped_field_and_no_canonical_field(self) -> None:
         transformed_data = transform_harmonic_data(load_harmonic_fixture())
         assert transformed_data is not None
         stamped = prepare_salesforce_update_data("001EXAMPLE123", transformed_data)
@@ -774,7 +774,9 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
     )
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
-    async def test_specific_domain_enrichment_no_harmonic_data(self, _name, harmonic_result):
+    async def test_specific_domain_enrichment_no_harmonic_data(
+        self, _name: str, harmonic_result: dict[str, Any] | list[str] | None
+    ) -> None:
         """Test handling when Harmonic returns no data for domain."""
         mock_accounts = [
             {"Id": "001EXAMPLE1", "Name": "Test Company 1", "Domain__c": "unknown-domain.xyz"},
@@ -960,7 +962,7 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
 
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
-    async def test_specific_domain_sub_entity_sends_the_clearing_record(self):
+    async def test_specific_domain_sub_entity_sends_the_clearing_record(self) -> None:
         sub_entity = {
             **load_harmonic_fixture(),
             "website": {"url": "https://example.com/ventures", "domain": "example.com"},
@@ -1006,7 +1008,7 @@ class TestChunkEnrichment(SimpleTestCase):
         {"Id": "001MALFORMED", "Name": "Example Org", "Website": "https://example.net"},
     ]
 
-    async def _run_chunk(self, query_all):
+    async def _run_chunk(self, query_all: MagicMock) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
         with (
             mock_harmonic_client() as mock_client,
             patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
@@ -1038,7 +1040,7 @@ class TestChunkEnrichment(SimpleTestCase):
 
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
-    async def test_chunk_clears_sub_entity_accounts_and_fills_empty_fields_of_normal_ones(self):
+    async def test_chunk_clears_sub_entity_accounts_and_fills_empty_fields_of_normal_ones(self) -> None:
         empty = dict.fromkeys(ACCOUNT_FILL_FIELDS)
         current_values = [{"Id": "001SUB", **empty}, {"Id": "001NORMAL", **empty, "NumberOfEmployees": 7}]
 
@@ -1063,7 +1065,7 @@ class TestChunkEnrichment(SimpleTestCase):
 
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
-    async def test_chunk_fills_nothing_when_current_values_cannot_be_read(self):
+    async def test_chunk_fills_nothing_when_current_values_cannot_be_read(self) -> None:
         _, records = await self._run_chunk(MagicMock(side_effect=Exception("query failed")))
 
         normal_record = records["001NORMAL"]
@@ -1080,11 +1082,11 @@ class TestAddUnoccupiedFillFields(SimpleTestCase):
             ("a_failed_batch_does_not_stop_the_next", True, 1),
         ]
     )
-    def test_reads_accounts_in_batches(self, _name, first_batch_fails, expected_filled):
+    def test_reads_accounts_in_batches(self, _name: str, first_batch_fails: bool, expected_filled: int) -> None:
         account_ids = [f"001{index:015d}" for index in range(SALESFORCE_UPDATE_BATCH_SIZE + 1)]
         update_records: list[dict[str, Any]] = [{"Id": account_id} for account_id in account_ids]
 
-        def query_all(query):
+        def query_all(query: str) -> dict[str, list[dict[str, Any]]]:
             if first_batch_fails and account_ids[0] in query:
                 raise Exception("query failed")
             return {
