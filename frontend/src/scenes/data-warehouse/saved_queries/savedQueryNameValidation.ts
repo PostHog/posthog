@@ -16,3 +16,17 @@ export const validateSavedQueryName = (name: string | undefined | null): string 
     }
     return undefined
 }
+
+export const validateFolderName = (
+    name: string | undefined | null,
+    existingFolders: { name: string }[]
+): string | undefined => {
+    const trimmedName = name?.trim()
+    if (!trimmedName) {
+        return 'You must enter a folder name'
+    }
+    if (existingFolders.some((folder) => folder.name === trimmedName)) {
+        return 'A folder with this name already exists'
+    }
+    return undefined
+}

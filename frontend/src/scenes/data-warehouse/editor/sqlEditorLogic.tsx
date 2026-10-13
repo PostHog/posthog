@@ -133,7 +133,7 @@ import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/
 import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
-import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
+import { validateFolderName, validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
@@ -2450,7 +2450,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </LemonField>
                         ),
                         errors: {
-                            folderName: (name) => (!name?.trim() ? 'You must enter a folder name' : undefined),
+                            folderName: (name) => validateFolderName(name, values.dataWarehouseSavedQueryFolders),
                         },
                         onSubmit: async ({ folderName }) => {
                             const folder = await api.dataWarehouseSavedQueryFolders.create({ name: folderName.trim() })
