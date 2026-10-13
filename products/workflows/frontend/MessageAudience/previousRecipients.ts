@@ -16,11 +16,13 @@ import { MessageAudience, messageAudienceUrl } from './messageAudience'
 const MAX_COHORT_NAME_LENGTH = 200
 // The exclusion is saved before the counts run, so a slow count only costs the number in the toast.
 const COUNT_TIMEOUT_MS = 5000
+// Saving the exclusion runs on the server inside the request, so it gets longer than the counts.
+const RECIPIENTS_TIMEOUT_MS = 20000
 
-function withinCountTimeout<T>(request: Promise<T>): Promise<T> {
+function withinTimeout<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
     return Promise.race([
         request,
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Counting timed out')), COUNT_TIMEOUT_MS)),
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Timed out')), timeoutMs)),
     ])
 }
 
@@ -71,10 +73,13 @@ export async function checkPreviousRecipients(
     }
     const cohortName = previousRecipientsCohortName(audience)
     try {
-        const previous = await workflowPreviousRecipientsCreate(projectId, {
-            source_record: audience.sourceRecord,
-            cohort_name: cohortName,
-        })
+        const previous = await withinTimeout(
+            workflowPreviousRecipientsCreate(projectId, {
+                source_record: audience.sourceRecord,
+                cohort_name: cohortName,
+            }),
+            RECIPIENTS_TIMEOUT_MS
+        )
         if (previous.cohort_id === null || previous.people === 0) {
             return { kind: 'none' }
         }
@@ -84,7 +89,7 @@ export async function checkPreviousRecipients(
         }
         let before, after
         try {
-            ;[before, after] = await withinCountTimeout(
+            ;[before, after] = await withinTimeout(
                 Promise.all(
                     [audience, narrowed].map((target) =>
                         hogFlowsUserBlastRadiusCreate(projectId, {
@@ -92,7 +97,8 @@ export async function checkPreviousRecipients(
                             dedupe_key: 'email',
                         })
                     )
-                )
+                ),
+                COUNT_TIMEOUT_MS
             )
         } catch {
             // The exclusion is saved, so keep it even when the count to show could not be made.

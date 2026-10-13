@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -113,6 +115,30 @@ class TestPreviousRecipients(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._members(response.json()["cohort_id"]) == [visible_person]
+
+    @parameterized.expand(
+        [
+            ("repeat sends to one person stay within the limit", ["one", "one", "one"], status.HTTP_200_OK),
+            ("more people than the limit are rejected", ["one", "two"], status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_limits_people_not_sends(self, _name: str, sends: list[str], expected: int) -> None:
+        for distinct_id in set(sends):
+            create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+        flow = HogFlow.objects.create(team=self.team, name="Repeated", source_record=RECORD)
+        for index, distinct_id in enumerate(sends):
+            create_message_asset(
+                team_id=self.team.pk,
+                function_id=str(flow.id),
+                invocation_id=f"{flow.id}-{index}",
+                distinct_id=distinct_id,
+                recipient=f"{distinct_id}@example.com",
+            )
+
+        with patch("products.workflows.backend.services.previous_recipients.MAX_PREVIOUS_RECIPIENTS", 1):
+            response = self.client.post(self._url(), {"source_record": RECORD, "cohort_name": "Already emailed"})
+
+        assert response.status_code == expected, response.json()
 
     def test_records_the_source_record_on_create_and_keeps_it_on_update(self) -> None:
         response = self.client.post(

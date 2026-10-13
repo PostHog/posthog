@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, cast
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -27,6 +28,8 @@ logger = structlog.get_logger(__name__)
 # Inserting the people runs inside the request, so the list stays small enough to finish quickly.
 MAX_PREVIOUS_RECIPIENTS = 20_000
 MAX_COHORT_NAME_LENGTH = 400
+# Both lookups run while the person waits on the entry point.
+QUERY_TIMEOUT_SECONDS = 10
 
 
 @frozen
@@ -68,11 +71,16 @@ def _previous_sends(
                 GROUP BY invocation_id, action_id
             )
             WHERE latest_kind = 'email' AND latest_status = 'sent' AND latest_is_deleted = 0
+            GROUP BY 1, 2
             LIMIT %(limit)s
             """,
             {"team_id": team_id, "flow_ids": flow_ids, "limit": limit},
+            settings={"max_execution_time": QUERY_TIMEOUT_SECONDS},
         )
     rows = cast(list, rows)
+    if len(rows) >= limit:
+        # A cut-off history would leave some recipients out of the exclusion, and they would get the email again.
+        raise TooManyPreviousRecipients(MAX_PREVIOUS_RECIPIENTS)
     return _PreviousSends(
         distinct_ids=sorted({str(row[0]) for row in rows if row[0]}),
         emails=sorted({str(row[1]) for row in rows if row[1]}),
@@ -89,13 +97,21 @@ def _person_ids_with_emails(team: Team, emails: list[str], limit: int) -> list[s
     query = parse_select(
         """
         SELECT id FROM persons
-        WHERE has({emails}, lower(trim(toString(properties.email))))
+        WHERE lower(trim(toString(properties.email))) IN {emails}
         LIMIT {limit}
         """,
-        placeholders={"emails": ast.Constant(value=emails), "limit": ast.Constant(value=limit)},
+        placeholders={
+            "emails": ast.Tuple(exprs=[ast.Constant(value=email) for email in emails]),
+            "limit": ast.Constant(value=limit),
+        },
     )
     with tags_context(product=Product.WORKFLOWS, feature=Feature.QUERY):
-        response = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            workload=Workload.OFFLINE,
+            settings=HogQLGlobalSettings(max_execution_time=QUERY_TIMEOUT_SECONDS),
+        )
     return [str(row[0]) for row in response.results or []]
 
 
