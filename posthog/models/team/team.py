@@ -1202,6 +1202,7 @@ class Team(UUIDTClassicModel):
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
+        from posthog.constants import AvailableFeature
         from posthog.models.user import User
         from posthog.user_permissions import (
             UserTeamPermissions,  # noqa: PLC0415 - circular, user_permissions imports Team
@@ -1210,13 +1211,36 @@ class Team(UUIDTClassicModel):
         from products.access_control.backend.models.access_control import AccessControl
         from products.access_control.backend.models.role import RoleMembership
 
+        organization = self.organization
+        # An organization without ACCESS_CONTROL has no private projects, so every active member
+        # has access. Return a SQL subquery so `.exists()`, `.count()`, and `.filter()` callers
+        # answer in Postgres instead of materializing every membership here first.
+        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            member_user_ids = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+            return User.objects.filter(is_active=True, id__in=member_user_ids)
+
         project_rules = list(
-            AccessControl.objects.filter(team_id=self.id, resource="project").values(
+            AccessControl.objects.filter(team_id=self.id, resource="project", resource_id=str(self.id)).values(
                 "resource_id", "organization_member_id", "role_id", "access_level"
             )
         )
+        # Partition rules by member and role up front so each per-member resolve_membership_level
+        # call sees only its own candidates, rather than rescanning every rule for every member.
+        rules_by_member_id: dict[int, list[dict]] = defaultdict(list)
+        rules_by_role_id: dict[UUID, list[dict]] = defaultdict(list)
+        default_rules: list[dict] = []
+        for rule in project_rules:
+            if rule["organization_member_id"] is not None:
+                rules_by_member_id[rule["organization_member_id"]].append(rule)
+            elif rule["role_id"] is not None:
+                rules_by_role_id[rule["role_id"]].append(rule)
+            else:
+                default_rules.append(rule)
+
         # Only roles that a rule on this team names can change an answer.
-        named_role_ids = {rule["role_id"] for rule in project_rules if rule["role_id"] is not None}
+        named_role_ids = set(rules_by_role_id)
         role_ids_by_user: dict[int, set[UUID]] = defaultdict(set)
         if named_role_ids:
             for user_id, role_id in (
@@ -1226,10 +1250,16 @@ class Team(UUIDTClassicModel):
             ):
                 role_ids_by_user[user_id].add(role_id)
 
+        def rules_for(membership_id: int, user_id: int) -> list[dict]:
+            rules = list(rules_by_member_id.get(membership_id, ()))
+            for role_id in role_ids_by_user.get(user_id, ()):
+                rules.extend(rules_by_role_id.get(role_id, ()))
+            rules.extend(default_rules)
+            return rules
+
         def role_ids_for(user_id: int) -> set[UUID]:
             return role_ids_by_user.get(user_id, set())
 
-        organization = self.organization
         memberships = OrganizationMembership.objects.filter(
             organization_id=self.organization_id, user__is_active=True
         ).only("id", "user_id", "level")
@@ -1240,7 +1270,7 @@ class Team(UUIDTClassicModel):
                 organization=organization,
                 organization_membership=membership,
                 team_id=self.id,
-                load_project_rules=lambda: project_rules,
+                load_project_rules=partial(rules_for, membership.id, membership.user_id),
                 load_role_ids=partial(role_ids_for, membership.user_id),
             )
             is not None
