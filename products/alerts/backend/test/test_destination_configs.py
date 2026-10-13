@@ -3,9 +3,6 @@ from typing import Any
 
 import pytest
 
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.fixtures import template_pagerduty
-
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
     build_alert_destination_config,
@@ -23,6 +20,8 @@ from products.alerts_platform.backend.facade.contracts import (
     EventKindSpec,
     IncidentAction,
 )
+from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
+from products.cdp.backend.templates.fixtures import template_pagerduty
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
