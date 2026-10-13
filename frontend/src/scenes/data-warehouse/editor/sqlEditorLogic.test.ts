@@ -6,6 +6,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { draftsLogic } from 'scenes/data-warehouse/editor/draftsLogic'
@@ -3334,9 +3335,32 @@ describe('sqlEditorLogic', () => {
 
     describe('materialize on save', () => {
         it.each([
-            { name: 'materializes the created view when materializeAfterSave is true', materialize: true },
-            { name: 'does not materialize when materializeAfterSave is false', materialize: false },
-        ])('$name', async ({ materialize }) => {
+            {
+                name: 'materializes the created view when materializeAfterSave is true',
+                materialize: true,
+                materializeStatus: 200,
+                successToasts: ['Materialized view successfully created and materialized'],
+                errorToasts: [],
+            },
+            {
+                name: 'does not materialize when materializeAfterSave is false',
+                materialize: false,
+                materializeStatus: 200,
+                successToasts: ['Materialized view successfully created'],
+                errorToasts: [],
+            },
+            {
+                name: 'still reports the created view when the materialization fails',
+                materialize: true,
+                materializeStatus: 400,
+                successToasts: ['Materialized view successfully created'],
+                errorToasts: ['Failed to materialize view'],
+            },
+        ])('$name', async ({ materialize, materializeStatus, successToasts, errorToasts }) => {
+            const toastSuccessSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => ({ id: 'x' }) as any)
+            const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+            materializeEndpointMock.mockImplementation(() => [materializeStatus, {}])
+
             const viewsLogic = dataWarehouseViewsLogic()
             viewsLogic.mount()
 
@@ -3373,7 +3397,11 @@ describe('sqlEditorLogic', () => {
             } else {
                 expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
             }
+            expect(toastSuccessSpy.mock.calls.map(([message]) => message)).toEqual(successToasts)
+            expect(toastErrorSpy.mock.calls.map(([message]) => message)).toEqual(errorToasts)
 
+            toastSuccessSpy.mockRestore()
+            toastErrorSpy.mockRestore()
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()
         })
