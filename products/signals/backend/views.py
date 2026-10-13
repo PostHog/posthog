@@ -1469,10 +1469,16 @@ class SignalReportViewSet(
         linked_at_by_report: dict[str, datetime] = {}
         for links in by_source.values():
             for report_id, linked_at in links.items():
-                current = linked_at_by_report.get(report_id)
-                linked_at_by_report[report_id] = linked_at if current is None else min(current, linked_at)
-        self._source_linked_at_map = linked_at_by_report
-        return queryset.filter(id__in=list(linked_at_by_report))
+                if report_id not in linked_at_by_report or linked_at < linked_at_by_report[report_id]:
+                    linked_at_by_report[report_id] = linked_at
+        if not linked_at_by_report:
+            return queryset.none()
+        return queryset.filter(id__in=list(linked_at_by_report)).annotate(
+            source_linked_at=Case(
+                *(When(id=report_id, then=Value(linked_at)) for report_id, linked_at in linked_at_by_report.items()),
+                output_field=models.DateTimeField(),
+            )
+        )
 
     def _apply_signal_report_scout_filter(self, queryset):
         scout_filter = self.request.query_params.get("scout")
@@ -2549,7 +2555,6 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
-            "source_linked_at_map": getattr(self, "_source_linked_at_map", {}),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

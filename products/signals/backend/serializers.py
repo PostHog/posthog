@@ -1792,7 +1792,10 @@ class SignalReportListSerializer(SignalReportSerializer):
             "comparisons are available from the report detail endpoint."
         ),
     )
-    source_linked_at = serializers.SerializerMethodField(
+    source_linked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        default=None,
         help_text=(
             "When the record named by the `source_id` filter first linked to this report. Later "
             "signals from other sources do not change it. Null when the list has no `source_id` filter."
@@ -1802,11 +1805,6 @@ class SignalReportListSerializer(SignalReportSerializer):
     class Meta(SignalReportSerializer.Meta):
         fields = [*SignalReportSerializer.Meta.fields, "source_linked_at"]
         read_only_fields = fields
-
-    @extend_schema_field(serializers.DateTimeField(allow_null=True))
-    def get_source_linked_at(self, obj: SignalReport) -> str | None:
-        linked_at: datetime | None = self.context.get("source_linked_at_map", {}).get(str(obj.id))
-        return linked_at.isoformat() if linked_at is not None else None
 
 
 class SignalReportListQuerySerializer(serializers.Serializer):
