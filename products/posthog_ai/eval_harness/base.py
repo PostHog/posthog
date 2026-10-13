@@ -5,21 +5,33 @@ import time
 import uuid
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-import orjson
+from django.db import (
+    OperationalError as DjangoOperationalError,
+    close_old_connections,
+)
 
-from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
+import orjson
+from botocore.exceptions import ClientError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError
+from clickhouse_driver.errors import ErrorCodes, NetworkError, ServerException, SocketTimeoutError
+from psycopg import OperationalError as PsycopgOperationalError
+
+from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+
+from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
+from .harness.retries import infrastructure_retry_delay
 from .harness.trial_stats import trial_stats
 from .log_parser import describe_tool_use
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
@@ -400,6 +412,75 @@ class _BaseEvalRun:
         return result
 
 
+def _retryable_setup_error(error: Exception) -> bool:
+    if isinstance(
+        error,
+        (
+            ConnectionError,
+            NetworkError,
+            SocketTimeoutError,
+            EndpointConnectionError,
+            ConnectionClosedError,
+            ReadTimeoutError,
+            ClickHouseAtCapacity,
+            ClickHouseQueryTimeOut,
+            ClickHouseQueryMemoryLimitExceeded,
+        ),
+    ):
+        return True
+    if isinstance(error, ServerException):
+        return error.code in {
+            ErrorCodes.TIMEOUT_EXCEEDED,
+            ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
+            ErrorCodes.MEMORY_LIMIT_EXCEEDED,
+        }
+    if isinstance(error, ClientError):
+        return error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") in {500, 502, 503, 504}
+    cause = error.__cause__ if isinstance(error, DjangoOperationalError) else error
+    if isinstance(cause, PsycopgOperationalError):
+        code = cause.sqlstate
+        if code is not None:
+            return code.startswith("08") or code in {"40001", "40P01", "53300", "57P01", "57P02", "57P03"}
+        message = str(cause).lower()
+        if "fatal:" in message:
+            return False
+        return any(
+            transport_error in message
+            for transport_error in (
+                "connection refused",
+                "connection reset by peer",
+                "connection timed out",
+                "timeout expired",
+                "server closed the connection unexpectedly",
+                "ssl syscall error: eof detected",
+                "ssl connection has been closed unexpectedly",
+                "could not receive data from server",
+                "could not send data to server",
+                "network is unreachable",
+                "no route to host",
+                "temporary failure in name resolution",
+            )
+        )
+    return False
+
+
+async def _run_setup_step[Result](step: Callable[[], Result]) -> Result:
+    def run_in_worker() -> Result:
+        try:
+            return step()
+        except Exception:
+            close_old_connections()
+            raise
+
+    return await asyncio.to_thread(run_in_worker)
+
+
+@frozen
+class _SandboxedCaseSetup:
+    context: CustomPromptSandboxContext
+    seed: dict[str, Any]
+
+
 class _SandboxedEvalRun(_BaseEvalRun):
     """The sandbox-agent incarnation of ``_BaseEvalRun``: per-case team
     provisioning, the sandbox-owning window, and ACP log post-processing.
@@ -441,8 +522,69 @@ class _SandboxedEvalRun(_BaseEvalRun):
         assert isinstance(case, SandboxedEvalCase)
         return super()._case_input(case) | {"repo_fixture": case.repo_fixture}
 
+    async def _prepare_case(
+        self,
+        eval_case: SandboxedEvalCase,
+        original_case: SandboxedEvalCase | None,
+        hooks: CaseHooks | None,
+    ) -> _SandboxedCaseSetup:
+        for attempt in range(self.ctx.infrastructure_retries + 1):
+            if hooks is not None:
+                hooks.metadata["setup_attempts"] = attempt + 1
+            sandbox_context: CustomPromptSandboxContext | None = None
+            try:
+                # Team cloning and some case seeders both write to ClickHouse. Bound
+                # the full setup phase separately even when Modal makes sandbox
+                # capacity effectively unbounded.
+                async with self.ctx.team_setup_slots:
+                    # The factory does Django ORM work. Django's async-safety
+                    # guard rejects sync ORM calls from async contexts, so run it
+                    # in a worker thread.
+                    sandbox_context = await _run_setup_step(
+                        partial(
+                            self._demo_data.make_context,
+                            eval_case.name,
+                            disable_bundled_skills=(
+                                self.ctx.skill_delivery == "exec"
+                                or bool(original_case and original_case.disable_bundled_skills)
+                            ),
+                        ),
+                    )
+                    if original_case is not None and original_case.interaction_origin:
+                        sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                    elif self.ctx.skill_delivery == "exec":
+                        sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
+                    seed = (
+                        await _run_setup_step(partial(original_case.setup, sandbox_context))
+                        if original_case is not None and original_case.setup is not None
+                        else {}
+                    )
+                return _SandboxedCaseSetup(context=sandbox_context, seed=seed)
+            except Exception as error:
+                if sandbox_context is not None:
+                    await reclaim_kernels(
+                        sandbox_context.team_id,
+                        keep=self._provider_strategy.keeps_sandboxes(),
+                    )
+                if not _retryable_setup_error(error) or attempt == self.ctx.infrastructure_retries:
+                    raise
+                delay = infrastructure_retry_delay(attempt)
+                error_type = type(error).__name__
+                if hooks is not None:
+                    hooks.metadata.setdefault("setup_retry_errors", []).append(error_type)
+                await self.ctx.reporter.case_setup_retry(
+                    self.experiment_name,
+                    eval_case.name,
+                    next_attempt=attempt + 2,
+                    total_attempts=self.ctx.infrastructure_retries + 1,
+                    delay_seconds=delay,
+                    error_type=error_type,
+                )
+                await asyncio.sleep(delay)
+        raise AssertionError("unreachable")
+
     async def _run_sandbox_window(
-        self, eval_case: SandboxedEvalCase, original_case: SandboxedEvalCase | None
+        self, eval_case: SandboxedEvalCase, original_case: SandboxedEvalCase | None, hooks: CaseHooks | None = None
     ) -> tuple[EvalCaseResult, dict[str, Any]]:
         """Run the sandbox-owning window and return its result plus the seed data.
 
@@ -452,37 +594,13 @@ class _SandboxedEvalRun(_BaseEvalRun):
         never waits on post-processing.
         """
         ctx = self.ctx
-        seed_result: dict[str, Any] = {}
         async with self._sandbox_slots:
-            # Team cloning and some case seeders both write to ClickHouse. Bound
-            # the full setup phase separately even when Modal makes sandbox
-            # capacity effectively unbounded.
-            async with ctx.team_setup_slots:
-                # The factory does Django ORM work. Django's async-safety
-                # guard rejects sync ORM calls from async contexts, so run it
-                # in a worker thread.
-                sandbox_context = await asyncio.to_thread(
-                    self._demo_data.make_context,
-                    eval_case.name,
-                    disable_bundled_skills=(
-                        ctx.skill_delivery == "exec" or bool(original_case and original_case.disable_bundled_skills)
-                    ),
-                )
-                if original_case is not None and original_case.interaction_origin:
-                    sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
-                elif ctx.skill_delivery == "exec":
-                    sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
-                if original_case is not None and original_case.setup is not None:
-                    try:
-                        seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
-                    except Exception:
-                        logger.exception("Setup hook failed for '%s'", eval_case.name)
-                        raise
+            prepared = await self._prepare_case(eval_case, original_case, hooks)
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             try:
                 result = await asyncio.wait_for(
-                    run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
+                    run_eval_case(eval_case, prepared.context, provider=self._provider_strategy),
                     timeout=ctx.per_case_timeout_seconds,
                 )
             finally:
@@ -491,10 +609,10 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # case is exactly the one most likely to have left one running. One
                 # indexed query for every case that never touched a notebook.
                 await reclaim_kernels(
-                    sandbox_context.team_id,
+                    prepared.context.team_id,
                     keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
                 )
-        return result, seed_result
+        return result, prepared.seed
 
     async def _post_process(
         self,
@@ -583,7 +701,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         )
         original_case = self.cases_by_name.get(input["name"])
         sandbox_case = original_case if isinstance(original_case, SandboxedEvalCase) else None
-        result, seed_result = await self._run_sandbox_window(eval_case, sandbox_case)
+        result, seed_result = await self._run_sandbox_window(eval_case, sandbox_case, hooks)
         return await self._post_process(eval_case, hooks, result, seed_result)
 
     def _timeout_output(self) -> dict[str, Any]:

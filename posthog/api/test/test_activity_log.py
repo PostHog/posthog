@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.api.advanced_activity_logs import ActivityLogSerializer
 from posthog.api.my_notifications import MyNotificationsSerializer
+from posthog.auth import JwtAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
@@ -22,6 +23,7 @@ from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session.activity import session_public_id
+from posthog.test.authentication_checks import covers_authentication
 from posthog.test.insight_queries import default_pageview_query
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -583,6 +585,7 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert session_key is not None
         assert (log.credential_type, log.credential_id) == ("session", str(session_public_id(session_key)))
 
+    @covers_authentication(JwtAuthentication)
     def test_internal_jwt_write_is_attributed_to_the_token_user(self) -> None:
         token = encode_jwt({"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER)
 
