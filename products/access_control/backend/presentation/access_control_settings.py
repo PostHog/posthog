@@ -339,6 +339,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
             and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
+            "is_managed_by_terraform": access_control_api.get_terraform_lock(team_id=team.id).managed,
             "project_access_level": project_access_level,
             "resource_access_levels": resource_access_levels,
             # The resources the settings UI can search and rule on; every entry works with

@@ -3078,8 +3078,10 @@ class TestAccessControlManagedByTerraform(BaseAccessControlTest):
         assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
 
     def test_turning_the_lock_off_hands_the_rules_back(self):
+        assert self.client.get("/api/projects/@current/access_control_defaults").json()["is_managed_by_terraform"]
         TeamAccessControlConfig.objects.filter(team=self.team).update(is_managed_by_terraform=False)
         assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+        assert not self.client.get("/api/projects/@current/access_control_defaults").json()["is_managed_by_terraform"]
 
     @parameterized.expand(
         [

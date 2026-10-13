@@ -247,6 +247,9 @@ class AccessControlObjectRuleResourceSerializer(serializers.Serializer):
 class AccessControlDefaultsResponseSerializer(_AccessControlSettingsResponseSerializer):
     """The project's defaults: what everyone without a rule of their own gets."""
 
+    is_managed_by_terraform = serializers.BooleanField(
+        help_text="Whether the access rules of this project are locked to Terraform."
+    )
     project_access_level = serializers.CharField(help_text="The default project access level for members.")
     resource_access_levels = serializers.DictField(
         child=AccessControlResourceDefaultSerializer(),
