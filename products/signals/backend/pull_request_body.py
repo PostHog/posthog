@@ -51,7 +51,7 @@ def edit_pull_request_body(
     if parsed is None:
         return BodyEditOutcome.SKIPPED
     github = GitHubIntegration.first_for_team_repository(
-        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.BATCH
     )
     if github is None:
         # The lookup also returns None when the access check hits a transient GitHub error.

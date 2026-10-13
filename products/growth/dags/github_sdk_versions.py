@@ -174,7 +174,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
             logger.info(f"[SDK Health] Fetching releases from {url}")
 
             # Identity-blind, unauthenticated call — records volume telemetry, no installation budget.
-            response = github_request("GET", url, source="growth", timeout=10, priority=Priority.CRITICAL)
+            response = github_request("GET", url, source="growth", timeout=10, priority=Priority.BATCH)
 
             if not response.ok:
                 logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)

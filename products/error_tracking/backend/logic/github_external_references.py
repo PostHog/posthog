@@ -191,7 +191,7 @@ def link_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
         return False
     try:
         integration_owner = GitHubIntegration(
-            integration, source="error_tracking", priority=Priority.CRITICAL
+            integration, source="error_tracking", priority=Priority.BATCH
         ).organization()
     except ValueError:
         return False

@@ -455,7 +455,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_first_for_repository.assert_called_once_with(
-            self.team.id, "PostHog/posthog", source="signals_reviewers", priority=Priority.CRITICAL
+            self.team.id, "PostHog/posthog", source="signals_reviewers", priority=Priority.NORMAL
         )
         github.get_pull_request.assert_called_once_with("PostHog/posthog", 123)
         pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=123)
@@ -556,7 +556,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_first_for_repository.assert_called_once_with(
-            self.team.id, "PostHog/posthog", source="signals_reviewers", priority=Priority.CRITICAL
+            self.team.id, "PostHog/posthog", source="signals_reviewers", priority=Priority.NORMAL
         )
         pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=123)
         assert pr.repository == "posthog/posthog"

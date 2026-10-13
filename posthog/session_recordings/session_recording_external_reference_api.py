@@ -76,7 +76,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             return f"https://linear.app/{url_key}/issue/{external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(
-                reference.integration, source="replay_external_references", priority=Priority.CRITICAL
+                reference.integration, source="replay_external_references", priority=Priority.NORMAL
             ).organization()
             repository = external_context.get("repository", "")
             issue_number = external_context.get("id", "").lstrip("#")

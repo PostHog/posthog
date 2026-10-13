@@ -1116,7 +1116,7 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
     all_repos: set[str] = set()
 
     for record in user_records:
-        github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.CRITICAL)
+        github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
         repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])

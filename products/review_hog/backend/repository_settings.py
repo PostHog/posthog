@@ -119,7 +119,7 @@ class ProjectRepositories:
         integration = self.integration_for(ref.installation_id)
         try:
             repositories = GitHubIntegration(
-                integration, source="review_hog", priority=Priority.CRITICAL
+                integration, source="review_hog", priority=Priority.NORMAL
             ).list_all_cached_repositories()
         except Exception:
             # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.

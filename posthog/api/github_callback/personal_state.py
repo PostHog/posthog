@@ -104,7 +104,7 @@ def list_user_github_app_installations(
     token = credential.token
     if discovery:
         discovery.login = UserGitHubIntegration(
-            credential.integration, source="github_callback", priority=Priority.CRITICAL
+            credential.integration, source="github_callback", priority=Priority.NORMAL
         ).github_login
         discovery.audit.record(
             "discovery_credential_selected",

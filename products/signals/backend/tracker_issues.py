@@ -362,7 +362,7 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
     context = tracker.external_context or {}
     try:
         GitHubIntegration(
-            tracker.integration, source="signals_tracker_issues", priority=Priority.CRITICAL
+            tracker.integration, source="signals_tracker_issues", priority=Priority.BATCH
         ).comment_on_issue(
             context["repository"],
             int(context["number"]),

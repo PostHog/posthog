@@ -269,7 +269,7 @@ def adopt_orphan_installation(
     instance = GitHubIntegration.integration_from_installation_id(installation_id, team.id, user)
 
     login = UserGitHubIntegration(
-        credential.integration, source="github_callback", priority=Priority.CRITICAL
+        credential.integration, source="github_callback", priority=Priority.NORMAL
     ).github_login
     if login:
         instance.config["connecting_user_github_login"] = login
@@ -637,7 +637,7 @@ def _sibling_installation_account(integration: Integration) -> _InstallationAcco
     stranger's account in their settings. Missing names use the installation ID fallback so discovery
     does not wait for a GitHub metadata request for each sibling installation.
     """
-    github_integration = GitHubIntegration(integration, source="github_callback", priority=Priority.CRITICAL)
+    github_integration = GitHubIntegration(integration, source="github_callback", priority=Priority.NORMAL)
     account = (integration.config or {}).get("account") or {}
     name = account.get("name")
     if not name or str(name) == str(github_integration.github_installation_id):

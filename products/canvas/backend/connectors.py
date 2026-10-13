@@ -188,7 +188,7 @@ class GitHubGetFileContentsPayloadSerializer(GitHubRepositorySerializer):
 
 
 def _github_client(integration: UserIntegration) -> UserGitHubIntegration:
-    return UserGitHubIntegration(integration, source=_GITHUB_SOURCE, priority=Priority.CRITICAL)
+    return UserGitHubIntegration(integration, source=_GITHUB_SOURCE, priority=Priority.NORMAL)
 
 
 def _github_repo_path(client: UserGitHubIntegration, repository: str) -> str:

@@ -532,7 +532,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         for user_integration in user_integrations:
             login = UserGitHubIntegration(
-                user_integration, source="user_github_login", priority=Priority.CRITICAL
+                user_integration, source="user_github_login", priority=Priority.NORMAL
             ).github_login
             if login:
                 return login

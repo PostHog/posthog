@@ -519,7 +519,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
         return GithubEgressIdentity(
             installation_id=GitHubIntegration(
-                integration, source="warehouse", priority=Priority.CRITICAL
+                integration, source="warehouse", priority=Priority.BATCH
             ).github_installation_id
         )
 
