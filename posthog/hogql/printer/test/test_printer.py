@@ -1913,8 +1913,28 @@ class TestPrinter(BaseTest):
         )
         query = parse_select("SELECT SHA1('abc')")
         prepared = prepare_ast_for_printing(query, context=context, dialect=dialect)
-        assert prepared is not None
+        assert isinstance(prepared, ast.SelectQuery)
         assert print_prepared_ast(prepared.select[0], context=context, dialect=dialect, stack=[prepared]) == expected
+
+    @parameterized.expand(
+        [
+            (f"{dialect}_{count}", dialect, arguments)
+            for dialect in ("hogql", "clickhouse", "duckdb", "mysql", "snowflake", "redshift", "trino")
+            for count, arguments in ((0, ""), (2, "'abc', 'def'"))
+        ]
+    )
+    def test_sha1_argument_count(self, _name: str, dialect: HogQLDialect, arguments: str) -> None:
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=Database(),
+            restricted_properties=set(),
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        )
+        with pytest.raises(QueryError, match="SHA1.*1 argument"):
+            prepare_and_print_ast(parse_select(f"SELECT SHA1({arguments}) AS digest"), context, dialect)
 
     def test_sha1_postgres_requires_optional_extension(self) -> None:
         context = HogQLContext(database=Database(), restricted_properties=set(), enable_select_queries=True)

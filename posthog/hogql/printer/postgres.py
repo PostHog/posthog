@@ -12,6 +12,7 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_HANDLERS_LOWER,
@@ -166,6 +167,9 @@ class PostgresPrinter(BasePrinter):
         order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
 
         func_name = node.name.lower()
+
+        if func_name == "sha1":
+            validate_function_args(node.args, 1, 1, node.name)
 
         handler = function_handlers.get(func_name)
         if handler is not None:
