@@ -70,6 +70,7 @@ from posthog.tasks.usage_report import (
     get_instance_metadata,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
@@ -3558,7 +3559,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             assert team_1_report[field] == value, field
 
     def _logs_records_json(
-        self, team_id: int, sdk_name: str | None, count: int, timestamp: datetime | None = None
+        self, team_id: int, sdk_name: str | None, count: int, timestamp: datetime | None = None, pattern: str = ""
     ) -> str:
         resource_attributes = {"telemetry.sdk.name": sdk_name} if sdk_name is not None else {}
         lines = ""
@@ -3575,6 +3576,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                         "severity_number": 9,
                         "service_name": "test-service",
                         "resource_attributes": resource_attributes,
+                        "pattern": pattern,
                     }
                 )
                 + "\n"
@@ -3606,6 +3608,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ios", 2)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-android", 1)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ruby", 7)
+        lines += self._logs_records_json(self.org_1_team_1.id, None, 1, pattern="payment <*> failed")
         lines += self._logs_records_json(self.org_1_team_2.id, "posthog-react-native", 4)
         lines += self._logs_records_json(self.org_1_team_2.id, "posthog-node", 5)
         lines += self._logs_records_json(self.org_1_team_2.id, None, 6)
@@ -3633,6 +3636,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             for sdk, expected in per_sdk.items():
                 field = f"{sdk}_logs_records_in_period"
                 assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
+
+        assert org_1_report["teams"]["3"]["logs_distinct_patterns_in_period"] == 1
+        assert org_1_report["teams"]["5"]["logs_distinct_patterns_in_period"] == 0
 
     @parameterized.expand([("aligned", 0, 0), ("partial_buckets", 3, 7)])
     def test_sdk_logs_counts_respect_period_and_team(self, _name: str, minute: int, second: int) -> None:
@@ -3666,6 +3672,16 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         }
         assert get_teams_with_sdk_logs_records_in_period(begin, end, [team_id]) == expected
         assert get_teams_with_sdk_logs_records_in_period(begin, end, []) == {sdk: [] for sdk in expected}
+
+        lines = self._logs_records_json(team_id, None, 2, begin, pattern="user <*> logged in")
+        lines += self._logs_records_json(team_id, None, 1, end - timedelta(seconds=1), pattern="cache miss <*>")
+        lines += self._logs_records_json(team_id, None, 1, begin - timedelta(seconds=1), pattern="before period")
+        lines += self._logs_records_json(team_id, None, 1, end, pattern="at period end")
+        lines += self._logs_records_json(other_team_id, None, 1, begin, pattern="other team")
+        sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{lines}")
+
+        assert get_teams_with_logs_distinct_patterns_in_period(begin, end, [team_id]) == [(team_id, 2)]
+        assert get_teams_with_logs_distinct_patterns_in_period(begin, end, []) == []
 
     @parameterized.expand(
         [

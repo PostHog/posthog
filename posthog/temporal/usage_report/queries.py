@@ -72,6 +72,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_hog_function_calls_in_period,
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
@@ -208,6 +209,12 @@ def _sdk_logs_records(begin: datetime, end: datetime) -> dict[str, list[tuple[in
     """
     team_ids_with_logs = [int(row[0]) for row in get_teams_with_logs_records_in_period(begin, end)]
     return get_teams_with_sdk_logs_records_in_period(begin, end, team_ids_with_logs=team_ids_with_logs)
+
+
+def _logs_distinct_patterns(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    """Wrap `get_teams_with_logs_distinct_patterns_in_period` with the same team pre-filter as `_sdk_logs_records`."""
+    team_ids_with_logs = [int(row[0]) for row in get_teams_with_logs_records_in_period(begin, end)]
+    return get_teams_with_logs_distinct_patterns_in_period(begin, end, team_ids_with_logs=team_ids_with_logs)
 
 
 def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
@@ -561,6 +568,10 @@ QUERIES: list[QuerySpec] = [
             "flutter": "teams_with_flutter_logs_records_in_period",
             "ruby": "teams_with_ruby_logs_records_in_period",
         },
+    ),
+    QuerySpec(
+        name="teams_with_logs_distinct_patterns_in_period",
+        fn=_logs_distinct_patterns,
     ),
     QuerySpec(
         name="logs_retention_bytes",
