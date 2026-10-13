@@ -3,14 +3,18 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import finnhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.finnhub import (
-    FINNHUB_BASE_URL,
     FinnhubRowCapExceededError,
     _expand_columnar,
     _extract_rows,
@@ -19,10 +23,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.fi
     _request_params,
     _to_date,
     finnhub_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.settings import FINNHUB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
+    FinnhubSourceConfig,
+)
+
+
+def _driver(**overrides: Any) -> SourceDriver:
+    config: dict[str, Any] = {"api_key": "k", "symbols": "AAPL", "indices": "^GSPC", "exchange": "US"}
+    config.update(overrides)
+    return SourceDriver(FinnhubSource(), FinnhubSourceConfig.from_dict(config))
 
 
 class TestParseSymbols:
@@ -116,121 +129,83 @@ class TestRequestParams:
 
 
 class TestGetRows:
-    @staticmethod
-    def _patch_fetch(monkeypatch: Any, by_symbol: dict[str | None, Any]) -> list[dict[str, Any]]:
-        calls: list[dict[str, Any]] = []
-
-        def fake_fetch(session: Any, path: str, params: dict[str, Any], logger: Any) -> Any:
-            calls.append({"path": path, "params": params})
-            return by_symbol[params.get("symbol")]
-
-        monkeypatch.setattr(finnhub, "_fetch", fake_fetch)
-        monkeypatch.setattr(finnhub, "make_tracked_session", lambda **_: MagicMock())
-        return calls
-
-    def test_market_wide_endpoint_single_request(self, monkeypatch: Any) -> None:
-        self._patch_fetch(monkeypatch, {None: [{"symbol": "AAPL"}, {"symbol": "MSFT"}]})
-        batches = list(get_rows(api_key="k", endpoint="stock_symbols", symbols=None, exchange="US", logger=MagicMock()))
-        assert batches == [[{"symbol": "AAPL"}, {"symbol": "MSFT"}]]
-
-    def test_fan_out_one_request_per_symbol_injecting_symbol(self, monkeypatch: Any) -> None:
-        calls = self._patch_fetch(
-            monkeypatch,
-            {"AAPL": {"c": 1.0}, "MSFT": {"c": 2.0}},
+    def test_market_wide_endpoint_single_request(self) -> None:
+        result = _driver(symbols=None).run(
+            "stock_symbols", [ScriptedResponse(json=[{"symbol": "AAPL"}, {"symbol": "MSFT"}])]
         )
-        batches = list(get_rows(api_key="k", endpoint="quote", symbols="AAPL, MSFT", exchange="US", logger=MagicMock()))
+        assert result.raised is None
+        assert result.items == [[{"symbol": "AAPL"}, {"symbol": "MSFT"}]]
+        assert result.paths == ["/api/v1/stock/symbol"]
+
+    def test_fan_out_one_request_per_symbol_injecting_symbol(self) -> None:
+        result = _driver(symbols="AAPL, MSFT").run(
+            "quote", [ScriptedResponse(json={"c": 1.0}), ScriptedResponse(json={"c": 2.0})]
+        )
         # One batch per symbol, each carrying the injected ticker (quote omits it upstream).
-        assert batches == [[{"c": 1.0, "symbol": "AAPL"}], [{"c": 2.0, "symbol": "MSFT"}]]
-        assert [c["params"]["symbol"] for c in calls] == ["AAPL", "MSFT"]
+        assert result.raised is None
+        assert result.items == [[{"c": 1.0, "symbol": "AAPL"}], [{"c": 2.0, "symbol": "MSFT"}]]
+        assert result.params("symbol") == ["AAPL", "MSFT"]
 
-    def test_company_news_sorted_ascending_and_symbol_injected(self, monkeypatch: Any) -> None:
-        self._patch_fetch(
-            monkeypatch,
-            {"AAPL": [{"id": 2, "datetime": 200}, {"id": 1, "datetime": 100}]},
+    def test_company_news_sorted_ascending_and_symbol_injected(self) -> None:
+        result = _driver().run(
+            "company_news", [ScriptedResponse(json=[{"id": 2, "datetime": 200}, {"id": 1, "datetime": 100}])]
         )
-        batches = list(
-            get_rows(
-                api_key="k",
-                endpoint="company_news",
-                symbols="AAPL",
-                exchange="US",
-                logger=MagicMock(),
-            )
-        )
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [
                 {"id": 1, "datetime": 100, "symbol": "AAPL"},
                 {"id": 2, "datetime": 200, "symbol": "AAPL"},
             ]
         ]
 
-    def test_company_news_missing_datetime_raises(self, monkeypatch: Any) -> None:
+    def test_company_news_missing_datetime_raises(self) -> None:
         # `datetime` is the incremental watermark — a row missing it must fail loudly rather
         # than silently sorting to epoch 0 and corrupting the checkpoint.
-        self._patch_fetch(monkeypatch, {"AAPL": [{"id": 1, "datetime": 100}, {"id": 2}]})
-        with pytest.raises(KeyError):
-            list(get_rows(api_key="k", endpoint="company_news", symbols="AAPL", exchange="US", logger=MagicMock()))
+        result = _driver().run("company_news", [ScriptedResponse(json=[{"id": 1, "datetime": 100}, {"id": 2}])])
+        assert isinstance(result.raised, KeyError)
 
-    def test_candles_emitted_as_rows_with_symbol(self, monkeypatch: Any) -> None:
-        self._patch_fetch(
-            monkeypatch,
-            {"AAPL": {"s": "ok", "t": [200, 100], "c": [2.0, 1.0]}},
-        )
-        batches = list(
-            get_rows(api_key="k", endpoint="stock_candles", symbols="AAPL", exchange="US", logger=MagicMock())
-        )
+    def test_candles_emitted_as_rows_with_symbol(self) -> None:
+        result = _driver().run("stock_candles", [ScriptedResponse(json={"s": "ok", "t": [200, 100], "c": [2.0, 1.0]})])
         # Sorted ascending on the declared `t` watermark, with the requested ticker injected.
-        assert batches == [[{"t": 100, "c": 1.0, "symbol": "AAPL"}, {"t": 200, "c": 2.0, "symbol": "AAPL"}]]
+        assert result.raised is None
+        assert result.items == [[{"t": 100, "c": 1.0, "symbol": "AAPL"}, {"t": 200, "c": 2.0, "symbol": "AAPL"}]]
 
-    def test_raises_when_a_response_hits_the_documented_cap(self, monkeypatch: Any) -> None:
+    def test_raises_when_a_response_hits_the_documented_cap(self) -> None:
         # Insider transactions cap at 100 rows per call with no pagination — a full page means
         # the API silently dropped the rest of the window. Emitting that subset would let the
         # cursor advance past the missing rows, so the sync must fail instead of checkpointing.
         rows = [{"symbol": "AAPL", "transactionDate": f"2024-01-{i % 28 + 1:02d}"} for i in range(100)]
-        self._patch_fetch(monkeypatch, {"AAPL": {"data": rows}})
         logger = MagicMock()
-        with pytest.raises(FinnhubRowCapExceededError):
-            list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
+        result = _driver().run("insider_transactions", [ScriptedResponse(json={"data": rows})], logger=logger)
+        assert isinstance(result.raised, FinnhubRowCapExceededError)
         logger.error.assert_called_once()
 
-    def test_index_constituents_fan_out_over_indices_injecting_the_index(self, monkeypatch: Any) -> None:
-        calls = self._patch_fetch(
-            monkeypatch,
-            {"^GSPC": {"constituentsBreakdown": [{"symbol": "AAPL", "weight": 7.0}]}},
-        )
-        batches = list(
-            get_rows(
-                api_key="k",
-                endpoint="index_constituents",
-                symbols="MSFT",
-                exchange="US",
-                logger=MagicMock(),
-                indices="^GSPC",
-            )
+    def test_index_constituents_fan_out_over_indices_injecting_the_index(self) -> None:
+        result = _driver(symbols="MSFT").run(
+            "index_constituents",
+            [ScriptedResponse(json={"constituentsBreakdown": [{"symbol": "AAPL", "weight": 7.0}]})],
         )
         # The fan-out reads Indices, not Symbols, and the constituent keeps its own `symbol`.
-        assert [c["params"]["symbol"] for c in calls] == ["^GSPC"]
-        assert batches == [[{"symbol": "AAPL", "weight": 7.0, "index_symbol": "^GSPC"}]]
+        assert result.raised is None
+        assert result.params("symbol") == ["^GSPC"]
+        assert result.items == [[{"symbol": "AAPL", "weight": 7.0, "index_symbol": "^GSPC"}]]
 
-    def test_index_constituents_with_no_indices_yields_nothing_and_warns(self, monkeypatch: Any) -> None:
+    def test_index_constituents_with_no_indices_yields_nothing_and_warns(self) -> None:
         # A configured Symbols list must not be mistaken for an index list.
-        self._patch_fetch(monkeypatch, {})
         logger = MagicMock()
-        batches = list(
-            get_rows(api_key="k", endpoint="index_constituents", symbols="AAPL", exchange="US", logger=logger)
-        )
-        assert batches == []
+        result = _driver(indices=None).run("index_constituents", [], logger=logger)
+        assert result.raised is None
+        assert result.items == []
+        assert result.requests == []
         assert "Indices" in logger.warning.call_args[0][0]
 
-    def test_calendar_unwraps_data_key(self, monkeypatch: Any) -> None:
-        self._patch_fetch(
-            monkeypatch,
-            {None: {"earningsCalendar": [{"symbol": "AAPL", "date": "2024-01-01"}]}},
+    def test_calendar_unwraps_data_key(self) -> None:
+        result = _driver(symbols=None).run(
+            "earnings_calendar",
+            [ScriptedResponse(json={"earningsCalendar": [{"symbol": "AAPL", "date": "2024-01-01"}]})],
         )
-        batches = list(
-            get_rows(api_key="k", endpoint="earnings_calendar", symbols=None, exchange="US", logger=MagicMock())
-        )
-        assert batches == [[{"symbol": "AAPL", "date": "2024-01-01"}]]
+        assert result.raised is None
+        assert result.items == [[{"symbol": "AAPL", "date": "2024-01-01"}]]
 
 
 class TestFinnhubSource:
@@ -318,15 +293,6 @@ class TestFetch:
 
 
 class TestValidateCredentials:
-    @staticmethod
-    def _session(status_code: int | None) -> MagicMock:
-        session = MagicMock()
-        if status_code is None:
-            session.get.side_effect = Exception("connection refused")
-        else:
-            session.get.return_value = MagicMock(status_code=status_code)
-        return session
-
     @parameterized.expand(
         [
             ("ok", 200, None, True),
@@ -334,23 +300,24 @@ class TestValidateCredentials:
             ("forbidden_at_create_is_accepted", 403, None, True),
             ("forbidden_for_schema_is_rejected", 403, "quote", False),
             ("server_error", 500, None, False),
+            ("bad_request", 400, None, False),
             ("connection_error", None, None, False),
         ]
     )
     def test_validate_credentials(
         self, _name: str, status_code: int | None, schema_name: str | None, expected_valid: bool
     ) -> None:
-        session = self._session(status_code)
-        with patch.object(finnhub, "make_tracked_session", lambda **_: session):
+        answer = ConnectionError("connection refused") if status_code is None else ScriptedResponse(status=status_code)
+        with scripted_network([answer]):
             valid, _msg = validate_credentials("key", schema_name)
         assert valid is expected_valid
 
     def test_validate_credentials_probes_quote(self) -> None:
-        session = self._session(200)
-        with patch.object(finnhub, "make_tracked_session", lambda **_: session):
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("key")
-        called_url = session.get.call_args[0][0]
-        assert called_url == f"{FINNHUB_BASE_URL}/quote"
+        assert network.requests_log[0].path == "/api/v1/quote"
+        assert network.requests_log[0].param("symbol") == "AAPL"
+        assert network.requests_log[0].headers["x-finnhub-token"] == "key"
 
 
 if __name__ == "__main__":

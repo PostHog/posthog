@@ -1,33 +1,31 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksell import (
+    ZendeskSellSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.source import ZendeskSellSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.zendesk_sell import (
     PER_PAGE,
     ZendeskSellResumeConfig,
     ZendeskSellUntrustedURLError,
     _validate_pagination_url,
     validate_credentials,
-    zendesk_sell_source,
 )
-
-# The RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the zendesk_sell module.
-ZENDESK_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.zendesk_sell.make_tracked_session"
-)
-# Where tenacity sleeps between retries — patch so the retry loop doesn't actually block.
-TENACITY_SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 FIRST_URL = "https://api.getbase.com/v2/contacts"
 PAGE_2_URL = "https://api.getbase.com/v2/contacts?page=2&per_page=100"
@@ -44,154 +42,80 @@ def _envelope(records: list[dict[str, Any]], next_page: str | None) -> dict[str,
     }
 
 
-def _response(body: dict[str, Any], status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    resp.url = FIRST_URL
-    return resp
+def _response(body: dict[str, Any], status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
-def _make_manager(resume_state: ZendeskSellResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Any]) -> tuple[list[str | None], list[dict[str, Any]]]:
-    """Wire a mock session and capture each request's URL and params AT SEND TIME.
-
-    ``request.url``/``request.params`` are mutated in place across pages (the next-page URL replaces
-    the previous one), so inspecting them after the run shows only the final state — snapshot at
-    prepare_request time instead. ``responses`` may hold ``Response`` objects or a callable side_effect.
-    """
-    session.headers = {}
-    url_snapshots: list[str | None] = []
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        url_snapshots.append(request.url)
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return url_snapshots, param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return zendesk_sell_source(
-        access_token="token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job",
-        resumable_source_manager=manager,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _run(script: Any, resume_state: ZendeskSellResumeConfig | None = None) -> DriveResult:
+    driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+    return driver.run("contacts", script, resume_state=resume_state)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_only_when_more_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_checkpoints_only_when_more_pages_remain(self) -> None:
+        result = _run(
             [
                 _response(_envelope([{"id": 1}], next_page=PAGE_2_URL)),
                 _response(_envelope([{"id": 2}], next_page=None)),
-            ],
+            ]
         )
-
-        manager = _make_manager()
-        _rows(_source("contacts", manager))
 
         # Exactly one checkpoint: after the first page (which had a next_page). The final page must not
         # persist state, so a completed sync leaves nothing to resume into.
-        manager.save_state.assert_called_once_with(ZendeskSellResumeConfig(next_url=PAGE_2_URL))
+        assert result.saved_states == [ZendeskSellResumeConfig(next_url=PAGE_2_URL)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, _params = _wire(session, [_response(_envelope([{"id": 2}], next_page=None))])
-
-        manager = _make_manager(ZendeskSellResumeConfig(next_url=PAGE_2_URL))
-        rows = _rows(_source("contacts", manager))
+    def test_resumes_from_saved_next_url(self) -> None:
+        result = _run(
+            [_response(_envelope([{"id": 2}], next_page=None))],
+            resume_state=ZendeskSellResumeConfig(next_url=PAGE_2_URL),
+        )
 
         # The initial page is never requested — only the saved next_url is fetched.
-        assert rows == [{"id": 2}]
-        assert session.send.call_count == 1
-        assert urls[0] == PAGE_2_URL
+        assert result.rows == [{"id": 2}]
+        assert result.urls == [PAGE_2_URL]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_item_without_data_fails_fast(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_item_without_data_fails_fast(self) -> None:
         # Every envelope item must carry `data`; a missing key is a malformed response and must raise
         # rather than silently drop the record.
-        _wire(session, [_response({"items": [{"meta": {"type": "contact"}}], "meta": {"links": {}}})])
+        result = _run([_response({"items": [{"meta": {"type": "contact"}}], "meta": {"links": {}}})])
 
-        with pytest.raises(KeyError):
-            _rows(_source("contacts", _make_manager()))
+        assert isinstance(result.raised, KeyError)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_hostile_upstream_next_page_is_rejected(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_envelope([{"id": 1}], next_page="https://evil.example.com/v2/contacts"))])
+    def test_hostile_upstream_next_page_is_rejected(self) -> None:
+        result = _run([_response(_envelope([{"id": 1}], next_page="https://evil.example.com/v2/contacts"))])
 
-        manager = _make_manager()
-        with pytest.raises(ZendeskSellUntrustedURLError):
-            _rows(_source("contacts", manager))
+        assert isinstance(result.raised, ZendeskSellUntrustedURLError)
         # The poisoned link must not be persisted as resume state.
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_hostile_resumed_next_url_is_rejected(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [])
+    def test_hostile_resumed_next_url_is_rejected(self) -> None:
+        result = _run([], resume_state=ZendeskSellResumeConfig(next_url="https://evil.example.com/v2/contacts"))
 
-        manager = _make_manager(ZendeskSellResumeConfig(next_url="https://evil.example.com/v2/contacts"))
-        with pytest.raises(ZendeskSellUntrustedURLError):
-            _rows(_source("contacts", manager))
+        assert isinstance(result.raised, ZendeskSellUntrustedURLError)
         # A poisoned resume state must never reach the network with the bearer token.
-        session.send.assert_not_called()
+        assert result.requests == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bearer_token_registered_for_redaction(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_envelope([{"id": 1}], next_page=None))])
-
-        _rows(_source("contacts", _make_manager()))
+    def test_bearer_token_registered_for_redaction(self) -> None:
+        result = _run([_response(_envelope([{"id": 1}], next_page=None))])
 
         # The token flows through framework auth, which registers it for value-based log/error redaction.
-        assert MockSession.call_args.kwargs["redact_values"] == ("token",)
+        assert result.session_options[0]["redact_values"] == ("token",)
 
 
 class TestRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(TENACITY_SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_retry_then_raise(self, _name: str, status: int, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [])
-        session.send.side_effect = lambda *a, **k: _response({}, status=status)
+    def test_retryable_statuses_retry_then_raise(self, _name: str, status: int) -> None:
+        result = _run(always(_response({}, status=status)))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("contacts", _make_manager()))
+        assert isinstance(result.raised, RESTClientRetryableError)
         # Retried up to the client's attempt budget rather than failing on the first transient error.
-        assert session.send.call_count > 1
+        assert len(result.requests) > 1
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_http_error(self, _name: str, status: int, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [])
-        session.send.side_effect = [_response({}, status=status)]
+    def test_client_errors_raise_http_error(self, _name: str, status: int) -> None:
+        result = _run([_response({}, status=status)])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("contacts", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestValidatePaginationUrl:
@@ -222,14 +146,12 @@ class TestValidatePaginationUrl:
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(ZENDESK_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("token") is expected
+    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+        with scripted_network(always(_response({}, status=status))):
+            assert validate_credentials("token") is expected
 
-    @mock.patch(ZENDESK_SESSION_PATCH)
-    def test_probe_session_redacts_token_and_disables_redirects(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret-token")
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+    def test_probe_session_redacts_token_and_disables_redirects(self) -> None:
+        with scripted_network(always(_response({}))) as network:
+            validate_credentials("secret-token")
+        assert network.session_options[0]["redact_values"] == ("secret-token",)
+        assert network.session_options[0]["allow_redirects"] is False

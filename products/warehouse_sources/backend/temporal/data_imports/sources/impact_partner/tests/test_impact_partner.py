@@ -1,53 +1,45 @@
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Optional
 
 import time_machine
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner import impact_partner
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impactpartner import (
+    ImpactPartnerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.impact_partner import (
     ImpactPartnerResumeConfig,
     _windows_for_actions,
-    get_rows,
-    impact_partner_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.source import ImpactPartnerSource
 
 API_VERSION = "16"
 
 
-class FakeResumableManager:
-    """Minimal stand-in for ResumableSourceManager that records saved state in memory."""
-
-    def __init__(self, state: Optional[ImpactPartnerResumeConfig] = None):
-        self.state = state
-        self.saved: list[ImpactPartnerResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[ImpactPartnerResumeConfig]:
-        return self.state
-
-    def save_state(self, data: ImpactPartnerResumeConfig) -> None:
-        self.saved.append(data)
+def _driver() -> SourceDriver:
+    return SourceDriver(ImpactPartnerSource(), ImpactPartnerSourceConfig(account_sid="sid", auth_token="token"))
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
-        with patch.object(impact_partner, "make_tracked_session") as mock_session:
-            mock_session.return_value.headers = {}
-            response = MagicMock()
-            response.status_code = status
-            mock_session.return_value.get.return_value = response
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("sid", "token", API_VERSION) is expected
 
+        assert network.requests_log[0].path == "/Mediapartners/sid/Campaigns"
+        assert network.requests_log[0].param("PageSize") == "1"
+        assert network.requests_log[0].headers["ir-version"] == API_VERSION
+
     def test_exception_is_false(self) -> None:
-        with patch.object(impact_partner, "make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
+        with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("sid", "token", API_VERSION) is False
 
 
@@ -65,77 +57,56 @@ class TestWindowsForActions:
 
 class TestGetRowsSimple:
     def test_multi_page_endpoint_saves_state_per_page(self) -> None:
-        manager = FakeResumableManager()
-        responses = [
-            {"Campaigns": [{"CampaignId": "1"}], "@numpages": "2"},
-            {"Campaigns": [{"CampaignId": "2"}], "@numpages": "2"},
-        ]
-        with (
-            patch.object(impact_partner, "_get_session"),
-            patch.object(impact_partner, "_fetch", side_effect=responses),
-        ):
-            batches = list(get_rows("sid", "token", "Campaigns", API_VERSION, MagicMock(), manager))  # type: ignore[arg-type]
-        assert batches == [[{"CampaignId": "1"}], [{"CampaignId": "2"}]]
-        assert [s.page for s in manager.saved] == [1, 2]
+        result = _driver().run(
+            "Campaigns",
+            [
+                ScriptedResponse(json={"Campaigns": [{"CampaignId": "1"}], "@numpages": "2"}),
+                ScriptedResponse(json={"Campaigns": [{"CampaignId": "2"}], "@numpages": "2"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"CampaignId": "1"}], [{"CampaignId": "2"}]]
+        assert result.paths == ["/Mediapartners/sid/Campaigns"] * 2
+        assert result.params("Page") == ["1", "2"]
+        assert result.saved_states == [ImpactPartnerResumeConfig(page=1), ImpactPartnerResumeConfig(page=2)]
 
     def test_invoices_incremental_param_sent(self) -> None:
-        manager = FakeResumableManager()
-        with (
-            patch.object(impact_partner, "_get_session"),
-            patch.object(impact_partner, "_fetch", return_value={"Invoices": [], "@numpages": "1"}) as mock_fetch,
-        ):
-            list(
-                get_rows(
-                    "sid",
-                    "token",
-                    "Invoices",
-                    API_VERSION,
-                    MagicMock(),
-                    manager,  # type: ignore[arg-type]
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value="2026-01-01T00:00:00",
-                )
-            )
-        assert mock_fetch.call_args.args[3]["StartDate"] == "2026-01-01T00:00:00Z"
+        result = _driver().run(
+            "Invoices",
+            [ScriptedResponse(json={"Invoices": [], "@numpages": "1"})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00",
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("StartDate") == "2026-01-01T00:00:00Z"
 
 
 class TestGetRowsActions:
     @time_machine.travel("2026-06-01", tick=False)
     def test_windows_walked_with_paired_date_params_and_no_campaign_filter(self) -> None:
-        manager = FakeResumableManager()
-        seen_params: list[dict[str, Any]] = []
+        # A cursor 60 days back spans two 44-day windows.
+        result = _driver().run(
+            "Actions",
+            always(ScriptedResponse(json={"Actions": [{"Id": "a1"}], "@numpages": "1"})),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 4, 2, tzinfo=UTC),
+        )
 
-        def fake_fetch(session: Any, account_sid: str, path: str, params: Any, logger: Any) -> Any:
-            assert path == "/Actions"
-            seen_params.append(params)
-            return {"Actions": [{"Id": f"a{len(seen_params)}"}], "@numpages": "1"}
-
-        with (
-            patch.object(impact_partner, "_get_session"),
-            patch.object(impact_partner, "_fetch", side_effect=fake_fetch),
-        ):
-            # A cursor 60 days back spans two 44-day windows.
-            batches = list(
-                get_rows(
-                    "sid",
-                    "token",
-                    "Actions",
-                    API_VERSION,
-                    MagicMock(),
-                    manager,  # type: ignore[arg-type]
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 4, 2, tzinfo=UTC),
-                )
-            )
-
-        assert len(batches) == 2
-        starts = [params["ActionDateStart"] for params in seen_params]
-        assert starts == sorted(starts)
-        for params in seen_params:
-            assert "ActionDateEnd" in params
-            assert "CampaignId" not in params
+        assert result.raised is None
+        assert len(result.items) == 2
+        starts = result.params("ActionDateStart")
+        assert starts == sorted(starts, key=lambda value: value or "")
+        for request in result.requests:
+            assert request.path == "/Mediapartners/sid/Actions"
+            assert request.param("ActionDateEnd") is not None
+            assert request.param("CampaignId") is None
         # One save per page, each bookmarking its window.
-        assert [(s.window_start is not None, s.page) for s in manager.saved] == [(True, 1), (True, 1)]
+        assert [(state.window_start is not None, state.page) for state in result.saved_states] == [
+            (True, 1),
+            (True, 1),
+        ]
 
     @time_machine.travel("2026-06-01", tick=False)
     def test_resume_skips_earlier_windows_and_starts_at_saved_page(self) -> None:
@@ -143,62 +114,31 @@ class TestGetRowsActions:
         cursor = datetime(2026, 4, 2, tzinfo=UTC)
         windows = _windows_for_actions(True, cursor)
         assert len(windows) == 2
-        manager = FakeResumableManager(state=ImpactPartnerResumeConfig(page=2, window_start=windows[1][0].isoformat()))
-        seen: list[tuple[str, int]] = []
-
-        def fake_fetch(session: Any, account_sid: str, path: str, params: Any, logger: Any) -> Any:
-            seen.append((params["ActionDateStart"], params["Page"]))
-            return {"Actions": [], "@numpages": "2"}
-
-        with (
-            patch.object(impact_partner, "_get_session"),
-            patch.object(impact_partner, "_fetch", side_effect=fake_fetch),
-        ):
-            list(
-                get_rows(
-                    "sid",
-                    "token",
-                    "Actions",
-                    API_VERSION,
-                    MagicMock(),
-                    manager,  # type: ignore[arg-type]
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=cursor,
-                )
-            )
+        result = _driver().run(
+            "Actions",
+            [ScriptedResponse(json={"Actions": [], "@numpages": "2"})],
+            resume_state=ImpactPartnerResumeConfig(page=2, window_start=windows[1][0].isoformat()),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cursor,
+        )
 
         # Only the bookmarked window is fetched, from its saved page onward.
-        assert seen == [(impact_partner._format_datetime(windows[1][0]), 2)]
+        assert result.raised is None
+        assert result.params("ActionDateStart") == ["2026-05-16T00:00:00Z"]
+        assert result.params("Page") == ["2"]
 
     @time_machine.travel("2026-06-01", tick=False)
     def test_stale_bookmark_restarts_from_the_first_window(self) -> None:
-        manager = FakeResumableManager(
-            state=ImpactPartnerResumeConfig(page=5, window_start="2020-01-01T00:00:00+00:00")
+        result = _driver().run(
+            "Actions",
+            [ScriptedResponse(json={"Actions": [], "@numpages": "1"})],
+            resume_state=ImpactPartnerResumeConfig(page=5, window_start="2020-01-01T00:00:00+00:00"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 31, tzinfo=UTC),
         )
-        seen_pages: list[int] = []
 
-        def fake_fetch(session: Any, account_sid: str, path: str, params: Any, logger: Any) -> Any:
-            seen_pages.append(params["Page"])
-            return {"Actions": [], "@numpages": "1"}
-
-        with (
-            patch.object(impact_partner, "_get_session"),
-            patch.object(impact_partner, "_fetch", side_effect=fake_fetch),
-        ):
-            list(
-                get_rows(
-                    "sid",
-                    "token",
-                    "Actions",
-                    API_VERSION,
-                    MagicMock(),
-                    manager,  # type: ignore[arg-type]
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 5, 31, tzinfo=UTC),
-                )
-            )
-
-        assert seen_pages == [1]
+        assert result.raised is None
+        assert result.params("Page") == ["1"]
 
 
 class TestImpactPartnerSourceResponse:
@@ -210,7 +150,16 @@ class TestImpactPartnerSourceResponse:
         ]
     )
     def test_source_response_shape(self, endpoint: str, expected_pks: list[str], partition_key: Optional[str]) -> None:
-        response = impact_partner_source("sid", "token", endpoint, API_VERSION, MagicMock(), FakeResumableManager())  # type: ignore[arg-type]
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={endpoint: [], "@numpages": "1"})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(9999, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
         if partition_key:

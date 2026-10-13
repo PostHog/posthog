@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 import time_machine
@@ -13,79 +13,53 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.clickhouse_cloud import (
     ClickhouseCloudResumeConfig,
     _coerce_date,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
     ClickhouseCloudSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhousecloud import (
+    ClickhouseCloudSourceConfig,
+)
 
 ORG = {"id": "org-1", "createdAt": "2026-05-01T10:00:00Z", "name": "Acme"}
 
 
-class _FakeResumableManager:
-    def __init__(self, state: ClickhouseCloudResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[ClickhouseCloudResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> ClickhouseCloudResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: ClickhouseCloudResumeConfig) -> None:
-        self.saved.append(data)
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        ClickhouseCloudSource(), ClickhouseCloudSourceConfig(key_id="test-key-id", key_secret="test-key-secret")
+    )
 
 
-def _collect(
-    monkeypatch: Any,
-    handler: Any,
-    endpoint: str,
-    manager: _FakeResumableManager | None = None,
-    **kw: Any,
-) -> tuple[list[dict], list[str]]:
-    calls: list[str] = []
-
-    def fake_fetch(session: Any, url: str, logger: Any) -> dict:
-        calls.append(url)
-        return handler(url)
-
-    monkeypatch.setattr(clickhouse_cloud, "_fetch", fake_fetch)
-    monkeypatch.setattr(clickhouse_cloud, "make_tracked_session", lambda **_: MagicMock())
-
-    rows: list[dict] = []
-    for batch in get_rows(
-        key_id="test-key-id",
-        key_secret="test-key-secret",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager or _FakeResumableManager(),  # type: ignore[arg-type]
-        **kw,
-    ):
-        rows.extend(batch)
-    return rows, calls
-
-
-def _usage_cost_handler(records_by_from_date: dict[str, list[dict]] | None = None) -> Any:
-    def handler(url: str) -> dict:
-        if url.endswith("/v1/organizations"):
-            return {"result": [ORG]}
-        params = parse_qs(urlparse(url).query)
-        from_date = params["from_date"][0]
-        records = (records_by_from_date or {}).get(from_date, [])
-        return {"result": {"grandTotalCHC": 0, "costs": records}}
+def _usage_cost_handler(
+    records_by_from_date: dict[str, list[dict[str, Any]]] | None = None,
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def handler(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/organizations":
+            return ScriptedResponse(json={"result": [ORG]})
+        assert request.path == "/v1/organizations/org-1/usageCost"
+        records = (records_by_from_date or {}).get(request.param("from_date") or "", [])
+        return ScriptedResponse(json={"result": {"grandTotalCHC": 0, "costs": records}})
 
     return handler
 
 
-def _window_params(calls: list[str]) -> list[tuple[date, date]]:
-    windows = []
-    for url in calls:
-        if "usageCost" not in url:
+def _window_params(requests_log: list[RecordedRequest]) -> list[tuple[date, date]]:
+    windows: list[tuple[date, date]] = []
+    for request in requests_log:
+        if "usageCost" not in request.path:
             continue
-        params = parse_qs(urlparse(url).query)
-        windows.append((date.fromisoformat(params["from_date"][0]), date.fromisoformat(params["to_date"][0])))
+        from_date = request.param("from_date")
+        to_date = request.param("to_date")
+        assert from_date is not None and to_date is not None
+        windows.append((date.fromisoformat(from_date), date.fromisoformat(to_date)))
     return windows
 
 
@@ -95,11 +69,12 @@ class TestUsageCostWindowing:
         with time_machine.travel("2026-07-15", tick=False):
             yield
 
-    def test_full_refresh_windows_are_contiguous_and_capped_at_31_days(self, monkeypatch: Any) -> None:
+    def test_full_refresh_windows_are_contiguous_and_capped_at_31_days(self) -> None:
         # A window longer than 31 days is rejected by the API with a 400, and overlapping windows
         # would yield duplicate rows within a single sync (merge only dedupes across syncs).
-        _, calls = _collect(monkeypatch, _usage_cost_handler(), "usage_cost")
-        windows = _window_params(calls)
+        result = _driver().run("usage_cost", _usage_cost_handler())
+        assert result.raised is None
+        windows = _window_params(result.requests)
 
         assert windows[0][0] == date(2026, 5, 1)  # starts at the org's createdAt
         assert windows[-1][1] == date(2026, 7, 15)  # walks all the way to today
@@ -108,21 +83,25 @@ class TestUsageCostWindowing:
         for previous, current in zip(windows, windows[1:]):
             assert (current[0] - previous[1]).days == 1  # contiguous, no overlap, no gap
 
-    def test_resume_state_used_and_saved_only_after_yield(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(ClickhouseCloudResumeConfig(organization_id="org-1", from_date="2026-06-20"))
-        _, calls = _collect(monkeypatch, _usage_cost_handler(), "usage_cost", manager=manager)
-        windows = _window_params(calls)
+    def test_resume_state_used_and_saved_only_after_yield(self) -> None:
+        result = _driver().run(
+            "usage_cost",
+            _usage_cost_handler(),
+            resume_state=ClickhouseCloudResumeConfig(organization_id="org-1", from_date="2026-06-20"),
+        )
+        assert result.raised is None
+        windows = _window_params(result.requests)
 
         assert windows[0][0] == date(2026, 6, 20)  # resumed from the bookmark, not createdAt
         # One bookmark per completed non-final window, each pointing at the next window start —
         # a crash re-pulls the last yielded window rather than skipping ahead.
-        assert len(manager.saved) == len(windows) - 1
-        for saved, (_, window_end), (next_start, _) in zip(manager.saved, windows, windows[1:]):
+        assert len(result.saved_states) == len(windows) - 1
+        for saved, (_, window_end), (next_start, _) in zip(result.saved_states, windows, windows[1:]):
             assert saved.organization_id == "org-1"
             assert saved.from_date == next_start.isoformat()
             assert next_start == window_end + timedelta(days=1)
 
-    def test_rows_flatten_metrics_and_stamp_organization_id(self, monkeypatch: Any) -> None:
+    def test_rows_flatten_metrics_and_stamp_organization_id(self) -> None:
         records = [
             {
                 "date": "2026-07-02",
@@ -133,13 +112,14 @@ class TestUsageCostWindowing:
             },
             {"date": "2026-07-01", "entityType": "datawarehouse", "entityId": "dw-1", "totalCHC": 0.5},
         ]
-        rows, _ = _collect(
-            monkeypatch,
-            _usage_cost_handler({"2026-07-01": records}),
+        result = _driver().run(
             "usage_cost",
+            _usage_cost_handler({"2026-07-01": records}),
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2026, 7, 1),
         )
+        assert result.raised is None
+        rows = result.rows
         # Sorted ascending by date so the pipeline's per-batch watermark stays correct.
         assert [r["date"] for r in rows] == ["2026-07-01", "2026-07-02"]
         service_row = rows[1]
@@ -150,88 +130,77 @@ class TestUsageCostWindowing:
 
 
 class TestActivities:
-    def test_incremental_passes_from_date_and_sorts_ascending(self, monkeypatch: Any) -> None:
+    def test_incremental_passes_from_date_and_sorts_ascending(self) -> None:
         activities = [
             {"id": "a-2", "createdAt": "2026-07-02T00:00:00Z", "organizationId": "org-1"},
             {"id": "a-1", "createdAt": "2026-07-01T00:00:00Z", "organizationId": "org-1"},
         ]
 
-        def handler(url: str) -> dict:
-            if url.endswith("/v1/organizations"):
-                return {"result": [ORG]}
-            return {"result": activities}
-
-        rows, calls = _collect(
-            monkeypatch,
-            handler,
+        result = _driver().run(
             "activities",
+            [ScriptedResponse(json={"result": [ORG]}), ScriptedResponse(json={"result": activities})],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 30, tzinfo=UTC),
         )
-        assert "from_date=2026-06-30T00%3A00%3A00.000Z" in calls[1]
-        assert [r["id"] for r in rows] == ["a-1", "a-2"]
+        assert result.raised is None
+        assert result.requests[1].param("from_date") == "2026-06-30T00:00:00.000Z"
+        assert [r["id"] for r in result.rows] == ["a-1", "a-2"]
 
 
 class TestEntityRows:
-    def test_organizations_endpoint_yields_org_rows(self, monkeypatch: Any) -> None:
-        rows, calls = _collect(monkeypatch, lambda url: {"result": [ORG]}, "organizations")
-        assert rows == [ORG]
-        assert len(calls) == 1
+    def test_organizations_endpoint_yields_org_rows(self) -> None:
+        result = _driver().run("organizations", [ScriptedResponse(json={"result": [ORG]})])
+        assert result.raised is None
+        assert result.rows == [ORG]
+        assert result.paths == ["/v1/organizations"]
 
     @parameterized.expand([("services", "/services"), ("api_keys", "/keys"), ("members", "/members")])
     def test_org_id_stamped_onto_child_rows(self, endpoint: str, path_suffix: str) -> None:
         # The composite primary keys ([organizationId, ...]) require every row to carry the parent
         # organization; the API omits it from these list responses.
-        def handler(url: str) -> dict:
-            if url.endswith("/v1/organizations"):
-                return {"result": [ORG]}
-            assert url.endswith(path_suffix)
-            return {"result": [{"id": "child-1", "userId": "user-1"}]}
-
-        with patch.object(clickhouse_cloud, "make_tracked_session", return_value=MagicMock()):
-            with patch.object(clickhouse_cloud, "_fetch", side_effect=lambda _session, url, _logger: handler(url)):
-                rows: list[dict] = []
-                for batch in get_rows("k", "s", endpoint, MagicMock(), _FakeResumableManager()):  # type: ignore[arg-type]
-                    rows.extend(batch)
-        assert rows[0]["organizationId"] == "org-1"
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"result": [ORG]}),
+                ScriptedResponse(json={"result": [{"id": "child-1", "userId": "user-1"}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths[1].endswith(path_suffix)
+        assert result.rows[0]["organizationId"] == "org-1"
 
 
 class TestBackupsFanOut:
-    def test_one_request_per_service_with_ids_stamped(self, monkeypatch: Any) -> None:
-        def handler(url: str) -> dict:
-            if url.endswith("/v1/organizations"):
-                return {"result": [ORG]}
-            if url.endswith("/services"):
-                return {"result": [{"id": "svc-1"}, {"id": "svc-2"}]}
-            if url.endswith("/services/svc-1/backups"):
-                return {"result": [{"id": "b-1", "status": "done"}]}
-            if url.endswith("/services/svc-2/backups"):
-                return {"result": [{"id": "b-2", "status": "done"}]}
-            raise AssertionError(f"unexpected url: {url}")
-
-        rows, calls = _collect(monkeypatch, handler, "backups")
-        assert [(r["organizationId"], r["serviceId"], r["id"]) for r in rows] == [
+    def test_one_request_per_service_with_ids_stamped(self) -> None:
+        result = _driver().run(
+            "backups",
+            [
+                ScriptedResponse(json={"result": [ORG]}),
+                ScriptedResponse(json={"result": [{"id": "svc-1"}, {"id": "svc-2"}]}),
+                ScriptedResponse(json={"result": [{"id": "b-1", "status": "done"}]}),
+                ScriptedResponse(json={"result": [{"id": "b-2", "status": "done"}]}),
+            ],
+        )
+        assert result.raised is None
+        assert [(r["organizationId"], r["serviceId"], r["id"]) for r in result.rows] == [
             ("org-1", "svc-1", "b-1"),
             ("org-1", "svc-2", "b-2"),
         ]
-        assert sum("backups" in url for url in calls) == 2
+        assert sum("backups" in path for path in result.paths) == 2
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key ID/secret.
-        response = MagicMock(status_code=status)
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(clickhouse_cloud, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("key-id", "key-secret") is expected
+        assert [request.path for request in network.requests_log] == ["/v1/organizations"]
 
     def test_network_error_is_invalid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(clickhouse_cloud, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             assert validate_credentials("key-id", "key-secret") is False
+        assert {request.path for request in network.requests_log} == {"/v1/organizations"}
 
 
 class TestFetch:

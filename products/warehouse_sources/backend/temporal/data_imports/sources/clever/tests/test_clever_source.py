@@ -8,6 +8,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clever.set
     CLEVER_API_VERSION_V3_1,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.source import CleverSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clever import CleverSourceConfig
 
@@ -39,6 +44,9 @@ class TestCleverSource:
     def setup_method(self) -> None:
         self.source = CleverSource()
         self.config = CleverSourceConfig(bearer_token="test-token")
+
+    def _driver(self) -> SourceDriver:
+        return SourceDriver(self.source, self.config)
 
     @parameterized.expand(
         [
@@ -90,10 +98,10 @@ class TestCleverSource:
     def test_source_for_pipeline_passes_resolved_api_version(
         self, _name: str, pinned: str | None, expected: str
     ) -> None:
-        with patch.object(source_module, "clever_source") as mock_source:
-            self.source.source_for_pipeline(self.config, MagicMock(), _inputs(api_version=pinned))
+        result = self._driver().run("Districts", [ScriptedResponse(json={"data": [], "links": []})], api_version=pinned)
 
-        assert mock_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.paths == [f"/{expected}/districts"]
 
     @parameterized.expand(
         [
@@ -105,10 +113,12 @@ class TestCleverSource:
     def test_validate_credentials_uses_resolved_api_version(
         self, _name: str, pinned: str | None, expected: str
     ) -> None:
-        with patch.object(source_module, "validate_clever_credentials", return_value=(True, None)) as mock_validate:
-            self.source.validate_credentials(self.config, team_id=1, api_version=pinned)
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            result = self.source.validate_credentials(self.config, team_id=1, api_version=pinned)
 
-        mock_validate.assert_called_once_with("test-token", expected)
+        assert result == (True, None)
+        assert network.requests_log[0].path == f"/{expected}/districts"
+        assert network.requests_log[0].headers["authorization"] == "Bearer test-token"
 
     @parameterized.expand(
         [
@@ -125,11 +135,12 @@ class TestCleverSource:
     def test_source_for_pipeline_partitions_on_the_stable_created_field(
         self, endpoint: str, expected_partition_key: str | None
     ) -> None:
-        with patch.object(source_module, "clever_source") as mock_source:
-            mock_source.return_value.name = endpoint
-            mock_source.return_value.column_hints = None
-            response = self.source.source_for_pipeline(self.config, MagicMock(), _inputs(schema_name=endpoint))
+        result = self._driver().run(endpoint, [ScriptedResponse(json={"data": [], "links": []})])
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
+        assert response.name == endpoint
         if expected_partition_key is None:
             assert response.partition_keys is None
             assert response.partition_mode is None

@@ -1,11 +1,7 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.aircall import (
     AircallResumeConfig,
@@ -13,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.ai
     _build_params,
     _build_url,
     _to_epoch,
-    aircall_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import (
@@ -29,50 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
     AircallSourceConfig,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-
-
-def _response(items_key: str, items: list[dict[str, Any]], next_link: str | None) -> Response:
-    body = {"meta": {"next_page_link": next_link}, items_key: items}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: AircallResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request AT PREPARE TIME.
-
-    ``request.params``/``request.url`` are mutated in place across pages, so inspecting them
-    after the run shows only the final state — snapshot a copy when each request is prepared.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return aircall_source("id", "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
 
 
 def _driver() -> SourceDriver:
@@ -176,25 +127,23 @@ class TestPagination:
         # Boundary row re-emitted; merge on primary key dedupes downstream.
         assert [row["id"] for row in result.rows] == [1, 2, 2]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reanchors_after_cap_records_when_next_link_has_no_page(self, MockSession):
+    def test_reanchors_after_cap_records_when_next_link_has_no_page(self) -> None:
         # A next link the range check can't read (no page number) falls back to counting the
         # records consumed since the window opened.
-        session = MockSession.return_value
         pages = [
-            _response(
+            _page(
                 "contacts",
                 [{"id": page * 50 + index, "created_at": page * 50 + index} for index in range(1, 51)],
                 "https://api.aircall.io/v1/contacts?cursor=opaque",
             )
             for page in range(200)
         ]
-        requests_seen = _wire(session, [*pages, _response("contacts", [{"id": 10000, "created_at": 10000}], None)])
+        result = _driver().run("contacts", [*pages, _page("contacts", [{"id": 10000, "created_at": 10000}], None)])
 
-        _rows(_source("contacts", _make_manager()))
-
-        assert len(requests_seen) == 201
-        assert "from=10000" in requests_seen[200]["url"]
+        assert result.raised is None
+        assert len(result.requests) == 201
+        assert result.requests[200].param("from") == "10000"
+        assert len(result.rows) == 10001
 
     def test_raises_when_a_capped_window_cursor_cannot_advance(self) -> None:
         # Every record in the capped window shares the boundary timestamp, so a re-anchored
