@@ -8,6 +8,7 @@ from functools import cached_property, partial
 from typing import Any, cast
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
@@ -111,6 +112,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
 from products.signals.backend.dismissal_notes import forward_dismissal_note
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
@@ -174,6 +176,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_priority import update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
     ReportReadStateResponseSerializer,
@@ -208,6 +211,7 @@ from products.signals.backend.serializers import (
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
     SignalReportMetricRefreshResponseSerializer,
+    SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
     SignalReportsForYouQuerySerializer,
@@ -885,10 +889,16 @@ class SignalReportMergeResponseSerializer(serializers.Serializer):
 SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 
 
+class SignalReportFeedbackSentiment(models.TextChoices):
+    POSITIVE = "positive", "positive"
+    NEGATIVE = "negative", "negative"
+
+
 class SignalReportFeedbackRequestSerializer(serializers.Serializer):
     sentiment = serializers.ChoiceField(
-        choices=[("positive", "positive"), ("negative", "negative")],
-        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+        choices=SignalReportFeedbackSentiment.choices,
+        allow_null=True,
+        help_text="The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.",
     )
     note = serializers.CharField(
         max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
@@ -902,6 +912,15 @@ class SignalReportFeedbackRequestSerializer(serializers.Serializer):
             "scout as a steering note."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["sentiment"] is None and attrs["note"].strip():
+            raise serializers.ValidationError({"note": "Select a rating before you add a note."})
+        return attrs
+
+
+class SignalReportFeedbackStateSerializer(SignalReportFeedbackRequestSerializer):
+    note = serializers.CharField(allow_blank=True, help_text="The current user's saved note, or an empty string.")
 
 
 class SignalReportFeedbackResponseSerializer(serializers.Serializer):
@@ -1112,7 +1131,17 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {
+            "actionable",
+            "needs_input",
+            "needs_decision",
+            "monitoring",
+            "resolved",
+            "dismissed",
+            "held_back",
+            "not_actionable",
+            "all",
+        }
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -1127,6 +1156,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "ranking_pr_created_score",
         "ranking_action": "ranking_action_score",
         "ranking_open": "ranking_open_score",
+        "ranking_fixed": "ranking_fixed_score",
+        "ranking_discuss": "ranking_discuss_score",
+        "ranking_thumbs_up": "ranking_thumbs_up_score",
+        "ranking_reviewer_fix": "ranking_reviewer_fix_score",
+        "ranking_refund": "ranking_refund_score",
+        "ranking_dismiss_wrong": "ranking_dismiss_wrong_score",
+        "ranking_dismiss_lowvalue": "ranking_dismiss_lowvalue_score",
     }
     # Ordering field to the outcome head it reads from the served model of the latest ranking score.
     _RANKING_ORDERING_HEADS: dict[str, str] = {
@@ -1134,6 +1170,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "pr_created",
         "ranking_action": "action",
         "ranking_open": "open",
+        "ranking_fixed": "fixed",
+        "ranking_discuss": "discuss",
+        "ranking_thumbs_up": "thumbs_up",
+        "ranking_reviewer_fix": "reviewer_fix",
+        "ranking_refund": "refund",
+        "ranking_dismiss_wrong": "dismiss_wrong",
+        "ranking_dismiss_lowvalue": "dismiss_lowvalue",
     }
 
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
@@ -1160,7 +1203,7 @@ class SignalReportViewSet(
     def safely_get_queryset(self, queryset):
         if self.action == "read_state":
             return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
-        if self.action in {"viewed", "pr_ci_statuses", "refresh_metrics"}:
+        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
             # right after the detail request that already rendered the report, `pr_ci_statuses` only
@@ -1308,10 +1351,12 @@ class SignalReportViewSet(
             "signals",
             "refund",
             "feedback",
+            "feedback_state",
             "viewed",
             "pr_checks",
             "pr_comments",
             "claim",
+            "priority",
         }
     )
 
@@ -1368,7 +1413,7 @@ class SignalReportViewSet(
         if (
             self.action in self._SUPPRESSED_VISIBLE_ACTIONS
             or self._include_all_statuses_requested()
-            or self.request.query_params.get("view") in {"dismissed", "all"}
+            or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
             return self._FILTERABLE_STATUSES
         return self._DEFAULT_STATUSES
@@ -1591,8 +1636,8 @@ class SignalReportViewSet(
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_rank` annotation, which must be applied first.
-        # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
+        # Filters on the `priority_sort_rank` annotation, which must be applied first.
+        # Reports without a priority artefact rank after every priority, so this filter excludes them.
         priority_filter = self.request.query_params.get("priority")
         if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
             user = cast(User, self.request.user)
@@ -1607,7 +1652,7 @@ class SignalReportViewSet(
             )
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
-            return queryset.filter(priority_rank__in=values)
+            return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
         if not priority_filter:
             return queryset
 
@@ -1624,7 +1669,11 @@ class SignalReportViewSet(
                 }
             )
 
-        return queryset.filter(priority_rank__in=values)
+        return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
+
+    @staticmethod
+    def _priority_ranks(priorities: Iterable[str]) -> list[int]:
+        return [AutonomyPriority.values.index(priority) for priority in priorities]
 
     def _apply_signal_report_actionability_filter(self, queryset):
         # Filters on `latest_actionability`, the column cached from the report's latest
@@ -1697,8 +1746,17 @@ class SignalReportViewSet(
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
-        if inbox_view == "dismissed":
-            return queryset.filter(status=SignalReport.Status.SUPPRESSED)
+        if inbox_view in {"dismissed", "held_back"}:
+            # Every path that suppresses a report on someone's behalf writes a dismissal artefact: a
+            # person or agent dismissing it, a merge, a closed pull request. A suppressed report with
+            # none was held back by a judge, and nobody has looked at it yet.
+            has_dismissal = Exists(
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"), type=SignalReportArtefact.ArtefactType.DISMISSAL
+                )
+            )
+            queryset = queryset.filter(status=SignalReport.Status.SUPPRESSED)
+            return queryset.filter(has_dismissal if inbox_view == "dismissed" else ~has_dismissal)
         if inbox_view == "not_actionable":
             return queryset.filter(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
         return queryset
@@ -1726,35 +1784,37 @@ class SignalReportViewSet(
 
     def _annotate_signal_report_priority(self, queryset):
         # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
-        # artefact. These sort lexicographically, so we extract via jsonb and coalesce NULL to "~"
-        # (sorts after "P4") for reports without a priority. The startswith guard skips non-object content.
-        latest_priority = Subquery(
+        # artefact, as its index in `AutonomyPriority.values`. Reports without a priority rank after "P4".
+        # The startswith guard skips non-object content.
+        # The rank is one `array_position` inside the subquery, not a CASE: Django repeats the CASE
+        # operand in each WHEN branch, so a CASE runs the subquery or the JSON parse once per priority.
+        unranked = Value(len(AutonomyPriority.values))
+        priority_value = Func(
+            Cast(F("content"), output_field=JSONField()),
+            Value("priority"),
+            function="jsonb_extract_path_text",
+            output_field=CharField(),
+        )
+        priority_position = Func(
+            Value(list(AutonomyPriority.values), output_field=ArrayField(CharField())),
+            priority_value,
+            function="array_position",
+            output_field=IntegerField(),
+        )
+        latest_priority_rank = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
                 type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
                 content__startswith="{",
             )
             .order_by("-created_at")
-            .annotate(
-                _priority_val=Func(
-                    Cast(F("content"), output_field=JSONField()),
-                    Value("priority"),
-                    function="jsonb_extract_path_text",
-                    output_field=CharField(),
-                ),
-            )
-            .values("_priority_val")[:1],
-            output_field=CharField(),
+            # `array_position` counts from 1 and returns NULL for a value outside the list.
+            .annotate(_priority_rank=priority_position - 1)
+            .values("_priority_rank")[:1],
+            output_field=IntegerField(),
         )
-        return queryset.annotate(priority_rank=latest_priority).annotate(
-            priority_sort_rank=Case(
-                *(
-                    When(priority_rank=priority, then=Value(index))
-                    for index, priority in enumerate(AutonomyPriority.values)
-                ),
-                default=Value(len(AutonomyPriority.values)),
-                output_field=IntegerField(),
-            )
+        return queryset.annotate(
+            priority_sort_rank=Coalesce(latest_priority_rank, unranked, output_field=IntegerField())
         )
 
     def _annotate_signal_report_ranking(self, queryset):
@@ -1855,6 +1915,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.REPO_SELECTION
                 ).order_by("-created_at")[:1],
                 to_attr="prefetched_repo_selection_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT
+                ).order_by("-created_at")[:1],
+                to_attr="prefetched_safety_artefacts",
             ),
         )
 
@@ -2082,6 +2149,24 @@ class SignalReportViewSet(
         return Response(response_serializer.data)
 
     @validated_request(
+        request_serializer=SignalReportPriorityUpdateSerializer,
+        responses={200: SignalReportSerializer},
+        summary="Change a report's priority",
+        description="Append an attributed priority correction, preserving the previous judgment for future learning.",
+        operation_id="signals_reports_priority_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["task:write"])
+    def priority(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        update_report_priority(
+            report=report,
+            priority=ReportPriority(request.validated_data["priority"]),
+            attribution=self._request_attribution(),
+        )
+        report.__dict__.pop("prefetched_priority_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
         request_serializer=SignalReportContentUpdateSerializer,
         responses={
             200: OpenApiResponse(response=SignalReportSerializer, description="Report updated."),
@@ -2281,8 +2366,12 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
-                    "not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters. needs_decision also includes failed reports without a judgment."
+                    "held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and "
+                    "implementation-PR filters. needs_decision also includes failed reports without a judgment. "
+                    "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
+                    "dismissed, merged, or whose pull request closed without merging; held_back holds the ones the "
+                    "safety or actionability judge suppressed before anyone saw them. Each row's suppression_source "
+                    "says which."
                 ),
             ),
             OpenApiParameter(
@@ -2337,7 +2426,8 @@ class SignalReportViewSet(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
                     "priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, "
-                    "ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
+                    "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
+                    "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
                     "last in either direction. They are staff only: other users get a 400."
                 ),
@@ -2879,6 +2969,22 @@ class SignalReportViewSet(
             ).data
         )
 
+    @extend_schema(responses=SignalReportFeedbackStateSerializer)
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def feedback_state(self, request: Request, pk=None, **kwargs) -> Response:
+        report = self.get_object()
+        metadata = (
+            SignalReportAction.objects.for_team(self.team.id)
+            .filter(report=report, user=cast(User, request.user), type=SignalReportAction.ActionType.FEEDBACK)
+            .values_list("metadata", flat=True)
+            .first()
+        ) or {}
+        return Response(
+            SignalReportFeedbackStateSerializer(
+                {"sentiment": metadata.get("sentiment"), "note": metadata.get("note", "")}
+            ).data
+        )
+
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
@@ -2893,7 +2999,7 @@ class SignalReportViewSet(
         request=SignalReportFeedbackRequestSerializer,
         responses={200: SignalReportFeedbackResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:read"])
     def feedback(self, request, pk=None, **kwargs):
         """Persist a report's thumbs rating and forward its note to the authoring scout.
 
@@ -2918,10 +3024,10 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.FEEDBACK,
-                metadata={"sentiment": data["sentiment"]},
-                bump_count=not note,
+                metadata={"sentiment": data["sentiment"], **({"note": note} if note else {})},
+                bump_count=not note and data["sentiment"] is not None,
             )
-            if not note:
+            if not note and data["sentiment"] is not None:
                 capture_background_report_events(
                     team=self.team,
                     user=request.user,
@@ -4323,7 +4429,7 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         repository, pr_number = reference
-        user_github = UserGitHubIntegration(user_integration)
+        user_github = UserGitHubIntegration(user_integration, source="signals_api", priority=Priority.CRITICAL)
         if comment_id is not None:
             lookup = self._run_user_github_write(
                 lambda: user_github.get_pull_request_review_comment(repository, comment_id),
@@ -5690,7 +5796,9 @@ class SignalReportArtefactViewSet(
         # PRs). That connection boundary is the intended scope — any `task:write` holder can already
         # run agents against those same repos — and the repo/ref values are validated in `get_diff`.
         try:
-            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+            github = GitHubIntegration.first_for_team_repository(
+                self.team.id, repository, source="signals_api", priority=Priority.CRITICAL
+            )
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if github is None:

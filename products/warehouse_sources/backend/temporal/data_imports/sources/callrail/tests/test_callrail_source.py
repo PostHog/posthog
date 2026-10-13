@@ -2,6 +2,11 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source import CallRailSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.callrail import (
     CallRailSourceConfig,
 )
@@ -18,29 +23,25 @@ class TestCallRailSource:
         assert self.source.connection_host_fields == ["account_id"]
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "status_code, expected_valid, expected_message",
         [
-            (True, True, None),
-            (False, False, "Invalid CallRail API key"),
+            (200, True, None),
+            (401, False, "Invalid CallRail API key"),
         ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source.validate_callrail_credentials"
     )
     def test_validate_credentials(
         self,
-        mock_validate: mock.MagicMock,
-        mock_return: bool,
+        status_code: int,
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_key)
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].headers["authorization"] == 'Token token="key"'
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source.callrail_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_callrail_source: mock.MagicMock) -> None:
@@ -63,13 +64,15 @@ class TestCallRailSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source.callrail_source")
-    def test_source_for_pipeline_blank_account_id_becomes_none(self, mock_callrail_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "calls"
-        inputs.should_use_incremental_field = False
+    def test_source_for_pipeline_blank_account_id_becomes_none(self) -> None:
         config = CallRailSourceConfig(api_key="key", account_id="")
+        result = SourceDriver(self.source, config).run(
+            "calls",
+            [
+                ScriptedResponse(json={"accounts": [{"id": "ACC1"}]}),
+                ScriptedResponse(json={"calls": [{"id": "C1"}], "total_pages": 1}),
+            ],
+        )
 
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        assert mock_callrail_source.call_args.kwargs["account_id"] is None
+        assert result.raised is None
+        assert result.paths == ["/v3/a.json", "/v3/a/ACC1/calls.json"]

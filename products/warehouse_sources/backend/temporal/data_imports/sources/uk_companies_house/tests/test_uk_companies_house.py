@@ -1,13 +1,19 @@
 import json
 from typing import Any, Optional
 
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 from requests import RequestException, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ukcompanieshouse import (
+    UkCompaniesHouseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.settings import (
     CHARGES,
     COMPANIES,
@@ -18,16 +24,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uk_compani
     PSC_STATEMENTS,
     UK_ESTABLISHMENTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source import (
+    UkCompaniesHouseSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.uk_companies_house import (
     CompaniesHouseOffsetPaginator,
     UkCompaniesHouseResumeConfig,
     invalid_company_numbers,
     parse_company_numbers,
-    uk_companies_house_source,
     validate_credentials,
 )
-
-SESSION_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.uk_companies_house.make_tracked_session"
 
 
 def _response(body: Any, status_code: int = 200) -> Response:
@@ -37,53 +43,6 @@ def _response(body: Any, status_code: int = 200) -> Response:
     response._content = json.dumps(body).encode()
     response.headers["Content-Type"] = "application/json"
     return response
-
-
-def _drive_session(responses: list[Response]) -> tuple[Any, list[tuple[str, dict[str, Any]]]]:
-    """Patch the tracked session so `RESTClient.paginate` runs against canned responses.
-
-    Returns the patcher and the (url, params) actually sent, captured at send time because the
-    paginator mutates one `Request` in place across pages.
-    """
-    sent: list[tuple[str, dict[str, Any]]] = []
-    response_iter = iter(responses)
-
-    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-        sent.append((request.url, dict(request.params or {})))
-        return next(response_iter)
-
-    patcher = patch(SESSION_TARGET)
-    mock_make_session = patcher.start()
-    mock_session = mock_make_session.return_value
-    mock_session.headers = {}
-    mock_session.prepare_request.side_effect = lambda req: req
-    mock_session.send.side_effect = fake_send
-    return patcher, sent
-
-
-def _manager(resume: Optional[UkCompaniesHouseResumeConfig] = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _run(endpoint: str, company_numbers: list[str], responses: list[Response], resume=None):
-    patcher, sent = _drive_session(responses)
-    manager = _manager(resume)
-    try:
-        pages = list(
-            uk_companies_house_source(
-                api_key="key",
-                endpoint=endpoint,
-                company_numbers=company_numbers,
-                resumable_source_manager=manager,
-                logger=MagicMock(),
-            )
-        )
-    finally:
-        patcher.stop()
-    return pages, sent, manager
 
 
 class TestParseCompanyNumbers:
@@ -152,6 +111,12 @@ class TestCompaniesHouseOffsetPaginator:
 
 
 class TestUkCompaniesHouseSource:
+    @staticmethod
+    def _driver(company_numbers: str = "00006400") -> SourceDriver:
+        return SourceDriver(
+            UkCompaniesHouseSource(), UkCompaniesHouseSourceConfig(api_key="key", company_numbers=company_numbers)
+        )
+
     @parameterized.expand(
         [
             (
@@ -211,59 +176,63 @@ class TestUkCompaniesHouseSource:
     def test_row_normalization_per_endpoint(
         self, _label: str, endpoint: str, body: dict[str, Any], expected: list[dict[str, Any]]
     ) -> None:
-        pages, _sent, _manager_mock = _run(endpoint, ["00006400"], [_response(body)])
+        result = self._driver().run(endpoint, [ScriptedResponse(json=body)])
 
-        assert pages == [expected]
+        assert result.raised is None
+        assert result.items == [expected]
 
     def test_paginates_one_company_until_the_total_is_reached(self) -> None:
-        pages, sent, _manager_mock = _run(
+        result = self._driver().run(
             FILING_HISTORY,
-            ["00006400"],
             [
-                _response({"total_count": 3, "items": [{"transaction_id": "a"}, {"transaction_id": "b"}]}),
-                _response({"total_count": 3, "items": [{"transaction_id": "c"}]}),
+                ScriptedResponse(json={"total_count": 3, "items": [{"transaction_id": "a"}, {"transaction_id": "b"}]}),
+                ScriptedResponse(json={"total_count": 3, "items": [{"transaction_id": "c"}]}),
             ],
         )
 
-        assert [params["start_index"] for _url, params in sent] == [0, 2]
-        assert [row["transaction_id"] for page in pages for row in page] == ["a", "b", "c"]
+        assert result.raised is None
+        assert result.params("start_index") == ["0", "2"]
+        assert [row["transaction_id"] for row in result.rows] == ["a", "b", "c"]
 
     @parameterized.expand([(CHARGES,), (PERSONS_WITH_SIGNIFICANT_CONTROL,), (PSC_STATEMENTS,)])
     def test_missing_resource_does_not_fail_the_table(self, endpoint: str) -> None:
         # Companies House 404s both for "this company has nothing filed" and for an unknown
         # company number, and most companies have nothing filed for these resources.
-        pages, sent, _manager_mock = _run(
+        result = self._driver("00006400\nSC123456").run(
             endpoint,
-            ["00006400", "SC123456"],
-            [_response({}, status_code=404), _response({"total_results": 1, "items": [{"id": "1"}]})],
+            [
+                ScriptedResponse(status=404, json={}),
+                ScriptedResponse(json={"total_results": 1, "items": [{"id": "1"}]}),
+            ],
         )
 
-        assert len(sent) == 2
-        assert [row["company_number"] for page in pages for row in page] == ["SC123456"]
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert [row["company_number"] for row in result.rows] == ["SC123456"]
 
     def test_auth_failure_is_not_swallowed(self) -> None:
-        try:
-            _run(OFFICERS, ["00006400"], [_response({}, status_code=401)])
-        except HTTPError as e:
-            assert e.response is not None
-            assert e.response.status_code == 401
-        else:
-            raise AssertionError("expected the 401 to propagate")
+        result = self._driver().run(OFFICERS, [ScriptedResponse(status=401, json={})])
+
+        assert isinstance(result.raised, HTTPError)
+        assert result.raised.response is not None
+        assert result.raised.response.status_code == 401
 
     def test_resume_skips_completed_companies_and_seeds_the_offset(self) -> None:
-        _pages, sent, _manager_mock = _run(
+        result = self._driver("00006400\nSC123456\nOC301365").run(
             OFFICERS,
-            ["00006400", "SC123456", "OC301365"],
             [
-                _response({"total_results": 101, "items": [{"name": "Resumed"}]}),
-                _response({"total_results": 1, "items": [{"name": "Third"}]}),
+                ScriptedResponse(json={"total_results": 101, "items": [{"name": "Resumed"}]}),
+                ScriptedResponse(json={"total_results": 1, "items": [{"name": "Third"}]}),
             ],
-            resume=UkCompaniesHouseResumeConfig(company_index=1, start_index=100),
+            resume_state=UkCompaniesHouseResumeConfig(company_index=1, start_index=100),
         )
 
-        assert [(url.rsplit("/company/", 1)[1], params["start_index"]) for url, params in sent] == [
-            ("SC123456/officers", 100),
-            ("OC301365/officers", 0),
+        assert result.raised is None
+        assert [
+            (request.path.rsplit("/company/", 1)[1], request.param("start_index")) for request in result.requests
+        ] == [
+            ("SC123456/officers", "100"),
+            ("OC301365/officers", "0"),
         ]
 
 
@@ -279,16 +248,19 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, status_code: int, expected_ok: bool) -> None:
-        with patch(SESSION_TARGET) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _response({}, status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             ok, error = validate_credentials("key", "00006400")
 
+        assert network.requests_log
+        assert all(request.path == "/company/00006400" for request in network.requests_log)
         assert ok is expected_ok
         assert (error is None) is expected_ok
 
     def test_unreachable_api_is_reported_not_raised(self) -> None:
-        with patch(SESSION_TARGET) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = RequestException("boom")
+        def fail(_request: Any) -> ScriptedResponse:
+            raise RequestException("boom")
+
+        with scripted_network(fail):
             ok, error = validate_credentials("key", "00006400")
 
         assert ok is False

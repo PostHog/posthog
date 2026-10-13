@@ -55,6 +55,7 @@ from products.signals.backend.scout_harness.trial_result import (
     get_trial_workflow_status,
     read_trial_result,
     recover_trial_result,
+    trial_timeout_error,
 )
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
@@ -62,7 +63,7 @@ from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
-JUDGE_MODEL = "gpt-6-astra"
+JUDGE_MODEL = "gpt-6.1-sol"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
@@ -443,11 +444,17 @@ def _run_evidence(
     if status not in {"completed", "failed", "cancelled", "skipped"} or (run is None and status == "completed"):
         raise TrialEvaluationNotReady("Every selected trial must have a known terminal state before scoring.")
     if run is not None:
-        run.task_run.refresh_from_db(fields=["status", "state"])
-        if run.task_run.status not in {"completed", "failed", "cancelled"}:
-            raise TrialEvaluationNotReady("Every selected trial task must finish before scoring.")
+        run.task_run.refresh_from_db(fields=["status", "state", "error_message"])
         if status == "completed":
+            # A failed controller can leave its task active, but excluded runs need no evidence freeze.
+            if run.task_run.status not in {"completed", "failed", "cancelled"}:
+                raise TrialEvaluationNotReady("Every selected trial task must finish before scoring.")
             status = run.task_run.status
+    exclusion_reason = None
+    if status != "completed":
+        exclusion_reason = (
+            trial_timeout_error(run, status=status) if run is not None else None
+        ) or "The trial did not complete successfully."
     evidence = TrialRunEvidence(
         launch_id=launch.id,
         variant_id=variant_id,
@@ -455,7 +462,7 @@ def _run_evidence(
         task_id=run.task_run.task_id if run else None,
         task_run_id=run.task_run_id if run else None,
         execution_status=status,
-        exclusion_reason=None if status == "completed" else "The trial did not complete successfully.",
+        exclusion_reason=exclusion_reason,
         model=launch.model,
         runtime_adapter=launch.runtime_adapter,
         reasoning_effort=launch.reasoning_effort,

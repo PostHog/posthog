@@ -701,6 +701,14 @@ def _train_candidate(
             for head in trained
             if head.metrics.holdout_auc is not None
         },
+        **{
+            f"{family.name}_{head.head}_{name}": (
+                dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
+            )
+            for head in trained
+            for name, value in head.metrics.holdout_within_team.as_dict(prefix="holdout_").items()
+            if value is not None
+        },
         f"{family.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{metadata_key}"),
     }
 
@@ -1023,14 +1031,14 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
     mismatch = model_mismatch(metadata)
     if mismatch is not None:
         return None, mismatch
-    heads = trained_head_files(metadata, HEADS_BY_NAME)
+    files = sorted(set(trained_head_files(metadata, HEADS_BY_NAME).values()))
     missing = [
-        f"{head}.ubj"
-        for head in sorted(heads)
-        if not _object_exists(client, bucket, model_object_key(prefix, model_name, model_version, f"{head}.ubj"))
+        name
+        for name in files
+        if not _object_exists(client, bucket, model_object_key(prefix, model_name, model_version, name))
     ]
-    if not heads or missing:
-        return None, f"missing boosters {missing}" if missing else "no trained head"
+    if not files or missing:
+        return None, f"missing model files {missing}" if missing else "no trained head"
     return metadata, None
 
 
@@ -1087,8 +1095,8 @@ def publish_serving_models(
         if target.storage.head_object(bucket=target.bucket, file_key=target_metadata) is not None:
             present.append(entry.key)
             continue
-        # Metadata marks a complete copy, so write it after every booster to make retries safe.
-        for name in (*(f"{head}.ubj" for head in entry.heads), METADATA_FILE):
+        # Metadata marks a complete copy, so write it after every model file to make retries safe.
+        for name in (*entry.files, METADATA_FILE):
             body = _read_bytes_if_exists(
                 client, bucket, model_object_key(prefix, entry.model_name, entry.model_version, name)
             )

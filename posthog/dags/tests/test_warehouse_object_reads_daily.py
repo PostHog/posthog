@@ -1,15 +1,19 @@
 import json
 import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+import time_machine
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import dagster
 from clickhouse_driver import Client
+from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
@@ -19,6 +23,7 @@ from posthog.dags.warehouse_object_reads_daily import (
     ROLLUP_START_DATE,
     insert_rollup_into_staging,
     warehouse_object_reads_daily_job,
+    warehouse_object_reads_daily_overdue_sensor,
     warehouse_object_reads_daily_schedule,
 )
 from posthog.models import Team
@@ -206,17 +211,13 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
     assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
 
     cluster.any_host(clear_archive).result()
-    run_rollup(cluster, day)
-    assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == []
+    run_rollup(cluster, day, succeeds=False)
+    assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
 
 
 @pytest.mark.django_db
-def test_rollup_of_a_day_without_archive_rows_succeeds(cluster: ClickhouseCluster) -> None:
-    result = warehouse_object_reads_daily_job.execute_in_process(
-        partition_key=ROLLUP_START_DATE, resources={"cluster": cluster}
-    )
-
-    assert result.success
+def test_rollup_of_a_day_without_archive_rows_fails(cluster: ClickhouseCluster) -> None:
+    run_rollup(cluster, date.fromisoformat(ROLLUP_START_DATE), succeeds=False)
 
 
 def test_schedule_runs_after_the_archive_day_closes() -> None:
@@ -239,3 +240,41 @@ def test_rollup_fails_before_touching_staging_while_another_run_executes(cluster
     assert not result.success
     assert other_run.run_id in str(result.all_events)
     recreate_staging_table.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("before_the_deadline", time(hour=9, minute=59), False, False, 0),
+        ("published_day", time(hour=10), True, False, 0),
+        ("missing_day", time(hour=10), False, False, 1),
+        ("missing_day_slack_down", time(hour=10), False, True, 2),
+    ]
+)
+@override_settings(CLOUD_DEPLOYMENT="US", DAGSTER_DOMAIN="dagster.example.com")
+def test_overdue_sensor_alerts_once_when_yesterday_is_not_published(
+    _name: str, check_time: time, published: bool, slack_down: bool, expected_posts: int
+) -> None:
+    today = date(2026, 10, 8)
+    instance = dagster.DagsterInstance.ephemeral()
+    if published:
+        instance.create_run_for_job(
+            job_def=warehouse_object_reads_daily_job,
+            status=dagster.DagsterRunStatus.SUCCESS,
+            tags={"dagster/partition": (today - timedelta(days=1)).isoformat()},
+        )
+    slack = MagicMock()
+    if slack_down:
+        slack.get_client.return_value.chat_postMessage.side_effect = ConnectionError
+
+    with time_machine.travel(datetime.combine(today, check_time, tzinfo=UTC), tick=False):
+        context = dagster.build_sensor_context(instance=instance, resources={"slack": slack})
+        warehouse_object_reads_daily_overdue_sensor(context)
+        warehouse_object_reads_daily_overdue_sensor(
+            dagster.build_sensor_context(instance=instance, cursor=context.cursor, resources={"slack": slack})
+        )
+
+    posts = slack.get_client.return_value.chat_postMessage.call_args_list
+    assert len(posts) == expected_posts
+    if expected_posts:
+        assert posts[0].kwargs["channel"] == "#alerts-data-modeling"
+        assert "2026-10-07" in posts[0].kwargs["text"]

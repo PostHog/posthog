@@ -1,57 +1,31 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import HTTPError, PreparedRequest, Response
+from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcore.gcore import (
     GcoreCheckpoint,
-    gcore_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcore.source import GcoreSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcore import GcoreSourceConfig
 
 TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.gcore.gcore"
 NOW = datetime(2026, 1, 5, 12, 30, tzinfo=UTC)
 
 
-def inputs_for(name: str, incremental: bool = False, watermark: datetime | str | None = None) -> SourceInputs:
-    inputs = MagicMock(spec=SourceInputs)
-    inputs.schema_name = name
-    inputs.team_id = 1
-    inputs.job_id = "test-gcore"
-    inputs.should_use_incremental_field = incremental
-    inputs.db_incremental_field_last_value = watermark
-    return inputs
-
-
-def manager_for(resume: GcoreCheckpoint | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def items_for(response: SourceResponse) -> Iterable[Any]:
-    return cast(Iterable[Any], response.items())
-
-
-def response_for(request: PreparedRequest, body: object, status: int = 200) -> Response:
-    response = Response()
-    response.status_code = status
-    assert request.url is not None
-    response.url = request.url
-    response.request = request
-    response._content = json.dumps(body).encode()
-    response.headers["Content-Type"] = "application/json"
-    return response
+def driver() -> SourceDriver:
+    return SourceDriver(GcoreSource(), GcoreSourceConfig(api_key="fake-token"))
 
 
 @pytest.mark.parametrize(
@@ -59,47 +33,42 @@ def response_for(request: PreparedRequest, body: object, status: int = 200) -> R
 )
 @pytest.mark.parametrize("last_page", [[], [{"id": 3}]])
 def test_list_pagination(name: str, path: str, last_page: list[dict[str, int]]) -> None:
-    requests: list[PreparedRequest] = []
-    manager = manager_for()
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        offset = request.param("offset")
+        rows = [{"id": 1}, {"id": 2}] if offset == "0" else last_page
+        return ScriptedResponse(json={"count": 3, "next": None if offset != "0" else "unused", "results": rows})
 
-    def send(request: PreparedRequest, **kwargs: Any) -> Response:
-        requests.append(request)
-        query = parse_qs(urlsplit(request.url or "").query)
-        offset = int(query["offset"][0])
-        rows = [{"id": 1}, {"id": 2}] if offset == 0 else last_page
-        return response_for(request, {"count": 3, "next": None if offset else "unused", "results": rows})
+    with patch(f"{TRANSPORT}.PAGE_SIZE", 2):
+        result = driver().run(name, answer)
 
-    with patch(f"{TRANSPORT}.PAGE_SIZE", 2), patch("requests.Session.send", side_effect=send):
-        response = gcore_source("fake-token", inputs_for(name), manager)
-        rows = [row for page in items_for(response) for row in page]
-
-    assert rows == [{"id": 1}, {"id": 2}, *last_page]
-    assert [parse_qs(urlsplit(request.url or "").query) for request in requests] == [
-        {"limit": ["2"], "offset": ["0"]},
-        {"limit": ["2"], "offset": ["2"]},
+    assert result.raised is None
+    assert result.rows == [{"id": 1}, {"id": 2}, *last_page]
+    assert result.queries == [
+        {"limit": ("2",), "offset": ("0",)},
+        {"limit": ("2",), "offset": ("2",)},
     ]
-    assert all(urlsplit(request.url or "").path == f"/cdn/{path}" for request in requests)
-    assert all(request.headers["Authorization"] == "APIKey fake-token" for request in requests)
-    manager.save_state.assert_called_once_with(GcoreCheckpoint(offset=2))
+    assert result.paths == [f"/cdn/{path}", f"/cdn/{path}"]
+    assert all(request.headers["authorization"] == "APIKey fake-token" for request in result.requests)
+    assert result.saved_states == [GcoreCheckpoint(offset=2)]
+    assert result.committed_states == [GcoreCheckpoint(offset=2)]
 
 
 @pytest.mark.parametrize("incremental,watermark", [(False, NOW), (True, None), (True, NOW), (True, NOW.isoformat())])
 def test_resource_filter_and_resume(incremental: bool, watermark: datetime | str | None) -> None:
-    requests: list[PreparedRequest] = []
+    result = driver().run(
+        "resources",
+        [ScriptedResponse(json={"count": 101, "next": None, "results": [{"id": 101}]})],
+        resume_state=GcoreCheckpoint(offset=100),
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
 
-    def send(request: PreparedRequest, **kwargs: Any) -> Response:
-        requests.append(request)
-        return response_for(request, {"count": 101, "next": None, "results": [{"id": 101}]})
-
-    with patch("requests.Session.send", side_effect=send):
-        response = gcore_source(
-            "fake-token", inputs_for("resources", incremental, watermark), manager_for(GcoreCheckpoint(offset=100))
-        )
-        assert list(items_for(response)) == [[{"id": 101}]]
-    query = parse_qs(urlsplit(requests[0].url or "").query)
-    assert query["offset"] == ["100"]
-    assert query.get("min_updated") == ([NOW.isoformat()] if incremental and watermark else None)
-    assert response.sort_mode == "desc"
+    assert result.raised is None
+    assert result.items == [[{"id": 101}]]
+    assert result.params("offset") == ["100"]
+    assert result.params("min_updated") == [NOW.isoformat() if incremental and watermark else None]
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
 
 
 @pytest.mark.parametrize("name,metric", [("cdn_requests", "requests"), ("cdn_traffic", "sent_bytes")])
@@ -107,54 +76,66 @@ def test_resource_filter_and_resume(incremental: bool, watermark: datetime | str
 @patch(f"{TRANSPORT}.datetime", wraps=datetime)
 def test_statistics_windows_and_rows(clock: MagicMock, name: str, metric: str, incremental: bool) -> None:
     clock.now.return_value = NOW
-    requests: list[PreparedRequest] = []
-    manager = manager_for()
     watermark = datetime(2026, 1, 4, 10, tzinfo=UTC)
 
-    def send(request: PreparedRequest, **kwargs: Any) -> Response:
-        requests.append(request)
-        query = parse_qs(urlsplit(request.url or "").query)
-        start = datetime.fromisoformat(query["from"][0])
-        end = datetime.fromisoformat(query["to"][0])
-        assert manager.save_state.call_count >= len(requests) - 1
-        return response_for(
-            request, {"resource": {"42": {"metrics": {metric: [[start.timestamp(), 0], [end.timestamp(), 99]]}}}}
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        start_value = request.param("from")
+        end_value = request.param("to")
+        assert start_value is not None and end_value is not None
+        start = datetime.fromisoformat(start_value)
+        end = datetime.fromisoformat(end_value)
+        return ScriptedResponse(
+            json={"resource": {"42": {"metrics": {metric: [[start.timestamp(), 0], [end.timestamp(), 99]]}}}}
         )
 
-    with patch(f"{TRANSPORT}.HISTORY_DAYS", 2), patch("requests.Session.send", side_effect=send):
-        response = gcore_source("fake-token", inputs_for(name, incremental, watermark), manager)
-        rows = [row for page in items_for(response) for row in page]
+    with patch(f"{TRANSPORT}.HISTORY_DAYS", 2):
+        result = driver().run(
+            name,
+            answer,
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=watermark,
+        )
+
     expected_start = watermark if incremental else datetime(2026, 1, 3, 13, tzinfo=UTC)
-    queries = [parse_qs(urlsplit(request.url or "").query) for request in requests]
-    assert datetime.fromisoformat(queries[0]["from"][0]) == expected_start
-    assert datetime.fromisoformat(queries[-1]["to"][0]) == NOW.replace(minute=0)
-    assert len(requests) == 2
-    for query, request in zip(queries, requests):
-        assert datetime.fromisoformat(query["to"][0]) - datetime.fromisoformat(query["from"][0]) <= timedelta(days=1)
-        assert query["metrics"] == [metric]
-        assert query["granularity"] == ["1h"]
-        assert query["group_by"] == ["resource"]
-        assert query["service"] == ["CDN"]
-        assert request.headers["Authorization"] == "APIKey fake-token"
-    assert rows == [
+    assert result.raised is None
+    assert datetime.fromisoformat(result.requests[0].param("from") or "") == expected_start
+    assert datetime.fromisoformat(result.requests[-1].param("to") or "") == NOW.replace(minute=0)
+    assert len(result.requests) == 2
+    for request in result.requests:
+        assert datetime.fromisoformat(request.param("to") or "") - datetime.fromisoformat(
+            request.param("from") or ""
+        ) <= timedelta(days=1)
+        assert request.param("metrics") == metric
+        assert request.param("granularity") == "1h"
+        assert request.param("group_by") == "resource"
+        assert request.param("service") == "CDN"
+        assert request.headers["authorization"] == "APIKey fake-token"
+    assert result.rows == [
         {"resource_id": "42", "timestamp": expected_start, "metric": metric, "value": 0},
         {"resource_id": "42", "timestamp": expected_start + timedelta(days=1), "metric": metric, "value": 0},
     ]
-    assert response.primary_keys == ["resource_id", "timestamp", "metric"]
-    assert response.sort_mode == "desc"
-    assert manager.safe_point.call_count == 2
-    assert manager.save_state.call_args.args[0].window_start == NOW.replace(minute=0).isoformat()
+    assert result.response is not None
+    assert result.response.primary_keys == ["resource_id", "timestamp", "metric"]
+    assert result.response.sort_mode == "desc"
+    assert result.committed_states == [
+        GcoreCheckpoint(
+            window_start=(expected_start + timedelta(days=1)).isoformat(),
+            window_end=NOW.replace(minute=0).isoformat(),
+        ),
+        GcoreCheckpoint(
+            window_start=NOW.replace(minute=0).isoformat(),
+            window_end=NOW.replace(minute=0).isoformat(),
+        ),
+    ]
+    assert result.saved_states[-1].window_start == NOW.replace(minute=0).isoformat()
 
 
 @pytest.mark.parametrize("status", [200, 401, 403, 429, 500])
 def test_credentials_status_mapping(status: int) -> None:
-    requests: list[PreparedRequest] = []
+    response = ScriptedResponse(status=status, json={"message": "Authentication credentials were not provided."})
+    script = always(response) if status in (429, 500) else [response]
 
-    def send(request: PreparedRequest, **kwargs: Any) -> Response:
-        requests.append(request)
-        return response_for(request, {"message": "Authentication credentials were not provided."}, status)
-
-    with patch("requests.Session.send", side_effect=send):
+    with scripted_network(script) as network:
         if status in (429, 500):
             with pytest.raises(HTTPError):
                 validate_credentials("fake-token")
@@ -165,35 +146,36 @@ def test_credentials_status_mapping(status: int) -> None:
                 assert error is None
             else:
                 assert error and "token" in error
-    assert len(requests) == 1
-    assert requests[0].headers["Authorization"] == "APIKey fake-token"
-    assert parse_qs(urlsplit(requests[0].url or "").query) == {"limit": ["1"]}
+
+    assert network.requests_log
+    assert all(request.headers["authorization"] == "APIKey fake-token" for request in network.requests_log)
+    assert all(request.param("limit") == "1" for request in network.requests_log)
 
 
 @pytest.mark.parametrize("status", [401, 403])
 def test_sync_authentication_errors_are_terminal(status: int) -> None:
-    with patch(
-        "requests.Session.send", side_effect=lambda request, **kwargs: response_for(request, {}, status)
-    ) as send:
-        with pytest.raises(Exception) as error:
-            response = gcore_source("fake-token", inputs_for("resources"), manager_for())
-            list(items_for(response))
-    assert send.call_count == 1
+    result = driver().run("resources", [ScriptedResponse(status=status, json={})])
+
+    assert isinstance(result.raised, Exception)
+    assert len(result.requests) == 1
     messages = [
-        message for pattern, message in GcoreSource().get_non_retryable_errors().items() if pattern in str(error.value)
+        message
+        for pattern, message in GcoreSource().get_non_retryable_errors().items()
+        if pattern in str(result.raised)
     ]
     assert messages and all(messages)
 
 
 def test_unknown_table_fails_before_network() -> None:
-    with patch("requests.Session.send") as send:
-        with pytest.raises(ValueError, match="Unknown Gcore table"):
-            gcore_source("fake-token", inputs_for("unknown"), manager_for())
-    send.assert_not_called()
+    result = driver().run("unknown", [])
+
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown Gcore table" in str(result.raised)
+    assert result.requests == []
 
 
 def test_origin_credentials_are_excluded() -> None:
-    body = {
+    body: dict[str, Any] = {
         "count": 1,
         "results": [
             {
@@ -203,22 +185,17 @@ def test_origin_credentials_are_excluded() -> None:
             }
         ],
     }
-    with patch("requests.Session.send", side_effect=lambda request, **kwargs: response_for(request, body)):
-        response = gcore_source("fake-token", inputs_for("origin_groups"), manager_for())
-        rows = list(items_for(response))
-    assert rows == [[{"id": 1, "sources": [{"source": "origin.example.com", "enabled": True}]}]]
+    result = driver().run("origin_groups", [ScriptedResponse(json=body)])
+
+    assert result.raised is None
+    assert result.items == [[{"id": 1, "sources": [{"source": "origin.example.com", "enabled": True}]}]]
 
 
-@patch(f"{TRANSPORT}.datetime", wraps=datetime)
-def test_malformed_statistics_do_not_advance_checkpoint(clock: MagicMock) -> None:
-    clock.now.return_value = NOW
-    manager = manager_for(
-        GcoreCheckpoint(window_start="2026-01-05T10:00:00+00:00", window_end="2026-01-05T12:00:00+00:00")
-    )
-    with patch(
-        "requests.Session.send", side_effect=lambda request, **kwargs: response_for(request, {"unexpected": []})
-    ):
-        with pytest.raises(ValueError, match="does not contain resource groups"):
-            response = gcore_source("fake-token", inputs_for("cdn_requests"), manager)
-            list(items_for(response))
-    manager.save_state.assert_not_called()
+def test_malformed_statistics_do_not_advance_checkpoint() -> None:
+    resume = GcoreCheckpoint(window_start="2026-01-05T10:00:00+00:00", window_end="2026-01-05T12:00:00+00:00")
+    result = driver().run("cdn_requests", [ScriptedResponse(json={"unexpected": []})], resume_state=resume)
+
+    assert isinstance(result.raised, ValueError)
+    assert "does not contain resource groups" in str(result.raised)
+    assert result.saved_states == []
+    assert result.final_state == resume

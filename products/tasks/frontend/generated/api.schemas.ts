@@ -1875,6 +1875,19 @@ export interface SlackThreadReferenceDTOApi {
 }
 
 /**
+ * * `posthog_desktop` - PostHog Desktop
+ * * `posthog_mobile` - PostHog Mobile
+ * * `posthog_web` - PostHog Web
+ */
+export type TaskClientProvenanceEnumApi = (typeof TaskClientProvenanceEnumApi)[keyof typeof TaskClientProvenanceEnumApi]
+
+export const TaskClientProvenanceEnumApi = {
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -1934,6 +1947,12 @@ export interface TaskDetailDTOApi {
      * @nullable
      */
     origin_key?: string | null
+    /** First-party PostHog client that created this task.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web */
+    client_provenance?: TaskClientProvenanceEnumApi | null
 }
 
 /**
@@ -1998,6 +2017,12 @@ export interface TaskBasicApi {
      * @nullable
      */
     origin_key?: string | null
+    /** First-party PostHog client that created this task.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web */
+    client_provenance?: TaskClientProvenanceEnumApi | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -2038,6 +2063,7 @@ export interface PaginatedTaskListItemListApi {
  * * `workflow` - Workflow
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
+ * * `metrics_import` - Metrics Import
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -2066,6 +2092,7 @@ export const TaskOriginProductEnumApi = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 /**
@@ -2125,7 +2152,8 @@ export interface TaskCreateApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2314,6 +2342,12 @@ export interface TaskCreateResponseDTOApi {
      * @nullable
      */
     origin_key?: string | null
+    /** First-party PostHog client that created this task.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web */
+    client_provenance?: TaskClientProvenanceEnumApi | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -2353,7 +2387,8 @@ export interface TaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2488,7 +2523,8 @@ export interface PatchedTaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -3293,6 +3329,12 @@ export interface TaskRunResponseApi {
      * @nullable
      */
     origin_key?: string | null
+    /** First-party PostHog client that created this task.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web */
+    client_provenance?: TaskClientProvenanceEnumApi | null
     /** Error returned when the run could not start. */
     run_error?: string
     /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -3679,6 +3721,45 @@ export const RunStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+/**
+ * * `agent_reported` - agent_reported
+ * * `agent_server_crash` - agent_server_crash
+ * * `agent_declined` - agent_declined
+ * * `output_parse_failed` - output_parse_failed
+ * * `poll_timeout` - poll_timeout
+ * * `pi_runtime_error` - pi_runtime_error
+ * * `upstream_stream_terminated` - upstream_stream_terminated
+ * * `upstream_connection_error` - upstream_connection_error
+ * * `upstream_timeout` - upstream_timeout
+ * * `upstream_provider_failure` - upstream_provider_failure
+ * * `upstream_request_rejected` - upstream_request_rejected
+ * * `content_block_rejection` - content_block_rejection
+ * * `turn_ended_without_response` - turn_ended_without_response
+ * * `subscription_usage_limit` - subscription_usage_limit
+ * * `task_spend_limit` - task_spend_limit
+ * * `agent_error` - agent_error
+ */
+export type ErrorTypeEnumApi = (typeof ErrorTypeEnumApi)[keyof typeof ErrorTypeEnumApi]
+
+export const ErrorTypeEnumApi = {
+    AgentReported: 'agent_reported',
+    AgentServerCrash: 'agent_server_crash',
+    AgentDeclined: 'agent_declined',
+    OutputParseFailed: 'output_parse_failed',
+    PollTimeout: 'poll_timeout',
+    PiRuntimeError: 'pi_runtime_error',
+    UpstreamStreamTerminated: 'upstream_stream_terminated',
+    UpstreamConnectionError: 'upstream_connection_error',
+    UpstreamTimeout: 'upstream_timeout',
+    UpstreamProviderFailure: 'upstream_provider_failure',
+    UpstreamRequestRejected: 'upstream_request_rejected',
+    ContentBlockRejection: 'content_block_rejection',
+    TurnEndedWithoutResponse: 'turn_ended_without_response',
+    SubscriptionUsageLimit: 'subscription_usage_limit',
+    TaskSpendLimit: 'task_spend_limit',
+    AgentError: 'agent_error',
+} as const
+
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
      *
@@ -3712,6 +3793,25 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
+    /** Why the run failed, set by the caller that marked it failed.
+     *
+     * * `agent_reported` - agent_reported
+     * * `agent_server_crash` - agent_server_crash
+     * * `agent_declined` - agent_declined
+     * * `output_parse_failed` - output_parse_failed
+     * * `poll_timeout` - poll_timeout
+     * * `pi_runtime_error` - pi_runtime_error
+     * * `upstream_stream_terminated` - upstream_stream_terminated
+     * * `upstream_connection_error` - upstream_connection_error
+     * * `upstream_timeout` - upstream_timeout
+     * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_request_rejected` - upstream_request_rejected
+     * * `content_block_rejection` - content_block_rejection
+     * * `turn_ended_without_response` - turn_ended_without_response
+     * * `subscription_usage_limit` - subscription_usage_limit
+     * * `task_spend_limit` - task_spend_limit
+     * * `agent_error` - agent_error */
+    error_type?: ErrorTypeEnumApi | null
 }
 
 /**
@@ -5835,6 +5935,8 @@ export type TasksListParams = {
      * Filter by the client that created the task
      *
      * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance
@@ -5873,6 +5975,7 @@ export type TasksListParams = {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5985,6 +6088,8 @@ export type TasksListClientProvenance = (typeof TasksListClientProvenance)[keyof
 
 export const TasksListClientProvenance = {
     PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
 } as const
 
 export type TasksListExcludeOriginProduct =
@@ -6015,6 +6120,7 @@ export const TasksListExcludeOriginProduct = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]

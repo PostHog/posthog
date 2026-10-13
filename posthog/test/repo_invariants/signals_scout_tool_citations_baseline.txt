@@ -38,13 +38,17 @@ query-stickiness
 query-trends
 read-data-schema
 scout-check-record-result
+scout-config-precheck-test
 scout-edit-report
 scout-emit-report
 scout-lighthouse-audit
 scout-record-output
 scout-run-now
+scout-trial-report
+scout-trial-start
 survey-stats
 surveys-global-stats
+switch-project
 view-run-history
 vision-observations-create-task
 vision-observations-retry

@@ -4,6 +4,8 @@ import { BIEditorView, buildBIQuery, DEFAULT_BI_CONFIG, parseBIEditorState } fro
 import { localFieldError, localFieldExpression, upsertBILocalField } from './biLocalFields'
 
 it.each<BILocalFieldDefinition>([
+    { kind: 'expression', expression: "coalesce(properties.plan, 'Unknown')", aggregate: false },
+    { kind: 'expression', expression: 'sum(properties.amount)', aggregate: true },
     {
         kind: 'groups',
         expression: 'properties.country',

@@ -1266,11 +1266,13 @@ class TestTaskRun(TestCase):
                 "snapshot_external_id": "snapshot-1",
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
+                "failure_error_type": "poll_timeout",
             },
         )
 
         run.prepare_for_cloud_resume()
 
+        self.assertNotIn("failure_error_type", run.state)
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)

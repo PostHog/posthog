@@ -1,20 +1,15 @@
-import json
-from collections.abc import Iterable
 from typing import Any, cast
 
-import pytest
 from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble import coassemble
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.coassemble import (
     COASSEMBLE_BASE_URL,
     PAGE_SIZE,
     CoassembleResumeConfig,
-    coassemble_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import (
@@ -22,191 +17,137 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble
     ENDPOINTS,
     USAGE_PAGE_SIZE,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the coassemble module.
-COASSEMBLE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.coassemble.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source import CoassembleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
+    CoassembleSourceConfig,
 )
 
 
-def _response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(CoassembleSource(), CoassembleSourceConfig(workspace_id="ws-1", api_key="sk-key"))
 
 
 def _page(prefix: str, start: int, count: int) -> list[dict[str, Any]]:
     return [{"id": f"{prefix}-{i}"} for i in range(start, start + count)]
 
 
-def _make_manager(resume_state: CoassembleResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's url/params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
-    source_response = coassemble_source(
-        workspace_id="ws-1",
-        api_key="sk-key",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
-    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
-
-
 class TestListEndpointPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page("c", 0, 1))])
-
-        rows = _rows("courses", _make_manager(CoassembleResumeConfig(next_page=2)))
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "courses",
+            [ScriptedResponse(json=_page("c", 0, 1))],
+            resume_state=CoassembleResumeConfig(next_page=2),
+        )
 
         # Pages 0 and 1 must never be re-fetched on resume.
-        assert rows == _page("c", 0, 1)
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["page"] == 2
+        assert result.raised is None
+        assert result.rows == _page("c", 0, 1)
+        assert result.params("page") == ["2"]
 
     @parameterized.expand([("string", "nope"), ("object_without_list", {"count": 1})])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_fails_loudly(self, _name: str, body: Any, MockSession: mock.MagicMock) -> None:
+    def test_non_list_body_fails_loudly(self, _name: str, body: Any) -> None:
         # List endpoints document a plain JSON array; any other 200 body means the response shape
         # changed — fail loud instead of silently syncing 0 rows.
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
+        result = _driver().run("courses", [ScriptedResponse(json=body)])
 
-        with pytest.raises(ValueError, match="Required a list response body"):
-            _rows("courses", _make_manager())
+        assert isinstance(result.raised, ValueError)
+        assert "Required a list response body" in str(result.raised)
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_for_status(self, _name: str, status: int, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "denied"}, status=status)])
+    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
+        result = _driver().run("courses", [ScriptedResponse(status=status, json={"error": "denied"})])
 
-        with pytest.raises(requests.HTTPError):
-            _rows("courses", _make_manager())
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestTrackingFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_iterates_courses_and_injects_course_id(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_iterates_courses_and_injects_course_id(self) -> None:
+        result = _driver().run(
+            "course_trackings",
             [
-                _response([{"id": 11}, {"id": 22}]),
-                _response([{"id": 1}, {"id": 2}]),
-                _response([{"id": 3}]),
+                ScriptedResponse(json=[{"id": 11}, {"id": 22}]),
+                ScriptedResponse(json=[{"id": 1}, {"id": 2}]),
+                ScriptedResponse(json=[{"id": 3}]),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows("course_trackings", manager)
-
         # Tracking rows don't reference their course, so the parent id is stamped in (also part of
         # the primary key — see settings.py).
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": 1, "course_id": 11},
             {"id": 2, "course_id": 11},
             {"id": 3, "course_id": 22},
         ]
-        assert [s["url"] for s in snapshots] == [
-            f"{COASSEMBLE_BASE_URL}/courses",
-            f"{COASSEMBLE_BASE_URL}/trackings?id=11",
-            f"{COASSEMBLE_BASE_URL}/trackings?id=22",
+        assert result.paths == [
+            "/api/v1/headless/courses",
+            "/api/v1/headless/trackings",
+            "/api/v1/headless/trackings",
         ]
+        assert {request.origin for request in result.requests} == {"https://api.coassemble.com"}
+        assert result.params("id") == [None, "11", "22"]
         # Each course lands in `completed` once its pages are exhausted.
-        assert manager.save_state.call_args_list[-1].args[0] == CoassembleResumeConfig(
+        assert result.saved_states[-1] == CoassembleResumeConfig(
             fanout_state={"completed": ["/trackings?id=11", "/trackings?id=22"], "current": None, "child_state": None}
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_by_skipping_completed_courses(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    def test_resumes_by_skipping_completed_courses(self) -> None:
+        result = _driver().run(
+            "course_trackings",
             [
-                _response([{"id": 11}, {"id": 22}]),
-                _response([{"id": 9}]),
+                ScriptedResponse(json=[{"id": 11}, {"id": 22}]),
+                ScriptedResponse(json=[{"id": 9}]),
             ],
-        )
-
-        manager = _make_manager(
-            CoassembleResumeConfig(
+            resume_state=CoassembleResumeConfig(
                 fanout_state={"completed": ["/trackings?id=11"], "current": None, "child_state": None}
-            )
+            ),
         )
-        rows = _rows("course_trackings", manager)
 
-        assert rows == [{"id": 9, "course_id": 22}]
-        assert snapshots[1]["url"] == f"{COASSEMBLE_BASE_URL}/trackings?id=22"
+        assert result.raised is None
+        assert result.rows == [{"id": 9, "course_id": 22}]
+        assert result.paths == ["/api/v1/headless/courses", "/api/v1/headless/trackings"]
+        assert result.params("id") == [None, "22"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pre_migration_bookmark_resumes_exactly(self, MockSession: mock.MagicMock) -> None:
+    def test_pre_migration_bookmark_resumes_exactly(self) -> None:
         # An old-shape bookmark (completed_course_ids + current_course_id + next_page) is translated
         # into the framework fan-out state: completed courses are skipped and the in-progress course
         # resumes at the saved page.
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "course_trackings",
             [
-                _response([{"id": 11}, {"id": 22}]),
-                _response([{"id": 9}]),
+                ScriptedResponse(json=[{"id": 11}, {"id": 22}]),
+                ScriptedResponse(json=[{"id": 9}]),
             ],
+            resume_state=CoassembleResumeConfig(next_page=1, completed_course_ids=[11], current_course_id=22),
         )
 
-        manager = _make_manager(CoassembleResumeConfig(next_page=1, completed_course_ids=[11], current_course_id=22))
-        rows = _rows("course_trackings", manager)
+        assert result.raised is None
+        assert result.rows == [{"id": 9, "course_id": 22}]
+        assert result.paths == ["/api/v1/headless/courses", "/api/v1/headless/trackings"]
+        assert result.params("id") == [None, "22"]
+        assert result.params("page") == ["0", "1"]
 
-        assert rows == [{"id": 9, "course_id": 22}]
-        tracking_snapshots = [s for s in snapshots if "/trackings" in s["url"]]
-        assert [s["url"] for s in tracking_snapshots] == [f"{COASSEMBLE_BASE_URL}/trackings?id=22"]
-        assert tracking_snapshots[0]["params"]["page"] == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_page_cap_stops_runaway_course(self, MockSession: mock.MagicMock) -> None:
+    def test_page_cap_stops_runaway_course(self) -> None:
+        # Every trackings page is full, so without the cap this would page forever.
         with mock.patch.object(coassemble, "MAX_FAN_OUT_PAGES_PER_PARENT", 2):
-            session = MockSession.return_value
-            # Every trackings page is full, so without the cap this would page forever.
-            _wire(
-                session,
+            result = _driver().run(
+                "course_trackings",
                 [
-                    _response([{"id": 11}]),
-                    _response([{"id": i} for i in range(PAGE_SIZE)]),
-                    _response([{"id": i} for i in range(PAGE_SIZE)]),
+                    ScriptedResponse(json=[{"id": 11}]),
+                    ScriptedResponse(json=[{"id": i} for i in range(PAGE_SIZE)]),
+                    ScriptedResponse(json=[{"id": i} for i in range(PAGE_SIZE)]),
                 ],
             )
 
-            rows = _rows("course_trackings", _make_manager())
-
-        assert len(rows) == 2 * PAGE_SIZE
-        assert session.send.call_count == 3  # 1 courses page + 2 capped trackings pages
+        assert result.raised is None
+        assert len(result.rows) == 2 * PAGE_SIZE
+        assert result.params("page") == ["0", "0", "1"]
 
 
 class TestFanOutEndpointShapes:
@@ -238,7 +179,6 @@ class TestFanOutEndpointShapes:
             ),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_walks_parent_and_stamps_parent_reference(
         self,
         endpoint: str,
@@ -247,47 +187,44 @@ class TestFanOutEndpointShapes:
         child_path: str,
         child_row: dict[str, Any],
         expected_row: dict[str, Any],
-        MockSession: mock.MagicMock,
     ) -> None:
         # Child rows name no parent, so a wrong resolve field or path template would either 404 or
         # land rows whose primary key is half null.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([parent_row]), _response([child_row])])
+        result = _driver().run(endpoint, [ScriptedResponse(json=[parent_row]), ScriptedResponse(json=[child_row])])
 
-        rows = _rows(endpoint, _make_manager())
-
-        assert rows == [expected_row]
-        assert [s["url"] for s in snapshots] == [
-            f"{COASSEMBLE_BASE_URL}{parent_path}",
-            f"{COASSEMBLE_BASE_URL}{child_path}",
+        assert result.raised is None
+        assert result.rows == [expected_row]
+        assert result.paths == [
+            f"/api/v1/headless{parent_path}",
+            f"/api/v1/headless{child_path.partition('?')[0]}",
         ]
+        assert {request.origin for request in result.requests} == {"https://api.coassemble.com"}
+        if "?" in child_path:
+            assert result.requests[1].param("id") == str(parent_row["id"])
 
 
 class TestClientUsagePagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_advances_until_short_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_full_page_advances_until_short_page(self) -> None:
         full = [{"clientIdentifier": f"c-{i}", "metric": "ir"} for i in range(USAGE_PAGE_SIZE)]
-        snapshots = _wire(
-            session,
+        result = _driver().run(
+            "client_usage",
             [
-                _response({"page": 0, "length": USAGE_PAGE_SIZE, "data": full}),
-                _response({"page": 1, "length": USAGE_PAGE_SIZE, "data": [{"clientIdentifier": "z", "metric": "ir"}]}),
+                ScriptedResponse(json={"page": 0, "length": USAGE_PAGE_SIZE, "data": full}),
+                ScriptedResponse(
+                    json={"page": 1, "length": USAGE_PAGE_SIZE, "data": [{"clientIdentifier": "z", "metric": "ir"}]}
+                ),
             ],
         )
 
-        rows = _rows("client_usage", _make_manager())
+        assert result.raised is None
+        assert len(result.rows) == USAGE_PAGE_SIZE + 1
+        assert result.params("page") == ["0", "1"]
 
-        assert len(rows) == USAGE_PAGE_SIZE + 1
-        assert [s["params"]["page"] for s in snapshots] == [0, 1]
+    def test_missing_envelope_key_fails_loudly(self) -> None:
+        result = _driver().run("client_usage", [ScriptedResponse(json={"page": 0, "length": USAGE_PAGE_SIZE})])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_envelope_key_fails_loudly(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"page": 0, "length": USAGE_PAGE_SIZE})])
-
-        with pytest.raises(ValueError, match="Required data_selector"):
-            _rows("client_usage", _make_manager())
+        assert isinstance(result.raised, ValueError)
+        assert "Required data_selector" in str(result.raised)
 
 
 class TestValidateCredentials:
@@ -302,20 +239,20 @@ class TestValidateCredentials:
     def test_status_maps_to_result(
         self, _name: str, status: int, expected_ok: bool, expected_message: str | None
     ) -> None:
-        with mock.patch(COASSEMBLE_SESSION_PATCH) as make_session:
-            session = mock.MagicMock()
-            session.get.return_value = mock.MagicMock(status_code=status)
-            make_session.return_value = session
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             assert validate_credentials("ws-1", "sk-key") == (expected_ok, expected_message)
 
+        assert network.requests_log[0].url == f"{COASSEMBLE_BASE_URL}/courses?page=0&length=1"
+        assert network.requests_log[0].headers["authorization"] == "COASSEMBLE:ws-1:sk-key"
+        assert network.session_options[0]["redact_values"] == ("sk-key",)
+
     def test_connection_error_is_inconclusive(self) -> None:
-        with mock.patch(COASSEMBLE_SESSION_PATCH) as make_session:
-            session = mock.MagicMock()
-            session.get.side_effect = requests.ConnectionError("boom")
-            make_session.return_value = session
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             ok, message = validate_credentials("ws-1", "sk-key")
+
         assert ok is False
         assert message is not None and "Could not connect to Coassemble" in message
+        assert {request.path for request in network.requests_log} == {"/api/v1/headless/courses"}
 
 
 class TestResumeStateCompatibility:
@@ -330,18 +267,15 @@ class TestResumeStateCompatibility:
 class TestCoassembleSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = coassemble_source(
-            workspace_id="ws-1",
-            api_key="sk-key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == COASSEMBLE_ENDPOINTS[endpoint].primary_keys
+        first_page: Any = {"data": []} if endpoint == "client_usage" else []
+        result = _driver().run(endpoint, [ScriptedResponse(json=first_page)])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == COASSEMBLE_ENDPOINTS[endpoint].primary_keys
         # Trackings/courses only guarantee mutable progress timestamps, so we don't partition.
-        assert response.partition_mode is None
+        assert result.response.partition_mode is None
 
     def test_trackings_key_includes_injected_course_id(self) -> None:
         # Tracking rows are aggregated across every course; without the parent id in the key,
