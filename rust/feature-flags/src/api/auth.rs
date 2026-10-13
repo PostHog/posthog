@@ -7,6 +7,8 @@ use axum::http::HeaderMap;
 use common_database::PostgresReader;
 use metrics::counter;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, LazyLock};
+use tokio::sync::Semaphore;
 use tracing::{debug, warn};
 
 /// Token prefix constants
@@ -269,15 +271,30 @@ async fn load_token_from_pg(
 /// same team. Fire-and-forget: it never delays or fails the auth path, and it only runs
 /// on auth-cache misses, so the extra query is bounded by unique active tokens per cache
 /// TTL, not by request volume.
+// Caps concurrent shadow queries. When the auth cache degrades (Redis down), the loader
+// runs per request instead of per token, and without this cap the shadow would double the
+// read load on the shared non_persons_reader pool. Excess checks are skipped and counted;
+// the flip gate reads mismatch *rates*, so sampling under pressure costs nothing.
+static MIRROR_SHADOW_PERMITS: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(8)));
+
 fn spawn_mirror_shadow_check(pg_reader: PostgresReader, hashed_token: String, team_id: i32) {
+    let Ok(permit) = MIRROR_SHADOW_PERMITS.clone().try_acquire_owned() else {
+        counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => "skipped").increment(1);
+        return;
+    };
     tokio::spawn(async move {
+        let _permit = permit;
         let result = mirror_shadow_result(pg_reader, &hashed_token, team_id).await;
-        if result != "match" {
-            warn!(
+        match result {
+            "match" => {}
+            // A failed read says nothing about the row; don't send operators to backfill.
+            "error" => warn!(team_id = team_id, "Legacy token mirror shadow query failed"),
+            _ => warn!(
                 team_id = team_id,
                 result = result,
                 "Legacy token has no usable PSAK mirror row"
-            );
+            ),
         }
         counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => result).increment(1);
     });
