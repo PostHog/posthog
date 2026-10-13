@@ -1,8 +1,9 @@
-import dataclasses
 from typing import Any, Optional
 
 from requests import Request, Response
 from requests.auth import HTTPBasicAuth
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -33,7 +34,7 @@ PAGE_NUMBER_PARAM = "page[number]"
 PAGE_SIZE_PARAM = "page[size]"
 
 
-@dataclasses.dataclass
+@frozen
 class OpinionStageResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.
@@ -74,7 +75,7 @@ class OpinionStagePaginator(BasePaginator):
         if not data:
             self._has_next_page = False
             return
-        if not _has_next_page(response):
+        if not _has_next_page(response, requested_page=self.page):
             self._has_next_page = False
             return
         self.page += 1
@@ -99,13 +100,16 @@ class OpinionStagePaginator(BasePaginator):
         return f"OpinionStagePaginator(page={self.page})"
 
 
-def _has_next_page(response: Response) -> bool:
+def _has_next_page(response: Response, requested_page: int) -> bool:
     try:
         body = response.json()
         if (body.get("links") or {}).get("next"):
             return True
         page = (body.get("meta") or {}).get("page") or {}
-        return int(page["current"]) < int(page["total"])
+        current = int(page["current"])
+        # A `current` behind the page we asked for means the server ignored `page[number]`: stop
+        # rather than re-fetch the same page forever.
+        return requested_page <= current < int(page["total"])
     except Exception:
         return False
 

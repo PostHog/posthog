@@ -144,6 +144,16 @@ class TestOpinionStage:
         assert result.raised is None
         assert result.params("page[number]") == expected_pages
 
+    def test_counters_stuck_on_page_1_stop_the_walk(self) -> None:
+        stuck = {"meta": {"page": {"current": 1, "total": 5}}, "links": {}}
+        result = self._driver().run(
+            "items",
+            always(ScriptedResponse(json={"data": [{"id": "1"}], **stuck})),
+        )
+
+        assert result.raised is None
+        assert result.params("page[number]") == ["1", "2"]
+
     def test_empty_data_yields_no_rows(self) -> None:
         result = self._driver().run("items", [_page([], next_link=None)])
 
