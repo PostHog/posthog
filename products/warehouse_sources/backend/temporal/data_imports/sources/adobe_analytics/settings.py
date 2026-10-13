@@ -35,7 +35,7 @@ ANNOTATION_EXPANSIONS = (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class AdobeAnalyticsEndpointConfig:
     name: str
     # Path under https://analytics.adobe.io/api/{globalCompanyId}
