@@ -63,4 +63,26 @@ describe('repoIds', () => {
         await expect(resolveRepoId('1', 'PostHog/missing')).rejects.toBeInstanceOf(RepoNotFoundError)
         expect(requests).toBe(3)
     })
+
+    it('shares one refresh between two lookups that miss at the same time', async () => {
+        let listed = [older]
+        let requests = 0
+        useMocks({
+            get: {
+                [REPOS_URL]: () => {
+                    requests += 1
+                    return [200, { count: listed.length, next: null, previous: null, results: listed }]
+                },
+            },
+        })
+
+        await resolveRepoId('1', 'PostHog/posthog')
+        listed = [older, other]
+        const lookups = await Promise.all([
+            resolveRepoId('1', 'PostHog/posthog.com'),
+            resolveRepoId('1', 'PostHog/posthog.com'),
+        ])
+        expect(lookups).toEqual(['other', 'other'])
+        expect(requests).toBe(2)
+    })
 })

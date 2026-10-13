@@ -57,6 +57,23 @@ function loadRepos(projectId: string, refresh: boolean): Promise<RepoApi[]> {
     return request
 }
 
+// Lookups that miss at the same moment share one refresh, so a page of repo-scoped logics makes one extra call.
+const repoListRefreshes = new Map<string, Promise<RepoApi[]>>()
+
+function refreshRepos(projectId: string): Promise<RepoApi[]> {
+    const pending = repoListRefreshes.get(projectId)
+    if (pending) {
+        return pending
+    }
+    const refresh = loadRepos(projectId, true)
+    repoListRefreshes.set(projectId, refresh)
+    const clear = (): void => {
+        repoListRefreshes.delete(projectId)
+    }
+    refresh.then(clear, clear)
+    return refresh
+}
+
 // The cached list can predate a repo connected a moment ago, so a miss on it fetches the list once more.
 async function findRepo(projectId: string, matches: (repos: RepoApi[]) => RepoApi | null): Promise<RepoApi | null> {
     const wasCached = repoListRequests.has(projectId)
@@ -64,7 +81,7 @@ async function findRepo(projectId: string, matches: (repos: RepoApi[]) => RepoAp
     if (repo || !wasCached) {
         return repo
     }
-    return matches(await loadRepos(projectId, true))
+    return matches(await refreshRepos(projectId))
 }
 
 export async function resolveRepoId(projectId: string, repoFullName: string): Promise<string> {
@@ -85,4 +102,5 @@ export async function resolveRepoFullName(projectId: string, repoId: string): Pr
 
 export function clearRepoIdCache(): void {
     repoListRequests.clear()
+    repoListRefreshes.clear()
 }
