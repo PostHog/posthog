@@ -109,7 +109,7 @@ export interface dataWarehouseViewsLogicActions {
         viewId: string
     }
     createDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
+        payload: Partial<DataWarehouseSavedQuery> & {
             // The caller must then pass the view name to `materializeDataWarehouseSavedQuery`, which shows the toast.
             deferCreatedToast?: boolean
             folder_id?: string | null
@@ -522,15 +522,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     ) as unknown as DataWarehouseSavedQuerySummary[]
                 },
                 createDataWarehouseSavedQuery: async (
-                    view: Partial<DataWarehouseSavedQuery> & {
+                    payload: Partial<DataWarehouseSavedQuery> & {
                         types: string[][]
                         folder_id?: string | null
                         // The caller must then pass the view name to `materializeDataWarehouseSavedQuery`, which shows the toast.
                         deferCreatedToast?: boolean
                     }
                 ) => {
-                    const { deferCreatedToast, ...payload } = view
-                    const newView = await api.dataWarehouseSavedQueries.create(payload)
+                    const { deferCreatedToast, ...view } = payload
+                    const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     if (!deferCreatedToast) {
                         showViewCreatedToast(newView.name)
