@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import {
     IconBolt,
@@ -22,6 +24,7 @@ import api from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -53,6 +56,7 @@ import {
 import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { dataModelingNodesLineageRetrieve } from 'products/data_modeling/frontend/generated/api'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
@@ -1960,6 +1964,7 @@ export interface queryDatabaseLogicValues {
     hogqlMetrics: DataCatalogMetricApi[]
     joinsByFieldName: Record<string, DataWarehouseViewLink>
     metricsLoadFailed: boolean
+    openingLineageViewId: string | null
     pendingViewFolderOverrides: Record<string, string | null>
     propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
     queryTabState: QueryTabState | null
@@ -2119,6 +2124,9 @@ export interface queryDatabaseLogicActions {
             record: Record<string, any>
         }
     }
+    finishOpeningViewLineage: () => {
+        value: true
+    }
     loadPropertyDefinitions: (
         propertyFieldKey: string,
         target: SidebarPropertyDefinitionTarget,
@@ -2187,6 +2195,13 @@ export interface queryDatabaseLogicActions {
     }
     openUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
+    }
+    openViewLineage: (
+        viewId: string,
+        openInNewTab: boolean
+    ) => {
+        openInNewTab: boolean
+        viewId: string
     }
     selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary) => {
         schema: DatabaseSchemaTable | DataWarehouseSavedQuerySummary
@@ -2471,6 +2486,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        openViewLineage: (viewId: string, openInNewTab: boolean) => ({ viewId, openInNewTab }),
+        finishOpeningViewLineage: true,
     }),
     connect(() => ({
         values: [
@@ -2548,6 +2565,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             null as string | null,
             {
                 setEditingDraft: (_, { draftId }) => draftId,
+            },
+        ],
+        openingLineageViewId: [
+            null as string | null,
+            {
+                openViewLineage: (_, { viewId }) => viewId,
+                finishOpeningViewLineage: () => null,
             },
         ],
         editingPropertyDefinition: [
@@ -3971,6 +3995,31 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 newInternalTab(urls.sqlEditor({ view_id: record.view.id }))
             } else {
                 newInternalTab(urls.sqlEditor({ query: record.query }))
+            }
+        },
+        openViewLineage: async ({ viewId, openInNewTab }) => {
+            const open = (url: string): void => (openInNewTab ? newInternalTab(url) : router.actions.push(url))
+            try {
+                // The lineage page is keyed by node id, and the tree holds only the view id.
+                const { nodes } = await dataModelingNodesLineageRetrieve(String(values.currentProjectId), {
+                    saved_query_id: viewId,
+                })
+                const nodeId = nodes.find((node) => node.saved_query_id === viewId)?.id
+                if (!nodeId) {
+                    throw new Error('The lineage response has no node for this view')
+                }
+                posthog.capture('sql-editor-view-lineage-opened', { opened_in_new_tab: openInNewTab })
+                open(urls.nodeDetail(nodeId, 'lineage'))
+            } catch {
+                posthog.capture('sql-editor-view-lineage-open-failed', { opened_in_new_tab: openInNewTab })
+                lemonToast.error("Couldn't open this view's lineage. Try again, or find the view in the full graph.", {
+                    button: {
+                        label: 'Open full graph',
+                        action: () => open(urls.models('lineage')),
+                    },
+                })
+            } finally {
+                actions.finishOpeningViewLineage()
             }
         },
     })),

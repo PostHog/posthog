@@ -1,9 +1,12 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsList } from '~/generated/core/api'
 import { performQuery } from '~/queries/query'
@@ -15,6 +18,7 @@ import type { DataWarehouseSavedQuery } from '~/types'
 import { dataCatalogMetricsList } from 'products/data_catalog/frontend/generated/api'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { dataModelingNodesLineageRetrieve } from 'products/data_modeling/frontend/generated/api'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -36,7 +40,13 @@ jest.mock('products/data_catalog/frontend/generated/api', () => ({
     dataCatalogMetricsList: jest.fn(() => Promise.resolve({ results: [], next: null })),
 }))
 
+jest.mock('products/data_modeling/frontend/generated/api', () => ({
+    ...jest.requireActual('products/data_modeling/frontend/generated/api'),
+    dataModelingNodesLineageRetrieve: jest.fn(),
+}))
+
 const mockPropertyDefinitionsList = propertyDefinitionsList as jest.Mock
+const mockLineageRetrieve = dataModelingNodesLineageRetrieve as jest.Mock
 const mockDataCatalogMetricsList = dataCatalogMetricsList as jest.Mock
 
 const buildMetric = (id: string, name: string, definitionKind: string | null): DataCatalogMetricApi => ({
@@ -1055,6 +1065,65 @@ describe('queryDatabaseLogic', () => {
 
             expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: ['public.accounts'] }))
             expect(databaseLogic.values.database?.tables['public.accounts'].fields).toHaveProperty('id')
+        })
+    })
+
+    describe('opening the lineage of a view', () => {
+        const VIEW_ID = 'view-1'
+        const viewNode = { id: 'node-7', saved_query_id: VIEW_ID }
+        const upstreamTableNode = { id: 'table-node', saved_query_id: null }
+        const lineageUrl = urls.nodeDetail(viewNode.id, 'lineage')
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+        let toastError: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+            logic = queryDatabaseLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+            toastError.mockRestore()
+        })
+
+        it.each([
+            ['the same tab', false],
+            ['a new tab', true],
+        ])('resolves the view to its node and opens the lineage page in %s', async (_name, openInNewTab) => {
+            let resolveLineage: (value: unknown) => void = () => {}
+            mockLineageRetrieve.mockReturnValue(new Promise((resolve) => (resolveLineage = resolve)))
+
+            logic.actions.openViewLineage(VIEW_ID, openInNewTab)
+            expect(logic.values.openingLineageViewId).toBe(VIEW_ID)
+
+            resolveLineage({ nodes: [upstreamTableNode, viewNode], edges: [] })
+            await expectLogic(logic).toDispatchActions(['finishOpeningViewLineage'])
+
+            expect(mockLineageRetrieve).toHaveBeenCalledWith(expect.any(String), { saved_query_id: VIEW_ID })
+            expect(logic.values.openingLineageViewId).toBeNull()
+            expect((newInternalTab as jest.Mock).mock.calls).toEqual(openInNewTab ? [[lineageUrl]] : [])
+            expect(router.values.location.pathname.endsWith(lineageUrl)).toBe(!openInNewTab)
+            expect(toastError).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['the response has no node for the view', () => Promise.resolve({ nodes: [upstreamTableNode], edges: [] })],
+            ['the request fails', () => Promise.reject(new Error('Node not found'))],
+        ])('shows an error and stays on the page when %s', async (_name, respond) => {
+            mockLineageRetrieve.mockImplementation(respond)
+            const pathnameBefore = router.values.location.pathname
+
+            await expectLogic(logic, () => logic.actions.openViewLineage(VIEW_ID, false)).toDispatchActions([
+                'finishOpeningViewLineage',
+            ])
+
+            expect(toastError).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toBe(pathnameBefore)
+            expect(newInternalTab).not.toHaveBeenCalled()
+            expect(logic.values.openingLineageViewId).toBeNull()
         })
     })
 })

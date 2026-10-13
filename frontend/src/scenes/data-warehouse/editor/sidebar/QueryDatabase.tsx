@@ -17,7 +17,7 @@ import {
     IconExternal,
     IconPlusSmall,
 } from '@posthog/icons'
-import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTextSize } from 'lib/lemon-ui/icons'
@@ -149,6 +149,7 @@ export const QueryDatabase = ({
         highlightViewsSectionDrop,
         featureFlags,
         editingPropertyDefinition,
+        openingLineageViewId,
     } = useValues(queryDatabaseLogic)
     const { config: biConfig, editorView } = useValues(biEditorLogic({ tabId }))
     const isBIEditor = editorView === BIEditorView.BI
@@ -171,6 +172,7 @@ export const QueryDatabase = ({
         openPropertyDefinitionEditor,
         closePropertyDefinitionEditor,
         updatePropertyDefinition,
+        openViewLineage,
     } = useActions(queryDatabaseLogic)
     const {
         createDataWarehouseSavedQueryFolder,
@@ -206,6 +208,13 @@ export const QueryDatabase = ({
     // item there opens nothing. Most embedded callers hide the tree entirely, but not all.
     const warehouseAccessControlEnabled =
         !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL] && !isEmbeddedMode
+    const captureViewMenuAction = (action: string, item: TreeDataItem): void => {
+        posthog.capture('sql-editor-view-menu-action', {
+            action,
+            item_type: item.record?.type,
+            mode: isEmbeddedMode ? 'embedded' : 'full_scene',
+        })
+    }
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -1016,7 +1025,10 @@ export const QueryDatabase = ({
                                         <DropdownMenuItem asChild>
                                             <Link
                                                 to={urls.sqlEditor({ view_id: item.record.view?.id })}
-                                                onClick={(e) => e.stopPropagation()}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    captureViewMenuAction('edit', item)
+                                                }}
                                                 disabledReason={editViewAccessDisabledReason}
                                                 buttonProps={{
                                                     menuItem: true,
@@ -1031,7 +1043,10 @@ export const QueryDatabase = ({
                                                 to={urls.sqlEditor({ view_id: item.record.view?.id })}
                                                 target="_blank"
                                                 targetBlankIcon={false}
-                                                onClick={(e) => e.stopPropagation()}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    captureViewMenuAction('edit_in_new_tab', item)
+                                                }}
                                                 disabledReason={editViewAccessDisabledReason}
                                                 tooltip={editLabel}
                                                 buttonProps={{
@@ -1049,6 +1064,7 @@ export const QueryDatabase = ({
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
+                                            captureViewMenuAction('edit', item)
                                             openItemEditor(item, true)
                                         }}
                                     >
@@ -1060,6 +1076,7 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
+                                    captureViewMenuAction('query', item)
                                     previewItem(item)
                                 }}
                             >
@@ -1073,6 +1090,7 @@ export const QueryDatabase = ({
                                         if (addJoinAccessDisabledReason) {
                                             return
                                         }
+                                        captureViewMenuAction('add_join', item)
                                         selectSourceTable(addJoinSourceTableName)
                                     }}
                                 >
@@ -1094,6 +1112,7 @@ export const QueryDatabase = ({
                                         if (materializationAccessDisabledReason) {
                                             return
                                         }
+                                        captureViewMenuAction('materialization', item)
                                         openMaterializationModal(item.record?.view)
                                     }}
                                 >
@@ -1109,11 +1128,33 @@ export const QueryDatabase = ({
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
+                            {item.record.type === 'view' ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        const viewId = item.record?.view?.id
+                                        if (!viewId || openingLineageViewId) {
+                                            return
+                                        }
+                                        captureViewMenuAction('open_lineage', item)
+                                        openViewLineage(viewId, isEmbeddedMode)
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={openingLineageViewId ? { 'Opening lineage': true } : {}}
+                                    >
+                                        Open lineage
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                             {item.record.type !== 'endpoint' ? (
                                 <DropdownMenuItem
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        captureViewMenuAction('copy_name', item)
                                         void copyToClipboard(item.name)
                                     }}
                                 >
@@ -1125,6 +1166,7 @@ export const QueryDatabase = ({
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        captureViewMenuAction('access_control', item)
                                         openAccessControlModal({
                                             resource: AccessControlResourceType.WarehouseView,
                                             resourceId: warehouseViewId,
@@ -1143,6 +1185,7 @@ export const QueryDatabase = ({
                                         if (editViewAccessDisabledReason) {
                                             return
                                         }
+                                        captureViewMenuAction('delete', item)
                                         LemonDialog.open({
                                             title: `Delete view "${item.name}"?`,
                                             description:
@@ -1416,6 +1459,9 @@ export const QueryDatabase = ({
                         )
                     }
                     return icon
+                }
+                if (item.record?.type === 'view' && item.record.view?.id === openingLineageViewId) {
+                    return <Spinner />
                 }
                 return <TreeNodeDisplayIcon item={item} expandedItemIds={expandedItemIds} />
             }}
