@@ -888,9 +888,14 @@ class SignalReportMergeResponseSerializer(serializers.Serializer):
 SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 
 
+class SignalReportFeedbackSentiment(models.TextChoices):
+    POSITIVE = "positive", "positive"
+    NEGATIVE = "negative", "negative"
+
+
 class SignalReportFeedbackRequestSerializer(serializers.Serializer):
     sentiment = serializers.ChoiceField(
-        choices=[("positive", "positive"), ("negative", "negative")],
+        choices=SignalReportFeedbackSentiment.choices,
         allow_null=True,
         help_text="The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.",
     )
@@ -1197,7 +1202,7 @@ class SignalReportViewSet(
     def safely_get_queryset(self, queryset):
         if self.action == "read_state":
             return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
-        if self.action in {"viewed", "pr_ci_statuses", "refresh_metrics"}:
+        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
             # right after the detail request that already rendered the report, `pr_ci_statuses` only
@@ -2947,7 +2952,7 @@ class SignalReportViewSet(
         report = self.get_object()
         metadata = (
             SignalReportAction.objects.for_team(self.team.id)
-            .filter(report=report, user=request.user, type=SignalReportAction.ActionType.FEEDBACK)
+            .filter(report=report, user=cast(User, request.user), type=SignalReportAction.ActionType.FEEDBACK)
             .values_list("metadata", flat=True)
             .first()
         ) or {}
@@ -2971,7 +2976,7 @@ class SignalReportViewSet(
         request=SignalReportFeedbackRequestSerializer,
         responses={200: SignalReportFeedbackResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:read"])
     def feedback(self, request, pk=None, **kwargs):
         """Persist a report's thumbs rating and forward its note to the authoring scout.
 

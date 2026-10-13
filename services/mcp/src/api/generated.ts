@@ -100985,18 +100985,6 @@ export namespace Schemas {
       channel_id: string;
     }
 
-    /**
-     * * `positive` - positive
-     * * `negative` - negative
-     */
-    export type SentimentEnum = typeof SentimentEnum[keyof typeof SentimentEnum];
-
-
-    export const SentimentEnum = {
-      Positive: 'positive',
-      Negative: 'negative',
-    } as const;
-
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
@@ -101462,12 +101450,24 @@ export namespace Schemas {
       report_id: string;
     }
 
+    /**
+     * * `positive` - positive
+     * * `negative` - negative
+     */
+    export type SignalReportFeedbackSentimentEnum = typeof SignalReportFeedbackSentimentEnum[keyof typeof SignalReportFeedbackSentimentEnum];
+
+
+    export const SignalReportFeedbackSentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
+
     export interface SignalReportFeedbackRequest {
       /** The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.
        *
        * * `positive` - positive
        * * `negative` - negative */
-      sentiment: SentimentEnum | null;
+      sentiment: SignalReportFeedbackSentimentEnum | null;
       /**
          * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
          * @maxLength 4000
@@ -101485,7 +101485,7 @@ export namespace Schemas {
        *
        * * `positive` - positive
        * * `negative` - negative */
-      sentiment: SentimentEnum | null;
+      sentiment: SignalReportFeedbackSentimentEnum | null;
       /** The current user's saved note, or an empty string. */
       note: string;
     }

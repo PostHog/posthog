@@ -1064,9 +1064,10 @@ export interface SignalReportClaimApi {
  * * `positive` - positive
  * * `negative` - negative
  */
-export type SentimentEnumApi = (typeof SentimentEnumApi)[keyof typeof SentimentEnumApi]
+export type SignalReportFeedbackSentimentEnumApi =
+    (typeof SignalReportFeedbackSentimentEnumApi)[keyof typeof SignalReportFeedbackSentimentEnumApi]
 
-export const SentimentEnumApi = {
+export const SignalReportFeedbackSentimentEnumApi = {
     Positive: 'positive',
     Negative: 'negative',
 } as const
@@ -1076,7 +1077,7 @@ export interface SignalReportFeedbackRequestApi {
      *
      * * `positive` - positive
      * * `negative` - negative */
-    sentiment: SentimentEnumApi | null
+    sentiment: SignalReportFeedbackSentimentEnumApi | null
     /**
      * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
      * @maxLength 4000
@@ -1094,7 +1095,7 @@ export interface SignalReportFeedbackStateApi {
      *
      * * `positive` - positive
      * * `negative` - negative */
-    sentiment: SentimentEnumApi | null
+    sentiment: SignalReportFeedbackSentimentEnumApi | null
     /** The current user's saved note, or an empty string. */
     note: string
 }

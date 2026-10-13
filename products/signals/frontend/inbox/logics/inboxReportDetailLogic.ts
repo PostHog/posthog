@@ -56,7 +56,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
-import type { SentimentEnumApi } from '../../generated/api.schemas'
+import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
 import {
     deriveTaskPurpose,
     PURPOSE_ORDER,
@@ -316,7 +316,7 @@ export interface inboxReportDetailLogicValues {
     feedbackNoteSent: boolean
     feedbackNoteSubmitting: boolean
     feedbackSentNote: string | null
-    feedbackSentiment: SentimentEnumApi | null
+    feedbackSentiment: SignalReportFeedbackSentimentEnumApi | null
     feedbackSubmitting: boolean
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
@@ -663,9 +663,11 @@ export interface inboxReportDetailLogicActions {
 export interface inboxReportDetailLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        feedbackSentiment: (savedFeedback: SignalReportFeedbackStateApi | null) => SentimentEnumApi | null
+        feedbackSentiment: (
+            savedFeedback: SignalReportFeedbackStateApi | null
+        ) => SignalReportFeedbackSentimentEnumApi | null
         feedbackSentNote: (savedFeedback: SignalReportFeedbackStateApi | null) => string | null
-        feedbackNoteSent: (feedbackSentNote: any) => boolean
+        feedbackNoteSent: (feedbackSentNote: string | null) => boolean
         feedbackDisabledReason: (
             savedFeedback: SignalReportFeedbackStateApi | null,
             savedFeedbackLoading: boolean,

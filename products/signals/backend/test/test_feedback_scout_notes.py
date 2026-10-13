@@ -12,6 +12,7 @@ from django.apps import apps
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -19,6 +20,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
@@ -76,6 +78,13 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
     def _notes(self) -> list[SignalScoutNote]:
         return list(SignalScoutNote.objects.filter(team=self.team).order_by("created_at"))
+
+    def _set_task_access(self, access_level: AccessControlLevel) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="task", access_level=access_level)
 
     def test_feedback_note_reaches_the_authoring_scout(self) -> None:
         self._create_scout_skill()
@@ -183,6 +192,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
 
     @parameterized.expand([("positive", "negative", "ready"), ("negative", "positive", "suppressed")])
     def test_feedback_can_be_read_changed_and_cleared(self, first: str, second: str, report_status: str) -> None:
+        self._set_task_access("viewer")
         report = self._create_report()
         report.status = report_status
         report.save(update_fields=["status"])
@@ -218,6 +228,16 @@ class TestFeedbackScoutNotes(APIBaseTest):
         report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY)
         url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
         assert self.client.get(url).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_feedback_requires_report_access(self) -> None:
+        self._set_task_access("none")
+        report = self._create_report()
+        url = self._feedback_url(str(report.id))
+
+        assert self.client.get(url.replace("/feedback/", "/feedback_state/")).status_code == status.HTTP_403_FORBIDDEN
+        response = self.client.post(url, {"sentiment": "positive"}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
 
     def test_clearing_feedback_does_not_forward_a_note(self) -> None:
         report = self._create_report()
@@ -283,9 +303,10 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert body["forwarded"] is False
         assert not SignalScoutNote.all_teams.exists()
 
-    def test_no_note_when_the_token_lacks_the_note_scopes(self) -> None:
+    @parameterized.expand([(["task:read"],), (["task:read", "task:write"],)])
+    def test_no_note_when_the_token_lacks_the_note_scopes(self, scopes: list[str]) -> None:
         # The feedback text has no second path to a run, so — like a discussion — forwarding demands
-        # the note-write key scopes on top of the `task:write` the action itself needs.
+        # the note-write key scopes on top of the `task:read` the action itself needs.
         self._create_scout_skill()
         report = self._create_report()
         self._create_run(emitted_report_ids=[str(report.id)])
@@ -294,7 +315,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
             label="Task-only key",
             user=self.user,
             secure_value=hash_key_value(raw_key),
-            scopes=["task:write", "task:read"],
+            scopes=scopes,
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
@@ -308,6 +329,7 @@ class TestFeedbackScoutNotes(APIBaseTest):
         # Forwarding re-checks the `llm_skill` editor bar the notes API requires, so a member barred
         # from skill editing can't reach the steering channel through feedback.
         self._create_scout_skill()
+        self._set_task_access("viewer")
         report = self._create_report()
         self._create_run(emitted_report_ids=[str(report.id)])
 
