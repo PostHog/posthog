@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -23,7 +23,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
-    WizardPolicyUnavailable,
     WizardPosture,
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
@@ -72,7 +71,7 @@ WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/invalid_token/"
     "not_wizard_app/scope_missing/team_ambiguous/team_missing/unauthorized/blocked/"
-    "program_unknown/not_rolled_out/throttled/policy_unavailable/mint_failed)",
+    "program_unknown/not_rolled_out/throttled/mint_failed)",
     labelnames=["outcome"],
 )
 
@@ -119,9 +118,6 @@ class SetupWizardGatewayTokenSerializer(serializers.Serializer):
     reads_refusal_reason = serializers.BooleanField(
         required=False,
         help_text="Send JSON true when the client displays refusal details. Older clients receive compatible 404 refusals.",
-    )
-    supports_prompt_pinning = serializers.BooleanField(
-        help_text="Must be JSON true. The client must prepend the returned system_prompt to every model request.",
     )
 
 
@@ -316,23 +312,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )
 
-        if body.get("supports_prompt_pinning") is not True:
-            refuse_absent_gateway(
-                "program_unknown",
-                "This Wizard version is no longer supported. Upgrade with: npx @posthog/wizard@latest",
-                user=user,
-            )
-
         # Read once, after every gate that needs no flag, so an unauthenticated or
-        # refused request costs no flag read. Nothing is reserved yet, so a refusal
-        # here spends no slot.
-        try:
-            policy = wizard_gateway_policy(distinct_id=distinct_id)
-        except WizardPolicyUnavailable as e:
-            logger.warning("wizard_gateway_token: policy unavailable", error=str(e))
-            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="policy_unavailable").inc()
-            capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
-            return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        # refused request costs no flag read. A policy flag that is off or broken
+        # degrades the pin and never refuses the mint.
+        policy = wizard_gateway_policy(distinct_id=distinct_id)
 
         # A closed set: refusing keeps every pinned node one that carries a budget.
         product = wizard_product_node(program, policy)
@@ -375,20 +358,19 @@ class SetupWizardViewSet(viewsets.ViewSet):
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="minted").inc()
-        return Response(
-            {
-                "token": minted["token"],
-                "expires_at": minted["expires_at"],
-                "cap_usd": minted.get("cap_usd"),
-                "gateway_url": wizard_gateway_base_url(),
-                # The CLI stamps this on each generation as `team_id`.
-                "team_id": team.id,
-                # The gateway checks the first system unit of every call against the pinned digest.
-                "system_prompt": policy.prompt_text,
-                "system_prompt_version": policy.prompt_version,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        payload: dict[str, Any] = {
+            "token": minted["token"],
+            "expires_at": minted["expires_at"],
+            "cap_usd": minted.get("cap_usd"),
+            "gateway_url": wizard_gateway_base_url(),
+            # The CLI stamps this on each generation as `team_id`.
+            "team_id": team.id,
+        }
+        if policy.prompt is not None:
+            # The gateway checks the first system unit of every call against the pinned digest.
+            payload["system_prompt"] = policy.prompt.text
+            payload["system_prompt_version"] = policy.prompt.version
+        return Response(payload, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         request=SetupWizardCloudRunSerializer,

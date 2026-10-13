@@ -12,12 +12,10 @@ Code: `posthog/api/wizard/http.py` (the endpoint and its gates),
 
 ## Mint request
 
-The CLI sends `program`, `reads_refusal_reason: true`, and `supports_prompt_pinning: true` to `POST /api/wizard/gateway_token/`.
-`supports_prompt_pinning` must be the JSON boolean `true`.
-It declares that the client will prepend the returned `system_prompt` to every model request.
-A missing, false, or malformed capability receives the existing `program_unknown` upgrade refusal after authorization and block checks, before policy reads or a mint reservation.
-`reads_refusal_reason` independently controls whether that refusal uses 403 or the legacy 404 response.
-Django includes the prompt pin in every mint request.
+The CLI sends `program` and `reads_refusal_reason: true` to `POST /api/wizard/gateway_token/`.
+`reads_refusal_reason` controls whether a refusal that an older CLI absorbed uses 403 with a reason or the legacy 404 response.
+Django pins the operator system prompt whenever the prompt flag is usable, whatever else the client sends.
+The client must prepend the returned `system_prompt` to every model request.
 
 Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 `Authorization: Bearer {WIZARD_GATEWAY_MINT_KEY}`:
@@ -32,6 +30,7 @@ Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 | `allowed_models`               | Models this token may reach                                    |
 | `allowed_efforts`              | Reasoning efforts this token may declare                       |
 | `allowed_system_prompt_sha256` | Digest of the operator system prompt every call must lead with |
+| `allowed_system_prompt_bytes`  | Byte length of that prompt                                     |
 
 The pins come from two remote-config flags in the PostHog internal project,
 read once per mint request after authentication:
@@ -42,8 +41,17 @@ read once per mint request after authentication:
   non-empty, and `efforts` come from the gateway's effort vocabulary.
 
 The mint response hands the wizard the prompt as `system_prompt`, with `system_prompt_version`.
-There is no in-code fallback: if either flag is unreadable or invalid, the mint is refused with
-a 503 and counted as `policy_unavailable`. No mint slot is reserved at that point.
+A policy flag never refuses a mint:
+
+- A prompt flag that is off, unreadable or out of contract mints an unpinned token. The mint body omits the two
+  prompt pins and the response omits `system_prompt` and `system_prompt_version`. Switching the flag off is the
+  operator kill switch.
+- An allowlist flag that is unreadable or out of contract falls back to `WIZARD_DEFAULT_MODELS`,
+  `WIZARD_DEFAULT_EFFORTS` and `WIZARD_DEFAULT_PROGRAMS` in `wizard_gateway_token.py`. The default programs list
+  is empty, so the fallback refuses every program as `program_unknown`.
+- Unreadable and out-of-contract payloads log a warning. Out-of-contract ones also count on
+  `posthog_wizard_gateway_config_rejects_total{field="system_prompt"|"allowlist"}`.
+
 A gateway that predates a pin ignores it and mints an unpinned token.
 The `programs` list is authoritative: a program absent from it is refused as `program_unknown`.
 
@@ -75,7 +83,7 @@ The endpoint answers one outcome per request, counted on
 `posthog_wizard_gateway_token_requests_total{outcome}`: `unconfigured`,
 `invalid_token`, `not_wizard_app`, `scope_missing`, `team_ambiguous`,
 `team_missing`, `unauthorized`, `blocked`, `not_rolled_out`, `program_unknown`,
-`policy_unavailable`, `throttled`, `mint_failed`, or `minted`.
+`throttled`, `mint_failed`, or `minted`.
 
 Refusals that an older CLI absorbed by falling back to the legacy gateway
 (`unconfigured`, `not_rolled_out`, `program_unknown`) answer 403 with a reason

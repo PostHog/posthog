@@ -22,6 +22,8 @@ from posthog.api.wizard.http import WIZARD_EMAIL_UNVERIFIED_DETAIL
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
+    WIZARD_DEFAULT_EFFORTS,
+    WIZARD_DEFAULT_MODELS,
     WIZARD_GATEWAY_ALLOWLIST_FLAG,
     WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG,
     WIZARD_SYSTEM_PROMPT_FLAG,
@@ -303,7 +305,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def test_unconfigured_is_403_with_a_reason(self):
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"reads_refusal_reason": True, "supports_prompt_pinning": True},
+            {"reads_refusal_reason": True},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -328,7 +330,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -371,7 +373,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": not refused},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -398,13 +400,13 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         for _ in range(2):
             ok = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
             assert ok.status_code == status.HTTP_201_CREATED, ok.content
         refused = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -430,13 +432,13 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         for program in ("integration", "ai-observability"):
             ok = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": program, "supports_prompt_pinning": True},
+                {"program": program},
                 headers={"authorization": "Bearer pha_test"},
             )
             assert ok.status_code == status.HTTP_201_CREATED, ok.content
         refused = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "events-audit", "supports_prompt_pinning": True},
+            {"program": "events-audit"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -458,7 +460,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         for _ in range(3):
             ok = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
             assert ok.status_code == status.HTTP_201_CREATED, ok.content
@@ -481,7 +483,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         legacy = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
         assert legacy.status_code == status.HTTP_404_NOT_FOUND, legacy.content
@@ -499,7 +501,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             mock_flag.configure_mock(**outage)
             response = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
             assert response.status_code == status.HTTP_201_CREATED, (outage, response.content)
@@ -517,7 +519,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication, scoped_teams=[self.team.id, self.team.id + 1])
         ambiguous = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
         assert (ambiguous.status_code, ambiguous.json()["code"]) == (status.HTTP_400_BAD_REQUEST, "team_ambiguous")
@@ -526,12 +528,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         for _ in range(5):
             self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
         throttled = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
         assert (throttled.status_code, throttled.json()["code"]) == (status.HTTP_429_TOO_MANY_REQUESTS, "throttled")
@@ -539,7 +541,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         mock_authentication.return_value.authenticate.side_effect = AuthenticationFailed("Invalid access token.")
         invalid = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
         assert (invalid.status_code, invalid.json()["code"]) == (status.HTTP_401_UNAUTHORIZED, "invalid_token")
@@ -596,7 +598,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -613,7 +615,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -637,7 +639,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -695,7 +697,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -715,13 +717,13 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         for _ in range(7):
             ok = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
             assert ok.status_code == status.HTTP_201_CREATED, ok.content
         refused = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -738,7 +740,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -766,7 +768,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -799,7 +801,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         ):
             response = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
 
@@ -829,7 +831,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             for _ in range(20):
                 failed = self.client.post(
                     self.GATEWAY_TOKEN_URL,
-                    {"program": "integration", "supports_prompt_pinning": True},
+                    {"program": "integration"},
                     headers={"authorization": "Bearer pha_test"},
                 )
                 assert failed.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -840,7 +842,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             for _ in range(_ACTIVE_MINTS_PER_WEEK):
                 ok = self.client.post(
                     self.GATEWAY_TOKEN_URL,
-                    {"program": "integration", "supports_prompt_pinning": True},
+                    {"program": "integration"},
                     headers={"authorization": "Bearer pha_test"},
                 )
                 assert ok.status_code == status.HTTP_201_CREATED
@@ -848,7 +850,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             # nothing: the next mint is refused on the issued count alone.
             refused = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
 
@@ -871,63 +873,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         ):
             response = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert self._reserved_counter_value() == 1
-
-    @parameterized.expand(
-        [
-            ("missing", {}, 403),
-            ("false", {"supports_prompt_pinning": False}, 403),
-            ("null", {"supports_prompt_pinning": None}, 403),
-            ("string_true", {"supports_prompt_pinning": "true"}, 403),
-            ("string_false", {"supports_prompt_pinning": "false"}, 403),
-            ("one", {"supports_prompt_pinning": 1}, 403),
-            ("zero", {"supports_prompt_pinning": 0}, 403),
-            ("list", {"supports_prompt_pinning": [True]}, 403),
-            ("object", {"supports_prompt_pinning": {"enabled": True}}, 403),
-            ("legacy_client", {"reads_refusal_reason": False}, 404),
-            ("non_boolean_reason", {"reads_refusal_reason": "true"}, 404),
-        ]
-    )
-    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.llm.wizard_gateway_token.requests.post")
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_clients_without_prompt_pinning_upgrade_without_spending_a_mint(
-        self,
-        _name: str,
-        capabilities: dict[str, object],
-        expected_status: int,
-        mock_authentication: MagicMock,
-        mock_flag: MagicMock,
-        mock_post: MagicMock,
-        mock_authorized: MagicMock,
-        mock_key: MagicMock,
-    ) -> None:
-        self._mock_oauth(mock_authentication)
-        mock_post.return_value.status_code = 201
-        mock_post.return_value.json.return_value = self.MINTED
-        before = _gateway_token_outcome("program_unknown")
-
-        response = self.client.post(
-            self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "reads_refusal_reason": True, **capabilities},
-            headers={"authorization": "Bearer pha_test"},
-        )
-
-        assert response.status_code == expected_status, response.content
-        assert response.json()["code"] == "program_unknown"
-        assert "npx @posthog/wizard@latest" in response.json()["detail"]
-        assert _gateway_token_outcome("program_unknown") == before + 1
-        assert (self._reserved_counter_value() or 0) == 0
-        assert self._flag_reads(WIZARD_SYSTEM_PROMPT_FLAG) == []
-        assert self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG) == []
-        mock_post.assert_not_called()
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
@@ -937,7 +888,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "invented", "reads_refusal_reason": True, "supports_prompt_pinning": True},
+            {"program": "invented", "reads_refusal_reason": True},
             headers={"authorization": "Bearer pha_test"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
@@ -958,7 +909,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             with self.subTest(claimed=claimed):
                 response = self.client.post(
                     self.GATEWAY_TOKEN_URL,
-                    data=json.dumps({"reads_refusal_reason": claimed, "supports_prompt_pinning": True}),
+                    data=json.dumps({"reads_refusal_reason": claimed}),
                     content_type="application/json",
                     headers={"authorization": "Bearer pha_test"},
                 )
@@ -973,7 +924,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"reads_refusal_reason": True, "supports_prompt_pinning": True},
+            {"reads_refusal_reason": True},
             headers={"authorization": "Bearer pha_test"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
@@ -991,9 +942,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            data=json.dumps(
-                {"program": ["integration"], "reads_refusal_reason": True, "supports_prompt_pinning": True}
-            ),
+            data=json.dumps({"program": ["integration"], "reads_refusal_reason": True}),
             content_type="application/json",
             headers={"authorization": "Bearer pha_test"},
         )
@@ -1013,12 +962,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         for _ in range(_ACTIVE_MINTS_PER_WEEK):
             self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": "integration", "supports_prompt_pinning": True},
+                {"program": "integration"},
                 headers={"authorization": "Bearer pha_test"},
             )
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -1038,7 +987,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
@@ -1071,7 +1020,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         for program, expected in (("integration", 201), ("ai-observability", 403)):
             response = self.client.post(
                 self.GATEWAY_TOKEN_URL,
-                {"program": program, "reads_refusal_reason": True, "supports_prompt_pinning": True},
+                {"program": program, "reads_refusal_reason": True},
                 headers={"authorization": "Bearer pha_test"},
             )
             assert response.status_code == expected, (program, response.content)
@@ -1080,47 +1029,86 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("prompt_flag_unreadable", WIZARD_SYSTEM_PROMPT_FLAG, RuntimeError("flags down")),
-            ("allowlist_flag_unreadable", WIZARD_GATEWAY_ALLOWLIST_FLAG, RuntimeError("flags down")),
-            ("prompt_flag_missing", WIZARD_SYSTEM_PROMPT_FLAG, None),
-            ("prompt_without_abort_marker", WIZARD_SYSTEM_PROMPT_FLAG, {"version": 1, "text": "no marker"}),
-            (
-                "allowlist_without_models",
-                WIZARD_GATEWAY_ALLOWLIST_FLAG,
-                {"models": [], "efforts": ["none"], "programs": ["integration"]},
-            ),
+            ("unreadable", RuntimeError("flags down")),
+            ("off", None),
+            ("out_of_contract", {"version": 1, "text": "no marker"}),
         ]
     )
     @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
-    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.llm.wizard_gateway_token.requests.post")
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_flag_that_cannot_be_read_refuses_the_mint_and_keeps_the_slot(
-        self, _name, flag_key, payload, mock_authentication, mock_flag, mock_authorized, mock_mint, mock_key
+    def test_a_prompt_flag_that_is_not_usable_mints_an_unpinned_token(
+        self, _name, payload, mock_authentication, mock_flag, mock_post, mock_authorized, mock_key
     ):
         self._mock_oauth(mock_authentication)
-        self.flag_payloads[flag_key] = payload
-        before = _gateway_token_outcome("policy_unavailable")
-        failed_before = _gateway_token_outcome("mint_failed")
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = self.MINTED
+        self.flag_payloads[WIZARD_SYSTEM_PROMPT_FLAG] = payload
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_test"},
         )
 
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
-        mock_mint.assert_not_called()
-        assert _gateway_token_outcome("policy_unavailable") == before + 1
-        assert _gateway_token_outcome("mint_failed") == failed_before
-        assert (self._reserved_counter_value() or 0) == 0
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = mock_post.call_args.kwargs["json"]
+        assert "allowed_system_prompt_sha256" not in body
+        assert "allowed_system_prompt_bytes" not in body
+        assert "system_prompt" not in response.json()
+        assert "system_prompt_version" not in response.json()
+        # The allowlist is untouched.
+        assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
+
+    @parameterized.expand(
+        [
+            ("unreadable", RuntimeError("flags down")),
+            ("off", None),
+            ("out_of_contract", {"models": [], "efforts": ["none"], "programs": ["integration"]}),
+        ]
+    )
+    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.llm.wizard_gateway_token.requests.post")
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_an_allowlist_flag_that_is_not_usable_mints_with_the_defaults(
+        self, _name, payload, mock_authentication, mock_flag, mock_post, mock_authorized, mock_key
+    ):
+        self._mock_oauth(mock_authentication)
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = self.MINTED
+        self.flag_payloads[WIZARD_GATEWAY_ALLOWLIST_FLAG] = payload
+
+        # The default program list is empty, so name the program the default checks against.
+        with patch("posthog.llm.wizard_gateway_token.WIZARD_DEFAULT_PROGRAMS", ("integration",)):
+            response = self.client.post(
+                self.GATEWAY_TOKEN_URL,
+                {"program": "integration"},
+                headers={"authorization": "Bearer pha_test"},
+            )
+            refused = self.client.post(
+                self.GATEWAY_TOKEN_URL,
+                {"program": "events-audit", "reads_refusal_reason": True},
+                headers={"authorization": "Bearer pha_test"},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = mock_post.call_args.kwargs["json"]
+        assert body["allowed_models"] == list(WIZARD_DEFAULT_MODELS)
+        assert body["allowed_efforts"] == list(WIZARD_DEFAULT_EFFORTS)
+        # The program check runs against the default programs, not the flag's.
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        assert refused.json()["code"] == "program_unknown"
+        assert mock_post.call_count == 1
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     def test_the_policy_is_not_read_before_the_caller_is_authenticated(self, mock_mint):
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_unknown"},
         )
 
@@ -1134,7 +1122,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "supports_prompt_pinning": True},
+            {"program": "integration"},
             headers={"authorization": "Bearer pha_unknown"},
         )
 

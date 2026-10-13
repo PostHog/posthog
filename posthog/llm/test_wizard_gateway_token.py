@@ -14,13 +14,16 @@ import requests
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
     NO_OVERRIDE,
+    WIZARD_DEFAULT_EFFORTS,
+    WIZARD_DEFAULT_MODELS,
+    WIZARD_DEFAULT_PROGRAMS,
     WIZARD_GATEWAY_ALLOWLIST_FLAG,
     WIZARD_GATEWAY_CONFIG_REJECTS,
     WIZARD_SYSTEM_PROMPT_FLAG,
     WizardGatewayMintError,
     WizardGatewayPolicy,
     WizardLimitOverride,
-    WizardPolicyUnavailable,
+    WizardSystemPrompt,
     WizardTierLimits,
     mint_wizard_gateway_token,
     parse_limit_override,
@@ -58,10 +61,7 @@ POLICY = WizardGatewayPolicy(
     models=("OpenAI/GPT-5.6-Luna", "gpt-5.6-luna", " Claude-Sonnet-5 "),
     efforts=("none", "high"),
     programs=("integration", "audit"),
-    prompt_text=PROMPT_TEXT,
-    prompt_version=4,
-    prompt_sha256=PROMPT_SHA256,
-    prompt_bytes=PROMPT_BYTES,
+    prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4, sha256=PROMPT_SHA256, bytes=PROMPT_BYTES),
 )
 
 PROMPT_PAYLOAD = {"version": 4, "text": PROMPT_TEXT}
@@ -526,10 +526,7 @@ class TestWizardGatewayPolicy:
             models=("OpenAI/GPT-5.6-Luna", "claude-sonnet-5"),
             efforts=("none", "high"),
             programs=("integration", "audit"),
-            prompt_text=PROMPT_TEXT,
-            prompt_version=4,
-            prompt_sha256=PROMPT_SHA256,
-            prompt_bytes=PROMPT_BYTES,
+            prompt=WizardSystemPrompt(text=PROMPT_TEXT, version=4, sha256=PROMPT_SHA256, bytes=PROMPT_BYTES),
         )
         assert sorted(call.args[0] for call in read.call_args_list) == sorted(
             [WIZARD_GATEWAY_ALLOWLIST_FLAG, WIZARD_SYSTEM_PROMPT_FLAG]
@@ -539,60 +536,101 @@ class TestWizardGatewayPolicy:
         text = "  [posthog:abort] \n"
         with self._flags(prompt={"version": 1, "text": text}):
             policy = wizard_gateway_policy(distinct_id="d1")
-        assert policy.prompt_text == text
-        assert policy.prompt_sha256 == hashlib.sha256(text.encode("utf-8")).hexdigest()
-        assert policy.prompt_bytes == len(text.encode("utf-8"))
+        assert policy.prompt is not None
+        assert policy.prompt.text == text
+        assert policy.prompt.sha256 == hashlib.sha256(text.encode("utf-8")).hexdigest()
+        assert policy.prompt.bytes == len(text.encode("utf-8"))
 
     def test_a_json_string_payload_reads_like_an_object(self):
         with self._flags(prompt=json.dumps(PROMPT_PAYLOAD), allowlist=json.dumps(ALLOWLIST_PAYLOAD)):
-            assert wizard_gateway_policy(distinct_id="d1").prompt_version == 4
+            policy = wizard_gateway_policy(distinct_id="d1")
+        assert policy.prompt is not None
+        assert policy.prompt.version == 4
+        assert policy.programs == ("integration", "audit")
+
+    @staticmethod
+    def _rejects(field: str) -> float:
+        return WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field)._value.get()
 
     @pytest.mark.parametrize(
-        "prompt",
+        "prompt,counted",
         [
-            None,
-            "not json",
-            [],
-            {"version": 4},
-            {"text": PROMPT_TEXT},
-            {"version": 0, "text": PROMPT_TEXT},
-            {"version": True, "text": PROMPT_TEXT},
-            {"version": "4", "text": PROMPT_TEXT},
-            {"version": 4, "text": ""},
-            {"version": 4, "text": 7},
-            {"version": 4, "text": "no marker here"},
+            # Off or unreadable is quiet: a flag outage is not a bad payload.
+            (None, False),
+            (RuntimeError("flags down"), False),
+            ("not json", True),
+            ([], True),
+            ({"version": 4}, True),
+            ({"text": PROMPT_TEXT}, True),
+            ({"version": 0, "text": PROMPT_TEXT}, True),
+            ({"version": True, "text": PROMPT_TEXT}, True),
+            ({"version": "4", "text": PROMPT_TEXT}, True),
+            ({"version": 4, "text": ""}, True),
+            ({"version": 4, "text": 7}, True),
+            ({"version": 4, "text": "no marker here"}, True),
             # 4001 bytes: the cap counts bytes, not characters.
-            {"version": 4, "text": "[posthog:abort]" + "é" * 1993},
-            RuntimeError("flags down"),
+            ({"version": 4, "text": "[posthog:abort]" + "é" * 1993}, True),
         ],
     )
-    def test_an_unreadable_or_invalid_prompt_flag_is_unavailable(self, prompt):
+    def test_an_unusable_prompt_flag_leaves_the_token_unpinned(self, prompt, counted):
+        before = self._rejects("system_prompt")
         with self._flags(prompt=prompt):
-            with pytest.raises(WizardPolicyUnavailable):
-                wizard_gateway_policy(distinct_id="d1")
+            policy = wizard_gateway_policy(distinct_id="d1")
+
+        assert policy.prompt is None
+        # The allowlist is read on its own and is untouched.
+        assert policy.programs == ("integration", "audit")
+        assert self._rejects("system_prompt") == before + (1 if counted else 0)
 
     @pytest.mark.parametrize(
-        "allowlist",
+        "allowlist,counted",
         [
-            None,
-            "not json",
-            {},
-            {"models": [], "efforts": ["high"], "programs": ["integration"]},
-            {"models": ["a"], "efforts": [], "programs": ["integration"]},
-            {"models": ["a"], "efforts": ["high"], "programs": []},
-            {"models": ["a"], "efforts": ["high"]},
-            {"models": "a", "efforts": ["high"], "programs": ["integration"]},
-            {"models": [7], "efforts": ["high"], "programs": ["integration"]},
-            {"models": [" "], "efforts": ["high"], "programs": ["integration"]},
-            {"models": ["a"], "efforts": ["extreme"], "programs": ["integration"]},
-            {"models": ["a"], "efforts": ["high"], "programs": [""]},
-            RuntimeError("flags down"),
+            (None, False),
+            (RuntimeError("flags down"), False),
+            ("not json", True),
+            ([], True),
+            ({}, True),
+            ({"models": [], "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": [], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": ["high"], "programs": []}, True),
+            ({"models": ["a"], "efforts": ["high"]}, True),
+            ({"models": "a", "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": [7], "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": [" "], "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": ["extreme"], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": ["high"], "programs": [""]}, True),
         ],
     )
-    def test_an_unreadable_or_invalid_allowlist_flag_is_unavailable(self, allowlist):
+    def test_an_unusable_allowlist_flag_falls_back_to_the_defaults(self, allowlist, counted):
+        before = self._rejects("allowlist")
         with self._flags(allowlist=allowlist):
-            with pytest.raises(WizardPolicyUnavailable):
-                wizard_gateway_policy(distinct_id="d1")
+            policy = wizard_gateway_policy(distinct_id="d1")
+
+        # All three lists fall back together, never a mix of flag and default.
+        assert (policy.models, policy.efforts, policy.programs) == (
+            WIZARD_DEFAULT_MODELS,
+            WIZARD_DEFAULT_EFFORTS,
+            WIZARD_DEFAULT_PROGRAMS,
+        )
+        # The prompt is read on its own and is untouched.
+        assert policy.prompt is not None
+        assert self._rejects("allowlist") == before + (1 if counted else 0)
+
+    def test_a_mint_without_a_prompt_omits_both_prompt_pins(self):
+        unpinned = WizardGatewayPolicy(
+            models=POLICY.models, efforts=POLICY.efforts, programs=POLICY.programs, prompt=None
+        )
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with (
+            override_settings(**MINT_SETTINGS),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=unpinned)
+
+        body = post.call_args.kwargs["json"]
+        assert "allowed_system_prompt_sha256" not in body
+        assert "allowed_system_prompt_bytes" not in body
+        assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
 
 
 class TestWizardConfigRejectCounter:

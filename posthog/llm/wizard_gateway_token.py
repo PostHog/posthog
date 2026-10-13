@@ -151,8 +151,10 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
 
 # Remote-config flags in the PostHog internal project. The prompt payload is
 # {"version": 4, "text": "..."}; the allowlist payload is
-# {"models": [...], "efforts": [...], "programs": [...]}. Neither has an in-code
-# fallback: a mint with no readable policy is refused.
+# {"models": [...], "efforts": [...], "programs": [...]}. A flag that is off,
+# unreadable or out of contract never refuses a mint: no readable prompt mints an
+# unpinned token, and no readable allowlist falls back to the defaults below. An
+# operator turns the prompt pin off by switching its flag off.
 WIZARD_SYSTEM_PROMPT_FLAG = "wizard-ai-gateway-system-prompt"
 WIZARD_GATEWAY_ALLOWLIST_FLAG = "wizard-gateway-allowlist"
 
@@ -161,82 +163,129 @@ WIZARD_GATEWAY_ALLOWLIST_FLAG = "wizard-gateway-allowlist"
 _ABORT_MARKER = "[posthog:abort]"
 _MAX_PROMPT_BYTES = 4000
 
+# What the allowlist falls back to: the pins the mint sent before the flag existed.
+# The models are every one the wizard CLI dispatches (its *_MODEL constants in
+# src/lib/constants.ts), so widen them here when one is added. The efforts are
+# every one the CLI can declare; "max" is absent because the CLI cannot send it.
+# Programs have no in-code default, as the setting they came from had none: an
+# unreadable allowlist refuses every program as `program_unknown`.
+WIZARD_DEFAULT_MODELS: tuple[str, ...] = (
+    "claude-sonnet-5",
+    "claude-haiku-4-5",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-6-luna",
+    "gpt-6-sol",
+)
+WIZARD_DEFAULT_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh")
+WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = ()
 
-class WizardPolicyUnavailable(Exception):
-    """A policy flag could not be read, or its payload broke the contract."""
+
+@frozen
+class WizardSystemPrompt:
+    """The operator prompt a token is pinned to. `sha256` is the digest of the
+    exact UTF-8 bytes of `text`, with no trimming, and `bytes` is the length of
+    those same bytes."""
+
+    text: str
+    version: int
+    sha256: str
+    bytes: int
 
 
 @frozen
 class WizardGatewayPolicy:
-    """What one mint pins, read from the two flags. `prompt_sha256` is the digest
-    of the exact UTF-8 bytes of `prompt_text`, with no trimming, and `prompt_bytes`
-    is the length of those same bytes."""
+    """What one mint pins, read from the two flags. `prompt` is None when the
+    prompt flag is off or unusable, and the token is then minted unpinned."""
 
     models: tuple[str, ...]
     efforts: tuple[str, ...]
     programs: tuple[str, ...]
-    prompt_text: str
-    prompt_version: int
-    prompt_sha256: str
-    prompt_bytes: int
+    prompt: WizardSystemPrompt | None
 
 
 def wizard_gateway_policy(*, distinct_id: str) -> WizardGatewayPolicy:
-    """Read both policy flags once. Raises WizardPolicyUnavailable when either is
-    unreadable or invalid, so the caller refuses the mint instead of falling back."""
-    prompt = _policy_payload(WIZARD_SYSTEM_PROMPT_FLAG, distinct_id)
-    allowlist = _policy_payload(WIZARD_GATEWAY_ALLOWLIST_FLAG, distinct_id)
-
-    version = prompt.get("version")
-    text = prompt.get("text")
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        raise WizardPolicyUnavailable(f"{WIZARD_SYSTEM_PROMPT_FLAG}: version must be an integer of 1 or more")
-    if not isinstance(text, str) or not text or _ABORT_MARKER not in text:
-        raise WizardPolicyUnavailable(f"{WIZARD_SYSTEM_PROMPT_FLAG}: text must be non-empty and hold the abort marker")
-    encoded = text.encode("utf-8")
-    if len(encoded) > _MAX_PROMPT_BYTES:
-        raise WizardPolicyUnavailable(f"{WIZARD_SYSTEM_PROMPT_FLAG}: text is over {_MAX_PROMPT_BYTES} bytes")
-
-    models = _string_list(allowlist, "models")
-    efforts = _string_list(allowlist, "efforts")
-    programs = _string_list(allowlist, "programs")
-    if not set(efforts) <= set(WIZARD_EFFORT_LEVELS):
-        raise WizardPolicyUnavailable(f"{WIZARD_GATEWAY_ALLOWLIST_FLAG}: efforts outside the gateway vocabulary")
-    return WizardGatewayPolicy(
-        models=models,
-        # Vocabulary order, so the pin reads the same whatever order the payload used.
-        efforts=tuple(level for level in WIZARD_EFFORT_LEVELS if level in efforts),
-        programs=programs,
-        prompt_text=text,
-        prompt_version=version,
-        prompt_sha256=hashlib.sha256(encoded).hexdigest(),
-        prompt_bytes=len(encoded),
-    )
+    """Read both policy flags once. Never raises: an unreadable or invalid flag
+    degrades that half of the policy and leaves the other alone."""
+    prompt_raw = _policy_payload(WIZARD_SYSTEM_PROMPT_FLAG, distinct_id, source="system prompt", field="system_prompt")
+    allowlist_raw = _policy_payload(WIZARD_GATEWAY_ALLOWLIST_FLAG, distinct_id, source="allowlist", field="allowlist")
+    prompt = _parse_system_prompt(prompt_raw) if prompt_raw is not None else None
+    allowlist = _parse_allowlist(allowlist_raw) if allowlist_raw is not None else None
+    models, efforts, programs = allowlist or (WIZARD_DEFAULT_MODELS, WIZARD_DEFAULT_EFFORTS, WIZARD_DEFAULT_PROGRAMS)
+    return WizardGatewayPolicy(models=models, efforts=efforts, programs=programs, prompt=prompt)
 
 
-def _policy_payload(flag: str, distinct_id: str) -> dict:
+def _policy_payload(flag: str, distinct_id: str, *, source: str, field: str) -> dict | None:
+    """The flag's payload object, or None when it is off, unreadable, or not an object."""
     try:
         raw = posthoganalytics.get_feature_flag_payload(
             flag, distinct_id, only_evaluate_locally=False, send_feature_flag_events=False
         )
     except Exception as e:
-        raise WizardPolicyUnavailable(f"{flag}: flag unreadable") from e
+        logger.warning(f"wizard_gateway_token: {source} flag unavailable", error=str(e))
+        return None
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
-        except ValueError as e:
-            raise WizardPolicyUnavailable(f"{flag}: payload is not JSON") from e
+        except ValueError:
+            logger.warning(f"wizard_gateway_token: {source} payload is not JSON")
+            WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field).inc()
+            return None
+    if raw is None:
+        return None
     if not isinstance(raw, dict):
-        raise WizardPolicyUnavailable(f"{flag}: payload is missing or not an object")
+        logger.warning(f"wizard_gateway_token: {source} payload out of contract, ignored")
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field).inc()
+        return None
     return raw
+
+
+def _parse_system_prompt(raw: dict) -> WizardSystemPrompt | None:
+    version = raw.get("version")
+    text = raw.get("text")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        _reject_system_prompt("version must be an integer of 1 or more")
+        return None
+    if not isinstance(text, str) or not text or _ABORT_MARKER not in text:
+        _reject_system_prompt("text must be non-empty and hold the abort marker")
+        return None
+    encoded = text.encode("utf-8")
+    if len(encoded) > _MAX_PROMPT_BYTES:
+        _reject_system_prompt(f"text is over {_MAX_PROMPT_BYTES} bytes")
+        return None
+    return WizardSystemPrompt(
+        text=text, version=version, sha256=hashlib.sha256(encoded).hexdigest(), bytes=len(encoded)
+    )
+
+
+def _reject_system_prompt(problem: str) -> None:
+    logger.warning("wizard_gateway_token: system prompt out of contract, ignored", problem=problem)
+    WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="system_prompt").inc()
+
+
+def _parse_allowlist(raw: dict) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None:
+    """All three lists or none: a half-applied allowlist would pin a mix nobody wrote."""
+    try:
+        models = _string_list(raw, "models")
+        efforts = _string_list(raw, "efforts")
+        programs = _string_list(raw, "programs")
+        if not set(efforts) <= set(WIZARD_EFFORT_LEVELS):
+            raise ValueError("efforts outside the gateway vocabulary")
+    except ValueError as e:
+        logger.warning("wizard_gateway_token: allowlist out of contract, ignored", problem=str(e))
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="allowlist").inc()
+        return None
+    # Vocabulary order, so the pin reads the same whatever order the payload used.
+    return models, tuple(level for level in WIZARD_EFFORT_LEVELS if level in efforts), programs
 
 
 def _string_list(payload: dict, key: str) -> tuple[str, ...]:
     values = payload.get(key)
     if not isinstance(values, list) or not values:
-        raise WizardPolicyUnavailable(f"{WIZARD_GATEWAY_ALLOWLIST_FLAG}: {key} must be a non-empty list")
+        raise ValueError(f"{key} must be a non-empty list")
     if not all(isinstance(value, str) and value.strip() for value in values):
-        raise WizardPolicyUnavailable(f"{WIZARD_GATEWAY_ALLOWLIST_FLAG}: {key} must hold only non-empty strings")
+        raise ValueError(f"{key} must hold only non-empty strings")
     return tuple(dict.fromkeys(values))
 
 
@@ -453,7 +502,7 @@ def mint_wizard_gateway_token(
     setting, which applies only when there is no posture.
     """
     base_url = (settings.WIZARD_GATEWAY_MINT_URL or settings.WIZARD_GATEWAY_URL).rstrip("/").removesuffix("/v1")
-    body = {
+    body: dict[str, Any] = {
         "cap_usd": _cap_usd(cap_usd, program=program, posture=posture),
         "ttl_seconds": _ttl_seconds(posture),
         "product": product,
@@ -462,9 +511,10 @@ def mint_wizard_gateway_token(
         # A gateway that predates a pin ignores it and mints unpinned.
         "allowed_models": list(dict.fromkeys(normalize_model(model) for model in policy.models)),
         "allowed_efforts": list(policy.efforts),
-        "allowed_system_prompt_sha256": policy.prompt_sha256,
-        "allowed_system_prompt_bytes": policy.prompt_bytes,
     }
+    if policy.prompt is not None:
+        body["allowed_system_prompt_sha256"] = policy.prompt.sha256
+        body["allowed_system_prompt_bytes"] = policy.prompt.bytes
     try:
         response = requests.post(
             f"{base_url}/v1/tokens",
