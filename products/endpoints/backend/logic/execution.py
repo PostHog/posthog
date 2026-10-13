@@ -53,6 +53,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     is_api_key_access_method,
     tag_queries,
+    tags_context,
 )
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -568,15 +569,18 @@ class EndpointExecutionService(PydanticModelMixin):
             materialized_failed = False
             if use_materialized:
                 try:
-                    result = self._execute_materialized_endpoint(
-                        endpoint,
-                        data,
-                        version=version_obj,
-                        materialized_at=materialized_at,
-                        debug=debug,
-                        limit=limit,
-                        offset=offset,
-                    )
+                    # The materialized path tags its query for the endpoints cluster. That cluster
+                    # has no events table, so the tag must not reach the inline fallback.
+                    with tags_context():
+                        result = self._execute_materialized_endpoint(
+                            endpoint,
+                            data,
+                            version=version_obj,
+                            materialized_at=materialized_at,
+                            debug=debug,
+                            limit=limit,
+                            offset=offset,
+                        )
                 except (ConcurrencyLimitExceeded, APIQueriesBudgetExceeded):
                     # A refusal is not a broken table. The inline path meets the same limiter
                     # with the same balance, so falling back cannot succeed.
