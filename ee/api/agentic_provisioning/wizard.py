@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.api.github_callback.team_services import link_github_installation_for_user
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.user import OnboardingSkippedReason, User
@@ -94,18 +94,18 @@ def link_github_grant_to_team(
                 resource_id=str(team.id),
                 status=502,
             )
+        if code in ("installation_fetch_failed", "installation_token_failed"):
+            capture_provisioning_event(
+                "github_integration", "error", partner=partner, error_code="integration_creation_failed"
+            )
+            raise ProvisioningError(
+                "integration_creation_failed",
+                "Could not create the GitHub integration",
+                resource_id=str(team.id),
+                status=502,
+            )
         capture_provisioning_event("github_integration", "error", partner=partner, error_code="invalid_request")
         raise ProvisioningError("invalid_request", str(exc.detail), resource_id=str(team.id), status=400)
-    except GitHubInstallationAccessFetchError:
-        capture_provisioning_event(
-            "github_integration", "error", partner=partner, error_code="integration_creation_failed"
-        )
-        raise ProvisioningError(
-            "integration_creation_failed",
-            "Could not create the GitHub integration",
-            resource_id=str(team.id),
-            status=502,
-        )
 
     github_grants.consume_grant(grant_id)
     capture_provisioning_event("github_integration", "success", partner=partner, team_id=team.id)

@@ -9,7 +9,13 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 
-from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, GitHubUserAuthorization, Integration
+from posthog.models.integration import (
+    GitHubInstallationAccess,
+    GitHubInstallationAccessFetchError,
+    GitHubIntegration,
+    GitHubUserAuthorization,
+    Integration,
+)
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
@@ -142,6 +148,23 @@ class TestWizardResourceActions(ProvisioningTestBase):
             )
         assert response.status_code == status
         assert response.json()["error"]["code"] == code
+        assert cache.get(f"{GITHUB_GRANT_CACHE_PREFIX}{grant.grant_id}") is not None
+
+    def test_github_integration_installation_fetch_failure_returns_502(self):
+        grant = self._grant()
+        with (
+            patch.object(GitHubIntegration, "verify_user_installation_access", return_value=True),
+            patch.object(
+                GitHubIntegration,
+                "integration_from_installation_id",
+                side_effect=GitHubInstallationAccessFetchError("installation_fetch_failed"),
+            ),
+        ):
+            response = self._post_github_integration(
+                self.team.id, {"grant_id": grant.grant_id, "installation_id": INSTALLATION_ID}
+            )
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "integration_creation_failed"
         assert cache.get(f"{GITHUB_GRANT_CACHE_PREFIX}{grant.grant_id}") is not None
 
     def test_github_integration_team_outside_token_scope_returns_403(self):
