@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
     codebase_detection = detect(
-        env=("^POLAR_ACCESS_TOKEN$", "^POLAR_WEBHOOK_SECRET$"),
+        env=("^POLAR_",),
         npm=("@polar-sh/sdk", "@polar-sh/nextjs", "@polar-sh/better-auth", "@polar-sh/checkout", "@polar-sh/ui"),
         pypi=("polar-sdk",),
         composer=("polar-sh/sdk",),

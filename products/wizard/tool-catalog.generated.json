@@ -9572,7 +9572,7 @@
             "competes_with": [],
             "superseded_by": [],
             "signals": {
-                "env_key_patterns": ["^ITERABLE_API_KEY$"],
+                "env_key_patterns": ["^ITERABLE_"],
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@iterable/web-sdk", "@iterable/react-native-sdk"],
@@ -10338,10 +10338,10 @@
                     "^LD_SDK_KEY$",
                     "^LD_ENV_",
                     "^LD_ACCESS_TOKEN$",
-                    "^LD_CLIENT_SIDE_ID(_.+)?$",
+                    "^LD_CLIENT_SIDE_ID",
                     "^LD_CLIENTSIDE_ID$",
-                    "^LD_MOBILE_KEY(_.+)?$",
-                    "^LD_PROJ_KEY(_.+)?$",
+                    "^LD_MOBILE_KEY",
+                    "^LD_PROJ_KEY",
                     "^LD_REPO_NAME$",
                     "^LD_BASE_URI$",
                     "^LD_STREAM_URI$",
@@ -11951,13 +11951,7 @@
             "competes_with": [],
             "superseded_by": [],
             "signals": {
-                "env_key_patterns": [
-                    "^MUX_TOKEN_ID$",
-                    "^MUX_TOKEN_SECRET$",
-                    "^MUX_WEBHOOK_SECRET$",
-                    "^MUX_SIGNING_KEY$",
-                    "^MUX_PRIVATE_KEY$"
-                ],
+                "env_key_patterns": ["^MUX_"],
                 "script_hosts": ["src.litix.io"],
                 "packages": {
                     "npm": ["@mux/mux-node", "@mux/mux-player", "@mux/mux-player-react", "@mux/upchunk", "mux-embed"],
@@ -12136,7 +12130,7 @@
             "competes_with": [],
             "superseded_by": [],
             "signals": {
-                "env_key_patterns": ["^NEON_API_KEY$"],
+                "env_key_patterns": ["^NEON_"],
                 "script_hosts": [],
                 "packages": {
                     "npm": ["@neondatabase/serverless", "@neondatabase/api-client", "neonctl", "neon"],
@@ -13156,7 +13150,7 @@
             "competes_with": [],
             "superseded_by": [],
             "signals": {
-                "env_key_patterns": ["^ORB_API_KEY$", "^ORB_WEBHOOK_SECRET$", "^ORB_BASE_URL$"],
+                "env_key_patterns": ["^ORB_"],
                 "script_hosts": [],
                 "packages": {
                     "npm": ["orb-billing"],
@@ -13670,6 +13664,7 @@
             "superseded_by": [],
             "signals": {
                 "env_key_patterns": [
+                    "^PINTEREST_ADS_",
                     "^PINTEREST_APP_ID$",
                     "^PINTEREST_APP_SECRET$",
                     "^PINTEREST_ACCESS_TOKEN$",
@@ -13941,7 +13936,7 @@
             "competes_with": [],
             "superseded_by": [],
             "signals": {
-                "env_key_patterns": ["^POLAR_ACCESS_TOKEN$", "^POLAR_WEBHOOK_SECRET$"],
+                "env_key_patterns": ["^POLAR_"],
                 "script_hosts": [],
                 "packages": {
                     "npm": [
@@ -13983,6 +13978,7 @@
             "superseded_by": ["Neon", "Supabase"],
             "signals": {
                 "env_key_patterns": [
+                    "^DATABASE_URL$",
                     "^POSTGRES_",
                     "^PG(HOST|DATABASE|USER|PORT)$",
                     "^PGPASSWORD$",
@@ -14025,7 +14021,9 @@
                         "node-pg-migrate",
                         "pg-boss",
                         "pgvector",
-                        "@electric-sql/pglite"
+                        "@electric-sql/pglite",
+                        "knex",
+                        "sequelize"
                     ],
                     "pypi": [
                         "psycopg",
@@ -18646,7 +18644,7 @@
             "competes_with": [],
             "superseded_by": [],
             "signals": {
-                "env_key_patterns": ["^TOGETHER_API_KEY$", "^TOGETHER_BASE_URL$"],
+                "env_key_patterns": ["^TOGETHER_"],
                 "script_hosts": [],
                 "packages": {
                     "npm": ["together-ai"],

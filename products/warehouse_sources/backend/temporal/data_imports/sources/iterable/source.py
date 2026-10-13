@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]):
     codebase_detection = detect(
-        env=("^ITERABLE_API_KEY$",),
+        env=("^ITERABLE_",),
         npm=("@iterable/web-sdk", "@iterable/react-native-sdk"),
         cocoapods=(
             "Iterable-iOS-SDK",

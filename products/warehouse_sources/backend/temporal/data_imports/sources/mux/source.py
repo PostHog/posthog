@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
     codebase_detection = detect(
-        env=("^MUX_TOKEN_ID$", "^MUX_TOKEN_SECRET$", "^MUX_WEBHOOK_SECRET$", "^MUX_SIGNING_KEY$", "^MUX_PRIVATE_KEY$"),
+        env=("^MUX_",),
         script_hosts=("src.litix.io",),
         npm=("@mux/mux-node", "@mux/mux-player", "@mux/mux-player-react", "@mux/upchunk", "mux-embed"),
         pypi=("mux-python",),

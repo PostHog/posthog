@@ -29,14 +29,28 @@ def test_released_sources_and_only_they_declare_codebase_detection() -> None:
     assert unreleased == [], f"Unreleased sources must not set `codebase_detection`: {unreleased}"
 
 
-def test_env_key_patterns_are_anchored_regexes() -> None:
+# The wizard validates each catalog entry against these shapes and skips any entry that fails, so a
+# declaration outside them silently stops being detected. The env shape also rules out patterns that
+# backtrack badly, because the wizard runs them on its main thread.
+ENV_KEY_PATTERN_SHAPE = re.compile(r"^\^(?:(?:[A-Za-z0-9_]|\((?:[A-Za-z0-9_]+\|)*[A-Za-z0-9_]+\))\??)+\$?$")
+LABEL_SHAPE = re.compile(r"^[\w .,&()+/'!-]{1,80}$")
+PACKAGE_SHAPE = re.compile(r"^[A-Za-z0-9@/._:+~-]{1,214}$")
+SCRIPT_HOST_SHAPE = re.compile(r"^[a-z0-9.-]{1,253}$")
+
+
+def test_detection_fits_the_shapes_the_wizard_accepts() -> None:
     for source_type, source in ALL_SOURCES.items():
-        if not isinstance(source.codebase_detection, Detection):
+        detection = source.codebase_detection
+        if not isinstance(detection, Detection):
             continue
-        for pattern in source.codebase_detection.env_key_patterns:
-            # Unanchored, a pattern matches any key that merely contains the vendor name.
-            assert pattern.startswith("^"), f"{source_type}: {pattern!r} is not anchored"
-            re.compile(pattern)
+        assert LABEL_SHAPE.match(source.get_source_config.label or str(source_type)), source_type
+        for pattern in detection.env_key_patterns:
+            assert ENV_KEY_PATTERN_SHAPE.match(pattern), f"{source_type}: {pattern!r}"
+        for host in detection.script_hosts:
+            assert SCRIPT_HOST_SHAPE.match(host), f"{source_type}: {host!r}"
+        for names in detection.packages.values():
+            for name in names:
+                assert PACKAGE_SHAPE.match(name), f"{source_type}: {name!r}"
 
 
 @pytest.mark.parametrize(

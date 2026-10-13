@@ -54,6 +54,7 @@ def _format_permission(permission: str) -> str:
 class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsResumeConfig], OAuthMixin):
     codebase_detection = detect(
         env=(
+            "^PINTEREST_ADS_",
             "^PINTEREST_APP_ID$",
             "^PINTEREST_APP_SECRET$",
             "^PINTEREST_ACCESS_TOKEN$",

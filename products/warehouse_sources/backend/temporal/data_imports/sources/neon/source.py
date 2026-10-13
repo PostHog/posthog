@@ -50,7 +50,7 @@ _NEON_HOST_CAPTION = (
 @SourceRegistry.register
 class NeonSource(PostgresSource):
     codebase_detection = detect(
-        env=("^NEON_API_KEY$",),
+        env=("^NEON_",),
         npm=("@neondatabase/serverless", "@neondatabase/api-client", "neonctl", "neon"),
         pypi=("neon-api",),
     )

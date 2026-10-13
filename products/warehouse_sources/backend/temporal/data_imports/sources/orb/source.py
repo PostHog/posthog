@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
     codebase_detection = detect(
-        env=("^ORB_API_KEY$", "^ORB_WEBHOOK_SECRET$", "^ORB_BASE_URL$"),
+        env=("^ORB_",),
         npm=("orb-billing",),
         pypi=("orb-billing",),
         go=("github.com/orbcorp/orb-go",),
