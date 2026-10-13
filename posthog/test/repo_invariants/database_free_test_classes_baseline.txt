@@ -118,8 +118,6 @@ posthog/hogql/test/test_log_query_settings.py::TestTooManyBytesError
 posthog/hogql/test/test_parser_cache.py::TestParserCache
 posthog/hogql/test/test_timings.py::TestHogQLTimings
 posthog/hogql/test/test_utils.py::TestUtils
-posthog/hogql/test/test_visitor.py::TestVisitor
-posthog/hogql/test/test_warehouse_warnings.py::TestWarehouseWarningsAccumulator
 posthog/hogql_queries/ai/test/test_utils.py::TestFilledPropertyFilters
 posthog/hogql_queries/ai/test/test_utils.py::TestMergeHeavyProperties
 posthog/hogql_queries/endpoints/test/test_endpoints_usage_query_runners.py::TestSafeFloat
