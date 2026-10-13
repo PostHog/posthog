@@ -32,6 +32,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.insight_queries import browser_filtered_pageview_query
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -41,6 +42,7 @@ from products.dashboards.backend.models.dashboard_tile import ButtonTile, Dashbo
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
+from products.exports.backend.models.subscription import Subscription
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
@@ -2609,3 +2611,49 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "publicly shared" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
+            ("dashboard_filters", "subscription", status.HTTP_400_BAD_REQUEST),
+            ("dashboard_filters", "none", status.HTTP_200_OK),
+        ]
+    )
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_filters_through_denied_table_on_delivered_dashboard(
+        self, target: str, exposure: str, expected: int, _flag
+    ):
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        if exposure == "shared":
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        elif exposure == "subscription":
+            Subscription.objects.create(
+                team=self.team,
+                dashboard=dashboard,
+                target_type="email",
+                target_value="recipient@example.com",
+                frequency="daily",
+                start_date=timezone.now(),
+                created_by=self.user,
+            )
+        filters = {"properties": [denied_filter]}
+        payload = (
+            {"filters": filters}
+            if target == "dashboard_filters"
+            else {"tiles": [{"id": tile.id, "filters_overrides": filters}]}
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", payload)
+
+        assert response.status_code == expected, response.content
+        dashboard.refresh_from_db()
+        tile.refresh_from_db()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert "denied_warehouse_table" in str(response.json())
+            assert dashboard.filters == {}
+            assert not tile.filters_overrides
+        else:
+            assert dashboard.filters == filters
