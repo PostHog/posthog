@@ -701,8 +701,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         proposed_filters = attrs.get("filters", current_filters)
         require_viewer_access_to_added_actions(
             self.context,
-            [attrs.get("filters"), attrs.get("mappings")],
-            [instance.filters, instance.mappings] if isinstance(instance, HogFunction) else None,
+            {"filters": attrs.get("filters"), "mappings": attrs.get("mappings")},
+            {"filters": instance.filters, "mappings": instance.mappings} if isinstance(instance, HogFunction) else None,
         )
 
         # `to_internal_value` injects the stored schema whenever the request omits it, so the field

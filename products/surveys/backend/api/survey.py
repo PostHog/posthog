@@ -1267,11 +1267,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if self.instance is not None:
             added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
 
-        user_access_control = self.context["view"].user_access_control
+        added = list(added_actions)
+        access_controls = self.context["view"].user_access_control.for_team_ids({action.team_id for action in added})
         denied_ids = sorted(
             action.id
-            for action in added_actions
-            if not user_access_control.check_access_level_for_object(action, "viewer")
+            for action in added
+            if action.team_id not in access_controls
+            or not access_controls[action.team_id].check_access_level_for_object(action, "viewer")
         )
         if denied_ids:
             raise serializers.ValidationError(

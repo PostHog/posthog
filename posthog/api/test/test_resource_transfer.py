@@ -337,6 +337,39 @@ class TestResourceTransferTransfer(APIBaseTest):
         tile_insight_ids = set(new_tiles.values_list("insight_id", flat=True))
         assert dest_insight.pk in tile_insight_ids
 
+    @parameterized.expand(
+        [
+            ("kind_mismatch", "Insight", "Survey", "1"),
+            ("malformed_integer_id", "Insight", "Insight", "not-an-id"),
+            ("malformed_uuid", "Survey", "Survey", "1"),
+        ]
+    )
+    def test_transfer_rejects_a_malformed_substitution(
+        self, _name: str, source_kind: str, dest_kind: str, dest_id: str
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": source_kind,
+                        "source_resource_id": str(insight.pk),
+                        "destination_resource_kind": dest_kind,
+                        "destination_resource_id": dest_id,
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_transfer_without_substitutions_copies_everything(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
         initial_insight_count = Insight.objects.filter(team=self.dest_team).count()

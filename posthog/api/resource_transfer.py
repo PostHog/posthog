@@ -1,6 +1,9 @@
 from typing import Any, cast
 
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+    ValidationError as DjangoValidationError,
+)
 from django.db.models import Q
 
 from rest_framework import exceptions, serializers, status, viewsets
@@ -146,14 +149,14 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise exceptions.ValidationError(str(e))
         dag = dag_sort_duplication_graph(graph)
 
-        self._check_access_controls(user, source_team, destination_team, dag, data["substitutions"])
-
         for sub in data["substitutions"]:
             if sub["source_resource_kind"] != sub["destination_resource_kind"]:
                 raise exceptions.ValidationError(
                     f"Substitution kind mismatch: cannot substitute {sub['source_resource_kind']} "
                     f"with {sub['destination_resource_kind']}"
                 )
+
+        self._check_access_controls(user, source_team, destination_team, dag, data["substitutions"])
 
         substitution_pairs: list[tuple[ResourceTransferKey, ResourceTransferKey]] = [
             (
@@ -341,9 +344,8 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 dest_resource = (
                     cast(Any, dest_visitor.get_model()).objects.filter(pk=sub["destination_resource_id"]).first()
                 )
-            except (ValueError, TypeError):
-                # duplicate_resource_to_new_team reports a malformed id as a validation error
-                continue
+            except (ValueError, TypeError, DjangoValidationError):
+                raise exceptions.ValidationError(f"Invalid {dest_visitor.kind} id: {sub['destination_resource_id']}")
             if dest_resource is not None and not dest_ac.check_access_level_for_object(
                 dest_resource, required_level="viewer"
             ):

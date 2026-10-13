@@ -19,10 +19,8 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
-from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
@@ -1101,35 +1099,49 @@ def _contains_behavioral_property(filters: dict) -> bool:
     )
 
 
-def _referenced_action_ids(value: Any) -> set[int]:
+def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
+    action_ids: set[int] = set()
+    entries = filters.get("actions")
+    for entry in entries if isinstance(entries, list) else []:
+        action_id = entry.get("id") if isinstance(entry, dict) else None
+        if isinstance(action_id, int | str):
+            with contextlib.suppress(ValueError):
+                action_ids.add(int(action_id))
+    return action_ids
+
+
+def _filter_action_ids(value: Any) -> set[int]:
     if isinstance(value, list):
-        return set().union(*(_referenced_action_ids(item) for item in value))
+        return set().union(*(_filter_action_ids(item) for item in value))
     if not isinstance(value, dict):
         return set()
-    action_ids = set().union(*(_referenced_action_ids(item) for item in value.values()))
-    if value.get("type") == "actions":
-        with contextlib.suppress(TypeError, ValueError):
-            action_ids.add(int(value.get("id")))
+    action_ids: set[int] = set()
+    for key, item in value.items():
+        if key == "filters" and isinstance(item, dict):
+            action_ids |= _action_ids_in_filters(item)
+        elif key != "inputs":
+            action_ids |= _filter_action_ids(item)
     return action_ids
 
 
 def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: Any, stored: Any) -> None:
     user = getattr(context.get("request"), "user", None)
-    # Synthetic principals (project secret API keys) and userless system writes bypass access control.
-    if not isinstance(user, User):
+    user_access_control = getattr(context.get("view"), "user_access_control", None)
+    # Synthetic principals (project secret API keys) bypass access control, and callers without a view
+    # (template installs, plugin migrations) write no references a user picked.
+    if not isinstance(user, User) or user_access_control is None:
         return
-    added_ids = _referenced_action_ids(submitted) - _referenced_action_ids(stored)
+    added_ids = _filter_action_ids(submitted) - _filter_action_ids(stored)
     if not added_ids:
         return
 
-    team: Team = context["get_team"]()
-    user_access_control = getattr(context.get("view"), "user_access_control", None) or UserAccessControl(
-        user=user, team=team
-    )
+    actions = list(Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids))
+    access_controls = user_access_control.for_team_ids({action.team_id for action in actions})
     denied_ids = sorted(
         action.id
-        for action in Action.objects.filter(team__project_id=team.project_id, id__in=added_ids)
-        if not user_access_control.check_access_level_for_object(action, "viewer")
+        for action in actions
+        if action.team_id not in access_controls
+        or not access_controls[action.team_id].check_access_level_for_object(action, "viewer")
     )
     if denied_ids:
         raise serializers.ValidationError(
