@@ -11,7 +11,9 @@ This change does not add pricing, rounding, minimum charges, or free allowances.
 ## Pull contract
 
 The consumer preserves `GET /api/v1/billing/usage` and `POST /api/v1/billing/ack`.
-Requests use the existing `X-Duckgres-Internal-Secret` authentication header.
+A complete `HOGTOWER_API_URL` and `HOGTOWER_INTERNAL_SECRET` pair takes precedence over the legacy `DUCKGRES_API_URL` and `DUCKGRES_INTERNAL_SECRET` pair.
+A partially configured Hogtower pair fails explicitly and never mixes credentials or falls back to Duckgres.
+Requests use the existing `X-Duckgres-Internal-Secret` authentication header, which Hogtower also accepts.
 Both requests add `X-Hogtower-Billing-Metrics: logical_bytes_scanned`.
 The producer must exclude logical scans from both export claims and acknowledgements when this capability is absent.
 Storage continues to use the existing pull contract.

@@ -27,6 +27,8 @@ EXACT_BYTES = 9007199254740993
 
 @pytest.fixture
 def scan_configured(settings) -> None:
+    settings.HOGTOWER_API_URL = None
+    settings.HOGTOWER_INTERNAL_SECRET = None
     settings.DUCKGRES_API_URL = "https://warehouse.example.com"
     settings.DUCKGRES_INTERNAL_SECRET = "test-secret"
 

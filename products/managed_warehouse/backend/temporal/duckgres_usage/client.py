@@ -29,7 +29,11 @@ LOGICAL_BYTES_METRIC = "logical_bytes_scanned"
 
 
 class DuckgresBillingNotConfigured(Exception):
-    """DUCKGRES_API_URL / DUCKGRES_INTERNAL_SECRET are not set in this environment."""
+    """No complete billing control-plane configuration is available."""
+
+
+class DuckgresBillingConfigurationError(DuckgresBillingNotConfigured):
+    pass
 
 
 class DuckgresBillingAPIError(Exception):
@@ -113,6 +117,14 @@ def is_configured() -> bool:
 
 def _config() -> tuple[str, str] | None:
     """(base_url, secret) when both are set, else None."""
+    hogtower_url = getattr(settings, "HOGTOWER_API_URL", None)
+    hogtower_secret = getattr(settings, "HOGTOWER_INTERNAL_SECRET", None)
+    if hogtower_url or hogtower_secret:
+        if not hogtower_url or not hogtower_secret:
+            raise DuckgresBillingConfigurationError(
+                "HOGTOWER_API_URL and HOGTOWER_INTERNAL_SECRET must both be configured for billing"
+            )
+        return hogtower_url, hogtower_secret
     base_url = getattr(settings, "DUCKGRES_API_URL", None)
     secret = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
     if not base_url or not secret:
@@ -250,7 +262,7 @@ def _request(method: str, path: str, json_body: dict | None = None, timeout: int
     config = _config()
     if config is None:
         raise DuckgresBillingNotConfigured(
-            "DUCKGRES_API_URL and DUCKGRES_INTERNAL_SECRET must both be set to pull billing usage"
+            "a billing control-plane URL and its matching internal secret must both be configured"
         )
 
     base_url, secret = config
