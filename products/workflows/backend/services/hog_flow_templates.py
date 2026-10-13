@@ -141,10 +141,16 @@ class StepTemplate:
 
 
 # The editor offers these as built-in steps, so they are in the step catalog although their status is hidden.
+# Keep in sync with the step nodes the editor's build panel lists in
+# products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx. Flag-gated steps still drop out
+# through hidden_gated_template_ids.
 _BUILT_IN_STEP_TEMPLATE_IDS = frozenset(
     {
         "template-slack",
         "template-webhook",
+        "template-posthog-create-task",
+        "template-posthog-run-scout",
+        "template-posthog-classify",
         "template-posthog-capture",
         "template-posthog-update-person-properties",
         "template-posthog-group-identify",

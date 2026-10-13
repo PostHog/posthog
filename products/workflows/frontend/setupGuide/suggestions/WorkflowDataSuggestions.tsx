@@ -9,10 +9,10 @@ import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 const LOADING_CARD_COUNT = 3
 
 export function WorkflowDataSuggestions(): JSX.Element | null {
-    const { cards, aiResultLoading } = useValues(workflowDataSuggestionsLogic({ surface: 'empty_state' }))
+    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: 'empty_state' }))
 
     // Suggestions are optional: a failed or empty run shows nothing, not even the divider.
-    if (!aiResultLoading && cards.length === 0) {
+    if (!generating && cards.length === 0) {
         return null
     }
 
@@ -21,7 +21,7 @@ export function WorkflowDataSuggestions(): JSX.Element | null {
             <div className="flex items-center gap-3">
                 <div className="h-px flex-1 bg-border-primary" />
                 <span className="inline-flex items-center gap-1 text-xs text-tertiary">
-                    {aiResultLoading ? <Spinner className="size-3" /> : <IconSparkles className="size-3" />}
+                    {generating ? <Spinner className="size-3" /> : <IconSparkles className="size-3" />}
                     Or start from your data
                     <Tooltip title="AI writes these suggestions from your project's events. Check each draft before you turn it on.">
                         <LemonTag type="completion" size="small">
@@ -31,7 +31,7 @@ export function WorkflowDataSuggestions(): JSX.Element | null {
                 </span>
                 <div className="h-px flex-1 bg-border-primary" />
             </div>
-            {aiResultLoading ? (
+            {generating ? (
                 <>
                     <span className="text-center text-xs text-secondary">
                         Suggesting workflows based on the events your project sends

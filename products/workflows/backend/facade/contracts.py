@@ -658,7 +658,7 @@ class EmailDesignRenderFailed(Exception):
 LifecycleStage = Literal["signup", "onboarding", "trial", "purchase", "churn_risk", "failure", "support", "other"]
 # The step chips a suggestion card shows.
 OutlineKind = Literal["email", "sms", "push", "slack", "webhook", "delay", "wait_until", "branch", "split", "action"]
-DataSuggestionsStatus = Literal["ready", "ai_not_approved", "unavailable"]
+DataSuggestionsStatus = Literal["ready", "generating", "ai_not_approved", "unavailable"]
 
 
 @frozen

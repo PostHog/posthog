@@ -3178,6 +3178,18 @@ export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsGenerateBodyRefreshDefault = false
+
+export const WorkflowDataSuggestionsGenerateBody = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .boolean()
+        .default(workflowDataSuggestionsGenerateBodyRefreshDefault)
+        .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
+/**
  * Write a first draft of an email to the people an entity points at. A model writes it when the project has AI drafts on and the organization approved AI data processing; otherwise, or when the model fails, the fixed template for the source is returned. Nothing is saved.
  * @summary Draft an email about an error, feature, survey, flag or cohort
  */

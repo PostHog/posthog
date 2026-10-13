@@ -182,8 +182,11 @@ class TestDataSuggestions(SimpleTestCase):
         assert "slack_workspace" not in slack_inputs
         assert slack_inputs["text"]["value"] == "Trial user needs help"
 
-    def test_plan_schema_only_offers_connected_channels(self) -> None:
-        schema = strict_schema(PlannedWorkflow, frozenset({"sms", "push"}))
+    def test_plan_schema_only_offers_connected_channels_and_project_events(self) -> None:
+        schema = strict_schema(PlannedWorkflow, frozenset({"sms", "push"}), {"wait_event": ["trial_started"]})
+        wait_event = schema["$defs"]["PlannedStep"]["properties"]["wait_event"]["anyOf"]
+        assert {"type": "string", "enum": ["trial_started"]} in wait_event
+        assert {"type": "null"} in wait_event
         step_types = schema["$defs"]["PlannedStep"]["properties"]["type"]["enum"]
         assert "email" in step_types
         assert "sms" not in step_types
