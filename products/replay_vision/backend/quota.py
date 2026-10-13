@@ -418,28 +418,38 @@ def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanne
 
     A capped scanner can only spend what its limit has left this period. Surfaces pro-rate this
     30-day rate over the days left, so that headroom is folded back into a rate: the pro-rated
-    share then lands on exactly the remaining cap, never past it.
+    share then lands on exactly the remaining cap, never past it. Free-only scanners share one
+    pool, the org's free credits left, so their rates are capped together rather than each in full.
     """
     scanners = ReplayScanner.objects.filter(team__organization_id=organization_id, enabled=True)
     if exclude_scanner_id is not None:
         scanners = scanners.exclude(pk=exclude_scanner_id)
     # Credit weighting happens in Python: the per-model price table lives in code, and orgs have few scanners.
     rows = list(scanners.values_list("id", "model", "estimated_monthly_observations", "credit_limit", "free_only"))
-    capped_ids = [
-        scanner_id for scanner_id, _, _, credit_limit, free_only in rows if credit_limit is not None or free_only
-    ]
-    budgets = compute_scanner_budgets(organization_id, capped_ids) if capped_ids else {}
+    capped_ids = [scanner_id for scanner_id, _, _, credit_limit, _ in rows if credit_limit is not None]
+    has_free_only = any(free_only for *_, free_only in rows)
+    period = current_period_bounds(organization_id) if capped_ids or has_free_only else None
+    budgets = (
+        compute_scanner_budgets(organization_id, capped_ids, period, include_free_credits=False) if capped_ids else {}
+    )
     now = datetime.now(UTC)
-    total = 0.0
-    for scanner_id, model, estimate, _credit_limit, _free_only in rows:
-        rate = observation_credits_for_model(model) * (estimate or 0)
-        budget = budgets.get(scanner_id)
+
+    def capped_rate(rate: float, budget: ScannerBudget | None) -> float:
         if budget is None or budget.remaining is None:
-            total += rate
-            continue
+            return rate
         days_left = max((budget.period_end - now).total_seconds() / 86400, 0)
-        headroom_rate = budget.remaining * ESTIMATE_MONTH_DAYS / days_left if days_left > 0 else rate
-        total += min(rate, headroom_rate)
+        return min(rate, budget.remaining * ESTIMATE_MONTH_DAYS / days_left) if days_left > 0 else rate
+
+    total = 0.0
+    free_only_total = 0.0
+    for scanner_id, model, estimate, _credit_limit, free_only in rows:
+        rate = capped_rate(observation_credits_for_model(model) * (estimate or 0), budgets.get(scanner_id))
+        if free_only:
+            free_only_total += rate
+        else:
+            total += rate
+    if has_free_only and period is not None:
+        total += capped_rate(free_only_total, _free_credits_budget(organization_id, period))
     return round(total)
 
 

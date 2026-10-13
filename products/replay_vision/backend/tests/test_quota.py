@@ -701,6 +701,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         estimate: int | None = None,
         model: ScannerModel = ScannerModel.GEMINI_3_8_FLASH,
         credit_limit: int | None = None,
+        free_only: bool = False,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=team,
@@ -710,6 +711,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
             model=model,
             enabled=enabled,
             credit_limit=credit_limit,
+            free_only=free_only,
         )
         if estimate is not None:
             ReplayScanner.objects.filter(pk=scanner.pk).update(
@@ -736,6 +738,16 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         # 15 of 30 days left: the 200 headroom pro-rated back to a 30-day rate is 400.
         assert snapshot.projected_monthly_credits == 400 + 150
+
+    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
+    def test_free_only_scanners_share_the_orgs_free_credits_left(self) -> None:
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 500)
+        self._make_scanner(team=self.team, name="free-a", estimate=100, free_only=True)  # 1500 uncapped
+        self._make_scanner(team=self.team, name="free-b", estimate=100, free_only=True)  # 1500 uncapped
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        # 15 of 30 days left: the 500 free credits left, pro-rated back to a 30-day rate, cover both scanners.
+        assert snapshot.projected_monthly_credits == 1000
 
     def test_other_orgs_scanners_not_counted(self) -> None:
         other_org = Organization.objects.create(name="other-projection-org")
