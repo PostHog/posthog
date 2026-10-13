@@ -5,6 +5,11 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain import (
     _datetime_to_plain_iso8601,
     _fetch_paginated_endpoint,
@@ -16,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plai
     plain_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.plain.queries import VIEWER_QUERY
 
 
 class TestFlattenNode:
@@ -142,41 +148,38 @@ class TestPlainSourcePipeline:
 
 
 class TestValidateCredentials:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain.make_tracked_session")
-    def test_success(self, mock_post):
-        mock_post.return_value.post.return_value = mock.MagicMock(
-            status_code=200,
-            ok=True,
-            json=lambda: {"data": {"myWorkspace": {"id": "w_1", "name": "Acme"}}},
-        )
-
-        is_valid, error = validate_credentials("valid_key")
+    def test_success(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(json={"data": {"myWorkspace": {"id": "w_1", "name": "Acme"}}})]
+        ) as network:
+            is_valid, error = validate_credentials("valid_key")
 
         assert is_valid is True
         assert error is None
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.method == "POST"
+        assert request.path == "/graphql/v1"
+        assert request.headers["authorization"] == "Bearer valid_key"
+        assert request.json() == {"query": VIEWER_QUERY}
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain.make_tracked_session")
-    def test_returns_error_from_graphql_errors(self, mock_post):
-        mock_post.return_value.post.return_value = mock.MagicMock(
-            status_code=200,
-            ok=True,
-            json=lambda: {"errors": [{"message": "Unauthorized"}]},
-        )
-
-        is_valid, error = validate_credentials("bad_key")
+    def test_returns_error_from_graphql_errors(self) -> None:
+        with scripted_network([ScriptedResponse(json={"errors": [{"message": "Unauthorized"}]})]) as network:
+            is_valid, error = validate_credentials("bad_key")
 
         assert is_valid is False
         assert error is not None
         assert "Unauthorized" in error
+        assert network.requests_log[0].headers["authorization"] == "Bearer bad_key"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain.make_tracked_session")
-    def test_handles_request_exception(self, mock_post):
-        mock_post.return_value.post.side_effect = requests.ConnectionError("down")
-
-        is_valid, error = validate_credentials("any_key")
+    def test_handles_request_exception(self) -> None:
+        with scripted_network(always(requests.ConnectionError("down"))) as network:
+            is_valid, error = validate_credentials("any_key")
 
         assert is_valid is False
-        assert error == "down"
+        assert error is not None
+        assert "down" in error
+        assert {request.path for request in network.requests_log} == {"/graphql/v1"}
 
 
 class TestDatetimeHelpers:

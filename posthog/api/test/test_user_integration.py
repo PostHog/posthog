@@ -24,6 +24,7 @@ from posthog.api.github_callback.state import (
     store_unified_authorize_state,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import (
     GitHubInstallationAccess,
@@ -1121,7 +1122,7 @@ class TestUserGitHubIntegration(APIBaseTest):
                 "user_refresh_token": "ghr_refresh",
             },
         )
-        return UserGitHubIntegration(integration)
+        return UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
     def test_github_login_and_id(self):
         gh = self._make_integration()
@@ -1242,7 +1243,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         )
         integration.kind = "slack"
         with self.assertRaises(Exception, msg="non-github"):
-            UserGitHubIntegration(integration)
+            UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
 
     def test_user_refresh_token_expired_returns_false_when_no_expiry(self):
         gh = self._make_integration()

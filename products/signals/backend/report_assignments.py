@@ -10,6 +10,7 @@ from django.db import transaction
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
@@ -197,7 +198,9 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
         merged=False,
     )
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_reviewers", priority=Priority.NORMAL
+        )
     except Exception:
         logger.exception(
             "signals.assignment.integration_lookup_failed",

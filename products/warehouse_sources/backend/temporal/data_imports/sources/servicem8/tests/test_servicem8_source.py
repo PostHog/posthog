@@ -5,6 +5,10 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicem8 import (
     Servicem8SourceConfig,
@@ -95,11 +99,11 @@ class TestServiceM8Source:
         )
 
     def test_watermark_is_passed_when_incremental_is_on(self) -> None:
-        inputs = _make_inputs(should_use_incremental_field=True, db_incremental_field_last_value="2026-05-01")
-        manager = mock.MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, self.config).run(
+            "Job",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-05-01",
+        )
 
-        with mock.patch(f"{SOURCE_MODULE}.servicem8_source") as mock_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["db_incremental_field_last_value"] == "2026-05-01"
+        assert result.params("$filter") == ["edit_date gt '2026-05-01'"]

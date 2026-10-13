@@ -23,6 +23,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
 from posthog.models.integration import (
@@ -1115,7 +1116,7 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
     all_repos: set[str] = set()
 
     for record in user_records:
-        github = UserGitHubIntegration(record)
+        github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
         repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])

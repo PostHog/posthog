@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -343,7 +344,9 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            repositories = GitHubIntegration(integration).list_all_cached_repositories()
+            repositories = GitHubIntegration(
+                integration, source="review_hog", priority=Priority.NORMAL
+            ).list_all_cached_repositories()
         except Exception:
             # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.
             logger.warning("review_hog_repository_overview_list_failed", exc_info=True)
