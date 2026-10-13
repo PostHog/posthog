@@ -308,7 +308,6 @@ class _DispatchedAlert:
     produce_result: ProduceResult | None = None
     incident_produce_result: ProduceResult | None = None
     suppressed_by_quiet_hours: bool = False
-    # The platform owns the alert, so nothing was sent and no signal follows.
     shadowed: bool = False
 
     @property
@@ -735,7 +734,8 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 delivery_slo_handles: dict[str, SloHandle] = {}
                 for evaluation in evaluations:
                     delivery_action = evaluation.outcome.notification
-                    if delivery_action != NotificationAction.NONE:
+                    # A shadowed alert sends nothing, so it has no delivery to measure.
+                    if delivery_action != NotificationAction.NONE and not evaluation.alert.platform_owned:
                         alert_id = str(evaluation.alert.id)
                         delivery_slo_handles[alert_id] = slo_stack.enter_context(
                             alert_delivery_slo(
@@ -1096,31 +1096,31 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
                 suppressed_by_quiet_hours=True,
             )
 
-    if current_alert.platform_owned:
-        # Counted as delivered, so the state and cooldown move as they would have, and the two
-        # stacks stay comparable while the platform sends the real message.
-        return _DispatchedAlert(evaluation=evaluation, notification_failed=False, shadowed=True)
+        if current_alert.platform_owned:
+            # Decided and enqueued under the row lock a cutover also takes, so a cutover cannot land
+            # between the two. Counted as delivered, so state and cooldown move as they would have.
+            return _DispatchedAlert(evaluation=evaluation, notification_failed=False, shadowed=True)
 
-    produce_result = _dispatch_notification(
-        evaluation.outcome,
-        evaluation.alert,
-        evaluation.check_result,
-        now,
-        date_from=evaluation.date_from,
-        date_to=evaluation.date_to,
-    )
-    edge = incident_edge(evaluation.state_before, evaluation.outcome.new_state)
-    incident_expected = edge is not None and has_incident_destination(evaluation.alert)
-    incident_produce_result = _dispatch_incident_edge(edge, evaluation, now) if edge and incident_expected else None
-    enqueue_failed = (evaluation.outcome.notification != NotificationAction.NONE and produce_result is None) or (
-        incident_expected and incident_produce_result is None
-    )
-    return _DispatchedAlert(
-        evaluation=evaluation,
-        notification_failed=enqueue_failed,
-        produce_result=produce_result,
-        incident_produce_result=incident_produce_result,
-    )
+        produce_result = _dispatch_notification(
+            evaluation.outcome,
+            evaluation.alert,
+            evaluation.check_result,
+            now,
+            date_from=evaluation.date_from,
+            date_to=evaluation.date_to,
+        )
+        edge = incident_edge(evaluation.state_before, evaluation.outcome.new_state)
+        incident_expected = edge is not None and has_incident_destination(evaluation.alert)
+        incident_produce_result = _dispatch_incident_edge(edge, evaluation, now) if edge and incident_expected else None
+        enqueue_failed = (evaluation.outcome.notification != NotificationAction.NONE and produce_result is None) or (
+            incident_expected and incident_produce_result is None
+        )
+        return _DispatchedAlert(
+            evaluation=evaluation,
+            notification_failed=enqueue_failed,
+            produce_result=produce_result,
+            incident_produce_result=incident_produce_result,
+        )
 
 
 def _dispatch_incident_edge(edge: IncidentEdge, evaluation: _AlertEvaluation, now: datetime) -> ProduceResult | None:
