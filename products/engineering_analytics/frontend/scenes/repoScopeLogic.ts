@@ -193,8 +193,11 @@ export const repoScopeLogic = kea<repoScopeLogicType>([
             ): string | null => {
                 const repo = repoFromPath(removeProjectIdIfPresent(location.pathname))
                 const sourceId: string | undefined = searchParams.source
-                const match = (githubSources ?? []).find(
-                    (source) => source.repo === repo && (!sourceId || source.id === sourceId)
+                // A repo-less page highlights the legacy source its ?source names, if any.
+                const match = (githubSources ?? []).find((source) =>
+                    repo
+                        ? source.repo.toLowerCase() === repo.toLowerCase() && (!sourceId || source.id === sourceId)
+                        : !source.repo && source.id === sourceId
                 )
                 return match ? scopeToValue(match.id, match.repo) : null
             },
@@ -240,19 +243,19 @@ export const repoScopeLogic = kea<repoScopeLogicType>([
                 actions.noRepoToForward()
             },
             // The same page in the picked repository, or the list tab when the page is about one entity.
-            // The path names the repository; `?source` only rides along when two sources sync it.
+            // The path names the repository; `?source` only rides along when two sources sync it, or when
+            // a legacy source names no repository and its pages stay repo-less.
             switchRepo: ({ scopeValue }) => {
                 const { sourceId, repo } = scopeFromValue(scopeValue)
-                if (!repo) {
-                    return
-                }
                 posthog.capture(EVENT_REPO_SWITCHED, { repository_count: values.sourceOptions.length })
-                const sourcesOfRepo = (values.githubSources ?? []).filter((source) => source.repo === repo)
                 const pathname = removeProjectIdIfPresent(router.values.location.pathname)
                 const { repo: _repo, source: _source, ...searchParams } = router.values.searchParams
+                const sameRepo = (other: string | null): boolean => other?.toLowerCase() === repo?.toLowerCase()
+                const sourcesOfRepo = (values.githubSources ?? []).filter((source) => sameRepo(source.repo))
                 router.actions.push(
-                    switchRepoPath(pathname, repo),
-                    sourcesOfRepo.length > 1 ? { ...searchParams, source: sourceId } : searchParams,
+                    // Another source of the repository on screen keeps the page, entity pages included.
+                    repo && sameRepo(repoFromPath(pathname)) ? pathname : switchRepoPath(pathname, repo),
+                    !repo || sourcesOfRepo.length > 1 ? { ...searchParams, source: sourceId } : searchParams,
                     router.values.hashParams
                 )
             },

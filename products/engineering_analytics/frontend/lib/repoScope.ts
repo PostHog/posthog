@@ -63,14 +63,18 @@ export function repoPathFor(pathname: string, repo: string): string {
     return `${repoPrefix(repoOwner, repoName)}${rest && rest !== '/' ? rest : '/overview'}`
 }
 
-/** Where switching to `repo` lands: the same page in that repository, or the list tab for an entity page. */
-export function switchRepoPath(pathname: string, repo: string): string {
+/** Where switching to `repo` lands: the same page in that repository, or the list tab for an entity page.
+ *  A null repo is a legacy source that names none, so it lands on the repo-less form of that page. */
+export function switchRepoPath(pathname: string, repo: string | null): string {
     const match = REPO_PATH.exec(pathname)
     if (!match) {
-        return repoPathFor(pathname, repo)
+        return repo ? repoPathFor(pathname, repo) : pathname
     }
     const rest = match[3] ?? '/overview'
     const entityTab = ENTITY_TAB.find(([pattern]) => pattern.test(rest))?.[1]
+    if (!repo) {
+        return `${PRODUCT_ROOT}${entityTab ?? rest}`
+    }
     const [repoOwner, repoName] = repo.split('/')
     return `${repoPrefix(repoOwner, repoName)}${entityTab ?? rest}`
 }

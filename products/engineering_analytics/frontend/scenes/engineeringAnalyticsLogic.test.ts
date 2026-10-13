@@ -401,6 +401,38 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: 'posthog/posthog.com' })
     })
 
+    it.each([
+        [
+            'another source of the repository on screen keeps the page and sets ?source',
+            'src-mirror::PostHog/PostHog',
+            urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42),
+            { source: 'src-mirror' },
+        ],
+        [
+            'a legacy source with no repository opens the repo-less list tab with ?source',
+            'src-legacy::',
+            urls.engineeringAnalyticsPullRequestList(),
+            { source: 'src-legacy' },
+        ],
+    ])('switching repository: %s', async (_label, pick, pathname, searchParams) => {
+        mockSources.mockResolvedValue([
+            { id: 'src-main', repo: 'posthog/posthog', prefix: 'main', synced: true },
+            { id: 'src-mirror', repo: 'PostHog/PostHog', prefix: 'mirror', synced: true },
+            { id: 'src-legacy', repo: '', prefix: 'legacy', synced: true },
+        ])
+        router.actions.push(urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42))
+        const scope = repoScopeLogic()
+        scope.mount()
+        extraUnmounts.push(() => scope.unmount())
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
+
+        scope.actions.switchRepo(pick)
+
+        expect(routedPath()).toBe(pathname)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(scope.values.selectedScope).toBe(pick)
+    })
+
     it('hides the picker when the team has a single source', async () => {
         mockSources.mockResolvedValue([SOURCES[0]])
         const scope = repoScopeLogic()
