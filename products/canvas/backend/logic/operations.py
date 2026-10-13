@@ -15,6 +15,7 @@ from rest_framework import status
 from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.facade.contracts import CanvasRecord, CanvasRequestRejected
 from products.canvas.backend.logic.canvases import canvas_row
+from products.canvas.backend.models import Canvas
 
 SKILL_NAME_PREFIX = "canvas-"
 MAX_SKILL_NAME_LENGTH = 64
@@ -53,22 +54,36 @@ def find_operation(capabilities: dict[str, Any] | None, name: str) -> dict[str, 
     return next((operation for operation in declared_operations(capabilities) if operation.get("name") == name), None)
 
 
-def operation_required_scopes(team_id: int, canvas_id: UUID | str, name: str) -> list[str] | None:
-    """The scopes a scoped credential needs for this operation, or None when the canvas has no such operation."""
+def operation_verb(team_id: int, canvas_id: UUID | str, name: str) -> str | None:
+    """The verb the canvas's live version binds to this operation, or None when there is no such operation."""
     try:
         canvas = canvas_row(team_id, canvas_id)
-    except Exception:
+    except Canvas.DoesNotExist:
         return None
     version = canvas.current_source_version
     operation = find_operation(version.capabilities if version else None, name)
-    if operation is None:
+    return operation["verb"] if operation is not None else None
+
+
+def operation_verb_required_scopes(verb: str | None) -> list[str] | None:
+    """The scopes a scoped credential needs to run an operation bound to ``verb``."""
+    if verb is None:
         return None
-    return ["canvas:write", *CANVAS_ACTIONS[operation["verb"]].required_scopes]
+    return ["canvas:write", *CANVAS_ACTIONS[verb].required_scopes]
+
+
+def operation_required_scopes(team_id: int, canvas_id: UUID | str, name: str) -> list[str] | None:
+    """The scopes a scoped credential needs for this operation, or None when the canvas has no such operation."""
+    return operation_verb_required_scopes(operation_verb(team_id, canvas_id, name))
 
 
 def operation_payload(operation: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
-    """The verb payload for one invocation: the declared payload with the caller's inputs on top."""
-    allowed = set(operation.get("inputs") or [])
+    """The verb payload for one invocation: the declared payload plus the caller's inputs.
+
+    A caller cannot replace a fixed payload field, even when an older declaration also lists it in inputs.
+    """
+    fixed = operation.get("payload") or {}
+    allowed = set(operation.get("inputs") or []) - set(fixed)
     unexpected = sorted(set(arguments) - allowed)
     if unexpected:
         raise CanvasRequestRejected(
@@ -76,11 +91,19 @@ def operation_payload(operation: dict[str, Any], arguments: dict[str, Any]) -> d
             f'Operation "{operation["name"]}" accepts only {sorted(allowed) or "no"} arguments; '
             f"got {', '.join(unexpected)}.",
         )
-    return {**(operation.get("payload") or {}), **arguments}
+    return {**fixed, **arguments}
+
+
+def operation_skill_owner(canvas: CanvasRecord) -> dict[str, str]:
+    """The skill metadata that marks a skill as this canvas's operations skill."""
+    return {"canvas_id": str(canvas.id), "source": "canvas_operations"}
 
 
 def operation_skill_name(canvas: CanvasRecord) -> str:
-    """A skill name stable per canvas: the slugged canvas name plus a short id, so renames keep the skill."""
+    """The name for a canvas's first operations skill: the slugged canvas name plus a short id.
+
+    The name is set once. A later publish finds the skill by its owner metadata, so a rename keeps it.
+    """
     slug = _SLUG_RE.sub("-", canvas.name.lower()).strip("-") or "canvas"
     suffix = str(canvas.id).replace("-", "")[:8]
     budget = MAX_SKILL_NAME_LENGTH - len(SKILL_NAME_PREFIX) - len(suffix) - 1
