@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from posthog.hogql.database.database import Database
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -92,6 +93,13 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
+)
+from products.warehouse_sources.backend.table_partitioning import (
+    PartitionGranularity,
+    PartitioningNotAllowed,
+    PartitionMode,
+    partitioning_state,
+    stage_datetime_partitioning,
 )
 
 logger = structlog.get_logger(__name__)
@@ -452,6 +460,43 @@ class RowFilterColumnSerializer(serializers.Serializer):
     )
 
 
+class SchemaPartitioningSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=PartitionMode.choices,
+        allow_null=True,
+        help_text="How the synced table's files are grouped. `datetime` groups rows by a date column, so a query "
+        "that filters on that column reads only the matching date ranges. `md5` and `numerical` group by key, "
+        "which a date filter cannot skip. `null` when the table is not partitioned.",
+    )
+    columns = serializers.ListField(
+        child=serializers.CharField(), help_text="Columns the table is partitioned by. Empty when not partitioned."
+    )
+    date_granularity = serializers.ChoiceField(
+        choices=PartitionGranularity.choices,
+        allow_null=True,
+        help_text="Size of each date range. `null` unless `mode` is `datetime`.",
+    )
+    change_pending = serializers.BooleanField(
+        help_text="Whether a change to the partitioning is queued or running. The next sync applies it."
+    )
+    available_columns = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Date and timestamp columns of the synced table that can be the partition column.",
+    )
+
+
+class SchemaPartitioningRequestSerializer(serializers.Serializer):
+    column = serializers.CharField(
+        help_text="Date or timestamp column to partition the table by. Choose the column your queries filter on. "
+        "Its value must never change for a row: an incremental sync that sees a changed value stores the row twice."
+    )
+    date_granularity = serializers.ChoiceField(
+        choices=PartitionGranularity.choices,
+        help_text="Size of each date range. Use a finer value for larger tables. PostHog can later change it to "
+        "keep each partition a size that syncs can handle.",
+    )
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
@@ -617,6 +662,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
+    partitioning = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="How the synced table's files are partitioned, and which columns it can be partitioned by. "
+        "Change it with the `partitioning` action.",
+    )
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
         read_only=True,
         help_text="Lightweight parent-source summary (id, source_type, access_method, column-selection support, "
@@ -655,6 +705,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
+            "partitioning",
             "source",
             "api_version",
             "api_version_deprecation",
@@ -675,6 +726,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
+            "partitioning",
             "source",
             "api_version_deprecation",
             "user_access_level",
@@ -716,6 +768,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # UI can still list columns (and surface their existing annotations) and let users edit them.
         table = schema.table
         return table.get_user_facing_columns() if table is not None else []
+
+    @extend_schema_field(SchemaPartitioningSerializer)
+    def get_partitioning(self, schema: ExternalDataSchema) -> dict[str, Any]:
+        return partitioning_state(schema)
 
     def get_source_column_metadata_available(self, schema: ExternalDataSchema) -> bool:
         metadata = schema.schema_metadata or {}
@@ -1943,6 +1999,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "incremental_fields",
         "delete_data",
         "destinations",
+        "partitioning",
     ]
     scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = ExternalDataSchema.objects.all()
@@ -2322,6 +2379,36 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)
+
+    @validated_request(
+        SchemaPartitioningRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SchemaPartitioningSerializer,
+                description="The change is queued. The next sync applies it before it reads from the source.",
+            ),
+            400: OpenApiResponse(
+                response={"type": "object", "properties": {"detail": {"type": "string"}}},
+                description="The table cannot be partitioned this way.",
+            ),
+        },
+        description=(
+            "Partition the synced table by a date column, so that queries filtering on that column read only "
+            "the matching date ranges. The next sync rewrites the stored files in place before it reads from "
+            "the source. It does not re-import rows, and the rewrite adds no billable rows. On a large table "
+            "the rewrite can take hours, and that sync waits for it."
+        ),
+    )
+    @action(methods=["POST"], detail=True)
+    def partitioning(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+        try:
+            stage_datetime_partitioning(
+                instance, request.validated_data["column"], request.validated_data["date_granularity"]
+            )
+        except PartitioningNotAllowed as e:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"detail": str(e)})
+        return Response(SchemaPartitioningSerializer(partitioning_state(instance)).data)
 
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True)

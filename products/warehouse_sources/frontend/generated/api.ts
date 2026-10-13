@@ -51,6 +51,8 @@ import type {
     PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceSerializersApi,
     SchemaDestinationsApi,
+    SchemaPartitioningApi,
+    SchemaPartitioningRequestApi,
     SourceConfigMapResponseApi,
     SourceConnectLinkApi,
     SourceCredentialApi,
@@ -464,6 +466,27 @@ export const externalDataSchemasLogsRetrieve = async (
     return apiMutator<void>(getExternalDataSchemasLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExternalDataSchemasPartitioningCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/partitioning/`
+}
+
+/**
+ * Partition the synced table by a date column, so that queries filtering on that column read only the matching date ranges. The next sync rewrites the stored files in place before it reads from the source. It does not re-import rows, and the rewrite adds no billable rows. On a large table the rewrite can take hours, and that sync waits for it.
+ */
+export const externalDataSchemasPartitioningCreate = async (
+    projectId: string,
+    id: string,
+    schemaPartitioningRequestApi: SchemaPartitioningRequestApi,
+    options?: RequestInit
+): Promise<SchemaPartitioningApi> => {
+    return apiMutator<SchemaPartitioningApi>(getExternalDataSchemasPartitioningCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(schemaPartitioningRequestApi),
     })
 }
 

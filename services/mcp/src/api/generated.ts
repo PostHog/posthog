@@ -47705,6 +47705,58 @@ export namespace Schemas {
       operators: string[];
     }
 
+    /**
+     * * `md5` - Hash buckets
+     * * `numerical` - Numeric ranges
+     * * `datetime` - Date ranges
+     */
+    export type PartitionModeEnum = typeof PartitionModeEnum[keyof typeof PartitionModeEnum];
+
+
+    export const PartitionModeEnum = {
+      Md5: 'md5',
+      Numerical: 'numerical',
+      Datetime: 'datetime',
+    } as const;
+
+    /**
+     * * `month` - Month
+     * * `week` - Week
+     * * `day` - Day
+     * * `hour` - Hour
+     */
+    export type PartitionGranularityEnum = typeof PartitionGranularityEnum[keyof typeof PartitionGranularityEnum];
+
+
+    export const PartitionGranularityEnum = {
+      Month: 'month',
+      Week: 'week',
+      Day: 'day',
+      Hour: 'hour',
+    } as const;
+
+    export interface SchemaPartitioning {
+      /** How the synced table's files are grouped. `datetime` groups rows by a date column, so a query that filters on that column reads only the matching date ranges. `md5` and `numerical` group by key, which a date filter cannot skip. `null` when the table is not partitioned.
+       *
+       * * `md5` - Hash buckets
+       * * `numerical` - Numeric ranges
+       * * `datetime` - Date ranges */
+      mode: PartitionModeEnum | null;
+      /** Columns the table is partitioned by. Empty when not partitioned. */
+      columns: string[];
+      /** Size of each date range. `null` unless `mode` is `datetime`.
+       *
+       * * `month` - Month
+       * * `week` - Week
+       * * `day` - Day
+       * * `hour` - Hour */
+      date_granularity: PartitionGranularityEnum | null;
+      /** Whether a change to the partitioning is queued or running. The next sync applies it. */
+      change_pending: boolean;
+      /** Date and timestamp columns of the synced table that can be the partition column. */
+      available_columns: string[];
+    }
+
     export interface ExternalDataSourceApiVersionDeprecation {
       /** The deprecated vendor API version this source is pinned to. */
       version: string;
@@ -47841,6 +47893,8 @@ export namespace Schemas {
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /** Whether exact source-side column metadata is available for safe source-query projection. */
       readonly source_column_metadata_available: boolean;
+      /** How the synced table's files are partitioned, and which columns it can be partitioned by. Change it with the `partitioning` action. */
+      readonly partitioning: SchemaPartitioning;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -80668,6 +80722,8 @@ export namespace Schemas {
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /** Whether exact source-side column metadata is available for safe source-query projection. */
       readonly source_column_metadata_available?: boolean;
+      /** How the synced table's files are partitioned, and which columns it can be partitioned by. Change it with the `partitioning` action. */
+      readonly partitioning?: SchemaPartitioning;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -98821,6 +98877,18 @@ export namespace Schemas {
       inherits_from_source: boolean;
       /** Where the table actually syncs, after inheritance is resolved. */
       effective_destination_ids?: string[];
+    }
+
+    export interface SchemaPartitioningRequest {
+      /** Date or timestamp column to partition the table by. Choose the column your queries filter on. Its value must never change for a row: an incremental sync that sees a changed value stores the row twice. */
+      column: string;
+      /** Size of each date range. Use a finer value for larger tables. PostHog can later change it to keep each partition a size that syncs can handle.
+       *
+       * * `month` - Month
+       * * `week` - Week
+       * * `day` - Day
+       * * `hour` - Hour */
+      date_granularity: PartitionGranularityEnum;
     }
 
     export interface ScoreDefinitionCreate {
@@ -123675,6 +123743,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type ExternalDataSchemasPartitioningCreate400 = {
+      detail?: string;
     };
 
     export type ExternalDataSchemasReloadCreate400 = {

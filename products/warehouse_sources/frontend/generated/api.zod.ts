@@ -386,6 +386,23 @@ export const ExternalDataSchemasDestinationsPartialUpdateBody = /* @__PURE__ */ 
 })
 
 /**
+ * Partition the synced table by a date column, so that queries filtering on that column read only the matching date ranges. The next sync rewrites the stored files in place before it reads from the source. It does not re-import rows, and the rewrite adds no billable rows. On a large table the rewrite can take hours, and that sync waits for it.
+ */
+export const ExternalDataSchemasPartitioningCreateBody = /* @__PURE__ */ zod.object({
+    column: zod
+        .string()
+        .describe(
+            'Date or timestamp column to partition the table by. Choose the column your queries filter on. Its value must never change for a row: an incremental sync that sees a changed value stores the row twice.'
+        ),
+    date_granularity: zod
+        .enum(['month', 'week', 'day', 'hour'])
+        .describe('\* `month` - Month\n\* `week` - Week\n\* `day` - Day\n\* `hour` - Hour')
+        .describe(
+            'Size of each date range. Use a finer value for larger tables. PostHog can later change it to keep each partition a size that syncs can handle.\n\n\* `month` - Month\n\* `week` - Week\n\* `day` - Day\n\* `hour` - Hour'
+        ),
+})
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod
