@@ -2282,10 +2282,14 @@ class OAuthTokenView(TokenView):
                         and access_token.application.is_first_party
                         and access_token.user
                     ):
+                        candidate_teams = Team.objects.filter(organization_id__in=scoped_organizations).only(
+                            "pk", "organization_id", "project_id"
+                        )
+                        user_permissions = UserPermissions(access_token.user)
                         scoped_teams = sorted(
                             team.pk
-                            for team in UserPermissions(access_token.user).teams_visible_for_user
-                            if str(team.organization_id) in scoped_organizations
+                            for team in candidate_teams
+                            if user_permissions.team(team).effective_membership_level is not None
                         )
 
                     response_data["scoped_teams"] = scoped_teams
