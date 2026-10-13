@@ -66,7 +66,52 @@ describe('canvasAppWidgetLogic', () => {
             canvasId: CANVAS_ID,
             spaceId: 'space-1',
             sourceVersionId: 'version-1',
+            instanceKey: 'dashboard-tile-1',
         })
+    })
+
+    it('gives each tile of the same canvas its own host instance', async () => {
+        jest.mocked(canvasesViewRetrieve).mockResolvedValue(view())
+        const other = canvasAppWidgetLogic({ tileId: 2, canvasId: CANVAS_ID })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+            other.mount()
+        }).toFinishAllListeners()
+
+        expect(logic.values.hostProps.instanceKey).toEqual('dashboard-tile-1')
+        expect(other.values.hostProps.instanceKey).toEqual('dashboard-tile-2')
+        other.unmount()
+    })
+
+    it('loads the view again when the dashboard result reports a new live build', async () => {
+        jest.mocked(canvasesViewRetrieve).mockResolvedValue(view())
+        logic = canvasAppWidgetLogic({ tileId: 1, canvasId: CANVAS_ID, publishedBuildId: 'build-1' })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(canvasesViewRetrieve).toHaveBeenCalledTimes(1)
+
+        jest.mocked(canvasesViewRetrieve).mockResolvedValue(
+            view({ published_build: { ...view().published_build!, id: 'build-2' } })
+        )
+        await expectLogic(logic, () => {
+            canvasAppWidgetLogic({ tileId: 1, canvasId: CANVAS_ID, publishedBuildId: 'build-2' })
+        }).toFinishAllListeners()
+
+        expect(canvasesViewRetrieve).toHaveBeenCalledTimes(2)
+        expect(logic.values.buildId).toEqual('build-2')
+    })
+
+    it.each([403, 404])('reports a %s response as an unavailable canvas, not a connection failure', async (status) => {
+        jest.mocked(canvasesViewRetrieve).mockRejectedValue(Object.assign(new Error('nope'), { status }))
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+
+        expect(logic.values.renderState).toEqual('unavailable')
     })
 
     it('reports a canvas that has nothing built yet instead of rendering a blank frame', async () => {
