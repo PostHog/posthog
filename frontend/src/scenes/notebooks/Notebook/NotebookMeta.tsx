@@ -211,11 +211,15 @@ export const NotebookVariablesButton = (
     props: Pick<LemonButtonProps, 'children' | 'size' | 'type'>
 ): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { content, variables, showVariables } = useValues(notebookLogic)
+    const { content, variables, showVariables, hasCodeCells } = useValues(notebookLogic)
     const { setShowVariables } = useActions(notebookSettingsLogic)
 
     // Only the revamped cells read variables, so the toggle stays out of other notebooks.
-    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
+    if (
+        !isKernelUiEnabled(featureFlags) ||
+        !isMarkdownNotebookContent(content) ||
+        (!hasCodeCells && !variables.length)
+    ) {
         return null
     }
 

@@ -12,7 +12,7 @@ import { AccessControlLevel } from '~/types'
 
 import { NotebookType } from '../types'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
-import { buildMarkdownNotebookContent } from './markdownNotebookV2'
+import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from './markdownNotebookV2'
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { Notebook } from './Notebook'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
@@ -160,18 +160,31 @@ describe('MarkdownNotebookV2Renderer UI', () => {
         expect(notebookElement?.classList.contains('Notebook--expanded')).toBe(false)
     })
 
-    it('puts the variables bar in the notebook column, above the blocks', () => {
-        // The bar takes its width from the column it sits in. Rendered anywhere else it either
-        // disappears from the notebook or stops lining up with the blocks below it.
+    it.each([
+        [
+            'with a code cell',
+            `\n\n${serializeMarkdownNotebookComponent('SQLV2', { nodeId: 's1', code: 'select 1' })}`,
+            true,
+        ],
+        ['with no code cells', '', false],
+    ])('shows the kernel toolbar and variables bar only %s', (_name, extraMarkdown, expected) => {
         act(() => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS, FEATURE_FLAGS.NOTEBOOK_JUPYTER_MODE],
+                { [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true, [FEATURE_FLAGS.NOTEBOOK_JUPYTER_MODE]: true }
+            )
             settingsLogic.actions.setShowVariables(true)
+            logic.actions.setLocalContent(buildMarkdownNotebookContent(`${BASE_MARKDOWN}${extraMarkdown}`), true)
         })
 
         const { container } = render(<Notebook shortId={SHORT_ID} mode="notebook" cachedNotebook={cachedNotebook} />)
         const header = container.querySelector('.MarkdownNotebook__canvas-header')
         const canvas = container.querySelector('.MarkdownNotebook__canvas')
 
-        expect(header?.querySelector('.NotebookVariables')).toBeInstanceOf(HTMLElement)
+        expect(!!container.querySelector('[data-attr="notebook-jupyter-toolbar"]')).toBe(expected)
+        // The bar takes its width from the column it sits in. Rendered anywhere else it either
+        // disappears from the notebook or stops lining up with the blocks below it.
+        expect(!!header?.querySelector('.NotebookVariables')).toBe(expected)
         expect(header?.compareDocumentPosition(canvas as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     })
 
