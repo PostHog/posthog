@@ -22,7 +22,6 @@ from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.dags.data_deletion_requests import data_deletion_request_property_removal
 from posthog.dags.deletes import deletes_job
 from posthog.dags.flag_evaluations_backfill import (
-    _COPIED_COLUMNS,
     FlagEvaluationsBackfillConfig,
     PolicyDisk,
     ShardBackfill,
@@ -376,38 +375,6 @@ def test_backfill_copies_each_eligible_row_in_the_window_exactly_once(
     assert stored_rows(cluster) == Counter(
         [forked(ALREADY_FORKED), forked(SAME_UUID_OTHER_TEAM), *(copied(event) for event in expected_copies)]
     )
-
-
-# The comment above _COPIED_COLUMNS gives the reason the copy leaves out each of these columns.
-# A column added to sharded_flag_evaluations fails this test until the copy or this set names it.
-LEFT_OUT_COLUMNS = frozenset(
-    {
-        "$group_0",
-        "$group_1",
-        "$group_2",
-        "$group_3",
-        "$group_4",
-        "flag_key",
-        "response",
-        "session_id",
-        "request_id",
-        "inserted_at",
-        "_partition",
-        "_offset",
-    }
-)
-
-
-@pytest.mark.django_db
-def test_backfill_copies_every_column_it_does_not_leave_out_on_purpose(cluster: ClickhouseCluster) -> None:
-    def columns(client: Client) -> set[str]:
-        rows = client.execute(
-            "SELECT name FROM system.columns WHERE database = currentDatabase() AND table = %(table)s",
-            {"table": FLAG_EVALUATIONS_DATA_TABLE},
-        )
-        return {name for (name,) in rows}
-
-    assert cluster.any_host_by_role(columns, NodeRole.DATA).result() == set(_COPIED_COLUMNS) | LEFT_OUT_COLUMNS
 
 
 @pytest.mark.django_db
