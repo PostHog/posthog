@@ -110,6 +110,11 @@ describe('toAttachment', () => {
             { mediaType: 'image', name: null, mimeType: null, url: null },
         ],
         [
+            'an image with a redacted payload and a sibling URL',
+            { type: 'image', inlineData: { data: '[base64 image redacted]', url: 'https://example.com/hidden.png' } },
+            { mediaType: 'image', name: null, mimeType: null, url: null },
+        ],
+        [
             'an image whose payload the SDK redacted',
             { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '[base64 image redacted]' } },
             { mediaType: 'image', name: null, mimeType: 'image/png', url: null },
