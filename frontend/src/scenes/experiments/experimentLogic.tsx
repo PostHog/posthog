@@ -245,6 +245,8 @@ const HEALTH_CHECK_INPUTS = [
     'end_date',
     'archived',
     'stats_config',
+    'exposure_criteria',
+    'excluded_variants',
 ] as const satisfies readonly (keyof Experiment)[]
 
 function healthCheckInputs(experiment: Experiment): Partial<Experiment> {

@@ -23,6 +23,7 @@ export type ExperimentHealthFindingCode =
     | 'no_metric'
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'
+    | 'split_changed_mid_run'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -38,6 +39,7 @@ export type ExperimentHealthFindingActionKind =
     | 'adjust_distribution'
     | 'use_first_seen_variant'
     | 'open_feature_flag'
+    | 'open_feature_flag_history'
     | 'edit_exposure_criteria'
     | 'edit_release_conditions'
     | 'add_primary_metric'
