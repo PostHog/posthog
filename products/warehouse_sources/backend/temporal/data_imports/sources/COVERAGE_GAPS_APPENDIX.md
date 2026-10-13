@@ -272,10 +272,10 @@ Today (7): `idea_comments`, `idea_endorsements`, `idea_organizations`, `idea_por
 
 Diffed against: <https://www.aha.io/openapi.json>
 
-- [ ] `Products (GET /api/v1/products)` — resolves product IDs on ideas for reports by workspace (high)
-- [ ] `Workflows (GET /api/v1/products/{product_id}/workflows)` — provides status names, order, and completion categories for idea workflows (high)
-- [ ] `Users (GET /api/v1/users)` — provides staff identities for idea assignment and ownership reports (high)
-- [ ] `Workflow status times (GET /api/v1/ideas/{idea_id}/workflow_status_times)` — measures time spent in each status and delays in idea delivery (high)
+- [x] `Products (GET /api/v1/products)` — resolves product IDs on ideas for reports by workspace (high)
+- [x] `Workflows (GET /api/v1/products/{product_id}/workflows)` — provides status names, order, and completion categories for idea workflows (high)
+- [x] `Users (GET /api/v1/users)` — provides staff identities for idea assignment and ownership reports (high)
+- [x] `Workflow status times (GET /api/v1/ideas/{idea_id}/workflow_status_times)` — measures time spent in each status and delays in idea delivery (high)
 - [ ] `Idea categories (GET /api/v1/products/{product_id}/idea_categories)` — provides the category hierarchy for grouping customer demand (medium)
 - [ ] `Ideas portal users (GET /api/v1/portal_users)` — links portal membership to idea users and portal engagement (medium)
 - [ ] `Idea subscriptions (GET /api/v1/ideas/{idea_id}/subscriptions)` — identifies followers of each idea for customer interest reports (medium)
@@ -5553,10 +5553,10 @@ Diffed against: <https://www.gridly.com/docs/api/>
 - [x] `grids (GET /v1/grids?dbId=)` — lookup resolving the grid that owns each view/record set (high)
 - [x] `databases (GET /v1/databases?projectId=)` — lookup completing the project > database > grid > view hierarchy around synced records (high)
 - [x] `projects (GET /v1/projects)` — top-level lookup for project names/IDs referenced by databases (high)
-- [ ] `record histories (GET /v1/views/{viewId}/records/{recordId}/histories)` — per-cell change history - who changed which localization value and when (medium)
-- [ ] `dependencies (GET /v1/views/{viewId}/dependencies)` — source-to-target column mapping that explains translation status columns (medium)
-- [ ] `branches (GET /v1/branches?gridId=)` — branch metadata needed to interpret records synced from a branched grid (medium)
-- [ ] `automation executions (GET /v1/automations/{id}/executions)` — run history with status and timing - the analytical table for automation reliability (medium)
+- [x] `record histories (GET /v1/views/{viewId}/records/{recordId}/histories)` — per-cell change history - who changed which localization value and when (medium)
+- [x] `dependencies (GET /v1/views/{viewId}/dependencies)` — source-to-target column mapping that explains translation status columns (medium)
+- [x] `branches (GET /v1/branches?gridId=)` — branch metadata needed to interpret records synced from a branched grid (medium)
+- [x] `automation executions (GET /v1/automations/{id}/executions)` — run history with status and timing - the analytical table for automation reliability (medium)
 - [ ] `automations (GET /v1/automations)` — lookup naming the automations whose executions you would analyze (medium)
 - [ ] `glossaries (GET /v1/glossaries)` — terminology lookup joined to localization records (low)
 - [ ] `translation memories (GET /v1/transmems)` — TM inventory for leverage/reuse reporting (low)
@@ -8813,8 +8813,8 @@ Today (1): `items`
 
 Diffed against: <https://api.opinionstage.com/api-docs/api/v2/openapi.yaml>
 
-- [ ] `/api/v2/items/{itemId}/responses` — the actual respondent-level answer data — the entire point of the Public Result API; today only the widget list is synced (high)
-- [ ] `/api/v2/items/{itemId}/questions` — lookup table resolving the question IDs carried on response rows (high)
+- [x] `/api/v2/items/{itemId}/responses` — the actual respondent-level answer data — the entire point of the Public Result API; today only the widget list is synced (high)
+- [x] `/api/v2/items/{itemId}/questions` — lookup table resolving the question IDs carried on response rows (high)
 
 Note: The vendor OpenAPI spec (title 'Public Result API') defines exactly 5 operations: list items, get item, list responses, get response, list questions. PostHog implements only list items. products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py explicitly defers responses and questions as 'fan-out (they require an item id) and are intentionally excluded from v1' — so the gap is known and deliberate, but it is the whole analytical payload.
 
@@ -9880,14 +9880,14 @@ Note: The official Stoplight operation index and individual operation schemas we
 
 ## QualysVmdr — gaps
 
-Today (4): `host_list_detection`, `hosts`, `knowledge_base`, `scans`
+Today (8): `appliances`, `asset_groups`, `host_list_detection`, `hosts`, `ips`, `knowledge_base`, `reports`, `scans`
 
 Diffed against: <https://cdn2.qualys.com/docs/qualys-api-vmpc-user-guide.pdf>
 
-- [ ] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
-- [ ] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
-- [ ] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
-- [ ] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
+- [x] `GET /api/2.0/fo/asset/group/ (action=list)` — asset group lookup that resolves the group IDs/names hosts are organized by - the main grouping dimension for vulnerability reporting (high)
+- [x] `GET /api/2.0/fo/report/ (action=list, and action=fetch for a report's rows)` — the report inventory and generated report output, including scorecard and remediation reports (medium)
+- [x] `GET /api/2.0/fo/appliance/ (action=list)` — scanner appliance lookup that names the appliance referenced on each scan row (medium)
+- [x] `GET /api/2.0/fo/asset/ip/ (action=list)` — the subscription's tracked IP inventory, including IPs never yet scanned - gives coverage denominators (medium)
 - [ ] `GET /api/2.0/fo/activity_log/ (action=list)` — user activity log for who ran or changed what, the audit dimension of the platform (medium)
 - [ ] `GET /api/2.0/fo/schedule/scan/ (action=list)` — scheduled scan definitions that explain the cadence behind the scans table (low)
 - [ ] `GET /api/2.0/fo/compliance/posture/info/ (action=list)` — per-host control pass/fail posture for Policy Compliance subscriptions (low)
@@ -11246,10 +11246,10 @@ Today (7): `data_models`, `data_structures`, `failed_event_metrics`, `job_run_st
 
 Diffed against: <https://console.snowplowanalytics.com/api/msc/v1/docs/docs.yaml>
 
-- [ ] `GET /data-products/v2 (plus /metrics and /{dataProductId}/history)` — Data Products are the vendor's headline governance object and /metrics carries their volume numbers (high)
-- [ ] `GET /event-specs/v1 (plus /metrics, /{eventSpecId}/versions, /{eventSpecId}/history)` — event specifications with observed-volume metrics and version history - the tracking-quality core (high)
-- [ ] `GET /source-apps/v1` — lookup table resolving the source app ids referenced by data products and event specs (high)
-- [ ] `GET /data-catalog/v1 (and /data-catalog/v1/search)` — the catalog of events and entities actually observed in the pipeline, the join key between data structures and real traffic (high)
+- [x] `GET /data-products/v2 (plus /metrics and /{dataProductId}/history)` — Data Products are the vendor's headline governance object and /metrics carries their volume numbers (high)
+- [x] `GET /event-specs/v1 (plus /metrics, /{eventSpecId}/versions, /{eventSpecId}/history)` — event specifications with observed-volume metrics and version history - the tracking-quality core (high)
+- [x] `GET /source-apps/v1` — lookup table resolving the source app ids referenced by data products and event specs (high)
+- [x] `GET /data-catalog/v1 (and /data-catalog/v1/search)` — the catalog of events and entities actually observed in the pipeline, the join key between data structures and real traffic (high)
 - [ ] `GET /data-structures/v1/{schemaHash}/deployments` — which schema version is deployed to dev vs prod - deployment state history for structures we already sync (medium)
 - [ ] `GET /metrics/v1/pipelines/{pipelineId}/failed-events/{errorId}` — per-error breakdown behind the failed-event totals already synced (medium)
 - [ ] `GET /tracking-scenarios/v2 (plus /metrics and /{scenarioId}/history)` — tracking scenarios and their conformance metrics for orgs not yet migrated to event specs (medium)

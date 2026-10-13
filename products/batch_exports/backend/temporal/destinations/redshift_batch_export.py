@@ -43,7 +43,6 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     IAMRole,
     IntegrationID,
     RedshiftBatchExportInputs,
@@ -811,7 +810,7 @@ class TableSchemas(typing.NamedTuple):
 
 
 def _get_table_schemas(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
     record_batch_schema: pa.Schema,
     properties_data_type: str,
 ) -> TableSchemas:
@@ -825,7 +824,7 @@ def _get_table_schemas(
         properties_type = "VARCHAR(65535)"
         use_super = False
 
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+    if model is None or model.name == "events":
         table_schema: Fields = [
             ("uuid", "VARCHAR(200)"),
             ("event", "VARCHAR(200)"),
@@ -876,7 +875,7 @@ MergeSettings = RequiredMergeSettings | NotRequiredMergeSettings
 
 
 def _get_merge_settings(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
     use_super: bool = False,
 ) -> MergeSettings:
     """Return merge settings for models that require merging."""
@@ -912,7 +911,7 @@ def _get_merge_settings(
         return RequiredMergeSettings(
             requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
         )
-    elif (model is None or (isinstance(model, BatchExportModel) and model.name == "events")) and use_super is True:
+    elif (model is None or model.name == "events") and use_super is True:
         merge_key = [("uuid", "TEXT")]
         update_key = [("timestamp", "TIMESTAMP")]
         primary_key = [("uuid", "TEXT")]
@@ -1303,11 +1302,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
     )
 
     async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export.batch_export_schema is None:
-            model = inputs.batch_export.batch_export_model
-        else:
-            model = inputs.batch_export.batch_export_schema
+        model = inputs.batch_export.batch_export_model
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1823,11 +1818,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
     )
 
     async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export.batch_export_schema is None:
-            model = inputs.batch_export.batch_export_model
-        else:
-            model = inputs.batch_export.batch_export_schema
+        model = inputs.batch_export.batch_export_model
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -2124,7 +2115,6 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=redshift_default_fields(),
         )

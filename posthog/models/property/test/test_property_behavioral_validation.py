@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.property import BehavioralPropertyType, Property
 
 
-class TestBehavioralPropertyDateRangeValidation(BaseTest):
+class TestBehavioralPropertyDateRangeValidation(SimpleTestCase):
     """Validation of the explicit_datetime / explicit_datetime_to combo on behavioral cohort filters."""
 
     def _build(self, **overrides) -> Property:
@@ -80,7 +80,7 @@ class TestBehavioralPropertyDateRangeValidation(BaseTest):
             )
 
 
-class TestBehavioralPropertyValueAlias(BaseTest):
+class TestBehavioralPropertyValueAlias(SimpleTestCase):
     """Some cohort filter generators store "performed_event_multiple_times" instead of
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE's canonical "performed_event_multiple".
     The alias must resolve to that type's validation rules, not just skip validation."""
@@ -106,7 +106,7 @@ class TestBehavioralPropertyValueAlias(BaseTest):
             self._build(time_value=3650, time_interval="day")
 
 
-class TestBehavioralPropertyBytecodeCondition(BaseTest):
+class TestBehavioralPropertyBytecodeCondition(SimpleTestCase):
     """The realtime-cohort builder can express an unbounded "did this person ever do X"
     condition purely via compiled bytecode/conditionHash, with no time_value/time_interval/
     explicit_datetime set. That's a deliberately unbounded condition, not a malformed one."""

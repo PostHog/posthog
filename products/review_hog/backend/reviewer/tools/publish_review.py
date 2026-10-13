@@ -187,12 +187,20 @@ def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None
     return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
-def _large_pr_note_marker(report_id: str, head_sha: str) -> str:
-    """The hidden marker of a clean Standard turn's large pull request note, so a head gets at most one.
+def _large_pr_note_prefix(report_id: str) -> str:
+    """The start of every large pull request note marker of a report, whatever the head.
 
-    It differs from the published marker, so a later turn on the same head with findings still posts its review.
+    The note checks for this prefix, so a pull request gets the note once and not again on each re-review.
     """
-    return f"<!-- reviewhog:large-pr-note:{report_id}:{head_sha} -->"
+    return f"<!-- reviewhog:large-pr-note:{report_id}:"
+
+
+def _large_pr_note_marker(report_id: str, head_sha: str) -> str:
+    """The hidden marker of a clean Standard turn's large pull request note.
+
+    It differs from the published marker, so a later turn with findings still posts its review.
+    """
+    return f"{_large_pr_note_prefix(report_id)}{head_sha} -->"
 
 
 def publish_review(
@@ -253,22 +261,22 @@ def publish_review(
     repository = f"{owner}/{repo}"
     if not publishable:
         logger.info("No publishable issues found, skipping review")
-        # A clean Standard turn posts no findings, so the 👍 is the sign that the review ran.
-        if standard:
+        # A clean Standard turn posts no findings, so the 👍 is the sign that the review ran. Once any turn
+        # published findings, the 👍 stays off, because a later clean turn does not clear those findings.
+        if standard and report.published_head_sha is None:
             add_pr_reaction(repository, pr_number, "+1", token=token, installation_id=installation_id)
         if large_pr_parts is not None:
             # Not a published turn: the watermark stays unset, so a later turn on this head can still publish.
-            note_marker = _large_pr_note_marker(report_id, head_sha)
             summary = render_review_summary(review_mode, head_sha, Counter(), large_pr_parts)
             _post_github_review(
                 owner,
                 repo,
                 pr_number,
-                f"{summary}\n\n{footer_block}{note_marker}",
+                f"{summary}\n\n{footer_block}{_large_pr_note_marker(report_id, head_sha)}",
                 [],
                 token=token,
                 head_sha=head_sha,
-                marker=note_marker,
+                marker=_large_pr_note_prefix(report_id),
                 installation_id=installation_id,
                 review_mode=review_mode,
             )

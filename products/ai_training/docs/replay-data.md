@@ -123,7 +123,9 @@ Existing recording, person, team, and organization deletion flows enqueue ML del
 Person deletion resolves the combined supplied and profile distinct IDs through the replay ClickHouse index.
 This lookup also runs when the user does not select replay deletion and includes IDs with no remaining person profile.
 Only the resulting session IDs enter the ML deletion outbox.
-A lookup failure stops the request before profile deletion so it can retry.
+The lookup runs in a background task, so person deletion waits only until the task is queued.
+The task carries the distinct IDs, because the profile they belong to is deleted by then.
+A failed lookup retries with backoff for about 24 hours, then fails the task, which the task failure metric reports.
 Team deletion and its deletion outbox request commit in the same database transaction.
 If the outbox write fails, team deletion fails and can retry.
 Consent changes do not enqueue deletion requests.
@@ -136,7 +138,7 @@ Its team IDs refer to the original environment, without resolving a child enviro
 | Person  | Resolve its session IDs through replay, then apply session deletion to each result.       |
 | Team    | Remove its session keys and its image keys, and close the current month and the next one. |
 
-The person lookup matches any available replay row for the requested IDs, then deduplicates and paginates sessions.
+The person lookup matches any available replay row for the requested IDs that began before the deletion, then deduplicates and paginates sessions.
 It does not filter out recordings marked deleted or past their replay retention date while their index rows remain.
 Replay index retention limits this lookup: after those rows expire, person deletion cannot discover the corresponding ML sessions.
 New sessions from the same person can be collected if consent permits them.

@@ -40,7 +40,7 @@ from posthog.api.cohort import (
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
-from posthog.models import TaggedItem, User
+from posthog.models import PropertyDefinition, TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -10534,6 +10534,53 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
+
+    def test_user_blast_radius_with_boolean_group_property(self):
+        # ClickHouse rejects this condition unless the query passes the group type. See
+        # _group_property_globals.
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="is_paying",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            property_type="Boolean",
+        )
+        for i in range(4):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"is_paying": i < 2},
+            )
+
+        condition = {
+            "properties": [
+                {
+                    "key": "is_paying",
+                    "type": "group",
+                    "value": ["true"],
+                    "operator": "exact",
+                    "group_type_index": 0,
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": condition, "group_type_index": 0},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 2, "total": 4}.items(), response.json().items())
+        self.assertEqual(
+            set(get_user_blast_radius_persons(self.team, condition, group_type_index=0)), {"org:0", "org:1"}
+        )
 
     def test_user_blast_radius_with_groups_zero_selected(self):
         create_group_type_mapping_without_created_at(
