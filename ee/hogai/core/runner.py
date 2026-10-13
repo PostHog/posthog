@@ -48,7 +48,7 @@ from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.llm import POSTHOG_AI_PRODUCT, is_ai_gateway_served
-from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
+from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest, pending_approval_proposal_id
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
@@ -599,16 +599,15 @@ class BaseAgentRunner(ABC):
                         for task in snapshot.tasks
                         if task.result is None
                         for pending in task.interrupts
-                        if isinstance(pending.value, ApprovalRequest) and pending.value.proposal_id == proposal_id
+                        if isinstance(proposal_id, str) and pending_approval_proposal_id(pending.value) == proposal_id
                     ),
                     None,
                 )
                 if approval_interrupt is None:
-                    if isinstance(proposal_id, str):
-                        await self._expire_pending_approvals({proposal_id})
                     if not self._latest_message:
+                        if isinstance(proposal_id, str):
+                            await self._expire_pending_approvals({proposal_id})
                         raise ValueError("Approval does not match a pending operation")
-                    # The auto-reject that comes with a new message targets a card that is gone, so start a fresh run.
                     self._resume_payload = None
                 else:
                     # A scalar resume targets the next interrupt, which may belong to a different approval card.
@@ -773,8 +772,7 @@ class BaseAgentRunner(ABC):
         checkpoint's interrupt value (single source of truth). The serializer fetches it from there.
         """
         # Only store if not already in approval_decisions (don't overwrite resolved status)
-        existing = self._conversation.approval_decisions.get(approval.proposal_id)
-        if isinstance(existing, dict) and existing.get("decision_status") != ApprovalDecisionStatus.AUTO_REJECTED:
+        if approval.proposal_id in self._conversation.approval_decisions:
             return
 
         # Store with "pending" decision_status - updated to approved/rejected when user responds
@@ -808,14 +806,21 @@ class BaseAgentRunner(ABC):
         self._conversation.approval_decisions[proposal_id]["decision_status"] = status
         await self._conversation.asave(update_fields=["approval_decisions"])
 
+    def _pending_proposal_ids(self, proposal_ids: set[str] | None) -> list[str]:
+        return [
+            proposal_id
+            for proposal_id, decision in self._conversation.approval_decisions.items()
+            if (proposal_ids is None or proposal_id in proposal_ids)
+            and isinstance(decision, dict)
+            and decision.get("decision_status") == ApprovalDecisionStatus.PENDING
+        ]
+
     async def _expire_pending_approvals(self, proposal_ids: set[str] | None = None) -> None:
+        if not self._pending_proposal_ids(proposal_ids):
+            return
         await self._conversation.arefresh_from_db(fields=["approval_decisions"])
-        expired = False
-        for proposal_id, decision in self._conversation.approval_decisions.items():
-            if proposal_ids is not None and proposal_id not in proposal_ids:
-                continue
-            if isinstance(decision, dict) and decision.get("decision_status") == ApprovalDecisionStatus.PENDING:
-                decision["decision_status"] = ApprovalDecisionStatus.AUTO_REJECTED
-                expired = True
-        if expired:
+        expired_ids = self._pending_proposal_ids(proposal_ids)
+        for proposal_id in expired_ids:
+            self._conversation.approval_decisions[proposal_id]["decision_status"] = ApprovalDecisionStatus.AUTO_REJECTED
+        if expired_ids:
             await self._conversation.asave(update_fields=["approval_decisions"])

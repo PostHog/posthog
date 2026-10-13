@@ -1146,18 +1146,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 setPendingApproval: (_, { proposalId }) => proposalId,
                 clearPendingApproval: () => null,
+                // Also set pendingApprovalProposalId when loading a conversation with a pending approval
                 setConversation: (state, { conversation }) => {
-                    if (!conversation) {
+                    // Find all pending approvals from the conversation
+                    const pendingApprovals =
+                        conversation?.pending_approvals?.filter((a) => a.decision_status === 'pending') ?? []
+
+                    // If there are no pending approvals, clear the state
+                    if (pendingApprovals.length === 0) {
                         return null
                     }
-                    const approvals = conversation.pending_approvals
-                    if (!approvals) {
+
+                    // If current state is still in the pending list, keep it
+                    if (state && pendingApprovals.some((a) => a.proposal_id === state)) {
                         return state
                     }
-                    if (state && approvals.some((a) => a.proposal_id === state && a.decision_status === 'pending')) {
-                        return state
-                    }
-                    return approvals.find((a) => a.decision_status === 'pending')?.proposal_id ?? null
+
+                    // Otherwise, use the first (newest) pending approval
+                    return pendingApprovals[0]?.proposal_id ?? null
                 },
             },
         ],
@@ -2269,10 +2275,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            // The local approval list predates this turn, so leave approvals to the refetch below
             const newConversation = {
                 ...values.conversation,
-                pending_approvals: undefined,
+                pending_approvals: Object.values(values.pendingApprovalsData).map((approval) => {
+                    const resolved = values.resolvedApprovalStatuses[approval.proposal_id]
+                    return resolved ? { ...approval, decision_status: resolved.status } : approval
+                }),
                 status: ConversationStatus.Idle,
             }
 
@@ -2560,7 +2568,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     baseStatuses[proposalId] = { status: approval.decision_status }
                 }
 
-                // Frontend resolved statuses take precedence, except a backend auto-rejection: the operation never ran
                 const statuses = { ...baseStatuses, ...resolved }
                 for (const [proposalId, base] of Object.entries(baseStatuses)) {
                     if (base.status === 'auto_rejected') {

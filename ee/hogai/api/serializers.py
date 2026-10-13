@@ -21,7 +21,7 @@ from products.tasks.backend.facade.run_config import REASONING_EFFORTS, LLMProvi
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.research_agent.graph import ResearchAgentGraph
-from ee.hogai.tool import PENDING_APPROVAL_STATUS, ApprovalRequest
+from ee.hogai.tool import ApprovalRequest, pending_approval_proposal_id
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
@@ -99,13 +99,12 @@ async def aget_conversation_state(
             if task.result is not None:
                 continue
             for interrupt in task.interrupts:
-                value = interrupt.value
-                if isinstance(value, ApprovalRequest):
-                    value = value.model_dump()
-                if isinstance(value, dict) and value.get("status") == PENDING_APPROVAL_STATUS:
-                    proposal_id = value.get("proposal_id")
-                    if proposal_id:
-                        interrupt_payloads[proposal_id] = value
+                proposal_id = pending_approval_proposal_id(interrupt.value)
+                if proposal_id:
+                    value = interrupt.value
+                    interrupt_payloads[proposal_id] = (
+                        value.model_dump() if isinstance(value, ApprovalRequest) else value
+                    )
 
         return ConversationStateResult(
             state=state, has_unsupported_content=False, interrupt_payloads=interrupt_payloads

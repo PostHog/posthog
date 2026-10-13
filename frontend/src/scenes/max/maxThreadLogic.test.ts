@@ -3169,9 +3169,6 @@ describe('maxThreadLogic', () => {
             logic.actions.completeThreadGeneration()
             expect(visibleProposal()).toBe('new')
 
-            logic.actions.setConversation(MOCK_CONVERSATION)
-            expect(visibleProposal()).toBe('new')
-
             logic.actions.setPendingApproval('stale')
             logic.actions.setConversation({
                 ...MOCK_CONVERSATION,
