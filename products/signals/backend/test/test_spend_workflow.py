@@ -11,7 +11,12 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.signals.backend.spend import SignalSpendUpdate, schedule_signal_spend_update
+from products.signals.backend.spend import (
+    SignalSpendPublication,
+    SignalSpendSummary,
+    SignalSpendUpdate,
+    schedule_signal_spend_update,
+)
 from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow
 
 
@@ -25,7 +30,7 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
     attempts = 0
 
     @activity.defn(name="update_signal_spend_activity")
-    async def write_metadata(input: SignalSpendUpdate) -> None:
+    async def write_metadata(input: SignalSpendUpdate) -> SignalSpendPublication:
         nonlocal attempts
         assert input == SignalSpendUpdate(team_id=1, signal_id=driver)
         attempts += 1
@@ -36,13 +41,25 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
             write_started.set()
             await release_write.wait()
         stored.append(spend)
+        return SignalSpendPublication(
+            signal=input, summary=SignalSpendSummary(total_spend=spend, failed_stages=[]), versions={}
+        )
+
+    confirmation_attempts = 0
+
+    @activity.defn(name="confirm_signal_spend_activity")
+    async def confirm_metadata(input: SignalSpendPublication) -> None:
+        nonlocal confirmation_attempts
+        confirmation_attempts += 1
+        if confirmation_attempts == 1:
+            raise ApplicationError("ClickHouse ingestion delayed", type="SignalSpendNotVisible")
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=queue,
             workflows=[UpdateSignalSpendWorkflow],
-            activities=[write_metadata],
+            activities=[write_metadata, confirm_metadata],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with (
@@ -62,3 +79,4 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
                 await schedule_signal_spend_update(team_id=1, signal_id=driver)
                 await asyncio.wait_for(handle.result(), timeout=20)
                 assert stored == [1, 2, 3]
+                assert confirmation_attempts == 4

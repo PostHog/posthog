@@ -8,7 +8,7 @@ from django.db.models.signals import post_save
 import structlog
 
 from products.signals.backend.models import SignalReportTask, SignalScoutRun, SignalSpend
-from products.signals.backend.spend import record_task_spend, refresh_task_spend, report_triggering_signal
+from products.signals.backend.spend import enqueue_task_spend_refresh, record_task_spend, report_triggering_signal
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
     connect_task_run_cost_updated,
@@ -31,15 +31,21 @@ def task_run_created(*, instance: "TaskRun", created: bool, **kwargs: object) ->
             task = instance.task
             if task.origin_product != TaskOriginProduct.SIGNAL_REPORT or not task.signal_report_id:
                 return
-            if (instance.state or {}).get("ai_stage") not in {
-                "research",
-                "implementation",
-                "repo_selection",
-            } and not SignalReportTask.objects.filter(
-                team_id=instance.team_id, task_id=task.id, relationship="implementation"
-            ).exists():
-                return
             previous = SignalSpend.objects.for_team(instance.team_id).filter(task_id=task.id, is_task=True).first()
+            if (
+                previous is None
+                and (instance.state or {}).get("ai_stage")
+                not in {
+                    "research",
+                    "implementation",
+                    "repo_selection",
+                }
+                and not SignalReportTask.objects.filter(
+                    team_id=instance.team_id, task_id=task.id, relationship="implementation"
+                ).exists()
+            ):
+                return
+            stage = (instance.state or {}).get("ai_stage") or (previous.stage if previous else "implementation")
             signal_id = (
                 str(previous.signal_id)
                 if previous and previous.signal_id
@@ -86,7 +92,7 @@ def task_cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
                 .first()
             )
             if spend_id is not None:
-                transaction.on_commit(partial(refresh_task_spend, spend_id=spend_id, team_id=team_id))
+                transaction.on_commit(partial(enqueue_task_spend_refresh, spend_id=spend_id, team_id=team_id))
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="task_cost_update", team_id=team_id, run_id=str(run_id)

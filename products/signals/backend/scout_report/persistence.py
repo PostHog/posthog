@@ -248,6 +248,7 @@ def create_scout_report(
                 title=title,
                 summary=summary,
                 scout_idempotency_key=idempotency_key,
+                triggering_signal_id=document_ids[0],
                 signal_count=len(signals),
                 total_weight=total_weight,
                 charts=[chart.model_dump(mode="json") for chart in charts],

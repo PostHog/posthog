@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db import OperationalError
@@ -70,10 +71,17 @@ from products.signals.backend.scout_harness.slack_delivery import (
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.spend import refresh_task_spend
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True, max_retries=0, soft_time_limit=50, time_limit=60)
+@with_team_scope()
+def refresh_task_spend_task(team_id: int, spend_id: str) -> None:
+    refresh_task_spend(team_id=team_id, spend_id=UUID(spend_id))
 
 
 @shared_task(

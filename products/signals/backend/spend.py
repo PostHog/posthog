@@ -36,18 +36,39 @@ def signal_id_for(*, team_id: int, source_product: str, source_type: str, idempo
 
 def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
     with transaction.atomic():
-        signal_id = (
-            SignalReport.objects.filter(team_id=team_id, id=report_id)
-            .values_list("triggering_signal_id", flat=True)
-            .first()
+        report = (
+            SignalReport.objects.filter(team_id=team_id, id=report_id).only("triggering_signal_id", "team_id").first()
         )
-    return str(signal_id) if signal_id else None
+    if report is None:
+        return None
+    if report.triggering_signal_id is not None:
+        return str(report.triggering_signal_id)
+
+    from products.signals.backend.signal_metadata import (
+        fetch_signals_for_report_sync,  # noqa: PLC0415 — keeps HogQL off Django startup
+    )
+
+    signals = fetch_signals_for_report_sync(report.team, report_id, newest=1)
+    if not signals:
+        return None
+    with transaction.atomic():
+        reports = SignalReport.objects.filter(team_id=team_id, id=report_id)
+        reports.filter(triggering_signal_id__isnull=True).update(triggering_signal_id=signals[0]["signal_id"])
+        signal_id = reports.values_list("triggering_signal_id", flat=True).get()
+    return str(signal_id)
 
 
 @frozen
 class SignalSpendUpdate:
     team_id: int
     signal_id: str
+
+
+@frozen
+class SignalSpendPublication:
+    signal: SignalSpendUpdate
+    summary: SignalSpendSummary
+    versions: dict[str, int]
 
 
 async def schedule_signal_spend_update(*, team_id: int, signal_id: str) -> None:
@@ -153,17 +174,17 @@ def signal_spend_totals(*, team_id: int, signal_ids: list[str]) -> dict[str, flo
 def refresh_task_spend(*, spend_id: UUID, team_id: int) -> None:
     try:
         from products.tasks.backend.facade.billing import (
-            get_task_run_token_cost_microusd,  # noqa: PLC0415 — keeps task cost services off startup
+            get_task_run_token_usage,  # noqa: PLC0415 — keeps task cost services off startup
         )
 
         with transaction.atomic():
             spend = SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend_id)
-            cost = get_task_run_token_cost_microusd(team_id=team_id, run_id=UUID(spend.source_id))
-            if cost is not None:
-                spend.token_cost_microusd = cost
-            spend.accounting_failed = cost is None
+            usage = get_task_run_token_usage(team_id=team_id, run_id=UUID(spend.source_id))
+            if usage.cost_microusd is not None:
+                spend.token_cost_microusd = usage.cost_microusd
+            spend.accounting_failed = not usage.complete
             spend.save(update_fields=["token_cost_microusd", "accounting_failed", "updated_at"])
-            if cost is None:
+            if not usage.complete:
                 logger.warning(
                     "signals.spend.generation_unaccounted",
                     stage=spend.stage,
@@ -188,6 +209,17 @@ def refresh_task_spend(*, spend_id: UUID, team_id: int) -> None:
         )
 
 
+def enqueue_task_spend_refresh(*, spend_id: UUID, team_id: int) -> None:
+    from products.signals.backend.tasks import (
+        refresh_task_spend_task,  # noqa: PLC0415 — keeps Celery tasks off Django startup
+    )
+
+    try:
+        refresh_task_spend_task.delay(team_id=team_id, spend_id=str(spend_id))
+    except Exception:
+        logger.exception("signals.spend.accounting_failed", stage="enqueue_task_spend", team_id=team_id)
+
+
 def record_task_spend(
     *,
     team_id: int,
@@ -207,4 +239,4 @@ def record_task_spend(
         is_task=True,
         defaults={"signal_id": signal_id, "scout_run_id": scout_run_id, "task_id": task_id, "stage": stage},
     )
-    transaction.on_commit(partial(refresh_task_spend, spend_id=spend.id, team_id=team_id))
+    transaction.on_commit(partial(enqueue_task_spend_refresh, spend_id=spend.id, team_id=team_id))

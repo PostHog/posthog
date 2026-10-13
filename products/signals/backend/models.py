@@ -3601,7 +3601,7 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
     """One absolute cost observation per gateway request or task run."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     signal_id = models.UUIDField(null=True, blank=True)
     scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
     task_id = models.UUIDField(null=True, blank=True, db_index=True)

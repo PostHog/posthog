@@ -18,7 +18,7 @@ from asgiref.sync import async_to_sync
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
-from products.tasks.backend.facade.contracts import TaskRunCost
+from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun
@@ -211,14 +211,25 @@ def get_task_run_token_cost_microusd(*, run_id: UUID, team_id: int) -> int | Non
     return _token_cost_microusd(TaskRun.objects.get(id=run_id, team_id=team_id))
 
 
+def _token_usage(run: TaskRun) -> TaskRunTokenUsage:
+    state = run.state or {}
+    return TaskRunTokenUsage(
+        cost_microusd=sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(state))
+        if isinstance(state.get("token_cost"), dict)
+        else None,
+        complete=gateway_usage_enabled(run)
+        and not state.get("token_cost_incomplete", False)
+        and not bool(state.get("unprocessed_request_ids")),
+    )
+
+
+def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage:
+    return _token_usage(TaskRun.objects.get(id=run_id, team_id=team_id))
+
+
 def _token_cost_microusd(run: TaskRun) -> int | None:
-    if (
-        not gateway_usage_enabled(run)
-        or (run.state or {}).get("token_cost_incomplete")
-        or (run.state or {}).get("unprocessed_request_ids")
-    ):
-        return None
-    return sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(run.state or {}))
+    usage = _token_usage(run)
+    return usage.cost_microusd if usage.complete else None
 
 
 def _cost_sources(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> _CostSources:

@@ -94,7 +94,11 @@ from products.signals.backend.temporal.signal_queries import (
     run_signal_semantic_search_activity,
     wait_for_signal_in_clickhouse_activity,
 )
-from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow, update_signal_spend_activity
+from products.signals.backend.temporal.spend import (
+    UpdateSignalSpendWorkflow,
+    confirm_signal_spend_activity,
+    update_signal_spend_activity,
+)
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
@@ -138,6 +142,7 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     update_signal_spend_activity,
+    confirm_signal_spend_activity,
     load_scout_trial_evaluation_activity,
     dispatch_scout_trial_comparison_activity,
     fail_scout_trial_comparison_activity,

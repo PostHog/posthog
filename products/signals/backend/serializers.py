@@ -2001,6 +2001,7 @@ class SignalNodeSerializer(serializers.Serializer):
     spend_accounting_failed_stages = serializers.ListField(
         child=serializers.CharField(),
         read_only=True,
+        default=list,
         help_text="Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers.",
     )
     signal_id = serializers.CharField(help_text="ClickHouse document id of the signal.")

@@ -11,7 +11,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from anthropic import APIResponseValidationError, AsyncAnthropic
+from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -32,7 +32,7 @@ from products.signals.backend.emission.steering import SourceSteering, apply_ste
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord
-from products.signals.backend.spend import record_llm_spend, signal_id_for
+from products.signals.backend.spend import signal_id_for
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -225,16 +225,10 @@ async def _summarize_description(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            if gateway is not None and output.signal_id is not None:
-                priced = await generate_with_spend(
-                    generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="summarization"
-                )
-                response = priced.response
-            else:
-                response = await generation
-                await database_sync_to_async(record_llm_spend)(
-                    None, token_cost_microusd=None, team_id=team_id, signal_id=output.signal_id, stage="summarization"
-                )
+            priced = await generate_with_spend(
+                generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="summarization"
+            )
+            response = priced.response
             summary = _extract_text(response).strip()
             if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
@@ -244,10 +238,6 @@ async def _summarize_description(
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
         except Exception as e:
-            if gateway is None and isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
-                await database_sync_to_async(record_llm_spend)(
-                    None, token_cost_microusd=None, team_id=team_id, signal_id=output.signal_id, stage="summarization"
-                )
             posthoganalytics.capture_exception(
                 e,
                 properties={
@@ -405,31 +395,13 @@ async def check_actionability(
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
-                if gateway is not None and output.signal_id is not None:
-                    priced = await generate_with_spend(
-                        generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="actionability"
-                    )
-                    response = priced.response
-                else:
-                    response = await generation
-                    await database_sync_to_async(record_llm_spend)(
-                        None,
-                        token_cost_microusd=None,
-                        team_id=team_id,
-                        signal_id=output.signal_id,
-                        stage="actionability",
-                    )
+                priced = await generate_with_spend(
+                    generation, gateway=gateway, team_id=team_id, signal_id=output.signal_id, stage="actionability"
+                )
+                response = priced.response
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
             except Exception as e:
-                if gateway is None and isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
-                    await database_sync_to_async(record_llm_spend)(
-                        None,
-                        token_cost_microusd=None,
-                        team_id=team_id,
-                        signal_id=output.signal_id,
-                        stage="actionability",
-                    )
                 posthoganalytics.capture_exception(
                     e,
                     properties={
@@ -669,7 +641,8 @@ async def run_signal_pipeline(
         emitter=config.emitter,
         unloggable_fields=config.unloggable_fields,
     )
-    if config.record_processed_outputs:
+    emission_run_id = activity.info().workflow_run_id if activity.in_activity() else None
+    if config.record_processed_outputs or emission_run_id is not None:
         outputs = [
             dataclasses.replace(
                 output,
@@ -677,7 +650,9 @@ async def run_signal_pipeline(
                     team_id=team.id,
                     source_product=output.source_product,
                     source_type=output.source_type,
-                    idempotency_key=output.source_id,
+                    idempotency_key=output.source_id
+                    if config.record_processed_outputs
+                    else f"{emission_run_id}:{activity.info().activity_id}:{output.source_id}",
                 ),
             )
             for output in outputs

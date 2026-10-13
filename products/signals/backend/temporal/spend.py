@@ -9,14 +9,20 @@ from posthog.temporal.common.base import PostHogWorkflow
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import asyncify
 
-    from products.signals.backend.spend import SignalSpendUpdate
-    from products.signals.backend.spend_metadata import refresh_signal_spend_metadata
+    from products.signals.backend.spend import SignalSpendPublication, SignalSpendUpdate
+    from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 
 
 @activity.defn
 @asyncify
-def update_signal_spend_activity(input: SignalSpendUpdate) -> None:
-    if not refresh_signal_spend_metadata(team_id=input.team_id, signal_id=input.signal_id):
+def update_signal_spend_activity(input: SignalSpendUpdate) -> SignalSpendPublication:
+    return publish_signal_spend_metadata(input)
+
+
+@activity.defn
+@asyncify
+def confirm_signal_spend_activity(input: SignalSpendPublication) -> None:
+    if not confirm_signal_spend_metadata(input):
         raise ApplicationError("Signal spend metadata is not yet visible in ClickHouse", type="SignalSpendNotVisible")
 
 
@@ -34,15 +40,22 @@ class UpdateSignalSpendWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: SignalSpendUpdate) -> None:
         while True:
+            # Separate replacements into Kafka timestamp seconds, and coalesce queued notifications.
+            await workflow.sleep(1)
             updates = self._updates
-            await workflow.execute_activity(
+            publication = await workflow.execute_activity(
                 update_signal_spend_activity,
                 input,
                 start_to_close_timeout=timedelta(minutes=1),
                 schedule_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(milliseconds=100), maximum_interval=timedelta(seconds=10)
-                ),
+                retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1), maximum_interval=timedelta(seconds=10)),
+            )
+            await workflow.execute_activity(
+                confirm_signal_spend_activity,
+                publication,
+                start_to_close_timeout=timedelta(minutes=1),
+                schedule_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1), maximum_interval=timedelta(seconds=10)),
             )
             if updates == self._updates:
                 return

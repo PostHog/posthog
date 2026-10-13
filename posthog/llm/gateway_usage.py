@@ -25,7 +25,7 @@ async def fetch_gateway_cost(request_id: str, *, base_url: str, api_key: str) ->
         return None
     try:
         async with (
-            aiohttp.ClientSession(trust_env=True) as session,
+            aiohttp.ClientSession(trust_env=False) as session,
             session.get(
                 f"{base_url}/v1/usage/{request_id}",
                 headers={"Authorization": f"Bearer {api_key}"},

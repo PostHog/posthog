@@ -1,12 +1,10 @@
 import os
 from collections.abc import Callable, Mapping
-from json import JSONDecodeError
 from typing import Final, Literal, Optional, TypedDict, TypeVar
 
 from django.conf import settings
 
 import structlog
-from anthropic import APIResponseValidationError
 from anthropic.types import Message, MessageParam, OutputConfigParam, TextBlockParam
 
 from posthog.dataclasses import frozen
@@ -16,10 +14,8 @@ from posthog.llm.gateway_client import (
     get_async_anthropic_gateway_client,
     resolve_ai_gateway_config,
 )
-from posthog.sync import database_sync_to_async
 
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
@@ -242,22 +238,12 @@ async def call_llm(
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
         try:
             generation = client.messages.create(**create_kwargs)
-            if gateway is not None and team_id is not None and signal_id is not None:
-                priced = await generate_with_spend(
-                    generation, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage_label
-                )
-                response = priced.response
-            else:
-                response = await generation
-                await database_sync_to_async(record_llm_spend)(
-                    None, token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage_label
-                )
+            priced = await generate_with_spend(
+                generation, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage_label
+            )
+            response = priced.response
             text_content = _extract_text_content(response)
-        except Exception as error:
-            if gateway is None and isinstance(error, (APIResponseValidationError, JSONDecodeError)):
-                await database_sync_to_async(record_llm_spend)(
-                    None, token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage_label
-                )
+        except Exception:
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise
         text_content = _strip_markdown_json_fences(text_content)

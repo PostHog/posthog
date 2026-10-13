@@ -4,10 +4,15 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
+
+from posthog.schema import EmbeddingModelName
 
 from posthog.clickhouse.client import sync_execute
 
@@ -27,6 +32,8 @@ from products.signals.backend.signal_metadata import (
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
+from products.signals.backend.spend import SignalSpendUpdate, record_llm_spend
+from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
@@ -34,7 +41,6 @@ from products.signals.backend.temporal.signal_queries import (
 )
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
-_EMBEDDING = [0.0] * 1536
 
 
 class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -51,6 +57,8 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         skill_name: str | None = None,
         extra: dict | None = None,
         source_id: str | None = None,
+        model: EmbeddingModelName = EMBEDDING_MODEL,
+        spend_metadata: dict | None = None,
     ) -> None:
         """Write one version of a signal document straight to the model-specific embeddings table.
 
@@ -66,9 +74,11 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         }
         if skill_name is not None or extra is not None:
             metadata["extra"] = {**(extra or {}), **({"skill_name": skill_name} if skill_name is not None else {})}
+        metadata.update(spend_metadata or {})
+        table = f"distributed_posthog_document_embeddings_{model.value.replace('-', '_')}"
         sync_execute(
             f"""
-            INSERT INTO {_MODEL_TABLE} (
+            INSERT INTO {table} (
                 team_id, product, document_type, rendering, document_id,
                 timestamp, inserted_at, content, metadata, embedding,
                 _timestamp, _offset, _partition
@@ -85,7 +95,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
                     inserted_at,
                     content,
                     json.dumps(metadata),
-                    _EMBEDDING,
+                    [0.0] * int(model.value.rsplit("-", 1)[1]),
                     inserted_at,
                     0,
                     0,
@@ -447,6 +457,60 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         signals = fetch_signals_for_report_sync(self.team, "rA")
 
         assert [s["content"] for s in signals] == ["new text"]
+
+
+class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
+    def test_delayed_older_spend_cannot_replace_a_confirmed_newer_total(self) -> None:
+        driver = str(uuid.uuid4())
+        signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
+        now = timezone.now().replace(microsecond=0)
+        for model in EmbeddingModelName:
+            self._emit_version(
+                document_id=driver,
+                report_id="example-report",
+                source_product="errors",
+                inserted_at=now - timedelta(seconds=2),
+                model=model,
+            )
+        producer = MagicMock()
+
+        def deliver(payload: dict, version: int) -> None:
+            self._emit_version(
+                document_id=driver,
+                report_id="example-report",
+                source_product="errors",
+                inserted_at=datetime.fromtimestamp(version, UTC),
+                model=EmbeddingModelName(payload["model_name"]),
+                spend_metadata=json.loads(payload["metadata"]),
+            )
+
+        with (
+            time_machine.travel(now, tick=False) as clock,
+            patch("products.signals.backend.spend_metadata.producer_scope", return_value=producer),
+        ):
+            record_llm_spend(
+                "first", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability"
+            )
+            first = publish_signal_spend_metadata(signal)
+            first_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
+            for payload in first_payloads:
+                deliver(payload, first.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(first)
+            producer.__enter__.return_value.produce.reset_mock()
+            clock.shift(timedelta(seconds=2))
+            record_llm_spend(
+                "second", token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization"
+            )
+            second = publish_signal_spend_metadata(signal)
+            assert all(second.versions[key] > version for key, version in first.versions.items())
+            for call in producer.__enter__.return_value.produce.call_args_list:
+                payload = call.kwargs["data"]
+                deliver(payload, second.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(second)
+            for payload in first_payloads:
+                deliver(payload, first.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(second)
+            assert fetch_signals_for_report_sync(self.team, "example-report")[0]["total_spend"] == 0.03
 
 
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
