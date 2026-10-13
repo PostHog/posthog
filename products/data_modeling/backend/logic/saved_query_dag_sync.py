@@ -259,6 +259,10 @@ def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
     delete_orphaned_table_nodes(team_id, source_ids)
 
 
+def delete_node(team_id: int, node_id: UUID) -> None:
+    delete_nodes(team_id, Node.objects.filter(team_id=team_id, pk=node_id))
+
+
 def replace_incoming_edges(
     target: Node,
     dependency_names: Iterable[str],
