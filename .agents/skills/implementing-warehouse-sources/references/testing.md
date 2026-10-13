@@ -94,15 +94,15 @@ The keywords after the script go to `source_inputs`: `incremental_field`, `db_in
 
 The result holds:
 
-| Field | What it holds |
-| --- | --- |
-| `rows`, `items` | The rows the source yielded, flat or as yielded |
-| `requests`, `paths`, `params(name)` | What went on the wire, in order |
-| `raised` | The error the run raised, or `None`. The driver catches it, so assert on it |
-| `saved_states`, `committed_states` | Every cursor the source saved, and each cursor that persisted |
-| `final_state`, `completed_state` | The cursor at the end of the run, and after the `on_complete` hook. `None` when the source cleared it |
-| `response` | The `SourceResponse`: name, primary keys, partitioning, sort mode |
-| `session_options` | The keyword arguments of each `make_tracked_session` call, such as `redact_values` |
+| Field                               | What it holds                                                                                         |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `rows`, `items`                     | The rows the source yielded, flat or as yielded                                                       |
+| `requests`, `paths`, `params(name)` | What went on the wire, in order                                                                       |
+| `raised`                            | The error the run raised, or `None`. The driver catches it, so assert on it                           |
+| `saved_states`, `committed_states`  | Every cursor the source saved, and each cursor that persisted                                         |
+| `final_state`, `completed_state`    | The cursor at the end of the run, and after the `on_complete` hook. `None` when the source cleared it |
+| `response`                          | The `SourceResponse`: name, primary keys, partitioning, sort mode                                     |
+| `session_options`                   | The keyword arguments of each `make_tracked_session` call, such as `redact_values`                    |
 
 The driver answers the webhook checks as for a schema with no webhook, so a webhook source polls the API.
 A test that needs the webhook path patches `WebhookSourceManager.webhook_enabled` itself, and the driver keeps that answer.
