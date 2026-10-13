@@ -21,14 +21,14 @@ export function gatherIconProperties(
     const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
     const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
 
+    // Person country can belong to a different session; keep the other icon fallbacks.
     return iconPropertyKeys
+        .filter((property) => property !== '$geoip_country_code' || hasRecordingProperties)
         .flatMap((property) => {
             const value = property === '$device_type' ? deviceType : iconProperties[property]
             const label = property === '$geoip_country_code' ? countryTitleFrom(iconProperties) : value
 
             return { property, value, label }
         })
-        .filter(
-            (property) => !!property.value && (property.property !== '$geoip_country_code' || hasRecordingProperties)
-        )
+        .filter((property) => !!property.value)
 }
