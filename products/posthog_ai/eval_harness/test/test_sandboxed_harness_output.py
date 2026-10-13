@@ -433,7 +433,18 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
         pytest.param("seed", ClickHouseQueryMemoryLimitExceeded(), 1, 2, True, id="clickhouse_wrapped_memory"),
         pytest.param(
             "seed",
-            ClientError({"ResponseMetadata": {"HTTPStatusCode": 503}}, "GetObject"),
+            ClientError(
+                {
+                    "ResponseMetadata": {
+                        "HTTPStatusCode": 503,
+                        "RequestId": "test-request",
+                        "HostId": "test-host",
+                        "HTTPHeaders": {},
+                        "RetryAttempts": 0,
+                    }
+                },
+                "GetObject",
+            ),
             1,
             2,
             True,
@@ -441,7 +452,18 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
         ),
         pytest.param(
             "seed",
-            ClientError({"ResponseMetadata": {"HTTPStatusCode": 403}}, "GetObject"),
+            ClientError(
+                {
+                    "ResponseMetadata": {
+                        "HTTPStatusCode": 403,
+                        "RequestId": "test-request",
+                        "HostId": "test-host",
+                        "HTTPHeaders": {},
+                        "RetryAttempts": 0,
+                    }
+                },
+                "GetObject",
+            ),
             1,
             2,
             False,
@@ -505,9 +527,11 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
         broken_workers.discard(get_ident())
 
     monkeypatch.setattr(base, "close_old_connections", close_worker_connections)
-    ctx.demo_data.make_context.side_effect = partial(
-        setup_step, iter(([failure] * failures if stage == "clone" else []) + contexts)
-    )
+    clone_results: list[CustomPromptSandboxContext | Exception] = [
+        *([failure] * failures if stage == "clone" else []),
+        *contexts,
+    ]
+    ctx.demo_data.make_context.side_effect = partial(setup_step, iter(clone_results))
     seed = MagicMock(side_effect=partial(setup_step, iter(([failure] * failures if stage == "seed" else []) + [{}])))
     case = SandboxedEvalCase(name="case", prompt="Run the task", setup=seed)
     run = base._SandboxedEvalRun(

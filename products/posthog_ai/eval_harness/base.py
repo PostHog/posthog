@@ -464,12 +464,15 @@ def _retryable_setup_error(error: Exception) -> bool:
     return False
 
 
-def _run_setup_step[Result](step: Callable[[], Result]) -> Result:
-    try:
-        return step()
-    except Exception:
-        close_old_connections()
-        raise
+async def _run_setup_step[Result](step: Callable[[], Result]) -> Result:
+    def run_in_worker() -> Result:
+        try:
+            return step()
+        except Exception:
+            close_old_connections()
+            raise
+
+    return await asyncio.to_thread(run_in_worker)
 
 
 @frozen
@@ -537,8 +540,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     # The factory does Django ORM work. Django's async-safety
                     # guard rejects sync ORM calls from async contexts, so run it
                     # in a worker thread.
-                    sandbox_context = await asyncio.to_thread(
-                        _run_setup_step,
+                    sandbox_context = await _run_setup_step(
                         partial(
                             self._demo_data.make_context,
                             eval_case.name,
@@ -553,7 +555,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
                     seed = (
-                        await asyncio.to_thread(_run_setup_step, partial(original_case.setup, sandbox_context))
+                        await _run_setup_step(partial(original_case.setup, sandbox_context))
                         if original_case is not None and original_case.setup is not None
                         else {}
                     )

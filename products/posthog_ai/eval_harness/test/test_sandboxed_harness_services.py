@@ -102,8 +102,8 @@ def test_service_readiness_retries_stop_each_failed_process(
         return process
 
     monkeypatch.setattr(long_lived_subprocess.subprocess, "Popen", spawn)
-    monkeypatch.setattr(long_lived_subprocess.time, "monotonic", lambda: next(clock))
     clock = itertools.count()
+    monkeypatch.setattr(long_lived_subprocess.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(long_lived_subprocess.time, "sleep", lambda _delay: None)
     monkeypatch.setattr(manager, "_stop_stale_managed_process", lambda **_kwargs: None)
     monkeypatch.setattr(manager, "_fail_if_port_bound", lambda *_args: None)
