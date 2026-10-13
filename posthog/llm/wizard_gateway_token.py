@@ -11,6 +11,7 @@ attempt fast instead of retrying into the CLI's timeout.
 """
 
 import json
+import dataclasses
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -86,6 +87,11 @@ class WizardLimitOverride:
 NO_OVERRIDE = WizardLimitOverride()
 
 
+def _targeting_properties(*, email: str | None, organization_id: str, team_id: int) -> dict[str, str]:
+    """The person properties every wizard flag read carries, so a flag can target by them."""
+    return {"email": email or "", "organization_id": organization_id, "team_id": str(team_id)}
+
+
 def wizard_limit_override(
     *, distinct_id: str, email: str | None, organization_id: str, team_id: int
 ) -> WizardLimitOverride:
@@ -94,7 +100,7 @@ def wizard_limit_override(
         raw = posthoganalytics.get_feature_flag_payload(
             WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG,
             distinct_id,
-            person_properties={"email": email or "", "organization_id": organization_id, "team_id": str(team_id)},
+            person_properties=_targeting_properties(email=email, organization_id=organization_id, team_id=team_id),
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -167,8 +173,10 @@ _MAX_PROMPT_BYTES = 4000
 # The models are every one the wizard CLI dispatches (its *_MODEL constants in
 # src/lib/constants.ts), so widen them here when one is added. The efforts are
 # every one the CLI can declare; "max" is absent because the CLI cannot send it.
-# The programs are every one the wizard CLI can run, so an unreadable allowlist
-# still admits them.
+# The programs are exactly the ids the wizard sends as `program` to this mint: its
+# Program registry (src/programs/program-registry.ts) plus `mcp-tutorial`, the one
+# tool that streams a model call. The other tools make none, so they never mint.
+# An unreadable allowlist still admits them.
 WIZARD_DEFAULT_MODELS: tuple[str, ...] = (
     "claude-sonnet-5",
     "claude-haiku-4-5",
@@ -185,22 +193,17 @@ WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (
     "warehouse-source",
     "error-tracking-upload-source-maps",
     "error-tracking",
+    "migration",
     "audit",
     "events-audit",
-    "posthog-doctor",
     "web-analytics-doctor",
-    "migration",
     "self-driving",
     "agent-skill",
-    "mcp-add",
-    "mcp-remove",
-    "mcp-tutorial",
     "mcp-analytics",
     "replay-vision",
     "ai-observability",
     "metrics",
-    "slack",
-    "feature-flags",
+    "mcp-tutorial",
 )
 
 
@@ -210,7 +213,7 @@ class WizardSystemPrompt:
     the mint body, and is never logged or returned to the wizard; `version` is
     the one field the wizard sees."""
 
-    text: str
+    text: str = dataclasses.field(repr=False)
     version: int
 
 
@@ -225,25 +228,44 @@ class WizardGatewayPolicy:
     prompt: WizardSystemPrompt | None
 
 
-def wizard_gateway_policy(*, distinct_id: str) -> WizardGatewayPolicy:
+def wizard_gateway_policy(
+    *, distinct_id: str, email: str | None, organization_id: str, team_id: int
+) -> WizardGatewayPolicy:
     """Read both policy flags once. Never raises: an unreadable or invalid flag
-    degrades that half of the policy and leaves the other alone."""
-    prompt_raw = _policy_payload(WIZARD_SYSTEM_PROMPT_FLAG, distinct_id, source="system prompt", field="system_prompt")
-    allowlist_raw = _policy_payload(WIZARD_GATEWAY_ALLOWLIST_FLAG, distinct_id, source="allowlist", field="allowlist")
+    degrades that half of the policy and leaves the other alone. The flags see the
+    same person properties as the limit override, so they can be targeted."""
+    properties = _targeting_properties(email=email, organization_id=organization_id, team_id=team_id)
+    prompt_raw = _policy_payload(
+        WIZARD_SYSTEM_PROMPT_FLAG, distinct_id, properties, source="system prompt", field="system_prompt"
+    )
+    allowlist_raw = _policy_payload(
+        WIZARD_GATEWAY_ALLOWLIST_FLAG, distinct_id, properties, source="allowlist", field="allowlist"
+    )
     prompt = _parse_system_prompt(prompt_raw) if prompt_raw is not None else None
     allowlist = _parse_allowlist(allowlist_raw) if allowlist_raw is not None else None
     models, efforts, programs = allowlist or (WIZARD_DEFAULT_MODELS, WIZARD_DEFAULT_EFFORTS, WIZARD_DEFAULT_PROGRAMS)
     return WizardGatewayPolicy(models=models, efforts=efforts, programs=programs, prompt=prompt)
 
 
-def _policy_payload(flag: str, distinct_id: str, *, source: str, field: str) -> dict | None:
+def _policy_payload(
+    flag: str, distinct_id: str, person_properties: dict[str, str], *, source: str, field: str
+) -> dict | None:
     """The flag's payload object, or None when it is off, unreadable, or not an object."""
     try:
         raw = posthoganalytics.get_feature_flag_payload(
-            flag, distinct_id, only_evaluate_locally=False, send_feature_flag_events=False
+            flag,
+            distinct_id,
+            person_properties=person_properties,
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
     except Exception as e:
         logger.warning(f"wizard_gateway_token: {source} flag unavailable", error=str(e))
+        return None
+    if raw is None:
+        # The SDK swallows its own errors and returns None, so an outage looks the
+        # same as a flag that is off: say so, as the rollout flag read does.
+        logger.warning(f"wizard_gateway_token: {source} flag returned no payload")
         return None
     if isinstance(raw, str):
         try:
@@ -252,8 +274,6 @@ def _policy_payload(flag: str, distinct_id: str, *, source: str, field: str) -> 
             logger.warning(f"wizard_gateway_token: {source} payload is not JSON")
             WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field).inc()
             return None
-    if raw is None:
-        return None
     if not isinstance(raw, dict):
         logger.warning(f"wizard_gateway_token: {source} payload out of contract, ignored")
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field).inc()
@@ -303,7 +323,8 @@ def _string_list(payload: dict, key: str) -> tuple[str, ...]:
         raise ValueError(f"{key} must be a non-empty list")
     if not all(isinstance(value, str) and value.strip() for value in values):
         raise ValueError(f"{key} must hold only non-empty strings")
-    return tuple(dict.fromkeys(values))
+    # Stored stripped, as validated: an id saved as "audit " must match "audit".
+    return tuple(dict.fromkeys(value.strip() for value in values))
 
 
 @frozen

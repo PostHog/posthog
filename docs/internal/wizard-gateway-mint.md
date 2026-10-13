@@ -14,7 +14,7 @@ Code: `posthog/api/wizard/http.py` (the endpoint and its gates),
 
 The CLI sends `program` and `reads_refusal_reason: true` to `POST /api/wizard/gateway_token/`.
 `reads_refusal_reason` controls whether a refusal that an older CLI absorbed uses 403 with a reason or the legacy 404 response.
-Django attaches the operator system prompt to the token whenever the prompt flag is usable, whatever else the client sends.
+Django attaches the operator system prompt to the token whenever the prompt flag is usable.
 The client never sees the prompt and sends none: the gateway injects it into every model request.
 
 Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
@@ -32,7 +32,8 @@ Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 | `system_prompt`   | The operator prompt text, sent only when the prompt flag is usable |
 
 The pins come from two remote-config flags in the PostHog internal project,
-read once per mint request after authentication:
+read once per mint request after authentication, with the `email`, `organization_id` and `team_id` person
+properties the limit-override flag gets, so either flag can be targeted:
 
 - `wizard-ai-gateway-system-prompt`: `{"version": <int>, "text": "<prompt>"}`. The text is at most 4000 bytes
   and contains `[posthog:abort]`. It goes to the gateway as `system_prompt`, byte for byte.
@@ -48,7 +49,9 @@ A policy flag never refuses a mint:
   operator kill switch.
 - An allowlist flag that is unreadable or out of contract falls back to `WIZARD_DEFAULT_MODELS`,
   `WIZARD_DEFAULT_EFFORTS` and `WIZARD_DEFAULT_PROGRAMS` in `wizard_gateway_token.py`.
-- Unreadable and out-of-contract payloads log a warning. Out-of-contract ones also count on
+- Unreadable payloads, flags that return no payload, and out-of-contract payloads log a warning. The PostHog SDK
+  swallows its own errors and returns no payload, so an outage reads the same as a flag that is off.
+  Out-of-contract ones also count on
   `posthog_wizard_gateway_config_rejects_total{field="system_prompt"|"allowlist"}`.
 
 A gateway that predates a field ignores it and mints a token without it.

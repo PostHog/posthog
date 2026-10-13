@@ -111,16 +111,6 @@ def _detail_text(exc: exceptions.APIException) -> str:
     return str(detail)
 
 
-class SetupWizardGatewayTokenSerializer(serializers.Serializer):
-    """Document the body without coercing capabilities before the authenticated compatibility checks."""
-
-    program = serializers.CharField(help_text="Program ID from the Wizard gateway allowlist.")
-    reads_refusal_reason = serializers.BooleanField(
-        required=False,
-        help_text="Send JSON true when the client displays refusal details. Older clients receive compatible 404 refusals.",
-    )
-
-
 class SetupWizardCloudRunSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(
         help_text="ID of the PostHog project to integrate PostHog into. The authenticated user must have access to it."
@@ -165,7 +155,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
         super().throttled(request, wait)
 
-    @extend_schema(request=SetupWizardGatewayTokenSerializer)
     @action(
         methods=["POST"],
         detail=False,
@@ -315,7 +304,12 @@ class SetupWizardViewSet(viewsets.ViewSet):
         # Read once, after every gate that needs no flag, so an unauthenticated or
         # refused request costs no flag read. A policy flag that is off or broken
         # degrades the pin and never refuses the mint.
-        policy = wizard_gateway_policy(distinct_id=distinct_id)
+        policy = wizard_gateway_policy(
+            distinct_id=distinct_id,
+            email=user.email,
+            organization_id=str(team.organization_id),
+            team_id=team.id,
+        )
 
         # A closed set: refusing keeps every pinned node one that carries a budget.
         product = wizard_product_node(program, policy)

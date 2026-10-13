@@ -16,6 +16,7 @@ from posthog.llm.wizard_gateway_token import (
     WIZARD_DEFAULT_EFFORTS,
     WIZARD_DEFAULT_MODELS,
     WIZARD_DEFAULT_PROGRAMS,
+    WIZARD_EFFORT_LEVELS,
     WIZARD_GATEWAY_ALLOWLIST_FLAG,
     WIZARD_GATEWAY_CONFIG_REJECTS,
     WIZARD_SYSTEM_PROMPT_FLAG,
@@ -25,6 +26,7 @@ from posthog.llm.wizard_gateway_token import (
     WizardSystemPrompt,
     WizardTierLimits,
     mint_wizard_gateway_token,
+    normalize_model,
     parse_limit_override,
     wizard_gateway_base_url,
     wizard_gateway_configured,
@@ -500,6 +502,10 @@ class TestWizardProductNode:
         assert wizard_product_node(["integration"], POLICY) is None
 
 
+def _policy() -> WizardGatewayPolicy:
+    return wizard_gateway_policy(distinct_id="d1", email="eng@posthog.com", organization_id="org_1", team_id=7)
+
+
 class TestWizardGatewayPolicy:
     @staticmethod
     def _flags(prompt=PROMPT_PAYLOAD, allowlist=ALLOWLIST_PAYLOAD):
@@ -515,7 +521,7 @@ class TestWizardGatewayPolicy:
 
     def test_both_flags_make_the_policy(self):
         with self._flags() as read:
-            policy = wizard_gateway_policy(distinct_id="d1")
+            policy = _policy()
 
         assert policy == WizardGatewayPolicy(
             models=("OpenAI/GPT-5.6-Luna", "claude-sonnet-5"),
@@ -530,13 +536,66 @@ class TestWizardGatewayPolicy:
     def test_the_prompt_text_is_kept_untrimmed(self):
         text = "  [posthog:abort] \n"
         with self._flags(prompt={"version": 1, "text": text}):
-            policy = wizard_gateway_policy(distinct_id="d1")
+            policy = _policy()
         assert policy.prompt is not None
         assert policy.prompt.text == text
 
+    def test_both_flags_are_read_with_the_override_flags_targeting_properties(self):
+        with self._flags() as read:
+            _policy()
+
+        assert len(read.call_args_list) == 2
+        for call in read.call_args_list:
+            assert call.args[1] == "d1"
+            assert call.kwargs["person_properties"] == {
+                "email": "eng@posthog.com",
+                "organization_id": "org_1",
+                "team_id": "7",
+            }
+
+    @pytest.mark.parametrize("missing", [None, RuntimeError("flags down")])
+    @pytest.mark.parametrize(
+        "flag,message",
+        [
+            (WIZARD_SYSTEM_PROMPT_FLAG, "system prompt flag"),
+            (WIZARD_GATEWAY_ALLOWLIST_FLAG, "allowlist flag"),
+        ],
+    )
+    def test_a_flag_that_returns_nothing_is_logged(self, flag, message, missing):
+        # The SDK swallows its own errors and returns None, so None is the outage a
+        # production mint sees; the exception is the same outage in a client that raises.
+        kwargs = {"prompt": missing} if flag == WIZARD_SYSTEM_PROMPT_FLAG else {"allowlist": missing}
+        with self._flags(**kwargs), patch("posthog.llm.wizard_gateway_token.logger") as log:
+            _policy()
+
+        logged = [call.args[0] for call in log.warning.call_args_list]
+        expected = f"wizard_gateway_token: {message} " + ("returned no payload" if missing is None else "unavailable")
+        assert logged == [expected]
+
+    def test_a_program_id_saved_with_stray_spaces_is_stored_stripped(self):
+        allowlist = {**ALLOWLIST_PAYLOAD, "programs": ["posthog-integration ", " audit"]}
+        with self._flags(allowlist=allowlist):
+            policy = _policy()
+
+        assert policy.programs == ("posthog-integration", "audit")
+        assert wizard_product_node("posthog-integration", policy) == "wizard:posthog-integration"
+
+    def test_the_defaults_stay_inside_what_the_gateway_and_the_cli_accept(self):
+        # The fallback pins every run when the allowlist flag is unreadable, so a
+        # level the gateway does not know, or a model it spells differently,
+        # would refuse them all.
+        assert set(WIZARD_DEFAULT_EFFORTS) <= set(WIZARD_EFFORT_LEVELS)
+        assert "max" not in WIZARD_DEFAULT_EFFORTS
+        for model in WIZARD_DEFAULT_MODELS:
+            assert normalize_model(model) == model, model
+
+    def test_the_prompt_text_stays_out_of_a_repr(self):
+        assert PROMPT_TEXT not in repr(POLICY)
+        assert PROMPT_TEXT not in repr(POLICY.prompt)
+
     def test_a_json_string_payload_reads_like_an_object(self):
         with self._flags(prompt=json.dumps(PROMPT_PAYLOAD), allowlist=json.dumps(ALLOWLIST_PAYLOAD)):
-            policy = wizard_gateway_policy(distinct_id="d1")
+            policy = _policy()
         assert policy.prompt is not None
         assert policy.prompt.version == 4
         assert policy.programs == ("integration", "audit")
@@ -568,7 +627,7 @@ class TestWizardGatewayPolicy:
     def test_an_unusable_prompt_flag_leaves_the_token_unpinned(self, prompt, counted):
         before = self._rejects("system_prompt")
         with self._flags(prompt=prompt):
-            policy = wizard_gateway_policy(distinct_id="d1")
+            policy = _policy()
 
         assert policy.prompt is None
         # The allowlist is read on its own and is untouched.
@@ -597,7 +656,7 @@ class TestWizardGatewayPolicy:
     def test_an_unusable_allowlist_flag_falls_back_to_the_defaults(self, allowlist, counted):
         before = self._rejects("allowlist")
         with self._flags(allowlist=allowlist):
-            policy = wizard_gateway_policy(distinct_id="d1")
+            policy = _policy()
 
         # All three lists fall back together, never a mix of flag and default.
         assert (policy.models, policy.efforts, policy.programs) == (
