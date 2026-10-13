@@ -1161,6 +1161,20 @@ def build_pipeline_mocks(mocker):
     return mock_connect, streaming_cursor
 
 
+class TestConnect:
+    @pytest.mark.parametrize(
+        "overrides,expected_sslmode",
+        [({}, "require"), ({"verify_server_certificate": "true"}, "verify-full")],
+    )
+    def test_certificate_verification_is_opt_in(self, mocker, overrides, expected_sslmode):
+        mock_connect = mocker.patch(f"{_REDSHIFT_MODULE}.psycopg.connect")
+
+        with RedshiftImplementation().connect(_make_config(**overrides), statement_timeout_ms=None):
+            pass
+
+        assert mock_connect.call_args.kwargs["sslmode"] == expected_sslmode
+
+
 class TestIsTransientConnectionDropError:
     def test_does_not_match_non_operational_error(self):
         assert _is_transient_connection_drop_error(ValueError("the connection is lost")) is False

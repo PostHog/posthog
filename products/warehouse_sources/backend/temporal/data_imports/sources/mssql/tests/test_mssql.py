@@ -532,6 +532,16 @@ class TestConnectTimeouts:
         assert "timeout" not in mock_connect.call_args.kwargs
         assert [call.args[0] for call in cursor.execute.call_args_list] == expected_statements
 
+    @pytest.mark.parametrize("overrides,expected", [({}, None), ({"require_encryption": "true"}, "require")])
+    def test_connect_requires_encryption_only_when_asked(self, mocker, overrides, expected):
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        mock_connect = mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect")
+
+        with MSSQLImplementation().connect(_make_config(**overrides)):
+            pass
+
+        assert mock_connect.call_args.kwargs["encryption"] == expected
+
 
 class _RaisingTunnel:
     """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""

@@ -23,6 +23,7 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
     Handles SSH tunnel and delegates the actual connection
     to _connect_to_postgres which owns SSL cert overrides.
     """
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import tls_options
     from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
         _connect_to_postgres,
         source_requires_ssl,
@@ -45,6 +46,7 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
             password=config.password,
             require_ssl=require_ssl,
             connect_timeout=connect_timeout,
+            tls=tls_options(config),
             team_id=source.team_id,
         )
         try:

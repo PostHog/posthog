@@ -3,6 +3,7 @@ import datetime
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -3303,6 +3304,24 @@ class TestConnectCertificateVerification:
         assert kwargs["ssl_verify_cert"] is expected_cert
         assert kwargs["ssl_verify_identity"] is expected_identity
         assert refuses_plaintext is (expected_cert is True)
+
+    def test_custom_authority_and_client_certificate_reach_pymysql(self, mocker):
+        seen: dict[str, str] = {}
+
+        def read_files(**kwargs):
+            seen.update({name: Path(kwargs[name]).read_text() for name in ("ssl_ca", "ssl_cert", "ssl_key")})
+            seen["verify"] = kwargs["ssl_verify_cert"]
+            return MagicMock()
+
+        mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", side_effect=read_files)
+        config = _make_config(
+            using_ssl="false", ca_certificate="CA PEM", client_certificate="CERT PEM", client_key="KEY PEM"
+        )
+
+        with MySQLImplementation().connect(config):
+            pass
+
+        assert seen == {"ssl_ca": "CA PEM", "ssl_cert": "CERT PEM", "ssl_key": "KEY PEM", "verify": True}
 
     @pytest.mark.parametrize("capabilities,refused", [(0, True), (CLIENT.SSL, False)])
     def test_authentication_against_a_server_that_advertises_tls_or_not(self, mocker, capabilities, refused):

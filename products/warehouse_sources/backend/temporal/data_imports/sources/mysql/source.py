@@ -30,6 +30,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    TLSConfigurationError,
+    ca_certificate_field,
+    client_certificate_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -218,8 +223,8 @@ class MySQLSource(
                         converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
                         caption=(
                             "Check that your database's TLS certificate comes from a trusted authority. "
-                            "A self-signed certificate or a private authority does not pass, so leave this off "
-                            "if you use one. Through an SSH tunnel we check the certificate chain but not the "
+                            "A self-signed certificate or a private authority passes only when you add its "
+                            "certificate authority below. Through an SSH tunnel we check the certificate chain but not the "
                             "hostname, because the tunnel presents your database on a local address."
                         ),
                         options=[
@@ -227,6 +232,8 @@ class MySQLSource(
                             SourceFieldSelectConfigOption(label="No", value="false"),
                         ],
                     ),
+                    ca_certificate_field(),
+                    *client_certificate_fields(),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -585,9 +592,10 @@ class MySQLSource(
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
-        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
-            # The host policy refused the host, or its lookup never answered. Both carry their own
-            # user-facing wording and neither is a PostHog defect, so they are not captured.
+        except (HostNotAllowedError, TemporaryHostResolutionError, TLSConfigurationError) as e:
+            # The host policy refused the host, its lookup never answered, or the TLS fields contradict
+            # each other. Each carries its own user-facing wording and none is a PostHog defect, so they
+            # are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH

@@ -692,6 +692,8 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 user=config.user,
                 password=config.password,
                 login_timeout=MSSQL_LOGIN_TIMEOUT_SECONDS,
+                # None keeps the FreeTDS default, which encrypts only when the server offers it.
+                encryption="require" if config.require_encryption else None,
             ) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(f"SET LOCK_TIMEOUT {int(lock_timeout_ms)}")

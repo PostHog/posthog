@@ -14,4 +14,5 @@ class MSSQLSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     schema: str | None = None
+    require_encryption: bool = config.value(default=config.str_to_bool("false"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None

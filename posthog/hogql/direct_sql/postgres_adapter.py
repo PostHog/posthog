@@ -162,8 +162,10 @@ class PostgresAdapter:
                     HostNotAllowedError,
                     TemporaryHostResolutionError,
                     _get_sslmode,
+                    libpq_tls_kwargs,
                     pinned_host_kwargs,
                     source_requires_ssl,
+                    tls_options,
                 )
 
             postgres_source, source_config = self.validate_source_config(source, request.team, request.timings)
@@ -227,7 +229,9 @@ class PostgresAdapter:
 
                     with request.timings.measure("postgres_connect", emit_span=True):
                         try:
-                            connection_context = psycopg.connect(**connection_kwargs)
+                            with libpq_tls_kwargs(tls_options(source_config)) as tls_kwargs:
+                                connection_kwargs.update(cast(PostgresConnectionKwargs, tls_kwargs))
+                                connection_context = psycopg.connect(**connection_kwargs)
                         except (psycopg.Error, RuntimeError, ValueError) as error:
                             if source.is_managed_warehouse_ready:
                                 raise ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR) from error
