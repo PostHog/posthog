@@ -27,7 +27,6 @@ const MARKDOWN_METRIC = metric({ definition_kind: 'MarkdownDefinition' })
 
 function node(partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>): DataModelingNode {
     return {
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -42,8 +41,8 @@ const NODES: DataModelingNode[] = [
     node({ id: '3', name: 'weekly_active_accounts', type: 'metric', metric_id: 'metric-1' }),
 ]
 const EDGES: DataModelingEdge[] = [
-    { id: 'e1', source_id: '1', target_id: '2', dag: 'dag-1', properties: {}, created_at: '', updated_at: '' },
-    { id: 'e2', source_id: '2', target_id: '3', dag: 'dag-1', properties: {}, created_at: '', updated_at: '' },
+    { id: 'e1', source_id: '1', target_id: '2', properties: {}, created_at: '', updated_at: '' },
+    { id: 'e2', source_id: '2', target_id: '3', properties: {}, created_at: '', updated_at: '' },
 ]
 
 const BASE: MetricLineagePanelProps = {
