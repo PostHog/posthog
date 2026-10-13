@@ -10,15 +10,20 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.access_control.backend.models.access_control import AccessControl
+from products.cohorts.backend.models.cohort import Cohort
+from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
 from products.product_analytics.backend.facade.models import Insight
 
 NOW = datetime(2026, 3, 10, 12, tzinfo=UTC)
 EVENT = "signed up"
 WIDELY_SENT_EVENT = "opened app"
+SENT_ON_THE_FREE_PLAN = "invited teammate"
 BOT_USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0"
 CRAWLER_IP = "66.249.84.5"
@@ -26,6 +31,7 @@ LOCAL_HOST = "localhost:8010"
 CHECKS_MODULE = "products.product_analytics.backend.insight_data_checks"
 ON_LOCAL_HOST = {"key": "$host", "value": [LOCAL_HOST], "operator": "exact", "type": "event"}
 FROM_A_BOT = {"key": "$raw_user_agent", "value": [BOT_USER_AGENT], "operator": "exact", "type": "event"}
+HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "person"}
 
 
 @time_machine.travel(NOW, tick=False)
@@ -49,6 +55,7 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
             self._events(2, same_second=True, properties={"$current_url": "https://example.com/pricing"})
         self._events(50, event="another event", properties={"$host": LOCAL_HOST})
         self._events(50, days_ago=70, properties={"$host": LOCAL_HOST})
+        self._events(40, event=SENT_ON_THE_FREE_PLAN, person_properties={"plan": "free"})
         flush_persons_and_events()
 
     def _events(
@@ -60,6 +67,7 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
         days_ago: int = 1,
         same_second: bool = False,
         properties: dict[str, Any] | None = None,
+        person_properties: dict[str, Any] | None = None,
     ) -> None:
         for _ in range(count):
             _create_event(
@@ -68,6 +76,7 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
                 distinct_id=distinct_id,
                 timestamp=NOW - timedelta(days=days_ago, seconds=self._second),
                 properties=properties or {},
+                person_properties=person_properties or {},
             )
             if not same_second:
                 self._second += 1
@@ -138,12 +147,47 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
             ("shorter_date_range", {"dateRange": {"date_from": "-12h"}}, 0),
             ("date_range_without_a_start", {"dateRange": {}}, 600),
             ("weekdays", {"kind": "StickinessQuery", "dateRange": {"date_from": "-80d", "daysOfWeek": [2]}}, 50),
+            (
+                "query_modifiers",
+                {
+                    "series": {"kind": "EventsNode", "event": SENT_ON_THE_FREE_PLAN},
+                    "properties": [HAS_NO_PLAN_TODAY],
+                    "modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"},
+                },
+                40,
+            ),
         ]
     )
     def test_checks_only_what_the_insights_own_filters_keep(
         self, _name: str, source: dict[str, Any], events_checked: int
     ) -> None:
         assert self._check(self._query(**source))["events_checked"] == events_checked
+
+    @parameterized.expand(
+        [
+            ("of_the_cohorts_alone", [], 60),
+            ("of_everyone_when_all_users_is_a_value", ["all"], 630),
+        ]
+    )
+    def test_checks_the_people_a_trends_cohort_breakdown_reads(
+        self, _name: str, other_values: list[str], events_checked: int
+    ) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="the team",
+            groups=[
+                {"properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]}
+            ],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+        # Not sent with the test client, which the repo's crossing scan reads as a run of web analytics code.
+        query = self._query(
+            kind="TrendsQuery", breakdownFilter={"breakdown_type": "cohort", "breakdown": [cohort.id, *other_values]}
+        )
+
+        checks = run_insight_data_checks(query, team=self.team, user=self.user)
+
+        assert checks.events_checked == events_checked
 
     @parameterized.expand(
         [
@@ -246,6 +290,47 @@ class TestInsightDataChecksAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert self._check(query)["status"] == "no_events"
+
+    @parameterized.expand(
+        [
+            ("without_the_query_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("with_the_query_scope", ["insight:read", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_an_api_key_needs_the_query_scope_to_check_a_query_that_is_not_saved(
+        self, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/data_checks/",
+            {"query": self._query()},
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == expected, response.content
+
+    def test_a_member_without_query_access_can_only_check_a_saved_insight(self) -> None:
+        insight = Insight.objects.create(team=self.team, query=self._query())
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team, resource="query", organization_member=self.organization_membership, access_level="none"
+        )
+
+        not_saved = self.client.post(
+            f"/api/projects/{self.team.id}/insights/data_checks/", {"query": self._query()}, format="json"
+        )
+        saved = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/data_checks/")
+
+        assert not_saved.status_code == status.HTTP_403_FORBIDDEN, not_saved.content
+        assert saved.status_code == status.HTTP_200_OK, saved.content
 
     @parameterized.expand(
         [

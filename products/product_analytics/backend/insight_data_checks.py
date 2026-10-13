@@ -5,10 +5,12 @@ from typing import Any
 from pydantic import ValidationError
 
 from posthog.schema import (
+    BreakdownType,
     DateRange,
     EventsNode,
     FunnelsQuery,
     HogQLFilters,
+    HogQLQueryModifiers,
     LifecycleQuery,
     StickinessQuery,
     TrendsQuery,
@@ -16,6 +18,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -124,11 +129,38 @@ class _CheckedQuery:
     filters_internal_users: bool
     # A lifecycle chart leaves out an event with no person profile, and it has no weekday filter.
     is_lifecycle: bool = False
+    breakdown_cohorts: tuple[str | int, ...] = ()
+    modifiers: HogQLQueryModifiers | None = None
 
     @property
     def event_names(self) -> tuple[str, ...] | None:
         names = tuple(dict.fromkeys(series.event for series in self.series if series.event is not None))
         return names if all(series.event is not None for series in self.series) else None
+
+
+@frozen
+class _EventReader:
+    team: Team
+    user: User
+    modifiers: HogQLQueryModifiers | None
+    # One database for all the queries, because a project with many data warehouse tables is slow to build one for.
+    database: Database
+
+    def first_row(
+        self, query: str, *, query_type: str, filters: HogQLFilters, placeholders: dict[str, ast.Expr]
+    ) -> list[Any]:
+        response = execute_hogql_query(
+            query=query,
+            team=self.team,
+            user=self.user,
+            query_type=query_type,
+            filters=filters,
+            placeholders=placeholders,
+            modifiers=self.modifiers,
+            context=HogQLContext(team_id=self.team.pk, user=self.user, database=self.database),
+            settings=_query_settings(),
+        )
+        return list(response.results[0]) if response.results else []
 
 
 def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) -> InsightDataChecks:
@@ -141,10 +173,21 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
     if checked is None:
         return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
-        total = _count_events_in_range(checked, team, user)
+        reader = _EventReader(
+            team=team,
+            user=user,
+            modifiers=checked.modifiers,
+            database=Database.create_for(
+                team=team,
+                user=user,
+                modifiers=create_default_modifiers_for_team(team, checked.modifiers),
+                trigger="shared",
+            ),
+        )
+        total = _count_events_in_range(checked, reader)
         if total == 0:
             return _not_checked(InsightDataChecksStatus.NO_EVENTS)
-        counts = _count_events(checked, team, user, total=total)
+        counts = _count_events(checked, reader, total=total)
     if counts.events == 0:
         return _not_checked(InsightDataChecksStatus.NO_EVENTS)
     checks = evaluate_data_checks(counts)
@@ -199,7 +242,21 @@ def _checked_query(query: Mapping[str, Any]) -> _CheckedQuery | None:
         properties=source.properties,
         filters_internal_users=bool(source.filterTestAccounts),
         is_lifecycle=isinstance(source, LifecycleQuery),
+        breakdown_cohorts=_breakdown_cohorts(source),
+        modifiers=source.modifiers,
     )
+
+
+def _breakdown_cohorts(source: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery) -> tuple[str | int, ...]:
+    # A funnel keeps the people outside the cohort, as a breakdown value of their own.
+    breakdown_filter = source.breakdownFilter if isinstance(source, TrendsQuery) else None
+    if breakdown_filter is None or breakdown_filter.breakdown_type != BreakdownType.COHORT:
+        return ()
+    breakdown = breakdown_filter.breakdown
+    if breakdown is None:
+        return ()
+    cohorts = breakdown if isinstance(breakdown, list) else [breakdown]
+    return () if "all" in cohorts else tuple(cohorts)
 
 
 def _counted_group_type(
@@ -232,6 +289,10 @@ def _all_of(conditions: list[ast.Expr]) -> ast.Expr:
     return conditions[0] if len(conditions) == 1 else ast.And(exprs=conditions)
 
 
+def _any_of(conditions: list[ast.Expr]) -> ast.Expr:
+    return conditions[0] if len(conditions) == 1 else ast.Or(exprs=conditions)
+
+
 def _series_filter(series: _CheckedSeries, team: Team) -> ast.Expr:
     conditions: list[ast.Expr] = []
     if series.event is not None:
@@ -259,8 +320,20 @@ def _insight_filters(checked: _CheckedQuery, team: Team) -> ast.Expr:
     if checked.properties:
         conditions.append(property_to_expr(checked.properties, team))
     if any(series.properties or series.group_type_index is not None for series in checked.series):
-        series_filters = [_series_filter(series, team) for series in checked.series]
-        conditions.append(series_filters[0] if len(series_filters) == 1 else ast.Or(exprs=series_filters))
+        conditions.append(_any_of([_series_filter(series, team) for series in checked.series]))
+    if checked.breakdown_cohorts:
+        conditions.append(
+            _any_of(
+                [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.InCohort,
+                        left=ast.Field(chain=["person_id"]),
+                        right=ast.Constant(value=cohort),
+                    )
+                    for cohort in checked.breakdown_cohorts
+                ]
+            )
+        )
     if checked.is_lifecycle:
         conditions.append(
             ast.CompareOperation(
@@ -283,38 +356,33 @@ def _query_settings() -> HogQLGlobalSettings:
     return HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_SECONDS, timeout_overflow_mode="throw")
 
 
-def _count_events_in_range(checked: _CheckedQuery, team: Team, user: User) -> int:
+def _count_events_in_range(checked: _CheckedQuery, reader: _EventReader) -> int:
     """Every event with the insight's event names in its date range, before any property filter."""
-    response = execute_hogql_query(
-        query=_TOTAL_QUERY,
-        team=team,
-        user=user,
+    row = reader.first_row(
+        _TOTAL_QUERY,
         query_type="insight_data_checks_total",
         filters=HogQLFilters(dateRange=checked.date_range),
         placeholders={"event_condition": _event_condition(checked)},
-        settings=_query_settings(),
     )
-    return int(response.results[0][0] or 0) if response.results else 0
+    return int(row[0] or 0) if row else 0
 
 
-def _count_events(checked: _CheckedQuery, team: Team, user: User, *, total: int) -> DataCheckCounts:
-    insight_filters = _insight_filters(checked, team)
+def _count_events(checked: _CheckedQuery, reader: _EventReader, *, total: int) -> DataCheckCounts:
+    insight_filters = _insight_filters(checked, reader.team)
     sampled = min(total, MAX_CHECKED_EVENTS)
-    counts = _query_counts(checked, team, user, insight_filters=insight_filters, sampled=sampled, total=total)
+    counts = _query_counts(checked, reader, insight_filters=insight_filters, sampled=sampled, total=total)
     if sampled < total and counts.events < MIN_SAMPLED_EVENTS:
         sampled = min(total, sampled * RESAMPLED_EVENTS // max(counts.events, 1))
-        counts = _query_counts(checked, team, user, insight_filters=insight_filters, sampled=sampled, total=total)
+        counts = _query_counts(checked, reader, insight_filters=insight_filters, sampled=sampled, total=total)
     return counts
 
 
 def _query_counts(
-    checked: _CheckedQuery, team: Team, user: User, *, insight_filters: ast.Expr, sampled: int, total: int
+    checked: _CheckedQuery, reader: _EventReader, *, insight_filters: ast.Expr, sampled: int, total: int
 ) -> DataCheckCounts:
     """The counts on a sample that holds `sampled` of the `total` events in the insight's date range."""
-    response = execute_hogql_query(
-        query=_COUNTS_QUERY,
-        team=team,
-        user=user,
+    row = reader.first_row(
+        _COUNTS_QUERY,
         query_type="insight_data_checks",
         filters=HogQLFilters(dateRange=checked.date_range, filterTestAccounts=checked.filters_internal_users),
         placeholders={
@@ -326,9 +394,7 @@ def _query_counts(
             "insight_filters": insight_filters,
             "event_condition": _event_condition(checked),
         },
-        settings=_query_settings(),
     )
-    row = response.results[0] if response.results else []
     events, local_events, bot_events, distinct_events = (int(value or 0) for value in row or [0] * 4)
     return DataCheckCounts(
         events=events,

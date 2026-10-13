@@ -2482,12 +2482,16 @@ When set, the specified dashboard's filters and date range override will be appl
             "Check the events behind an insight for the common ways they mislead: local development traffic, bots "
             "and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose "
             "series are events. The checks apply the insight's own filters and date range, and read a sample of an "
-            "insight with more than 1 million events. Nothing is stored. To check a saved insight by its id, send a "
-            "GET request to `insights/{id}/data_checks/`."
+            "insight with more than 1 million events. Nothing is stored. This route runs the query it is sent, so it "
+            "needs query access as well as insight access. To check a saved insight by its id, send a GET request "
+            "to `insights/{id}/data_checks/`."
         ),
     )
-    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read", "query:read"])
     def data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        # The scope covers a token. A session has no scopes, and a token's scope does not prove its owner has access.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to check a query that is not saved as an insight.")
         return self._data_checks_response(request.validated_data["query"])
 
     @validated_request(
