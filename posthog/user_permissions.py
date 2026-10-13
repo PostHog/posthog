@@ -245,21 +245,14 @@ class UserTeamPermissions:
         role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
         user_roles = load_role_ids()
 
-        # Rules naming this user — directly, or through a role they hold. These decide on their
-        # own: the highest of them wins, and an explicit "none" is a denial rather than a miss
-        # that falls through to the team default. Same explicit-wins precedence as
-        # `_object_access_level_from_rows` in `products/access_control/backend/facade/user_access_control.py`.
-        explicit_access_levels = [
+        member_access_levels = [
+            ac["access_level"] for ac in access_controls if ac["organization_member_id"] == organization_membership.id
+        ]
+        role_access_levels = [
             ac["access_level"]
             for ac in access_controls
-            if ac["organization_member_id"] == organization_membership.id
-            or (role_based_access_supported and ac["role_id"] is not None and ac["role_id"] in user_roles)
+            if role_based_access_supported and ac["role_id"] is not None and ac["role_id"] in user_roles
         ]
-
-        if explicit_access_levels:
-            return UserTeamPermissions._highest_membership_level(explicit_access_levels)
-
-        # Fall back to the default access level for this team (applies to all org members)
         default_access_level = next(
             (
                 ac["access_level"]
@@ -269,6 +262,23 @@ class UserTeamPermissions:
             None,
         )
 
+        if organization.uses_most_specific_access_resolution:
+            # Member rows decide alone when any exist, then role rows, then the team default.
+            # Mirrors `_most_specific_rows_decision` in the enforced API gate so a member "none"
+            # denies even when a role would grant member — otherwise this resolver would list a
+            # user the API denies.
+            if member_access_levels:
+                return UserTeamPermissions._highest_membership_level(member_access_levels)
+            if role_access_levels:
+                return UserTeamPermissions._highest_membership_level(role_access_levels)
+        elif member_access_levels or role_access_levels:
+            # Legacy orgs: the highest of any explicit rule (member or role) wins, and an explicit
+            # "none" is a denial rather than a miss that falls through to the team default. Same
+            # explicit-wins precedence as `_object_access_level_from_rows` in
+            # `products/access_control/backend/facade/user_access_control.py`.
+            return UserTeamPermissions._highest_membership_level([*member_access_levels, *role_access_levels])
+
+        # Fall back to the default access level for this team (applies to all org members)
         if default_access_level is not None:
             return UserTeamPermissions._highest_membership_level([default_access_level])
 

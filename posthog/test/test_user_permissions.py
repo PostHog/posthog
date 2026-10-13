@@ -442,23 +442,17 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
         assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
-    def test_role_admin_access_overrides_direct_member_access(self):
-        """
-        BUG TEST: When a user has both:
-        1. Direct MEMBER access to a project
-        2. Role-based ADMIN access to the same project
-
-        The role admin access should take precedence and return ADMIN level.
-        Currently this fails because direct member access returns early without checking roles.
-        """
+    def test_direct_member_grant_is_not_overridden_by_role_admin_grant(self):
+        """A direct member rule decides on its own under most-specific resolution — a role
+        grant on the same project does not override it. Mirrors `_most_specific_rows_decision`
+        in `products/access_control/backend/facade/user_access_control.py`, so the enforced
+        API gate and this resolver cannot disagree."""
         from products.access_control.backend.models.access_control import AccessControl
         from products.access_control.backend.models.role import Role, RoleMembership
 
-        # Set up user as organization member (not admin)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        # Step 1: Give user direct MEMBER access to the project
         AccessControl.objects.create(
             team=self.team,
             resource="project",
@@ -467,17 +461,12 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             access_level="member",
         )
 
-        # Step 2: Create a role with ADMIN access to the same project
         admin_role = Role.objects.create(name="Project Admin Role", organization=self.organization)
-
-        # Step 3: Assign the user to this admin role
         RoleMembership.objects.create(
             role=admin_role,
             user=self.user,
             organization_member=self.organization_membership,
         )
-
-        # Step 4: Give the role ADMIN access to the project
         AccessControl.objects.create(
             team=self.team,
             resource="project",
@@ -486,9 +475,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             access_level="admin",
         )
 
-        # Expected: Should return ADMIN level (role access trumps direct access)
-        # Currently fails: Returns MEMBER level (direct access returned early)
-        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def _grant_project_access(self, access_level: str, *, member=None, role=None) -> None:
         from products.access_control.backend.models.access_control import AccessControl
@@ -635,9 +622,9 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             ("member_none_with_admin_default", "none", None, "admin", None),
             ("role_none_without_default", None, "none", None, None),
             ("role_none_with_member_default", None, "none", "member", None),
-            ("member_none_role_admin", "none", "admin", None, OrganizationMembership.Level.ADMIN),
+            ("member_none_role_admin", "none", "admin", None, None),
             ("member_admin_role_none", "admin", "none", None, OrganizationMembership.Level.ADMIN),
-            ("member_none_role_member", "none", "member", "none", OrganizationMembership.Level.MEMBER),
+            ("member_none_role_member", "none", "member", "none", None),
         ]
     )
     def test_team_effective_membership_level_explicit_denial(
@@ -1071,7 +1058,7 @@ class TestProjectAccessResolversAgree(BaseTest):
             ("member_rule_of_none_without_default", False),
             ("role_rule_of_none_with_member_default", False),
             ("role_grant_without_role_based_access", False),
-            ("member_rule_of_none_with_role_grant", True),
+            ("member_rule_of_none_with_role_grant", False),
             ("org_admin_on_restricted_project", True),
             ("no_rules", True),
             ("member_grant_on_restricted_project", True),
