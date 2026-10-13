@@ -296,10 +296,12 @@ class TestRecordHistories:
             f"Max retries exceeded with url: /v1/views/view/records/{record_id}/histories"
         )
 
-        result = _driver().run(
-            "record_histories",
-            [ScriptedResponse(json=[{"id": record_id}]), *[failure] * MAX_RETRY_ATTEMPTS],
-        )
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v1/views/view/records":
+                return ScriptedResponse(json=[{"id": record_id}])
+            raise failure
+
+        result = _driver().run("record_histories", respond)
 
         assert isinstance(result.raised, requests.ConnectionError)
         assert record_id not in str(result.raised)
