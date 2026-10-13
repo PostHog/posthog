@@ -6,7 +6,7 @@
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            matched_events_array[1] AS matching_events,
+            if(or(empty(matched_events_array[1]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[1]))), matched_events_array[1], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[1]))), 0), session_step_events), -1)) AS matching_events,
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
@@ -20,6 +20,7 @@
                groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                af_tuple.5 AS steps_bitfield,
                aggregation_target AS aggregation_target
         FROM
@@ -93,7 +94,7 @@
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            matched_events_array[2] AS matching_events,
+            if(or(empty(matched_events_array[2]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[2]))), matched_events_array[2], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[2]))), 0), session_step_events), -1)) AS matching_events,
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
@@ -107,6 +108,7 @@
                groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                af_tuple.5 AS steps_bitfield,
                aggregation_target AS aggregation_target
         FROM
@@ -180,7 +182,7 @@
          source.matching_events AS matching_events
   FROM
     (SELECT aggregation_target AS actor_id,
-            matched_events_array[2] AS matching_events,
+            if(or(empty(matched_events_array[2]), notEmpty(arrayFilter(e -> ifNull(notEquals(e.3, ''), 1), matched_events_array[2]))), matched_events_array[2], arraySlice(arrayFilter(e -> ifNull(lessOrEquals(e.1, arrayMax(arrayMap(e -> e.1, matched_events_array[2]))), 0), session_step_events), -1)) AS matching_events,
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
@@ -194,6 +196,7 @@
                groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
                arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               arraySort(e -> e.1, groupArrayIf(tuple(timestamp, uuid, `$session_id`, `$window_id`), and(or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1)), notEquals(`$session_id`, '')))) AS session_step_events,
                af_tuple.5 AS steps_bitfield,
                aggregation_target AS aggregation_target
         FROM
