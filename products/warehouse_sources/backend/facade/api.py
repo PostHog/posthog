@@ -47,8 +47,8 @@ from products.warehouse_sources.backend.models.external_data_job import (
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
-    HIDDEN_COLUMNS,
     DataWarehouseTable as _DataWarehouseTable,
+    hidden_columns_for,
 )
 
 # Framework-free helper transforms — re-exported as the public helper surface.
@@ -567,10 +567,11 @@ def _hogql_visible_columns(table: _DataWarehouseTable) -> dict[str, str]:
     # The same raw -> visible mapping DataWarehouseTable.get_user_facing_columns applies, keeping
     # the stored type rather than the cleaned one so a consumer still reads any Nullable() wrapper.
     hogql_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
+    hidden = hidden_columns_for(table.columns or {})
     return {
         hogql_by_raw.get(name, name): type_
         for name, entry in (table.columns or {}).items()
-        if name not in HIDDEN_COLUMNS and (type_ := _clickhouse_column_type(entry)) is not None
+        if name not in hidden and (type_ := _clickhouse_column_type(entry)) is not None
     }
 
 

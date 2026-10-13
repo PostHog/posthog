@@ -51,6 +51,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
+    SCD2_VALID_FROM_COLUMN,
+    SCD2_VALID_TO_COLUMN,
     AnySource,
     CDCSourceAdapter,
     Config,
@@ -1435,6 +1437,33 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                             "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
                             "that name. Rename the column on your database, or choose another sync method for "
                             f"these tables: {', '.join(tables_with_reserved_column)}."
+                        )
+                    },
+                )
+
+            # The history table stamps each row version with these columns, so a source column of
+            # the same name would fail every load into it.
+            tables_with_validity_column = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and schema.get("cdc_table_mode") in ("cdc_only", "both")
+                    and isinstance(schema.get("name"), str)
+                    and {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN}
+                    & {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
+                }
+            )
+            if tables_with_validity_column:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "A history table can't store a column named valid_from or valid_to, because PostHog "
+                            "uses those names. Rename the column on your database, or choose the consolidated "
+                            f"table only for these tables: {', '.join(tables_with_validity_column)}."
                         )
                     },
                 )

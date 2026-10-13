@@ -63,6 +63,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
+    SCD2_VALID_TO_COLUMN,
     AnySource,
     RowFilterValidationError,
     SourceRegistry,
@@ -410,17 +412,40 @@ def _apply_primary_key_columns(
         )
 
 
-def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
-    """Capture stamps each change with this column, so a source column of the same name would fail
-    the source's sync. Checked against the columns discovery recorded, which are the source's own."""
+def _source_column_names(instance: ExternalDataSchema) -> set[str]:
+    """The columns discovery recorded, which are the source's own."""
     metadata = instance.schema_metadata or {}
     columns = metadata.get("columns") if isinstance(metadata, dict) else None
-    if isinstance(columns, list) and any(
-        isinstance(column, dict) and column.get("name") == CDC_SEQ_COLUMN for column in columns
-    ):
+    if not isinstance(columns, list):
+        return set()
+    return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
+
+
+def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
+    """Capture stamps each change with this column, so a source column of the same name would fail
+    the source's sync."""
+    if CDC_SEQ_COLUMN in _source_column_names(instance):
         raise ValidationError(
             "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
             "Rename the column on your database, or choose another sync method for this table."
+        )
+
+
+def _refuse_reserved_history_columns(
+    instance: ExternalDataSchema, previous_mode: str | None, new_mode: str | None
+) -> None:
+    """The history table stamps each row version with these columns, so a source column of the same
+    name would fail every load into it. Checked only when the request turns the history table on, so
+    a table that already has one can still be edited or switched back."""
+    history_modes = ("cdc_only", "both")
+    had_history = instance.sync_type == ExternalDataSchema.SyncType.CDC and previous_mode in history_modes
+    if new_mode not in history_modes or had_history:
+        return
+    taken = sorted({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & _source_column_names(instance))
+    if taken:
+        raise ValidationError(
+            f"A history table can't store a column named {' or '.join(taken)}, because PostHog uses that name. "
+            "Rename the column on your database, or choose the consolidated table only for this table."
         )
 
 
@@ -1223,6 +1248,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
             _apply_primary_key_columns(data, payload, instance, "CDC")
+            _refuse_reserved_history_columns(instance, previous_cdc_table_mode, payload.get("cdc_table_mode"))
             if instance.sync_type != ExternalDataSchema.SyncType.CDC:
                 _refuse_reserved_cdc_column(instance)
                 # A table joining CDC starts from a fresh snapshot, even when an earlier sync
@@ -1254,6 +1280,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if instance.sync_type == ExternalDataSchema.SyncType.CDC and "cdc_table_mode" in data:
                 cdc_table_mode = data.get("cdc_table_mode")
                 if cdc_table_mode in ("consolidated", "cdc_only", "both"):
+                    _refuse_reserved_history_columns(instance, previous_cdc_table_mode, cdc_table_mode)
                     payload = instance.sync_type_config
                     payload["cdc_table_mode"] = cdc_table_mode
                     validated_data["sync_type_config"] = payload
