@@ -33,6 +33,7 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
     [AccessControlResourceType.BusinessKnowledge]: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
+    [AccessControlResourceType.Stamphog]: FEATURE_FLAGS.STAMPHOG,
 }
 
 export function isResourceRolledOut(
