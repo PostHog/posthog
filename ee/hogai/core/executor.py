@@ -10,7 +10,7 @@ import structlog
 import posthoganalytics
 from opentelemetry import trace
 from prometheus_client import Histogram
-from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -39,6 +39,9 @@ from ee.hogai.stream.redis_stream import (
 from ee.hogai.utils.types import AssistantOutput
 
 logger = structlog.get_logger(__name__)
+
+TEMPORAL_CONNECT_MAX_ATTEMPTS = 3
+TEMPORAL_CONNECT_BASE_DELAY = 0.5
 _tracer = trace.get_tracer(__name__)
 
 STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM = Histogram(
@@ -109,7 +112,7 @@ class AgentExecutor:
                     await self._redis_stream.delete_stream()
 
                 with _tracer.start_as_current_span("posthog_ai.executor.temporal_connect"):
-                    client = await async_connect()
+                    client = await self._connect_with_retry()
 
                 handle = await self._start_workflow_with_retry(client, workflow, inputs)
 
@@ -133,6 +136,40 @@ class AgentExecutor:
 
         async for chunk in self.stream_conversation():
             yield chunk
+
+    async def _connect_with_retry(
+        self, max_attempts: int = TEMPORAL_CONNECT_MAX_ATTEMPTS, base_delay: float = TEMPORAL_CONNECT_BASE_DELAY
+    ) -> Client:
+        """Connect to Temporal, and retry transport failures with exponential backoff.
+
+        A short Temporal connection drop otherwise fails the chat at once, and the user's retry
+        fails the same way.
+        """
+        span = trace.get_current_span()
+        for attempt in range(max_attempts):
+            try:
+                client = await async_connect()
+            except RuntimeError as e:
+                # The Temporal SDK raises a bare RuntimeError with this prefix for transport failures.
+                if not str(e).startswith("Failed client connect") or attempt == max_attempts - 1:
+                    raise
+                logger.warning(
+                    "Temporal connect failed, retrying",
+                    conversation_id=str(self._conversation.id),
+                    attempt=attempt + 1,
+                    error=str(e),
+                )
+                await asyncio.sleep(base_delay * 2**attempt)
+                continue
+            span.set_attribute("posthog_ai.temporal_connect.attempts", attempt + 1)
+            if attempt > 0:
+                logger.info(
+                    "Temporal connect succeeded after retry",
+                    conversation_id=str(self._conversation.id),
+                    attempts=attempt + 1,
+                )
+            return client
+        raise RuntimeError(f"Failed to connect to Temporal after {max_attempts} attempts")
 
     async def _start_workflow_with_retry(
         self, client: Any, workflow: type[AgentBaseWorkflow], inputs: Any, max_retries: int = 3
