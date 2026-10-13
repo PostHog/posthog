@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
+import { DataQualityTabLabel } from 'products/data_quality/frontend/DataQualityTabLabel'
 import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
 
 import { ModelsLineageTab } from './lineage/ModelsLineageTab'
@@ -75,7 +76,7 @@ export function ModelsScene(): JSX.Element {
             ? [
                   {
                       key: 'data-quality' as const,
-                      label: 'Data quality',
+                      label: <DataQualityTabLabel />,
                       link: urls.models('data-quality'),
                       content: <DataQualityOverview />,
                       'data-attr': 'models-tab-data-quality',

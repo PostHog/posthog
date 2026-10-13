@@ -23,6 +23,7 @@ import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGra
 import { LineageIssueMarker } from 'products/data_modeling/frontend/lineage/LineageNode'
 import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { DataQualityTabLabel } from 'products/data_quality/frontend/DataQualityTabLabel'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
@@ -90,7 +91,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                         { key: 'materialization', label: 'Materialization' },
                         { key: 'lineage', label: 'Lineage' },
                         ...(featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS]
-                            ? [{ key: 'quality' as const, label: 'Data quality' }]
+                            ? [{ key: 'quality' as const, label: <DataQualityTabLabel /> }]
                             : []),
                     ]}
                 />

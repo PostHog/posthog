@@ -6,6 +6,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { pluralize } from 'lib/utils/strings'
 
 import { dataQualityChecksLogic } from 'products/data_quality/frontend/dataQualityChecksLogic'
+import { DataQualityTabLabel } from 'products/data_quality/frontend/DataQualityTabLabel'
 
 import type { NodeDetailTestsSubjectType } from './NodeDetailTests'
 
@@ -31,13 +32,12 @@ export function NodeDetailTestsTabLabel({
             : `${pluralize(health?.checks_failing ?? 0, 'check')} failing`
 
     return (
-        <span className="flex items-center gap-1">
-            Data quality
+        <DataQualityTabLabel>
             {tone && (
                 <Tooltip title={explanation}>
                     <IconWarning className={tone} />
                 </Tooltip>
             )}
-        </span>
+        </DataQualityTabLabel>
     )
 }

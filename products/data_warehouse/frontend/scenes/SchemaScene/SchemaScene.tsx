@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
+import { DataQualityTabLabel } from 'products/data_quality/frontend/DataQualityTabLabel'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 import { shouldShowManagedSourceMetricsTab, shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
@@ -172,7 +173,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     if (showDataQuality && schema.table) {
         tabs.push({
-            label: 'Data quality',
+            label: <DataQualityTabLabel />,
             key: 'data-quality',
             content: (
                 <DataQualityChecksPanel

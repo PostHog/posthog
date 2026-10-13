@@ -14,6 +14,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { DataQualityTabLabel } from 'products/data_quality/frontend/DataQualityTabLabel'
+
 import { ModelMetadata } from './ModelMetadata'
 import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeDetailLineage } from './NodeDetailLineage'
@@ -36,11 +38,10 @@ export const scene: SceneExport<NodeDetailSceneLogicProps> = {
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-const TAB_LABELS: Record<NodeDetailSceneTab, string> = {
+const TAB_LABELS: Record<Exclude<NodeDetailSceneTab, 'data-quality'>, string> = {
     query: 'Query',
     lineage: 'Lineage',
     materialization: 'Materialization',
-    'data-quality': 'Data quality',
     history: 'History',
 }
 
@@ -48,10 +49,10 @@ function tabLabel(
     tab: NodeDetailSceneTab,
     dataQualitySubject: NodeDetailDataQualitySubject | null
 ): JSX.Element | string {
-    if (tab === 'data-quality' && dataQualitySubject) {
-        return <NodeDetailTestsTabLabel {...dataQualitySubject} />
+    if (tab !== 'data-quality') {
+        return TAB_LABELS[tab]
     }
-    return TAB_LABELS[tab]
+    return dataQualitySubject ? <NodeDetailTestsTabLabel {...dataQualitySubject} /> : <DataQualityTabLabel />
 }
 
 export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element {
