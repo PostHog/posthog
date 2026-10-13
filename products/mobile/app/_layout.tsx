@@ -35,7 +35,7 @@ export default function RootLayout(): ReactElement {
     const authStatus = useAuthStore((state) => state.status)
     const ready = demoHydrated && authStatus !== 'loading'
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
-    const firstSegment = useSegments()[0]
+    const segments = useSegments()
     const [timedOut, setTimedOut] = useState(false)
     const splashHidden = useRef(false)
 
@@ -55,11 +55,11 @@ export default function RootLayout(): ReactElement {
         if (splashHidden.current) {
             return
         }
-        if (shouldHideSplash({ sessionReady: ready, firstScreenReady, firstSegment, timedOut })) {
+        if (shouldHideSplash({ sessionReady: ready, firstScreenReady, segments, timedOut })) {
             splashHidden.current = true
             SplashScreen.hideAsync().catch(() => undefined)
         }
-    }, [ready, firstScreenReady, firstSegment, timedOut])
+    }, [ready, firstScreenReady, segments, timedOut])
 
     useAuthRedirect()
     usePushRegistration()

@@ -41,6 +41,12 @@ Choices the build contract left open, with the reason for each.
 - **Overlays on the report screen are components, not routes.** The chat sheet is a route
   (`presentation: 'transparentModal'`, no stack animation) that draws its own scrim and 94% sheet,
   so it looks the same on iOS, Android and web.
+- **Inbox and Chats are tabs** (`app/(tabs)/`, `Tabs` from `expo-router/js-tabs` with a custom `tabBar`), so the
+  bottom bar renders once and stays put when the tab changes. `backBehavior="firstRoute"`: Android back from Chats
+  returns to Inbox, and back from Inbox leaves the app.
+- **Menus and sheets draw through `OverlayPortal`.** The tab navigator draws its bar after the scenes, so an overlay
+  inside a tab scene would draw under the bar. `FloatingCard` and `BottomSheet` render into the `OverlayHost` in
+  `TabsLayout`, above the bar. Screens outside the tabs have no host, so their overlays render in place.
 - **Animations** use Reanimated shared values through `usePresence`, not `@gorhom/bottom-sheet`
   (one fewer dependency) and not Reanimated layout animations (custom ones are unreliable on web).
 - **Prev/Next** uses `router.setParams`, so switching reports does not push a screen. It wraps

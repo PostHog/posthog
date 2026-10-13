@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Gesture, type PanGesture } from 'react-native-gesture-handler'
+import { Gesture, type NativeGesture, type PanGesture } from 'react-native-gesture-handler'
 import { type SharedValue, useSharedValue, withTiming } from 'react-native-reanimated'
 
 import { motion } from './tokens'
@@ -14,7 +14,11 @@ export interface SheetDrag {
     pan: PanGesture
 }
 
-export function useSheetDrag(visible: boolean, onClose: () => void): SheetDrag {
+/**
+ * `scrollGesture` is a `Gesture.Native()` wrapping a scroll view inside the sheet. A drag that starts on that view
+ * scrolls it, and the sheet follows only drags that start elsewhere, such as on the grabber or a header.
+ */
+export function useSheetDrag(visible: boolean, onClose: () => void, scrollGesture?: NativeGesture): SheetDrag {
     const drag = useSharedValue(0)
 
     useEffect(() => {
@@ -36,6 +40,9 @@ export function useSheetDrag(visible: boolean, onClose: () => void): SheetDrag {
                 drag.value = withTiming(0, { duration: motion.sheet })
             }
         })
+    if (scrollGesture) {
+        pan.requireExternalGestureToFail(scrollGesture)
+    }
 
     return { drag, pan }
 }

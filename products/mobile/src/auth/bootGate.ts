@@ -16,18 +16,24 @@ export const useBootGate = create<BootGateState>()((set) => ({
 export interface SplashGateInput {
     sessionReady: boolean
     firstScreenReady: boolean
-    firstSegment: string | undefined
+    /** The route's file segments from `useSegments()`, so group names such as `(tabs)` are included. */
+    segments: readonly string[]
     timedOut: boolean
 }
 
-// The index route has no segment and redirects to the inbox, so both hold the splash until the inbox loads.
-function holdsSplash(firstSegment: string | undefined): boolean {
-    return firstSegment === undefined || firstSegment === 'inbox'
+function isGroup(segment: string): boolean {
+    return segment.startsWith('(') && segment.endsWith(')')
 }
 
-export function shouldHideSplash({ sessionReady, firstScreenReady, firstSegment, timedOut }: SplashGateInput): boolean {
+// The index route has no segment and redirects to the inbox, so both hold the splash until the inbox loads.
+function holdsSplash(segments: readonly string[]): boolean {
+    const first = segments.find((segment) => !isGroup(segment))
+    return first === undefined || first === 'inbox'
+}
+
+export function shouldHideSplash({ sessionReady, firstScreenReady, segments, timedOut }: SplashGateInput): boolean {
     if (!sessionReady) {
         return false
     }
-    return firstScreenReady || timedOut || !holdsSplash(firstSegment)
+    return firstScreenReady || timedOut || !holdsSplash(segments)
 }

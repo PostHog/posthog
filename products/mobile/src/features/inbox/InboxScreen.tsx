@@ -1,13 +1,10 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useState } from 'react'
-import { FlatList, Linking, RefreshControl, StyleSheet, View } from 'react-native'
+import { FlatList, RefreshControl, StyleSheet, View } from 'react-native'
 
-import { projectWebUrl } from '@/api/client'
 import { useAuthStore } from '@/auth/authStore'
 import { useBootGate } from '@/auth/bootGate'
 import { useViewer } from '@/auth/useViewer'
-import { useDemoMode } from '@/demo/demoMode'
-import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
@@ -17,7 +14,6 @@ import { colors, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
-import { BottomBar } from './BottomBar'
 import type { RowAnchor } from './contextMenuPlacement'
 import { useInboxItems } from './hooks'
 import { INBOX_HEADER_BOTTOM, InboxHeader } from './InboxHeader'
@@ -38,16 +34,11 @@ export function InboxScreen(): ReactElement {
     const query = useInboxItems()
     const prefetch = usePrefetchReports(query.data)
     const signedIn = useAuthStore((state) => state.signedIn)
-    const demo = useDemoMode((state) => state.enabled)
     const exitDemo = useExitDemo()
     const signOut = useSignOutAction()
     const [menuOpen, setMenuOpen] = useState(false)
     const [confirmingSignOut, setConfirmingSignOut] = useState(false)
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
-
-    useEffect(() => {
-        track('mobile_inbox_opened')
-    }, [])
 
     // The native splash waits for this, so release it only after the loaded list has had a frame to paint.
     useEffect(() => {
@@ -69,15 +60,6 @@ export function InboxScreen(): ReactElement {
         }
         setMenuOpen(false)
         setConfirmingSignOut(false)
-    }
-    // The app has no product screens, so Products opens the web app's product library for this project.
-    const openProducts = (): void => {
-        const url = projectWebUrl('library')
-        if (!url) {
-            return
-        }
-        track('mobile_products_opened')
-        Linking.openURL(url).catch(() => undefined)
     }
     const startSignOut = (): void => {
         if (signedIn) {
@@ -141,14 +123,6 @@ export function InboxScreen(): ReactElement {
                 }
             />
             <InboxHeader onRefresh={refresh} refreshing={query.isRefetching} onOpenMenu={() => setMenuOpen(true)} />
-            <BottomBar
-                selected="home"
-                onHome={() => undefined}
-                onChats={() => router.replace('/chats')}
-                onNewChat={() => router.push('/chat')}
-                onProducts={openProducts}
-                productsDisabled={demo}
-            />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}

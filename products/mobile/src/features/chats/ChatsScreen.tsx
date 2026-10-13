@@ -1,9 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useFocusEffect, useRouter } from 'expo-router'
-import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
 import { Linking, RefreshControl, SectionList, StyleSheet, View } from 'react-native'
 
-import { projectWebUrl } from '@/api/client'
 import { chatKeys } from '@/api/conversations'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { track } from '@/lib/analytics'
@@ -17,7 +16,6 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { BottomBar } from '../inbox/BottomBar'
 import { ChatRow } from './ChatRow'
 import { CHATS_HEADER_BOTTOM, ChatsHeader } from './ChatsHeader'
 import { ChatsPartialNotice } from './ChatsPartialNotice'
@@ -42,10 +40,6 @@ export function ChatsScreen(): ReactElement {
     const scope = useProjectScope()
     const queryClient = useQueryClient()
     const [search, setSearch] = useState('')
-
-    useEffect(() => {
-        track('mobile_chats_opened')
-    }, [])
 
     // Closing the chat sheet refocuses this screen. Invalidating instead of refetching keeps the pull spinner hidden.
     // The first focus is the mount, where the queries already fetch, so invalidating there would restart them.
@@ -78,15 +72,6 @@ export function ChatsScreen(): ReactElement {
     )
     const refresh = (): void => {
         void query.refetch()
-    }
-    // The app has no product screens, so Products opens the web app's product library for this project.
-    const openProducts = (): void => {
-        const url = projectWebUrl('library')
-        if (!url) {
-            return
-        }
-        track('mobile_products_opened')
-        Linking.openURL(url).catch(() => undefined)
     }
 
     const hasItems = (query.data?.length ?? 0) > 0
@@ -180,14 +165,6 @@ export function ChatsScreen(): ReactElement {
                 }
             />
             <ChatsHeader />
-            <BottomBar
-                selected="chats"
-                onHome={() => router.replace('/inbox')}
-                onChats={() => undefined}
-                onNewChat={newChat}
-                onProducts={openProducts}
-                productsDisabled={scope === null}
-            />
         </View>
     )
 }

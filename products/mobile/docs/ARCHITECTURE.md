@@ -10,8 +10,10 @@ products/mobile/
     +native-intent.tsx    Drops the Android OAuth callback deep link so it never opens a screen
     index.tsx             Redirect to /inbox (demo mode or signed in) or /sign-in
     sign-in.tsx           -> src/auth/SignInScreen
-    inbox.tsx             -> src/features/inbox/InboxScreen
-    chats.tsx             -> src/features/chats/ChatsScreen
+    (tabs)/               Inbox and Chats share one tab navigator, so the bottom bar stays put when the tab changes
+      _layout.tsx         -> src/features/tabs/TabsLayout
+      inbox.tsx           -> src/features/inbox/InboxScreen
+      chats.tsx           -> src/features/chats/ChatsScreen
     report/[id].tsx       -> src/features/report/ReportScreen
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
                           `conversationId` resumes a stored chat)
@@ -30,7 +32,8 @@ products/mobile/
     demo/                 briefings.ts (raw prototype data), fixtures.ts (view models), derive.ts,
                           demoMode.ts (zustand store), hooks.ts (demo query hooks)
     features/
-      inbox/              InboxScreen, InboxRow, InboxHeader, BottomBar, NavMenu, hooks,
+      tabs/               TabsLayout (Inbox and Chats tab navigator, Products link), BottomBar (rendered once)
+      inbox/              InboxScreen, InboxRow, InboxHeader, NavMenu, hooks,
                           prefetchPlan (prefetch window and queue), usePrefetchReports
       report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)

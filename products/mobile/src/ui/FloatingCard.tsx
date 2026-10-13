@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
+import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'
 import { colors, motion, radii, shadows } from './tokens'
 import { usePresence } from './usePresence'
@@ -36,17 +37,19 @@ export function FloatingCard({
         return null
     }
     return (
-        <View style={styles.overlay} testID={testID}>
-            <Scrim color={colors.scrimLight} progress={progress} onPress={onClose} />
-            <Animated.View
-                accessibilityViewIsModal
-                accessibilityLabel={accessibilityLabel}
-                style={[styles.card, shadows.floatingSheet, { transformOrigin }, style, cardStyle]}
-            >
-                {children}
-            </Animated.View>
-            {accessory}
-        </View>
+        <OverlayPortal>
+            <View style={styles.overlay} testID={testID}>
+                <Scrim color={colors.scrimLight} progress={progress} onPress={onClose} />
+                <Animated.View
+                    accessibilityViewIsModal
+                    accessibilityLabel={accessibilityLabel}
+                    style={[styles.card, shadows.floatingSheet, { transformOrigin }, style, cardStyle]}
+                >
+                    {children}
+                </Animated.View>
+                {accessory}
+            </View>
+        </OverlayPortal>
     )
 }
 

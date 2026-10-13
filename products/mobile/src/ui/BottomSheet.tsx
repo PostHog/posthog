@@ -1,8 +1,9 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
 import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
-import { GestureDetector } from 'react-native-gesture-handler'
+import { GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
+import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'
 import { colors, motion, radii, shadows } from './tokens'
 import { usePresence } from './usePresence'
@@ -14,6 +15,7 @@ interface BottomSheetProps {
     onClose: () => void
     children: ReactNode
     paddingHorizontal?: number
+    scrollGesture?: NativeGesture
     accessibilityLabel?: string
     testID?: string
 }
@@ -23,13 +25,14 @@ export function BottomSheet({
     onClose,
     children,
     paddingHorizontal = 16,
+    scrollGesture,
     accessibilityLabel,
     testID,
 }: BottomSheetProps): ReactElement | null {
     const insets = useScreenInsets()
     const { mounted, progress } = usePresence(visible, motion.sheet)
     const [height, setHeight] = useState(480)
-    const { drag, pan } = useSheetDrag(visible, onClose)
+    const { drag, pan } = useSheetDrag(visible, onClose, scrollGesture)
 
     const sheetStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: (1 - progress.value) * height + drag.value }],
@@ -42,25 +45,27 @@ export function BottomSheet({
     const onLayout = (event: LayoutChangeEvent): void => setHeight(event.nativeEvent.layout.height)
 
     return (
-        <View style={styles.overlay} testID={testID}>
-            <Scrim color={colors.scrimDark} progress={progress} onPress={onClose} />
-            <GestureDetector gesture={pan}>
-                <Animated.View
-                    accessibilityViewIsModal
-                    accessibilityLabel={accessibilityLabel}
-                    onLayout={onLayout}
-                    style={[
-                        styles.sheet,
-                        shadows.bottomSheet,
-                        { paddingHorizontal, paddingBottom: bottomOffset(insets, 40) },
-                        sheetStyle,
-                    ]}
-                >
-                    <View style={styles.grabber} />
-                    {children}
-                </Animated.View>
-            </GestureDetector>
-        </View>
+        <OverlayPortal>
+            <View style={styles.overlay} testID={testID}>
+                <Scrim color={colors.scrimDark} progress={progress} onPress={onClose} />
+                <GestureDetector gesture={pan}>
+                    <Animated.View
+                        accessibilityViewIsModal
+                        accessibilityLabel={accessibilityLabel}
+                        onLayout={onLayout}
+                        style={[
+                            styles.sheet,
+                            shadows.bottomSheet,
+                            { paddingHorizontal, paddingBottom: bottomOffset(insets, 40) },
+                            sheetStyle,
+                        ]}
+                    >
+                        <View style={styles.grabber} />
+                        {children}
+                    </Animated.View>
+                </GestureDetector>
+            </View>
+        </OverlayPortal>
     )
 }
 
