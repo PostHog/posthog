@@ -276,6 +276,7 @@ export const defaultMocks: Mocks = {
             status: 'None',
             eligible: false,
         },
+        '/api/billing/coupons/overview': { claimed_coupons: [] },
 
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },

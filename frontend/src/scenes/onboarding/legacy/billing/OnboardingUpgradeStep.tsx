@@ -10,6 +10,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { PlatformAddonComparison } from 'scenes/billing/PlatformAddonComparison'
+import { couponLogic } from 'scenes/coupons/couponLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
@@ -26,10 +27,11 @@ type OnboardingUpgradeStepProps = {
 
 export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgradeStepProps> = ({ product }) => {
     const { billing, billingLoading } = useValues(billingLogic)
+    const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic)
     const { goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepSkipped, reportOnboardingStepCompleted } = useActions(eventUsageLogic)
 
-    if (billingLoading) {
+    if (billingLoading || couponsOverviewLoading) {
         return (
             <div className="flex items-center justify-center my-20">
                 <Spinner className="text-2xl text-muted w-10 h-10" />
@@ -38,7 +40,9 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
     }
 
     const platformProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
-    const showPlatformPackages = !!product.subscribed && !!platformProduct
+    // The Lenny coupon already gives the org a free platform package, so do not upsell one.
+    const hasLennyCoupon = activeCoupons.some((coupon) => coupon.campaign_slug === 'lenny')
+    const showPlatformPackages = !!product.subscribed && !!platformProduct && !hasLennyCoupon
     // The platform package the org is now on, whether via a free trial (billing.trial.target — a
     // 'paid'-plan trial won't match a platform addon) or a direct subscribe ("Add" when no trial is left).
     const trialAddon = platformProduct?.addons?.find((addon) => addon.type === billing?.trial?.target)
