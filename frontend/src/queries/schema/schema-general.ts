@@ -4337,7 +4337,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 /* Error Tracking */
 
 /** @title ErrorTrackingOrderBy */
-export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'severity'
 
 /** @title ErrorTrackingQueryIssueSeverity */
 export type ErrorTrackingQueryIssueSeverity = 'low' | 'medium' | 'high' | 'critical'
