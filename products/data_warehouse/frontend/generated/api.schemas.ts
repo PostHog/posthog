@@ -1940,11 +1940,6 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
-    /**
-     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
-     * @nullable
-     */
-    dag_id?: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -2069,11 +2064,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
-    /**
-     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
-     * @nullable
-     */
-    dag_id?: string | null
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
