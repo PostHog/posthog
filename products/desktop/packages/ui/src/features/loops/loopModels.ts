@@ -1,6 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { getReasoningEffortOptions } from "@posthog/agent/adapters/reasoning-effort";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   flattenSelectOptions,
   formatModelId,
@@ -13,6 +12,7 @@ import {
   DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
   labelForModel,
 } from "@posthog/shared/model-catalog";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import type { ModelRolloutFlags } from "../sessions/modelOptionFilters";
 
 export interface LoopModelOption {
