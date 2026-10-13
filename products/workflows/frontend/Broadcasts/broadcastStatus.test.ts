@@ -65,6 +65,16 @@ describe('getBroadcastStatus', () => {
             'sending',
         ],
         [
+            'a finished run that skipped every recipient',
+            flow('active'),
+            {
+                ...withJob('completed'),
+                totals: { triggered: 6, email_bounce_prevented: 4, email_suppressed: 2 },
+                hasPendingSchedule: false,
+            },
+            'sent',
+        ],
+        [
             'a finished run whose metrics have not loaded',
             flow('active'),
             { ...withJob('completed'), totals: null, hasPendingSchedule: false },

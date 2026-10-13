@@ -26,6 +26,7 @@ export interface BroadcastPerformanceStats {
     bounced: number
     markedAsSpam: number
     failed: number
+    skipped: number
     /** Sends with open and click tracking, the denominator for engagement rates. */
     trackedSends: number
     /** Recipients who met the broadcast's goal. */
@@ -41,6 +42,9 @@ const TOTALS_METRICS = [
     'email_blocked',
     'email_failed',
     'email_untracked',
+    'email_bounce_prevented',
+    'email_suppressed',
+    'message_frequency_capped',
     'conversion',
 ]
 
@@ -75,6 +79,12 @@ export function sendActivityParams(
     }
 }
 
+export function countSkipped(totals: Record<string, number>): number {
+    return (
+        (totals.email_bounce_prevented ?? 0) + (totals.email_suppressed ?? 0) + (totals.message_frequency_capped ?? 0)
+    )
+}
+
 export function buildPerformanceStats(totals: Record<string, number> | null): BroadcastPerformanceStats | null {
     if (!totals) {
         return null
@@ -90,6 +100,7 @@ export function buildPerformanceStats(totals: Record<string, number> | null): Br
         markedAsSpam: totals.email_blocked ?? 0,
         // Every failed send also fails its step, so the larger count holds both.
         failed: Math.max(totals.email_failed ?? 0, totals[STEP_FAILED_KEY] ?? 0),
+        skipped: countSkipped(totals),
         trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
         converted: totals.conversion ?? 0,
     }

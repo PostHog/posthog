@@ -36,4 +36,11 @@ describe('buildPerformanceStats', () => {
     ])('counts %s as failed', (_name, totals, failed) => {
         expect(buildPerformanceStats(totals)?.failed).toBe(failed)
     })
+
+    it('counts opt-outs, predicted bounces and frequency caps as skipped', () => {
+        expect(
+            buildPerformanceStats({ email_suppressed: 2, email_bounce_prevented: 3, message_frequency_capped: 1 })
+                ?.skipped
+        ).toBe(6)
+    })
 })

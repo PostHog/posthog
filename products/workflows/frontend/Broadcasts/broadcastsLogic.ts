@@ -28,6 +28,7 @@ import {
     confirmDeleteBroadcast,
     restoreBroadcast,
 } from './broadcastLifecycle'
+import { countSkipped } from './broadcastPerformanceLogic'
 
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'archived' | 'unknown'
 
@@ -178,14 +179,18 @@ export function getBroadcastStatus(
 /**
  * A run completes once its audience is queued, before the emails go out. So a run reads as sent only
  * when it recorded a send. A run with only failures did not send, and a run with no outcome yet is
- * still sending. Unloaded totals keep the "sent" reading, so a slow metrics query can't hide a send.
+ * still sending. A run that skipped everyone, for example because every address was suppressed, is finished.
+ * Unloaded totals keep the "sent" reading, so a slow metrics query can't hide a send.
  */
 export function getCompletedRunStatus(totals: Record<string, number> | null): BroadcastStatus {
     if (!totals || (totals.email_sent ?? 0) > 0) {
         return 'sent'
     }
     // `failed` also counts recipients who never reached the email service, such as an empty "To" field.
-    return (totals.failed ?? 0) + (totals.email_failed ?? 0) > 0 ? 'failed' : 'sending'
+    if ((totals.failed ?? 0) + (totals.email_failed ?? 0) > 0) {
+        return 'failed'
+    }
+    return countSkipped(totals) > 0 ? 'sent' : 'sending'
 }
 
 // A batch send's email metrics are recorded against the batch job, not the flow, so the row counts
