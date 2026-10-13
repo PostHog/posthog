@@ -20,7 +20,7 @@ tests:
 
     - name: Member viewer overrides role manager and default editor on the object
       tuples:
-          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:object' }
+          - { user: 'organization_member:member#user', relation: direct_viewer, object: 'access_policy:object' }
           - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
           - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
           - { user: 'user:*', relation: default_manager, object: 'access_policy:resource' }
@@ -31,7 +31,7 @@ tests:
 
     - name: Member none is a rule rather than a missing grant
       tuples:
-          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:object' }
+          - { user: 'organization_member:member#user', relation: direct_none, object: 'access_policy:object' }
           - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:object' }
       check:
           - user: user:member
@@ -61,7 +61,7 @@ tests:
 
     - name: Member editor overrides role none and default manager
       tuples:
-          - { user: 'organization_member:member#user', relation: member_editor, object: 'access_policy:object' }
+          - { user: 'organization_member:member#user', relation: direct_editor, object: 'access_policy:object' }
           - { user: 'role:blocked#member', relation: role_none, object: 'access_policy:object' }
           - { user: 'user:*', relation: default_manager, object: 'access_policy:object' }
       check:
@@ -81,7 +81,7 @@ tests:
     - name: Object default none overrides resource member manager
       tuples:
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
-          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:resource' }
+          - { user: 'organization_member:member#user', relation: direct_manager, object: 'access_policy:resource' }
       check:
           - user: user:member
             object: dashboard:dashboard
@@ -89,7 +89,7 @@ tests:
 
     - name: Object editor overrides resource member none without allowing creation
       tuples:
-          - { user: 'organization_member:member#user', relation: member_none, object: 'access_policy:resource' }
+          - { user: 'organization_member:member#user', relation: direct_none, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
       check:
           - user: user:member
@@ -105,7 +105,7 @@ tests:
 
     - name: Resource member viewer overrides roles and defaults on objects without rules
       tuples:
-          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:resource' }
+          - { user: 'organization_member:member#user', relation: direct_viewer, object: 'access_policy:resource' }
           - { user: 'role:manager#member', relation: role_manager, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_editor, object: 'access_policy:resource' }
       check:
@@ -117,8 +117,8 @@ tests:
       tuples:
           - { user: 'user:*', relation: default_none, object: 'access_policy:resource' }
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
-          - { user: 'organization_member:admin#user', relation: member_none, object: 'project:project' }
-          - { user: 'organization_member:owner#user', relation: member_none, object: 'project:project' }
+          - { user: 'organization_member:admin#user', relation: direct_none, object: 'project:project' }
+          - { user: 'organization_member:owner#user', relation: direct_none, object: 'project:project' }
       check:
           - users: [user:admin, user:owner]
             object: dashboard:dashboard
@@ -126,7 +126,7 @@ tests:
 
     - name: Project admins can manage access but do not bypass object permissions
       tuples:
-          - { user: 'organization_member:member#user', relation: member_admin, object: 'project:project' }
+          - { user: 'organization_member:member#user', relation: direct_admin, object: 'project:project' }
           - { user: 'user:*', relation: default_none, object: 'access_policy:object' }
       check:
           - user: user:member
@@ -143,7 +143,7 @@ tests:
 
     - name: Explicit project owner has the admin access-management escape hatch
       tuples:
-          - { user: 'organization_member:member#user', relation: member_owner, object: 'project:project' }
+          - { user: 'organization_member:member#user', relation: direct_owner, object: 'project:project' }
       check:
           - user: user:member
             object: dashboard:dashboard
@@ -160,10 +160,10 @@ tests:
 
     - name: Project member deny overrides role admin and gates even creator rights
       tuples:
-          - { user: 'organization_member:member#user', relation: member_none, object: 'project:project' }
-          - { user: 'organization_member:creator#user', relation: member_none, object: 'project:project' }
+          - { user: 'organization_member:member#user', relation: direct_none, object: 'project:project' }
+          - { user: 'organization_member:creator#user', relation: direct_none, object: 'project:project' }
           - { user: 'role:manager#member', relation: role_admin, object: 'project:project' }
-          - { user: 'organization_member:member#user', relation: member_manager, object: 'access_policy:object' }
+          - { user: 'organization_member:member#user', relation: direct_manager, object: 'access_policy:object' }
       check:
           - users: [user:member, user:creator]
             object: dashboard:dashboard
@@ -195,7 +195,7 @@ tests:
 
     - name: Project admins bypass legacy restrictions but not resource viewer rules
       tuples:
-          - { user: 'organization_member:member#user', relation: member_admin, object: 'project:project' }
+          - { user: 'organization_member:member#user', relation: direct_admin, object: 'project:project' }
           - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
           - { user: 'user:*', relation: default_viewer, object: 'access_policy:object' }
       check:
@@ -223,7 +223,7 @@ tests:
           - { user: 'organization:free', relation: organization, object: 'project:free' }
           - { user: 'user:*', relation: default_none, object: 'project:free' }
           - { user: 'organization:free', relation: organization, object: 'access_policy:free' }
-          - { user: 'organization_member:free#user', relation: member_none, object: 'access_policy:free' }
+          - { user: 'organization_member:free#user', relation: direct_none, object: 'access_policy:free' }
           - { user: 'project:free', relation: project, object: 'resource:free' }
           - { user: 'access_policy:free', relation: policy, object: 'resource:free' }
           - { user: 'project:free', relation: project, object: 'dashboard:free' }

@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: 75b08a1c5664e86a
+# Content digest: 9ba0e3e5b6f00bc1
 model
   schema 1.1
 
@@ -66,10 +66,11 @@ type project
   relations
     define organization: [organization]
     define creator: [organization_member#user]
-    define member_none: [organization_member#user]
-    define member_member: [organization_member#user]
-    define member_admin: [organization_member#user]
-    define member_owner: [organization_member#user]
+    # direct_* assigns a level to one organization member; role_* and default_* are the other policy sources.
+    define direct_none: [organization_member#user]
+    define direct_member: [organization_member#user]
+    define direct_admin: [organization_member#user]
+    define direct_owner: [organization_member#user]
     define role_none: [role#member] and role_based_access_enabled from organization
     define role_member: [role#member] and role_based_access_enabled from organization
     define role_admin: [role#member] and role_based_access_enabled from organization
@@ -79,23 +80,23 @@ type project
     define default_admin: [user:*]
     define default_owner: [user:*]
     # Presence includes none: a lower member level still replaces every role/default grant.
-    define member_override: member_none or member_member or member_admin or member_owner
+    define member_override: direct_none or direct_member or direct_admin or direct_owner
     define role_override: role_none or role_member or role_admin or role_owner
     define default_level: default_none or default_member or default_admin or default_owner
     define member_or_role_override: member_override or role_override
     define has_rule: member_or_role_override or default_level
-    # Resolve member > highest matching role > default, then inherit the resolved higher level.
-    define rule_owner: member_owner or (role_owner but not member_override) or (default_owner but not member_or_role_override)
-    define rule_admin: rule_owner or member_admin or (role_admin but not member_override) or (default_admin but not member_or_role_override)
-    define rule_member: rule_admin or member_member or (role_member but not member_override) or (default_member but not member_or_role_override)
+    # Policy levels exclude the implicit project default and the organization-admin bypass.
+    define policy_owner: direct_owner or (role_owner but not member_override) or (default_owner but not member_or_role_override)
+    define policy_admin: policy_owner or direct_admin or (role_admin but not member_override) or (default_admin but not member_or_role_override)
+    define policy_member: policy_admin or direct_member or (role_member but not member_override) or (default_member but not member_or_role_override)
     define org_member: member from organization
     define org_admin: admin from organization
     define access_control_enabled: access_control_enabled from organization
-    define member: org_admin or (org_member and ((rule_member and access_control_enabled) or (org_member but not access_control_enabled) or (org_member but not has_rule)))
-    define admin: org_admin or (org_member and access_control_enabled and (rule_admin or (org_member but not has_rule)))
-    define owner: org_admin or (org_member and access_control_enabled and rule_owner)
+    define member: org_admin or (org_member and ((policy_member and access_control_enabled) or (org_member but not access_control_enabled) or (org_member but not has_rule)))
+    define admin: org_admin or (org_member and access_control_enabled and (policy_admin or (org_member but not has_rule)))
+    define owner: org_admin or (org_member and access_control_enabled and policy_owner)
     # The implicit project-admin default must not grant access-management rights.
-    define can_manage_access: org_admin or (member and (creator or (rule_admin and access_control_enabled)))
+    define can_manage_access: org_admin or (member and (creator or (policy_admin and access_control_enabled)))
     define can_view: member
     define can_edit: admin
     define can_delete: admin
@@ -103,10 +104,10 @@ type project
 type access_policy
   relations
     define organization: [organization]
-    define member_none: [organization_member#user]
-    define member_viewer: [organization_member#user]
-    define member_editor: [organization_member#user]
-    define member_manager: [organization_member#user]
+    define direct_none: [organization_member#user]
+    define direct_viewer: [organization_member#user]
+    define direct_editor: [organization_member#user]
+    define direct_manager: [organization_member#user]
     define role_none: [role#member] and role_based_access_enabled from organization
     define role_viewer: [role#member] and role_based_access_enabled from organization
     define role_editor: [role#member] and role_based_access_enabled from organization
@@ -116,15 +117,15 @@ type access_policy
     define default_editor: [user:*]
     define default_manager: [user:*]
     # These sets track whether a level is configured, including an explicit none.
-    define member_override: member_none or member_viewer or member_editor or member_manager
+    define member_override: direct_none or direct_viewer or direct_editor or direct_manager
     define role_override: role_none or role_viewer or role_editor or role_manager
     define default_level: default_none or default_viewer or default_editor or default_manager
     define member_or_role_override: member_override or role_override
     define has_rule: (member_or_role_override or default_level) and access_control_enabled from organization
     # Only resolved levels inherit: a member viewer must not inherit a role manager grant.
-    define manager: (member_manager or (role_manager but not member_override) or (default_manager but not member_or_role_override)) and has_rule
-    define editor: manager or ((member_editor or (role_editor but not member_override) or (default_editor but not member_or_role_override)) and has_rule)
-    define viewer: editor or ((member_viewer or (role_viewer but not member_override) or (default_viewer but not member_or_role_override)) and has_rule)
+    define manager: (direct_manager or (role_manager but not member_override) or (default_manager but not member_or_role_override)) and has_rule
+    define editor: manager or ((direct_editor or (role_editor but not member_override) or (default_editor but not member_or_role_override)) and has_rule)
+    define viewer: editor or ((direct_viewer or (role_viewer but not member_override) or (default_viewer but not member_or_role_override)) and has_rule)
 type resource
   relations
     define project: [project]
@@ -144,15 +145,10 @@ type dashboard
     define resource: [resource]
     define policy: [access_policy]
     define creator: [organization_member#user]
-    define project_member: member from project
-    define org_admin: org_admin from project
-    define object_policy_has_rule: has_rule from policy
-    define object_policy_viewer: viewer from policy
-    define object_policy_editor: editor from policy
-    define object_policy_manager: manager from policy
-    define viewer: project_member and (creator or org_admin or object_policy_viewer or ((viewer from resource) but not object_policy_has_rule))
-    define editor: project_member and (creator or org_admin or object_policy_editor or ((editor from resource) but not object_policy_has_rule))
-    define manager: project_member and (creator or org_admin or object_policy_manager or ((manager from resource) but not object_policy_has_rule))
+    define has_rule: has_rule from policy
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
     # Legacy collaborator restrictions remain an independent write gate.
     define restricted: [user:*] and access_control_enabled from project
     # Members with a legacy collaborator privilege can edit a restricted dashboard.
@@ -172,15 +168,10 @@ type insight
     define resource: [resource]
     define policy: [access_policy]
     define creator: [organization_member#user]
-    define project_member: member from project
-    define org_admin: org_admin from project
-    define object_policy_has_rule: has_rule from policy
-    define object_policy_viewer: viewer from policy
-    define object_policy_editor: editor from policy
-    define object_policy_manager: manager from policy
-    define viewer: project_member and (creator or org_admin or object_policy_viewer or ((viewer from resource) but not object_policy_has_rule))
-    define editor: project_member and (creator or org_admin or object_policy_editor or ((editor from resource) but not object_policy_has_rule))
-    define manager: project_member and (creator or org_admin or object_policy_manager or ((manager from resource) but not object_policy_has_rule))
+    define has_rule: has_rule from policy
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
     # An insight takes the legacy edit rule from the dashboards that show it.
     define dashboard: [dashboard]
     # This marker distinguishes an unattached insight from one with no editable dashboards.
