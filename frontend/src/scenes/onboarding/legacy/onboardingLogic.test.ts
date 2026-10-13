@@ -6,12 +6,15 @@ import { expectLogic } from 'kea-test-utils'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { makeBillingWithPlatformAddons, PlatformAddonScenario } from '~/mocks/fixtures/_billing_platform_addons'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { OnboardingStepKey } from '~/types'
+import { BillingType, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { INSTALL_DEDUP_KEYS } from './types'
@@ -819,6 +822,45 @@ describe('onboardingLogic — flow composition', () => {
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
 
             expect(flowStepKeys()).not.toContain(OnboardingStepKey.AI_REPORTS)
+        })
+    })
+
+    // The plans step hides the platform package upsell for orgs that arrive already on a package (for
+    // example via a claimed coupon). Getting this wrong either upsells a package the org already has,
+    // or hides the trial offer from orgs that should see it.
+    describe('platform package upsell', () => {
+        const trialOnScale = (billing: BillingType): BillingType => ({
+            ...billing,
+            trial: { type: 'standard', status: 'active', target: 'scale', expires_at: '2099-01-01T00:00:00Z' },
+        })
+
+        it.each<[string, (billing: BillingType) => BillingType, PlatformAddonScenario, boolean]>([
+            ['no package', (billing) => billing, 'trial-available', false],
+            ['a package subscribed from the start', (billing) => billing, 'on-scale', true],
+            ['a trial of the subscribed package', trialOnScale, 'on-scale', false],
+        ])('treats an org with %s as arrived-on-package=%s', (_label, withBilling, scenario, expected) => {
+            billingLogic
+                .findMounted()
+                ?.actions.loadBillingSuccess(withBilling(makeBillingWithPlatformAddons(billingJson, scenario)))
+
+            expect(logic.values.platformPackage.onPackageWithoutTrial).toBe(expected)
+        })
+
+        it('keeps the first decision, so adding a package in the step does not switch screens', () => {
+            expect(logic.values.hidePlatformPackageUpsell).toBeNull()
+
+            logic.actions.decidePlatformPackageUpsell(false)
+            logic.actions.decidePlatformPackageUpsell(true)
+
+            expect(logic.values.hidePlatformPackageUpsell).toBe(false)
+        })
+
+        it('clears the decision when the flow resets', () => {
+            logic.actions.decidePlatformPackageUpsell(true)
+
+            logic.actions.resetOnboardingFlowState()
+
+            expect(logic.values.hidePlatformPackageUpsell).toBeNull()
         })
     })
 })

@@ -23,7 +23,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
+import { Breadcrumb, type BillingProductV2AddonType, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type {
@@ -71,11 +71,13 @@ export interface onboardingLogicValues {
     flowIndex: number
     hasNextStep: boolean
     hasPreviousStep: boolean
+    hidePlatformPackageUpsell: boolean | null
     isCompleting: boolean
     onCompleteOnboardingRedirectUrl: string
     onCompleteOnboardingRedirectUrlOverride: string | null
     onboardingFlowVariant: string
     onboardingStepKeys: OnboardingStepKey[]
+    platformPackage: PlatformPackageState
     product: OnboardingProduct | null
     productKey: ProductKey | null
     secondaryProductKeys: ProductKey[]
@@ -123,6 +125,9 @@ export interface onboardingLogicActions {
     }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
+    }
+    decidePlatformPackageUpsell: (hide: boolean) => {
+        hide: boolean
     }
     goToNextStep: () => {
         value: true
@@ -175,6 +180,7 @@ export interface onboardingLogicMeta {
         canInviteTeammates: (currentOrganization: OrganizationType | null, user: UserType | null) => boolean
         showAIReportsStep: (featureFlags: FeatureFlagsSet, currentOrganization: OrganizationType | null) => boolean
         billingProduct: (billing: BillingType | null, productKey: ProductKey | null) => BillingProductV2Type | null
+        platformPackage: (billing: BillingType | null) => PlatformPackageState
         shouldShowBillingStep: (
             subscribedDuringOnboarding: boolean,
             isCloudOrDev: boolean | undefined,
@@ -225,6 +231,13 @@ export type onboardingLogicType = MakeLogicType<
     onboardingLogicMeta
 >
 
+export interface PlatformPackageState {
+    platformProduct: BillingProductV2Type | null
+    trialAddon: BillingProductV2AddonType | null
+    subscribedAddon: BillingProductV2AddonType | null
+    onPackageWithoutTrial: boolean
+}
+
 export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
@@ -267,6 +280,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             redirectUrlOverride: options?.redirectUrlOverride,
         }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
+        decidePlatformPackageUpsell: (hide: boolean) => ({ hide }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
         goToNextStep: true,
@@ -338,6 +352,15 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 resetOnboardingFlowState: () => false,
             },
         ],
+        // Whether the plans step hides the platform package upsell. Null until the step decides, then
+        // the first decision sticks so later billing changes (an in-step "Add") don't flip the screen.
+        hidePlatformPackageUpsell: [
+            null as boolean | null,
+            {
+                decidePlatformPackageUpsell: (state, { hide }) => state ?? hide,
+                resetOnboardingFlowState: () => null,
+            },
+        ],
         waitForBilling: [
             false,
             {
@@ -396,6 +419,24 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (s) => [s.billing, s.productKey],
             (billing: null | import('~/types').BillingType, productKey: ProductKey | null) =>
                 billing?.products?.find((p) => p.type === productKey) ?? null,
+        ],
+        platformPackage: [
+            (s) => [s.billing],
+            (billing: null | import('~/types').BillingType): PlatformPackageState => {
+                const platformProduct =
+                    billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT) ?? null
+                // A free trial is the billing.trial target — a 'paid'-plan trial won't match a platform addon.
+                const trialAddon =
+                    platformProduct?.addons?.find((addon) => addon.type === billing?.trial?.target) ?? null
+                const subscribedAddon = platformProduct?.addons?.find((addon) => addon.subscribed) ?? null
+                return {
+                    platformProduct,
+                    trialAddon,
+                    subscribedAddon,
+                    // Already on a package that isn't a trial: a claimed coupon, a past purchase or a deal.
+                    onPackageWithoutTrial: !!subscribedAddon && !trialAddon,
+                }
+            },
         ],
         shouldShowBillingStep: [
             (s) => [s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct, s.stepId],
