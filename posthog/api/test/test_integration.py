@@ -628,10 +628,13 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain, _mock_update):
+    def test_integration_from_domain(
+        self, mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
+    ):
 
         integration = EmailIntegration.create_native_integration(
             {
@@ -671,6 +674,7 @@ class TestEmailIntegration:
 
         EmailIntegration(integration).update_native_integration({"reply_to": ""}, self.team.id)
         assert integration.config["reply_to"] == ""
+        mock_reload.assert_called_with(self.team.id, [integration.id])
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")

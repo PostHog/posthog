@@ -191,7 +191,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             },
         ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, props }) => ({
         emailSender: {
             defaults: {
                 provider: 'ses',
@@ -220,6 +220,8 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 }
             },
             submit: async (config) => {
+                // A new sender stays open after Continue so the user can set up DNS.
+                const isUpdate = !!values.savedIntegration
                 try {
                     let integration: IntegrationType
                     if (values.savedIntegration) {
@@ -235,6 +237,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)
                     actions.verifyDomain()
+                    if (isUpdate) {
+                        props.onComplete(integration.id)
+                    }
                     return config
                 } catch (error) {
                     if (error instanceof ApiError || (error && typeof error === 'object' && 'detail' in error)) {

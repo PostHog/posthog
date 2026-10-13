@@ -1358,6 +1358,7 @@ describe('EmailService', () => {
 
         it.each([
             ['uses the sender default when the step has none', undefined, ['support@posthog-test.com']],
+            ['uses the sender default when the step has no parsed addresses', ' , ', ['support@posthog-test.com']],
             ['keeps the step reply-to over the sender default', 'step@example.com', ['step@example.com']],
         ])('%s', async (_, replyTo, expected) => {
             await insertIntegration(hub.postgres, team.id, {

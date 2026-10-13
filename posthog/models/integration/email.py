@@ -121,6 +121,7 @@ class EmailIntegration:
             }
         )
         self.integration.save()
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
 

@@ -573,7 +573,7 @@ export class EmailService {
 
             // A reply-to set on the email step wins over the sender's default.
             const paramsWithReplyTo =
-                params.replyTo || !integration.config.reply_to
+                parseAddressList(params.replyTo) || !integration.config.reply_to
                     ? params
                     : { ...params, replyTo: integration.config.reply_to }
 
