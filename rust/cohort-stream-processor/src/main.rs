@@ -669,7 +669,7 @@ async fn async_main(config: Config) -> Result<()> {
         config.offset_commit_interval(),
         events_partitions,
         consumer_command_rx,
-        // A checkpoint restore boot settles before anything folds; `None` when the store reopened
+        // A checkpoint restore boot finishes before anything folds; `None` when the store reopened
         // or was created, where boot rewinds only what it polled.
         restore,
     );

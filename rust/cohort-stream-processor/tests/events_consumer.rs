@@ -1445,6 +1445,8 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
         create_topic(name).await;
     }
     let before_checkpoint = produce_events(&topic).await;
+    // Nothing consumes the merges topic here, so its group never commits.
+    produce_events(&topics.merges).await;
 
     // Store and checkpoint dirs must be sibling subtrees, never nested (see `s3_restore_config`).
     let root = TempDir::new().unwrap();
@@ -1552,6 +1554,19 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
         Some(0),
         "the manifest records the idle partition at its low watermark",
     );
+    let (merges_with_events, _) = high_watermarks(&verifier, &topics.merges)
+        .into_iter()
+        .find(|&(_, high)| high > 0)
+        .expect("a merges partition holding events");
+    assert_eq!(
+        restore
+            .plan()
+            .positions(&InputTopic::new(topics.merges.as_str()))
+            .get(&(merges_with_events as u16))
+            .map(|offset| offset.get()),
+        Some(0),
+        "a group without a commit resumes at the low watermark, before the events it never read",
+    );
     assert_eq!(
         resumed.len(),
         NUM_PARTITIONS as usize,
@@ -1605,7 +1620,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
     );
     assert!(
         !store_path.join(MARKER_FILENAME).exists(),
-        "the restore settled after the events group committed",
+        "the restore finished after the events group committed",
     );
 
     // Dormant Left: workers re-seed the eviction queue from the restored cf_behavioral, then a sweep

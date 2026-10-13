@@ -62,7 +62,7 @@ impl ResumePoints {
 }
 
 /// Where the events consumer's boot stands. Nothing folds before [`BootPhase::Live`]. A pending
-/// checkpoint restore rides along until the rewind commits its positions and settles it.
+/// checkpoint restore rides along until the rewind commits its positions and finishes it.
 pub(crate) enum BootPhase {
     /// Waiting for two consecutive polls to report the same non-empty assignment.
     Settling {

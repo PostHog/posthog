@@ -161,6 +161,7 @@ The restore judges each candidate from its `metadata.json` and `offsets.json` be
 A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
 A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
+A download that times out fails, and the search stops there, because older candidates are about as large.
 The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
 The restore writes the `restore.json` marker into the stage and renames the stage onto the store path.
 A kill at any point leaves either the stage, which the next boot deletes, or a published store with its marker.
@@ -245,7 +246,7 @@ These metrics follow checkpoints:
 - `checkpoint_last_capture_timestamp_seconds` is the last captured manifest,
 - `checkpoint_uploads_total{result}` counts uploads,
 - `checkpoint_capture_failures_total{reason}` counts ticks skipped before the checkpoint,
-- `checkpoint_restore_total{source}` counts where each boot's store came from: `reopened`, `pending`, `local`, `s3` or `created`,
+- `checkpoint_restore_total{source}` counts where each boot's store came from: `reopen_live`, `pending`, `local`, `s3` or `cold`,
 - `checkpoint_restore_candidates_total{verdict}` counts the candidates a restore tried,
 - `checkpoint_restore_blocked` reads 1 while a restore blocks the boot.
 

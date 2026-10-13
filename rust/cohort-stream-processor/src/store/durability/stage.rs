@@ -153,7 +153,7 @@ pub enum ResumeError {
 }
 
 /// A published restore whose inputs are not all positioned. `restore.json` keeps every later boot
-/// on this path until [`Self::settle`].
+/// on this path until [`Self::finish`].
 #[derive(Debug)]
 pub struct PendingRestore {
     marker: PathBuf,
@@ -194,7 +194,7 @@ impl PendingRestore {
     }
 
     /// Commits each follower's planned positions. Safe to repeat: nothing consumes a follower
-    /// before the restore settles.
+    /// before the restore finishes.
     pub(crate) fn position_followers(&self, groups: &InputGroups) -> KafkaResult<()> {
         for follower in groups.followers() {
             follower.commit(&self.plan.positions(follower.topic()))?;
@@ -222,11 +222,11 @@ impl PendingRestore {
 
     /// Ends the restore: `commit_events` commits the events group's restored positions, and only
     /// then does the marker go. On any error the marker stays, so the next boot resumes the restore.
-    pub(crate) fn settle(
+    pub(crate) fn finish(
         &self,
         commit_events: impl FnOnce() -> KafkaResult<()>,
-    ) -> Result<(), SettleError> {
-        commit_events().map_err(SettleError::Commit)?;
+    ) -> Result<(), FinishError> {
+        commit_events().map_err(FinishError::Commit)?;
         match std::fs::remove_file(&self.marker) {
             Ok(()) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
@@ -237,7 +237,7 @@ impl PendingRestore {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SettleError {
+pub enum FinishError {
     #[error("committing the events group's restored positions failed")]
     Commit(#[source] KafkaError),
     #[error("deleting the restore marker failed")]
@@ -412,15 +412,15 @@ mod tests {
 
         let refused = || Err(KafkaError::OffsetFetch(RDKafkaErrorCode::RequestTimedOut));
         assert!(matches!(
-            published.settle(refused),
-            Err(SettleError::Commit(_))
+            published.finish(refused),
+            Err(FinishError::Commit(_))
         ));
         assert!(
             PendingRestore::resume(&live, 1).unwrap().is_some(),
-            "a restore that did not settle is still pending",
+            "a restore that did not finish is still pending",
         );
 
-        published.settle(|| Ok(())).unwrap();
+        published.finish(|| Ok(())).unwrap();
         assert!(PendingRestore::resume(&live, 1).unwrap().is_none());
     }
 }

@@ -980,6 +980,7 @@ impl EventDispatcher {
         recovered
     }
 
+    #[cfg(test)]
     fn tracker(&self) -> &OffsetTracker {
         self.tracker.as_ref()
     }
@@ -998,8 +999,8 @@ impl EventDispatcher {
     }
 
     /// Drain all workers, publish the ownership they drained under for the followers' final
-    /// commits, and return the tracker for the caller's final sync commit. No consumer polls during
-    /// the drain, so no rebalance callback can change `owned` while it runs.
+    /// commits, and return the tracker. No consumer polls during the drain, so no rebalance callback
+    /// can change `owned` while it runs.
     async fn shutdown(&self) -> Arc<OffsetTracker> {
         self.draining.store(true, Ordering::SeqCst);
         self.router.clear();
@@ -1069,7 +1070,7 @@ pub struct CohortStreamEventsConsumer {
     #[allow(dead_code)]
     consumer_command_rx: ConsumerCommandReceiver,
     /// A checkpoint restore boot must finish. Boot rewinds every owned partition the restore keeps
-    /// to its restored position, commits, and settles it before anything folds.
+    /// to its restored position, commits, and finishes it before anything folds.
     restore: Option<PendingRestore>,
 }
 
@@ -1207,12 +1208,11 @@ impl CohortStreamEventsConsumer {
             warn!(error = %err, "pauser task did not exit cleanly");
         }
 
-        let tracker = self.dispatcher.shutdown().await;
+        self.dispatcher.shutdown().await;
         let offsets = self.dispatcher.owned_committable_offsets();
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
-            &tracker,
             offsets,
             &self.topic,
             CommitMode::Sync,
@@ -1221,11 +1221,11 @@ impl CohortStreamEventsConsumer {
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
-    /// Seek every owned partition back to its resume point, settle a pending restore, then go live.
+    /// Seek every owned partition back to its resume point, finish a pending restore, then go live.
     /// Any failure keeps boot in `Rewinding`, so the next poll retries and nothing folds from the
     /// broker offset. `Rewinding` reports no liveness, so a persistent failure restarts the process.
     ///
-    /// A restore commits the seek list before it settles. Settling deletes the restore marker, so
+    /// A restore commits the seek list before it finishes. Finishing deletes the restore marker, so
     /// without the commit a crash right after would reopen the restored store at the broker's old,
     /// higher offsets and skip the events between.
     fn rewind(
@@ -1284,17 +1284,17 @@ impl CohortStreamEventsConsumer {
                 Some(seek_list) => self.consumer.commit(seek_list, CommitMode::Sync),
                 None => Ok(()),
             };
-            match pending.settle(commit_events) {
+            match pending.finish(commit_events) {
                 Ok(()) => info!(
                     topic = %self.topic,
                     partitions = sought,
-                    "checkpoint restore settled: the events group committed the restored positions",
+                    "checkpoint restore finished: the events group committed the restored positions",
                 ),
                 Err(err) => {
                     warn!(
                         topic = %self.topic,
                         error = %format!("{:#}", anyhow::Error::new(err)),
-                        "checkpoint restore could not settle; holding off dispatch and retrying",
+                        "checkpoint restore could not finish; holding off dispatch and retrying",
                     );
                     return BootPhase::Rewinding { resume, restore };
                 }
@@ -1449,7 +1449,6 @@ pub(crate) fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> Topi
 
 pub(crate) fn commit_offsets<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
-    tracker: &OffsetTracker,
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
@@ -1459,12 +1458,7 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
     }
     let tpl = build_commit_tpl(topic, &offsets);
     match consumer.commit(&tpl, mode) {
-        Ok(()) => {
-            counter!(COHORT_STREAM_OFFSET_COMMITS).increment(1);
-            for (&partition, &next_offset) in &offsets {
-                tracker.mark_committed(partition, next_offset);
-            }
-        }
+        Ok(()) => counter!(COHORT_STREAM_OFFSET_COMMITS).increment(1),
         Err(err) => {
             counter!(COHORT_STREAM_OFFSET_COMMIT_ERRORS).increment(1);
             warn!(topic, error = %err, "failed to commit consumer offsets");
@@ -1481,7 +1475,6 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
 pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     handle: &StoreHandle,
     consumer: &StreamConsumer<C>,
-    tracker: &OffsetTracker,
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
@@ -1492,7 +1485,7 @@ pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     if handle.flush_wal_sync().await.is_err() {
         return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
-    commit_offsets(consumer, tracker, offsets, topic, mode);
+    commit_offsets(consumer, offsets, topic, mode);
 }
 
 /// Flushes the store's WAL and commits the owned committable offsets on a fixed interval, independent
@@ -1514,7 +1507,6 @@ async fn run_commit_loop(
                 fsync_then_commit(
                     dispatcher.handle(),
                     &consumer,
-                    dispatcher.tracker(),
                     dispatcher.owned_committable_offsets(),
                     &topic,
                     CommitMode::Async,
@@ -3284,8 +3276,9 @@ mod tests {
         assert_eq!(dispatcher.workers.len(), 1);
         assert!(dispatcher.workers.contains_key(&0));
         assert!(!dispatcher.workers.contains_key(&1));
-        assert!(
-            dispatcher.tracker().committed_offset(1).is_none(),
+        assert_eq!(
+            dispatcher.tracker().partition_count(),
+            1,
             "the dropped partition's dispatch ceiling was never raised",
         );
 

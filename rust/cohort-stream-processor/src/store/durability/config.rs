@@ -66,7 +66,7 @@ pub struct DurabilityConfig {
     pub max_upload_buffers: usize,
 
     /// Maximum time to download one checkpoint candidate's files. A candidate that takes longer
-    /// fails, and the restore moves on to the next one.
+    /// fails and ends the search, because older candidates are about as large.
     pub checkpoint_import_timeout: Duration,
 
     /// Maximum age of a local checkpoint before the local store is considered stale and the service
@@ -95,7 +95,7 @@ impl Default for DurabilityConfig {
             max_concurrent_checkpoint_file_downloads: 40,
             max_concurrent_checkpoint_file_uploads: 40,
             max_upload_buffers: 40,
-            checkpoint_import_timeout: Duration::from_secs(1800),
+            checkpoint_import_timeout: Duration::from_secs(7200),
             local_checkpoint_max_staleness: Duration::from_secs(
                 DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
             ),

@@ -594,8 +594,9 @@ pub struct Config {
     pub checkpoint_import_attempt_depth: usize,
 
     /// Max time to download one S3 checkpoint candidate's files (secs). A slower candidate fails and
-    /// the restore tries the next one.
-    #[envconfig(default = "1800")]
+    /// ends the search, because older candidates are about as large. It bounds the size of a store
+    /// that can restore, so keep it above a full store volume at the volume's write throughput.
+    #[envconfig(default = "7200")]
     pub checkpoint_import_timeout_secs: u64,
 }
 
@@ -1329,7 +1330,7 @@ mod tests {
             checkpoint_local_max_staleness_secs: 7200,
             checkpoint_import_window_hours: 24,
             checkpoint_import_attempt_depth: 10,
-            checkpoint_import_timeout_secs: 1800,
+            checkpoint_import_timeout_secs: 7200,
             cohort_seed_consumer_enabled: false,
             cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),

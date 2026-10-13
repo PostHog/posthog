@@ -45,13 +45,25 @@ pub use planner::{plan_checkpoint, CheckpointPlan, LocalCheckpointFile};
 pub use recovery::open_store;
 pub use s3_downloader::S3Downloader;
 pub use s3_uploader::S3Uploader;
-pub use stage::{ensure_one_filesystem, PendingRestore, SettleError, MARKER_FILENAME};
+pub use stage::{ensure_one_filesystem, FinishError, PendingRestore, MARKER_FILENAME};
 pub use uploader::CheckpointUploader;
 
 pub use error::{DownloadCancelledError, PlanningCancelledError, UploadCancelledError};
 
 use std::path::PathBuf;
 use tracing::{info, warn};
+
+/// The `version` of a checkpoint JSON file, 0 when it has none. Decoding reads it first, so a file
+/// from another build is an unsupported format, which makes its candidate unusable, and not
+/// corruption, which fails the candidate and blocks the boot.
+fn format_version(json: &[u8]) -> serde_json::Result<u32> {
+    #[derive(serde::Deserialize)]
+    struct FormatProbe {
+        #[serde(default)]
+        version: u32,
+    }
+    Ok(serde_json::from_slice::<FormatProbe>(json)?.version)
+}
 
 /// Removes `path` on drop (failure, timeout, cancellation, or panic) unless defused, so a failed
 /// restore leaves no partial staging directory behind. A kill runs no destructor; the next boot

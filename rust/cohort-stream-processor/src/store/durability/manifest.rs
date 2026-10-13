@@ -14,6 +14,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::format_version;
 use super::lineage::PodOrdinal;
 use crate::partitions::{InputPositions, InputTopic, ResumeOffset};
 
@@ -137,12 +138,7 @@ impl OffsetManifest {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, ManifestError> {
-        #[derive(Deserialize)]
-        struct FormatProbe {
-            #[serde(default)]
-            version: u32,
-        }
-        let FormatProbe { version } = serde_json::from_slice(bytes)?;
+        let version = format_version(bytes)?;
         if version != MANIFEST_VERSION {
             return Err(ManifestError::UnsupportedFormat { found: version });
         }

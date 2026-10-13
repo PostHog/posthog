@@ -382,10 +382,6 @@ impl CheckpointDownloader for S3Downloader {
 
         Ok(metadata_keys)
     }
-
-    async fn is_available(&self) -> bool {
-        !self.s3_bucket.is_empty()
-    }
 }
 
 #[cfg(test)]

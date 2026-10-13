@@ -232,7 +232,6 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
                         fsync_then_commit(
                             self.dispatcher.handle(),
                             &self.consumer,
-                            self.tracker(),
                             self.owned_committable_offsets(),
                             &self.topic,
                             CommitMode::Async,
@@ -254,7 +253,6 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
-            self.tracker(),
             offsets,
             &self.topic,
             CommitMode::Sync,

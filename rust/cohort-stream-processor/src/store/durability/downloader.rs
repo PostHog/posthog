@@ -40,6 +40,4 @@ pub trait CheckpointDownloader: Send + Sync + std::fmt::Debug {
         local_base_path: &Path,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<()>;
-
-    async fn is_available(&self) -> bool;
 }

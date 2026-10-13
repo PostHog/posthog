@@ -6,6 +6,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
+use super::format_version;
 use super::lineage::{CheckpointLineage, PodOrdinal};
 use crate::store::STORE_SCHEMA_VERSION;
 
@@ -72,12 +73,7 @@ impl CheckpointMetadata {
     }
 
     pub fn from_json_bytes(json: &[u8]) -> Result<Self, MetadataError> {
-        #[derive(Deserialize)]
-        struct FormatProbe {
-            #[serde(default)]
-            version: u32,
-        }
-        let FormatProbe { version } = serde_json::from_slice(json)?;
+        let version = format_version(json)?;
         if version != METADATA_VERSION {
             return Err(MetadataError::UnsupportedFormat { found: version });
         }

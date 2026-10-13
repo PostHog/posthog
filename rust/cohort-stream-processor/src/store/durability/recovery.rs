@@ -51,7 +51,7 @@ const RETRY_MAX: Duration = Duration::from_secs(300);
 enum BootStore {
     /// The live store reopened. The groups' commits are its positions.
     Reopened,
-    /// A checkpoint is published at the store path. Nothing folds until the restore settles.
+    /// A checkpoint is published at the store path. Nothing folds until the restore finishes.
     Restored(Box<PendingRestore>),
     /// No store and nothing usable to restore. Every slice begins when its worker spawns.
     Created,
@@ -75,11 +75,23 @@ struct CandidateFailure {
     reason: String,
 }
 
+impl CandidateFailure {
+    fn new(checkpoint_id: &str, reason: impl std::fmt::Display) -> Self {
+        Self {
+            checkpoint_id: checkpoint_id.to_owned(),
+            reason: format!("{reason:#}"),
+        }
+    }
+}
+
 #[derive(Debug)]
 enum Verdict {
     Published(PendingRestore),
     Unusable(Unusable),
     Failed(CandidateFailure),
+    /// Its download outlasted the import timeout. Older candidates are about as large, so the
+    /// search stops instead of downloading each of them for as long.
+    TimedOut(CandidateFailure),
 }
 
 /// Candidates that no retry can restore. Older candidates are no better, so a search that finds
@@ -114,10 +126,7 @@ impl Rejected {
 }
 
 fn failed(checkpoint_id: &str, reason: impl std::fmt::Display) -> Verdict {
-    Verdict::Failed(CandidateFailure {
-        checkpoint_id: checkpoint_id.to_owned(),
-        reason: format!("{reason:#}"),
-    })
+    Verdict::Failed(CandidateFailure::new(checkpoint_id, reason))
 }
 
 /// The live store's rule: a store of another schema blocks the boot unless the operator allowed
@@ -136,7 +145,7 @@ fn schema_mismatch(checkpoint_id: &str, found: u32, wipe_on_schema_mismatch: boo
     }
 }
 
-/// Candidate verdicts, newest first.
+/// The failed candidates of one search, newest first.
 #[derive(Debug, Default)]
 struct Search {
     failed: Vec<CandidateFailure>,
@@ -148,7 +157,7 @@ impl Search {
         let label = match &verdict {
             Verdict::Published(_) => "published",
             Verdict::Unusable(_) => "unusable",
-            Verdict::Failed(_) => "failed",
+            Verdict::Failed(_) | Verdict::TimedOut(_) => "failed",
         };
         counter!(CHECKPOINT_RESTORE_CANDIDATES_TOTAL, "verdict" => label).increment(1);
         match verdict {
@@ -157,7 +166,7 @@ impl Search {
                 info!(%reason, "passing over an unusable checkpoint");
                 ControlFlow::Continue(())
             }
-            Verdict::Failed(failure) => {
+            Verdict::Failed(failure) | Verdict::TimedOut(failure) => {
                 warn!(
                     checkpoint = %failure.checkpoint_id,
                     reason = %failure.reason,
@@ -181,7 +190,7 @@ impl Search {
 }
 
 /// The store this boot runs on: reopened, restored or created, with a restore's unreplayable slices
-/// reset. A restore comes back with it, for the events consumer to settle before anything folds.
+/// reset. A restore comes back with it, for the events consumer to finish before anything folds.
 ///
 /// A restore that cannot finish blocks here, retrying with backoff, until the operator fixes the
 /// cause or turns checkpoints off. `lineage` is `None` when checkpoints are disabled.
@@ -234,18 +243,19 @@ async fn restore_until_ready(
             let searched_at = Utc::now();
             let mut backoff = RETRY_START;
             loop {
+                let started = Instant::now();
                 let attempt = match prepare_store(&config, lineage, searched_at, &mut rejected).await
                 {
-                    Ok(BootStore::Restored(pending)) => pending
+                    Ok((BootStore::Restored(pending), source)) => pending
                         .position_followers(&groups)
-                        .map(|()| BootStore::Restored(pending))
+                        .map(|()| (BootStore::Restored(pending), source))
                         .map_err(RestoreBlocked::Positions),
                     other => other,
                 };
                 match attempt {
-                    Ok(store) => {
+                    Ok((store, source)) => {
                         gauge!(CHECKPOINT_RESTORE_BLOCKED).set(0.0);
-                        return store;
+                        return prepared(store, source, started);
                     }
                     Err(blocked) => {
                         gauge!(CHECKPOINT_RESTORE_BLOCKED).set(1.0);
@@ -268,10 +278,10 @@ async fn restore_until_ready(
     }
 }
 
-/// Decide where the live store comes from, and materialize it for a restore. The local staleness
-/// window and the S3 listing window both end at `searched_at`. `rejected` holds the candidates that
-/// failed validation after their download, so a later round fails them without downloading them
-/// again.
+/// Decide where the live store comes from, and materialize it for a restore. Returns the store with
+/// its `source` label for `checkpoint_restore_total`. The local staleness window and the S3 listing
+/// window both end at `searched_at`. `rejected` holds the candidates that failed validation after
+/// their download, so a later round fails them without downloading them again.
 ///
 /// Blocks on file and Kafka I/O; see [`restore_until_ready`].
 async fn prepare_store(
@@ -279,22 +289,15 @@ async fn prepare_store(
     lineage: Option<CheckpointLineage>,
     searched_at: DateTime<Utc>,
     rejected: &mut HashSet<Rejected>,
-) -> Result<BootStore, RestoreBlocked> {
-    let started = Instant::now();
+) -> Result<(BootStore, &'static str), RestoreBlocked> {
     let live = PathBuf::from(&config.store_path);
     let stage = staging_path(&live);
     remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
 
     if !config.effective_wipe_on_start() && live_store_is_intact(&live) {
         match PendingRestore::resume(&live, config.partition_count()) {
-            Ok(Some(pending)) => {
-                return Ok(prepared(
-                    BootStore::Restored(Box::new(pending)),
-                    "pending",
-                    started,
-                ))
-            }
-            Ok(None) => return Ok(prepared(BootStore::Reopened, "reopened", started)),
+            Ok(Some(pending)) => return Ok((BootStore::Restored(Box::new(pending)), "pending")),
+            Ok(None) => return Ok((BootStore::Reopened, "reopen_live")),
             Err(ResumeError::Undecodable(err)) => {
                 warn!(
                     error = %err,
@@ -313,7 +316,7 @@ async fn prepare_store(
     }
 
     let Some(lineage) = lineage else {
-        return Ok(prepared(BootStore::Created, "created", started));
+        return Ok((BootStore::Created, "cold"));
     };
     // A store directory without `CURRENT` is a torn leftover; the rename that publishes a restore
     // needs the path free.
@@ -338,7 +341,7 @@ async fn prepare_store(
     );
     if let Some(attempt) = local {
         if let ControlFlow::Break(pending) = search.record(restore.local(attempt)?) {
-            return Ok(prepared(BootStore::Restored(pending), "local", started));
+            return Ok((BootStore::Restored(pending), "local"));
         }
     }
 
@@ -356,11 +359,9 @@ async fn prepare_store(
         )
         .await?
     {
-        return Ok(prepared(BootStore::Restored(pending), "s3", started));
+        return Ok((BootStore::Restored(pending), "s3"));
     }
-    search
-        .conclude()
-        .map(|store| prepared(store, "created", started))
+    search.conclude().map(|store| (store, "cold"))
 }
 
 fn prepared(store: BootStore, source: &'static str, started: Instant) -> BootStore {
@@ -439,8 +440,12 @@ impl Restore<'_> {
             if !matches!(verdict, Verdict::Unusable(Unusable::Unfinished)) {
                 tried += 1;
             }
+            let timed_out = matches!(verdict, Verdict::TimedOut(_));
             if let ControlFlow::Break(pending) = search.record(verdict) {
                 return Ok(ControlFlow::Break(pending));
+            }
+            if timed_out {
+                break;
             }
         }
         Ok(ControlFlow::Continue(()))
@@ -482,8 +487,12 @@ impl Restore<'_> {
 
         std::fs::create_dir(&self.stage).map_err(RestoreBlocked::Local)?;
         let guard = DirCleanupGuard::new(self.stage.clone());
-        if let Err(err) = importer.fetch_files(&metadata, &self.stage).await {
-            return Ok(failed(checkpoint_id, err));
+        match importer.fetch_files(&metadata, &self.stage).await {
+            Ok(()) => {}
+            Err(err @ ImportError::Timeout(_)) => {
+                return Ok(Verdict::TimedOut(CandidateFailure::new(checkpoint_id, err)))
+            }
+            Err(err) => return Ok(failed(checkpoint_id, err)),
         }
         self.publish(
             guard,
@@ -758,7 +767,12 @@ mod tests {
                 "checkpoints".to_string(),
             );
             let listing = vec![unfinished.get_metadata_key(), info.get_metadata_key()];
-            (FakeS3 { listing, objects }, metadata.id)
+            let s3 = FakeS3 {
+                listing,
+                objects,
+                stalled: false,
+            };
+            (s3, metadata.id)
         }
 
         fn restore<'a>(&'a self, rejected: &'a mut HashSet<Rejected>) -> Restore<'a> {
@@ -780,14 +794,17 @@ mod tests {
                 &mut HashSet::new(),
             )
             .await
+            .map(|(store, _)| store)
         }
     }
 
-    /// S3 at its boundary: a listing, and objects read from local files.
+    /// S3 at its boundary: a listing, and objects read from local files. A stalled one never
+    /// finishes a bulk download.
     #[derive(Debug)]
     struct FakeS3 {
         listing: Vec<String>,
         objects: HashMap<String, PathBuf>,
+        stalled: bool,
     }
 
     #[async_trait]
@@ -827,16 +844,15 @@ mod tests {
             local_base_path: &Path,
             _cancel_token: Option<&CancellationToken>,
         ) -> anyhow::Result<()> {
+            if self.stalled {
+                std::future::pending::<()>().await;
+            }
             for key in remote_keys {
                 let name = key.rsplit('/').next().unwrap_or(key);
                 self.download_and_store_file_cancellable(key, &local_base_path.join(name), None)
                     .await?;
             }
             Ok(())
-        }
-
-        async fn is_available(&self) -> bool {
-            true
         }
     }
 
@@ -861,6 +877,26 @@ mod tests {
         assert_eq!(pending.source().label(), "s3");
         assert_eq!(pending.source().checkpoint_id(), checkpoint_id);
         assert!(search.failed.is_empty(), "{:?}", search.failed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_download_timeout_ends_the_search_because_older_candidates_are_as_large() {
+        let boot = Boot::new();
+        let (mut s3, _) = boot.uploaded_checkpoint();
+        let complete = s3.listing[1].clone();
+        s3.listing = vec![complete.clone(), complete];
+        s3.stalled = true;
+        let importer = CheckpointImporter::new(Box::new(s3), Duration::from_secs(60));
+        let mut search = Search::default();
+
+        let outcome = boot
+            .restore(&mut HashSet::new())
+            .search_s3(&importer, 10, Utc::now(), &mut search)
+            .await
+            .unwrap();
+
+        assert!(outcome.is_continue());
+        assert_eq!(search.failed.len(), 1, "{:?}", search.failed);
     }
 
     #[tokio::test]
@@ -915,15 +951,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_local_attempt_cut_short_before_its_metadata_gives_way_to_the_one_before() {
+    async fn the_newest_complete_local_attempt_restores_unless_it_is_stale() {
         let boot = Boot::new();
-        let complete = boot.local_checkpoint();
+        boot.local_checkpoint();
+        let newest = boot.local_checkpoint();
         let torn = boot.local_checkpoint();
         std::fs::remove_file(boot.lineage_dir().join(&torn.id).join(METADATA_FILENAME)).unwrap();
 
         let Ok(BootStore::Restored(pending)) = boot.prepare().await else {
-            panic!("the complete attempt restores");
+            panic!("the newest complete attempt restores");
         };
-        assert_eq!(pending.source().checkpoint_id(), complete.id);
+        assert_eq!(pending.source().checkpoint_id(), newest.id);
+
+        let later = Utc::now() + chrono::Duration::hours(2);
+        assert!(
+            newest_fresh_local_checkpoint(&boot.lineage_dir(), Duration::from_secs(3600), later)
+                .is_none(),
+            "an attempt captured before the staleness bound is distrusted",
+        );
     }
 }
