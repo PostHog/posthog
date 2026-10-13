@@ -37,9 +37,11 @@ export type HealthMetric = (typeof HEALTH_METRICS)[number]
 
 export type StepReach = {
     action: HogFlowAction
-    // Runs that got to this step and were processed by it, in the selected date range.
+    // Runs that finished this step in the selected date range. A step records its metric when it finishes.
     reached: number
     failed: number
+    // Runs at this step now. Counted only when the date range ends now, because the queue has no history.
+    waiting: number
 }
 
 export type InFlightStep = {
@@ -132,7 +134,9 @@ export interface workflowOverviewLogicMeta {
         orderedSteps: (originalWorkflow: HogFlow | null) => HogFlowAction[]
         stepReach: (
             orderedSteps: HogFlowAction[],
-            stepTotals: Record<string, Partial<Record<'failed' | 'filtered' | 'succeeded', number>>> | null
+            stepTotals: Record<string, Partial<Record<'failed' | 'filtered' | 'succeeded', number>>> | null,
+            inFlight: HogFlowInFlightApi | null,
+            params: Partial<AppMetricsCommonParams>
         ) => StepReach[] | null
         failedRuns: (stepReach: StepReach[] | null) => number | null
         inFlightSteps: (orderedSteps: HogFlowAction[], inFlight: HogFlowInFlightApi | null) => InFlightStep[]
@@ -236,19 +240,23 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     : [],
         ],
         stepReach: [
-            (s) => [s.orderedSteps, s.stepTotals],
+            (s) => [s.orderedSteps, s.stepTotals, s.inFlight, s.params],
             (
                 steps: HogFlowAction[],
-                stepTotals: Record<string, Partial<Record<StepMetric, number>>> | null
+                stepTotals: Record<string, Partial<Record<StepMetric, number>>> | null,
+                inFlight: HogFlowInFlightApi | null,
+                params: Partial<AppMetricsCommonParams>
             ): StepReach[] | null =>
                 stepTotals
                     ? steps.map((action) => {
                           const totals = stepTotals[action.id] ?? {}
                           const failed = totals.failed ?? 0
+                          const waiting = params.dateTo ? 0 : (inFlight?.by_action?.[action.id] ?? 0)
                           return {
                               action,
                               reached: (totals.succeeded ?? 0) + (totals.filtered ?? 0) + failed,
                               failed,
+                              waiting,
                           }
                       })
                     : null,

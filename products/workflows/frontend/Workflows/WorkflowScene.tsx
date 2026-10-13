@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -67,6 +67,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
     const sceneLogic = workflowSceneLogic(workflowSceneProps)
     const { currentTab, hasBeenActive } = useValues(sceneLogic)
+    const { markHasBeenActive } = useActions(sceneLogic)
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
@@ -106,6 +107,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
+    const isActive = originalWorkflow?.status === 'active'
+    useEffect(() => {
+        if (isActive) {
+            markHasBeenActive()
+        }
+    }, [isActive, markHasBeenActive])
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]

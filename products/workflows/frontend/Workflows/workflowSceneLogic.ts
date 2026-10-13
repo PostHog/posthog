@@ -57,6 +57,21 @@ export interface workflowSceneLogicActions {
         hasBeenActive: boolean
         payload?: any
     }
+    markHasBeenActive: () => any
+    markHasBeenActiveFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    markHasBeenActiveSuccess: (
+        hasBeenActive: boolean,
+        payload?: any
+    ) => {
+        hasBeenActive: boolean
+        payload?: any
+    }
     setCurrentTab: (tab: WorkflowTab) => {
         tab: 'assets' | 'history' | 'invocations' | 'metrics' | 'overview' | 'self-driving' | 'workflow'
     }
@@ -85,7 +100,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
     actions({
         setCurrentTab: (tab: WorkflowTab) => ({ tab }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         hasBeenActive: [
             false,
             {
@@ -93,6 +108,9 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                 loadHasBeenActive: async () => {
                     if (!props.id || props.id === 'new') {
                         return false
+                    }
+                    if (values.hasBeenActive) {
+                        return true
                     }
                     const response = await api.activity
                         .listRequest({ scope: ActivityScope.HOG_FLOW, item_id: props.id, page_size: 1000 })
@@ -104,6 +122,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                         )
                     )
                 },
+                markHasBeenActive: () => true,
             },
         ],
     })),

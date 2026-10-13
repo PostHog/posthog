@@ -14,12 +14,14 @@ function ReachRow({
     base,
     to,
     failed,
+    waiting,
 }: {
     name: string
     count: number
     base: number
     to?: string
     failed?: number
+    waiting?: number
 }): JSX.Element {
     const share = base > 0 ? Math.min(1, count / base) : 0
     return (
@@ -37,6 +39,14 @@ function ReachRow({
                         <LemonTag type="danger" size="small">
                             {humanFriendlyNumber(failed)} failed
                         </LemonTag>
+                    ) : null}
+                    {waiting ? (
+                        <span
+                            className="whitespace-nowrap text-xs text-muted"
+                            data-attr="workflow-overview-step-reach-waiting"
+                        >
+                            {humanFriendlyNumber(waiting)} waiting now
+                        </span>
                     ) : null}
                 </span>
                 <span className="whitespace-nowrap">
@@ -61,7 +71,8 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
             <div className="flex flex-col gap-1">
                 <h3 className="mb-0 text-base font-semibold">Step reach</h3>
                 <span className="text-xs text-muted">
-                    How many runs reached each step in this date range, as a share of runs started.
+                    How many runs finished each step in this date range, as a share of runs started. Runs still waiting
+                    at a step count once they move on.
                 </span>
             </div>
             {stepTotalsLoading && !stepReach ? (
@@ -71,13 +82,14 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
             ) : (
                 <div className="flex flex-col gap-3">
                     <ReachRow name="Started" count={started} base={started} />
-                    {stepReach.map(({ action, reached, failed }) => (
+                    {stepReach.map(({ action, reached, failed, waiting }) => (
                         <ReachRow
                             key={action.id}
                             name={action.name}
                             count={reached}
                             base={started}
                             failed={failed}
+                            waiting={waiting}
                             to={metricsStepUrl(id, action.id, params)}
                         />
                     ))}
