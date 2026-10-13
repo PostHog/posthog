@@ -204,8 +204,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     </div>
                                     <h1 className="text-2xl font-bold m-0">What should the scanner find out?</h1>
                                     <p className="text-base text-secondary max-w-2xl mx-auto m-0">
-                                        Describe the goal, set a monthly budget, and the agent drafts the whole scanner
-                                        for you to review.
+                                        Describe the goal, and the agent drafts the whole scanner for you to review.
                                     </p>
                                 </div>
                                 <ScannerGoalFlow />

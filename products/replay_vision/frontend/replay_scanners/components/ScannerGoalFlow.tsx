@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { IconChevronRight, IconPlus, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { creditsToUsd, formatCredits } from '../../utils/credits'
+import { creditsToUsd } from '../../utils/credits'
 import { GoalSpendMode, goalDraftBudget, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, defaultScannerTemplates } from '../scannerTemplates'
 import { ScannerResumeDraftBanner } from './ScannerResumeDraftBanner'
@@ -124,29 +125,34 @@ export function ScannerGoalFlow(): JSX.Element {
 
                         <div className="flex flex-col gap-2">
                             <span className="text-sm font-semibold">How much should this scanner use?</span>
-                            <LemonSegmentedButton<GoalSpendMode>
-                                size="small"
-                                value={spendMode}
-                                onChange={setGoalSpendMode}
-                                options={[
-                                    {
-                                        value: 'free',
-                                        label: 'Free',
-                                        disabledReason: freeDisabledReason ?? undefined,
-                                        'data-attr': 'vision-goal-flow-spend-free',
-                                    },
-                                    {
-                                        value: 'budget',
-                                        label: 'Set a budget',
-                                        'data-attr': 'vision-goal-flow-spend-budget',
-                                    },
-                                ]}
-                            />
+                            {/* The card sits inside the consent popover's reference, which would give these buttons dropdown arrows. */}
+                            <PopoverReferenceContext.Provider value={null}>
+                                <LemonSegmentedButton<GoalSpendMode>
+                                    size="small"
+                                    value={spendMode}
+                                    onChange={setGoalSpendMode}
+                                    options={[
+                                        {
+                                            value: 'free',
+                                            label: 'Free',
+                                            disabledReason: freeDisabledReason ?? undefined,
+                                            'data-attr': 'vision-goal-flow-spend-free',
+                                        },
+                                        {
+                                            value: 'budget',
+                                            label: 'Set a budget',
+                                            'data-attr': 'vision-goal-flow-spend-budget',
+                                        },
+                                    ]}
+                                />
+                            </PopoverReferenceContext.Provider>
                             {spendMode === 'free' ? (
                                 <div className="text-xs text-muted">
                                     The scanner only uses your free monthly credits
-                                    {freeCreditsLeft != null ? ` (${formatCredits(freeCreditsLeft)} left)` : ''}. It
-                                    pauses when they run out, so it never adds to your bill.
+                                    {freeCreditsLeft != null
+                                        ? ` (${freeCreditsLeft.toLocaleString('en-US')} credits left)`
+                                        : ''}
+                                    . It pauses when they run out, so it never adds to your bill.
                                 </div>
                             ) : (
                                 <>
