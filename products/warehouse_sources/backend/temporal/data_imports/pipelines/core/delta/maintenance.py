@@ -773,6 +773,23 @@ class DeltaMaintenance:
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
         return await self._compact(table, plan)
 
+    async def compact_during_load(self) -> bool:
+        """Compact between the batches of a load when the table is over a count threshold.
+
+        Each batch adds small files, and the post-load pass runs only after the final batch. Without
+        this pass, a long load leaves all of its files to one compaction, which can run for hours and
+        start again from zero when the final batch is redelivered. A fresh sync also skips the
+        pre-write pass, so nothing else compacts the table before the end.
+
+        Never raises: the batch is already committed, and the next pass compacts the same files.
+        Returns True if compaction ran.
+        """
+        try:
+            return await self.compact_if_fragmented()
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="compact_during_load")
+            return False
+
     def _vacuumed_during_job(self, watermarks: VacuumWatermarks) -> bool:
         # The pre-write pass vacuums before it writes, and it never checks small files. The post-load
         # pass of the same sync then sees no vacuum due, but must still run the table-wide check.
