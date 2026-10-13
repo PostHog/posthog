@@ -171,14 +171,19 @@
             </table>
         </div>
         <div class="form-row partitioning-section">
-            <h3>Repartition in place</h3>
+            <h3>Repartition</h3>
             <p class="help">
                 <strong>Pause the schedule first</strong> (buttons below) to avoid racing the
                 scheduled sync. This stages the partition settings and kicks off a non-billable
-                run that rewrites the files already in storage into the new layout, then syncs as
-                usual. It does not reset the table and does not re-pull rows from the source. On a
-                large table the rewrite takes hours. The schedule auto-pauses for the run and
-                unpauses on success.
+                run. For an incremental or append-only table the run rewrites the files already in
+                storage into the new layout, then syncs as usual: no reset, and no rows re-pulled
+                from the source. On a large table the rewrite takes hours. The schedule auto-pauses
+                for the run and unpauses on success.
+            </p>
+            <p class="help">
+                <strong>No in-place rewrite</strong> happens for a full refresh table, or for a
+                table with a reset already pending. That run deletes the table and loads it again
+                from the source, as it would anyway, and writes it in the new layout.
             </p>
             <p class="help">
                 Pick the partition <strong>mode</strong> (defaults to the current one). Keep the
@@ -281,8 +286,8 @@
                 <button type="submit"
                         form="repartition-action-form"
                         class="default"
-                        data-confirm="Rewrite this table into the new partition layout? Non-billable, no rows are re-pulled from the source.">
-                    Repartition in place
+                        data-confirm="Repartition this table (non-billable)? An incremental or append-only table is rewritten in place. A full refresh table, or one with a reset pending, is reloaded from the source.">
+                    Repartition
                 </button>
             </div>
             <script nonce="{{ request.csp_nonce }}">
