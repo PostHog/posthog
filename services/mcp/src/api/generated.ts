@@ -65628,6 +65628,148 @@ export namespace Schemas {
       schemas: ManagedWarehouseSourceTableStatus[];
     }
 
+    export interface ManagedWarehouseTrinoMonitoringLimits {
+      /**
+         * Maximum number of the organization's queries that run at the same time. Zero when Trino is not enabled.
+         * @minimum 0
+         */
+      max_running_queries: number;
+      /**
+         * Maximum number of the organization's queries that can wait in the queue. Zero when Trino is not enabled.
+         * @minimum 0
+         */
+      max_queued_queries: number;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringQuery {
+      /** Trino query identifier. */
+      query_id: string;
+      /** Trino query state in lower case, such as queued, planning, starting, running, or finishing. */
+      state: string;
+      /** Warehouse username that ran the query. Blank when it cannot be resolved. */
+      user: string;
+      /** Client-reported source of the query, such as a tool name. Blank when not set. */
+      source: string;
+      /** SQL text with literal values replaced by ? and comments removed. A placeholder when unavailable. */
+      query: string;
+      /**
+         * UTC timestamp when the query was submitted, or null when Trino does not report it.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Milliseconds since the query was submitted.
+         * @minimum 0
+         */
+      elapsed_ms: number;
+      /**
+         * Milliseconds the query spent queued.
+         * @minimum 0
+         */
+      queued_ms: number;
+      /**
+         * CPU milliseconds the query has used.
+         * @minimum 0
+         */
+      cpu_ms: number;
+      /**
+         * Bytes the query has read from storage.
+         * @minimum 0
+         */
+      physical_input_bytes: number;
+      /**
+         * Peak memory the query has reserved, in bytes.
+         * @minimum 0
+         */
+      peak_memory_bytes: number;
+      /**
+         * Rows the query has read.
+         * @minimum 0
+         */
+      processed_input_rows: number;
+      /**
+         * Best-effort progress percentage, or null when Trino cannot estimate it.
+         * @minimum 0
+         * @nullable
+         */
+      progress_percentage: number | null;
+      /** Whether all of the query's work is waiting on data or metadata. */
+      blocked: boolean;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringState {
+      /** Trino lifecycle state for the organization: not_enabled, pending, provisioning, ready, or failed. */
+      state: string;
+      /**
+         * UTC timestamp when Trino became ready for the organization, or null.
+         * @nullable
+         */
+      ready_at: string | null;
+      /**
+         * UTC timestamp when Trino setup last failed for the organization, or null.
+         * @nullable
+         */
+      failed_at: string | null;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringTotals {
+      /**
+         * Queries submitted and not yet finished. Equals running plus queued.
+         * @minimum 0
+         */
+      in_flight: number;
+      /**
+         * In-flight queries past the queue. This is the count the concurrency limit applies to.
+         * @minimum 0
+         */
+      running: number;
+      /**
+         * Queries waiting for a running slot.
+         * @minimum 0
+         */
+      queued: number;
+      /**
+         * Running queries whose work is all waiting on data or metadata. A subset of running.
+         * @minimum 0
+         */
+      blocked: number;
+      /**
+         * Elapsed milliseconds of the longest in-flight query, or zero when there is none.
+         * @minimum 0
+         */
+      longest_running_ms: number;
+      /**
+         * Bytes read so far by all in-flight queries.
+         * @minimum 0
+         */
+      physical_input_bytes: number;
+    }
+
+    export interface ManagedWarehouseTrinoMonitoringSnapshotResponse {
+      /**
+         * Version of the Trino monitoring response schema.
+         * @minimum 1
+         * @maximum 1
+         */
+      schema_version: number;
+      /** Organization whose managed warehouse is represented. */
+      org_id: string;
+      /** UTC timestamp when this snapshot was assembled. */
+      as_of: string;
+      /** Trino lifecycle details for the organization. */
+      trino: ManagedWarehouseTrinoMonitoringState;
+      /** Whether live query data could be read. When false, totals are zero and do not mean the warehouse is idle. */
+      available: boolean;
+      /** Concurrency and queue limits. */
+      limits: ManagedWarehouseTrinoMonitoringLimits;
+      /** Current in-flight query totals. */
+      totals: ManagedWarehouseTrinoMonitoringTotals;
+      /** In-flight queries, longest-running first, capped at 200 rows. */
+      queries: ManagedWarehouseTrinoMonitoringQuery[];
+      /** Whether the query list was capped. Totals always cover every in-flight query. */
+      queries_truncated: boolean;
+    }
+
     export interface MarkToleratedInput {
       /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
       snapshot_id: string;
@@ -76229,6 +76371,16 @@ export namespace Schemas {
       readonly content_type: string | null;
       /** @nullable */
       readonly size_bytes: number | null;
+      /**
+         * Width in pixels. Null for images uploaded before it was recorded.
+         * @nullable
+         */
+      readonly width: number | null;
+      /**
+         * Height in pixels. Null for images uploaded before it was recorded.
+         * @nullable
+         */
+      readonly height: number | null;
       /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
       readonly url: string;
       readonly created_at: string;
@@ -85562,6 +85714,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `top_left` - top_left
+     * * `top_center` - top_center
+     * * `top_right` - top_right
+     * * `middle_left` - middle_left
+     * * `middle_center` - middle_center
+     * * `middle_right` - middle_right
+     * * `left` - left
+     * * `center` - center
+     * * `right` - right
+     * * `next_to_trigger` - next_to_trigger
+     */
+    export type SurveyPositionEnum = typeof SurveyPositionEnum[keyof typeof SurveyPositionEnum];
+
+
+    export const SurveyPositionEnum = {
+      TopLeft: 'top_left',
+      TopCenter: 'top_center',
+      TopRight: 'top_right',
+      MiddleLeft: 'middle_left',
+      MiddleCenter: 'middle_center',
+      MiddleRight: 'middle_right',
+      Left: 'left',
+      Center: 'center',
+      Right: 'right',
+      NextToTrigger: 'next_to_trigger',
+    } as const;
+
+    /**
      * * `button` - button
      * * `tab` - tab
      * * `selector` - selector
@@ -85575,6 +85755,22 @@ export namespace Schemas {
       Selector: 'selector',
     } as const;
 
+    /**
+     * * `top` - top
+     * * `left` - left
+     * * `right` - right
+     * * `bottom` - bottom
+     */
+    export type SurveyTabPositionEnum = typeof SurveyTabPositionEnum[keyof typeof SurveyTabPositionEnum];
+
+
+    export const SurveyTabPositionEnum = {
+      Top: 'top',
+      Left: 'left',
+      Right: 'right',
+      Bottom: 'bottom',
+    } as const;
+
     export interface SurveyAppearanceSchema {
       backgroundColor?: string;
       submitButtonColor?: string;
@@ -85585,6 +85781,12 @@ export namespace Schemas {
       ratingButtonColor?: string;
       ratingButtonActiveColor?: string;
       ratingButtonHoverColor?: string;
+      /** Color of secondary text, such as question descriptions. */
+      textSubtleColor?: string;
+      /** Background color of open text inputs and rating buttons. */
+      inputBackground?: string;
+      /** Text color of open text inputs and rating buttons. Calculated from inputBackground when not set. */
+      inputTextColor?: string;
       whiteLabel?: boolean;
       autoDisappear?: boolean;
       displayThankYouMessage?: boolean;
@@ -85592,10 +85794,40 @@ export namespace Schemas {
       thankYouMessageDescription?: string;
       thankYouMessageDescriptionContentType?: DescriptionContentTypeEnum;
       thankYouMessageCloseButtonText?: string;
+      /** Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set. */
+      displayIntroScreen?: boolean;
+      /** Heading of the intro screen. */
+      introScreenHeader?: string;
+      /** Body text of the intro screen. */
+      introScreenDescription?: string;
+      /** Content type of introScreenDescription.
+       *
+       * * `text` - text
+       * * `html` - html */
+      introScreenDescriptionContentType?: DescriptionContentTypeEnum;
+      /** Label of the button that closes the intro screen and starts the survey. */
+      introScreenButtonText?: string;
       borderColor?: string;
       placeholder?: string;
+      /** Where a popover survey appears on the page. Defaults to 'right'.
+       *
+       * * `top_left` - top_left
+       * * `top_center` - top_center
+       * * `top_right` - top_right
+       * * `middle_left` - middle_left
+       * * `middle_center` - middle_center
+       * * `middle_right` - middle_right
+       * * `left` - left
+       * * `center` - center
+       * * `right` - right
+       * * `next_to_trigger` - next_to_trigger */
+      position?: SurveyPositionEnum;
       shuffleQuestions?: boolean;
-      surveyPopupDelaySeconds?: number;
+      /**
+         * Seconds to wait before a popover survey appears. Null shows it without a delay.
+         * @nullable
+         */
+      surveyPopupDelaySeconds?: number | null;
       /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
       allowGoBack?: boolean;
       /** Optional override for the back button label. Defaults to 'Back'. */
@@ -85604,11 +85836,22 @@ export namespace Schemas {
       widgetSelector?: string;
       widgetLabel?: string;
       widgetColor?: string;
+      /** Which edge of the page holds the tab of a widget survey with widgetType 'tab'.
+       *
+       * * `top` - top
+       * * `left` - left
+       * * `right` - right
+       * * `bottom` - bottom */
+      tabPosition?: SurveyTabPositionEnum;
       fontFamily?: string;
       maxWidth?: string;
       zIndex?: string;
       disabledButtonOpacity?: string;
       boxPadding?: string;
+      /** CSS box-shadow value of the survey box. */
+      boxShadow?: string;
+      /** CSS border-radius value of the survey box. */
+      borderRadius?: string;
     }
 
     export interface PatchedSurveySerializerCreateUpdateOnlySchema {
@@ -112113,6 +112356,19 @@ export namespace Schemas {
       file: string;
     }
 
+    export interface UploadedMediaCreated {
+      /** Id of the uploaded image. */
+      readonly id: string;
+      /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+      readonly image_location: string;
+      /** The file's original name. */
+      readonly name: string;
+      /** Width in pixels. */
+      readonly width: number;
+      /** Height in pixels. */
+      readonly height: number;
+    }
+
     export interface UploadedMediaStartUpload {
       /**
          * The file's display name, e.g. 'logo.png'.
@@ -112918,7 +113174,7 @@ export namespace Schemas {
     }
 
     export interface WarehouseConnection {
-      /** Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
+      /** Postgres connection host. The warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
       host: string;
       /** Postgres wire-protocol port */
       port: number;
@@ -112947,6 +113203,56 @@ export namespace Schemas {
       Deleting: 'deleting',
       Deleted: 'deleted',
     } as const;
+
+    /**
+     * * `not_enabled` - not_enabled
+     * * `pending` - pending
+     * * `provisioning` - provisioning
+     * * `ready` - ready
+     * * `failed` - failed
+     * * `unavailable` - unavailable
+     */
+    export type WarehouseTrinoStatusStateEnum = typeof WarehouseTrinoStatusStateEnum[keyof typeof WarehouseTrinoStatusStateEnum];
+
+
+    export const WarehouseTrinoStatusStateEnum = {
+      NotEnabled: 'not_enabled',
+      Pending: 'pending',
+      Provisioning: 'provisioning',
+      Ready: 'ready',
+      Failed: 'failed',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface WarehouseTrinoConnection {
+      /** Trino host to connect to over HTTPS */
+      host: string;
+      /** Trino HTTPS port */
+      port: number;
+      /** Trino catalog that holds the organization's data */
+      catalog: string;
+      /** Root username */
+      username: string;
+    }
+
+    export interface WarehouseTrinoStatus {
+      /** Trino lifecycle state for the organization. `unavailable` means the state could not be read.
+       *
+       * * `not_enabled` - not_enabled
+       * * `pending` - pending
+       * * `provisioning` - provisioning
+       * * `ready` - ready
+       * * `failed` - failed
+       * * `unavailable` - unavailable */
+      state: WarehouseTrinoStatusStateEnum;
+      /**
+         * When Trino became ready for the organization
+         * @nullable
+         */
+      ready_at: string | null;
+      /** Trino connection target. Null until Trino is ready and reachable. */
+      connection: WarehouseTrinoConnection | null;
+    }
 
     export interface WarehouseStatusResponse {
       /** duckgres org identifier (the PostHog organization id) */
@@ -112980,7 +113286,10 @@ export namespace Schemas {
          * @nullable
          */
       failed_at: string | null;
+      /** Postgres connection target. Null for organizations on the Trino Data ops variant. */
       connection?: WarehouseConnection | null;
+      /** Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise. */
+      trino?: WarehouseTrinoStatus | null;
       /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
       has_backfill: boolean;
       /**
@@ -121704,6 +122013,61 @@ export namespace Schemas {
      */
     source_id: string;
     };
+
+    export type DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveParams = {
+    /**
+     * Allow-listed Trino metric to retrieve.
+     *
+     * * `queries_in_flight` - queries_in_flight
+     * * `query_rate` - query_rate
+     * * `error_ratio` - error_ratio
+     * * `duration_p50` - duration_p50
+     * * `duration_p95` - duration_p95
+     * * `queue_time_p95` - queue_time_p95
+     * * `scanned_bytes_rate` - scanned_bytes_rate
+     * * `cpu_seconds_rate` - cpu_seconds_rate
+     * * `storage_bytes` - storage_bytes
+     * @minLength 1
+     */
+    metric: DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric;
+    /**
+     * Trailing time window to retrieve. Defaults to 24h.
+     *
+     * * `1h` - 1h
+     * * `6h` - 6h
+     * * `24h` - 24h
+     * * `7d` - 7d
+     * * `30d` - 30d
+     * @minLength 1
+     */
+    window?: DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow;
+    };
+
+    export type DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric = typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric[keyof typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric];
+
+
+    export const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveMetric = {
+      QueriesInFlight: 'queries_in_flight',
+      QueryRate: 'query_rate',
+      ErrorRatio: 'error_ratio',
+      DurationP50: 'duration_p50',
+      DurationP95: 'duration_p95',
+      QueueTimeP95: 'queue_time_p95',
+      ScannedBytesRate: 'scanned_bytes_rate',
+      CpuSecondsRate: 'cpu_seconds_rate',
+      StorageBytes: 'storage_bytes',
+    } as const;
+
+    export type DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow = typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow[keyof typeof DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow];
+
+
+    export const DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveWindow = {
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+      '30d': '30d',
+    } as const;
 
     export type DataWarehouseRunningActivityRetrieveParams = {
     /**
@@ -130458,6 +130822,10 @@ export namespace Schemas {
      * The library to list.
      */
     purpose: UploadedMediaListPurpose;
+    /**
+     * Only list images whose name contains this text, ignoring case.
+     */
+    search?: string;
     };
 
     export type UploadedMediaListPurpose = typeof UploadedMediaListPurpose[keyof typeof UploadedMediaListPurpose];
@@ -130485,8 +130853,6 @@ export namespace Schemas {
       /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
       purpose?: UploadedMediaCreateBodyPurpose;
     };
-
-    export type UploadedMediaCreate201 = { [key: string]: unknown };
 
     export type UserProductListListParams = {
     /**

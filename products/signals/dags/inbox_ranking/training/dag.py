@@ -701,6 +701,14 @@ def _train_candidate(
             for head in trained
             if head.metrics.holdout_auc is not None
         },
+        **{
+            f"{family.name}_{head.head}_{name}": (
+                dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
+            )
+            for head in trained
+            for name, value in head.metrics.holdout_within_team.as_dict(prefix="holdout_").items()
+            if value is not None
+        },
         f"{family.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{metadata_key}"),
     }
 
