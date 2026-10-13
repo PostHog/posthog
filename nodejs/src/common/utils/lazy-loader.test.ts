@@ -591,8 +591,18 @@ describe('LazyLoader', () => {
             jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
             loader.mockResolvedValueOnce({ key3: 'value3' })
             await customLoader.get('key3')
-
             expect(customLoader.getCache()).toEqual({ key2: 'value2', key3: 'value3' })
+
+            // key2 expired at minute 8, but the next sweep is not due until minute 11.
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 9)
+            loader.mockResolvedValueOnce({ key4: 'value4' })
+            await customLoader.get('key4')
+            expect(customLoader.getCache()).toEqual({ key2: 'value2', key3: 'value3', key4: 'value4' })
+
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 12)
+            loader.mockResolvedValueOnce({ key5: 'value5' })
+            await customLoader.get('key5')
+            expect(customLoader.getCache()).toEqual({ key4: 'value4', key5: 'value5' })
         })
     })
 
