@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductManifest } from '../../frontend/src/types'
-import { repoPrefix, repoTabUrl } from './frontend/lib/repoUrls'
 
 export const manifest: ProductManifest = {
     name: 'EngineeringAnalytics',
@@ -146,31 +145,53 @@ export const manifest: ProductManifest = {
     },
     // Tab and team/author builders take the 'owner/name' in scope. Without one they return the repo-less
     // path, which forwards to a repository, so a caller outside the product never has to pick one.
+    // The paths are written out because the app URL catalog evaluates these builders without imports.
     urls: {
-        engineeringAnalytics: (repo?: string | null): string => repoTabUrl('overview', repo),
-        engineeringAnalyticsPullRequestList: (repo?: string | null): string => repoTabUrl('pull-requests', repo),
-        engineeringAnalyticsWorkflows: (repo?: string | null): string => repoTabUrl('workflows', repo),
-        engineeringAnalyticsTests: (repo?: string | null): string => repoTabUrl('tests', repo),
-        engineeringAnalyticsTeams: (repo?: string | null): string => repoTabUrl('teams', repo),
-        engineeringAnalyticsAuthors: (repo?: string | null): string => repoTabUrl('authors', repo),
-        engineeringAnalyticsDeploys: (repo?: string | null): string => repoTabUrl('deploys', repo),
+        engineeringAnalytics: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/overview`
+                : '/engineering-analytics/overview',
+        engineeringAnalyticsPullRequestList: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/pull-requests`
+                : '/engineering-analytics/pull-requests',
+        engineeringAnalyticsWorkflows: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/workflows`
+                : '/engineering-analytics/workflows',
+        engineeringAnalyticsTests: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/tests`
+                : '/engineering-analytics/tests',
+        engineeringAnalyticsTeams: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/teams`
+                : '/engineering-analytics/teams',
+        engineeringAnalyticsAuthors: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/authors`
+                : '/engineering-analytics/authors',
+        engineeringAnalyticsDeploys: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/deploys`
+                : '/engineering-analytics/deploys',
         engineeringAnalyticsTeam: (ownerTeam: string, repo?: string | null): string =>
-            `${repoTabUrl('teams', repo)}/${encodeURIComponent(ownerTeam)}`,
+            `${repo ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}` : '/engineering-analytics'}/teams/${encodeURIComponent(ownerTeam)}`,
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-            `${repoPrefix(repoOwner, repoName)}/pull-requests/${number}`,
+            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
         engineeringAnalyticsCIExplorer: (repoOwner: string, repoName: string, number: number | string): string =>
-            `${repoPrefix(repoOwner, repoName)}/pull-requests/${number}/ci-explorer`,
+            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}/ci-explorer`,
         engineeringAnalyticsWorkflowRun: (
             repoOwner: string,
             repoName: string,
             runId: number | string,
             ciEngine?: string | null
         ): string =>
-            `${repoPrefix(repoOwner, repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
+            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
-            `${repoPrefix(repoOwner, repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
         engineeringAnalyticsAuthor: (handle: string, repo?: string | null): string =>
-            `${repoTabUrl('authors', repo)}/${encodeURIComponent(handle)}`,
+            `${repo ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}` : '/engineering-analytics'}/authors/${encodeURIComponent(handle)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
