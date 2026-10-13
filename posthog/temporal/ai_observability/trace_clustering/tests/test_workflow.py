@@ -461,3 +461,18 @@ class TestComputeActivityCapacityBackoff:
             <= err.next_retry_delay
             <= constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX
         )
+
+
+@pytest.mark.django_db
+def test_compute_skips_deleted_team() -> None:
+    from posthog.temporal.ai_observability.trace_clustering.activities import _perform_clustering_compute
+
+    result = _perform_clustering_compute(
+        ClusteringActivityInputs(
+            team_id=999_999_999,
+            window_start="2025-01-01T00:00:00Z",
+            window_end="2025-01-08T00:00:00Z",
+        )
+    )
+
+    assert result.items == []
