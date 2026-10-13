@@ -698,6 +698,17 @@ def _append_agentic_report_artefacts(
                 continue
             if human_selected_reviewers and isinstance(draft.content, SuggestedReviewers):
                 continue
+            if isinstance(draft.content, SuggestedReviewers):
+                previous = SignalReportArtefact.latest_content(
+                    team_id=team_id, report_id=report_id, model=SuggestedReviewers
+                )
+                comparison_exclusions = {
+                    "__all__": {"reason": True, "github_name": True, "relevant_commits": {"__all__": {"reason"}}}
+                }
+                if previous is not None and previous.model_dump(
+                    exclude=comparison_exclusions
+                ) == draft.content.model_dump(exclude=comparison_exclusions):
+                    continue
             SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
@@ -894,6 +905,9 @@ async def _persist_agentic_report_artefacts(
             ],
             source="pipeline",
             resolution_outcome=research_outcome,
+            after_inbox_notification=await SignalReport.objects.filter(
+                team_id=team_id, id=report_id, inbox_notified_at__isnull=False
+            ).aexists(),
         )
     elif not reviewers_content and reviewer_resolution is not None:
         # An empty list persists nothing, so without this the report's lack of a reviewer is

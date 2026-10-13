@@ -473,6 +473,11 @@ class TestBuildReportPresentationPrompt:
         assert ("scout-members-list" in prompt) == enabled
         assert ("scout-notes-list" in prompt) == enabled
         assert ("advanced-activity-logs-list" in prompt) == enabled
+        assert ("recent_reviewer_corrections" in prompt) == enabled
+        assert ("scout-project-profile-get" in prompt) == enabled
+        assert ("scout-scratchpad-search" in prompt) == enabled
+        assert ("Do not write `reviewer:` entries" in prompt) == enabled
+        assert "owners.yaml" not in prompt
         assert ("Match reviewer UUIDs" in prompt) == enabled
         assert ("not a global ban" in prompt) == enabled
 

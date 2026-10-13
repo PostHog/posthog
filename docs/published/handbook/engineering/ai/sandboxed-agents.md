@@ -191,7 +191,11 @@ Use the `posthog_mcp_scopes` parameter to control access:
 The internal `signals_research` preset also reads the project-member roster through `scout-members-list`.
 It can write to the scratchpad, but it cannot emit signals, edit reports, or start tasks.
 Report research returns reviewer decisions as structured output; the pipeline validates project access before it stores them.
-The `signals-research-reviewer-selection` flag controls this selection path. Research picks route the report but cannot select the autostart task user.
+The `signals-research-reviewer-selection` flag controls this selection path.
+Research picks route the report. Autostart permits a research-selected task user only when the ownership or commit resolver independently confirms the same member.
+The check uses current project access and the member’s linked GitHub account. Personal priority settings and skill-owner exclusions still apply.
+This requires additional GitHub lookups. Failed or unmatched lookups retain the existing team fallback and no-runner behavior.
+Non-owner scout picks keep their existing task-user rules; they do not use this additional confirmation.
 A missing decision or a decision with no valid members uses the ownership and commit resolver.
 An explicit empty decision clears automatic suggestions and records its reason in the report log. Human reviewer edits take precedence.
 

@@ -71,6 +71,7 @@ def capture_suggested_reviewers_resolved(
     correction_notes_written: int | None = None,
     correction_note_targets: int | None = None,
     resolution_outcome: str | None = None,
+    after_inbox_notification: bool | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
@@ -114,6 +115,11 @@ def capture_suggested_reviewers_resolved(
                 "report_id": report_id,
                 "source": source,
                 **({"resolution_outcome": resolution_outcome} if resolution_outcome else {}),
+                **(
+                    {"after_inbox_notification": after_inbox_notification}
+                    if after_inbox_notification is not None
+                    else {}
+                ),
                 "suggested_count": linkability.linkable_count + linkability.unlinkable_count,
                 "linkable_count": linkability.linkable_count,
                 "unlinkable_count": linkability.unlinkable_count,

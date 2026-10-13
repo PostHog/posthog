@@ -251,7 +251,7 @@ class SuggestedReviewerEntry(BaseModel):
     )
     is_research_selected: bool = Field(
         default=False,
-        description="Research selected this reviewer. This entry routes the report but cannot select an autostart task user.",
+        description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
     )
     source_skill: str | None = Field(
         default=None,

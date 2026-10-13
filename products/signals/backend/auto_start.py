@@ -50,6 +50,7 @@ from products.signals.backend.report_generation.research import (
     Priority,
     PriorityAssessment,
 )
+from products.signals.backend.report_generation.research_reviewers import confirmed_research_reviewer_uuids
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerIdentitySet,
     get_org_member_github_logins_by_user_uuid,
@@ -482,7 +483,9 @@ def _capture_billing_exempted(*, team: Team, report_id: str, reason: str, task_i
         logger.exception("Failed to capture signals_pr_billing_exempted", report_id=report_id)
 
 
-def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, steering: ReportSteering) -> None:
+def _capture_steering_attached(
+    *, team: Team, report_id: str, task_id: str, steering: ReportSteering, runner_source: str
+) -> None:
     """`signals_autostart_steering_attached` — fired for every self-driving implementation task, so
     the share that carried steering is readable against the share that carried none.
 
@@ -498,6 +501,7 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
                 "organization_id": str(team.organization.id),
                 "report_id": report_id,
                 "task_id": task_id,
+                "runner_source": runner_source,
                 "notes_attached": steering.notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
                 "memory_protocol": steering.memory_protocol,
@@ -737,6 +741,7 @@ def _create_implementation_task_if_absent(
     supersede: SupersedeDecision = NO_SUPERSEDE,
     dispatch: ImplementationDispatch | None = None,
     requested_after_run_count: int | None = None,
+    runner_source: str = "requested",
 ) -> bool | AutostartSkip:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -925,7 +930,9 @@ def _create_implementation_task_if_absent(
         # best-effort ClickHouse lookup, so it must not run under the lock).
         _capture_billing_exempted(team=team, report_id=report_id, reason=exempt_reason, task_id=task_id)
     if task_id:
-        _capture_steering_attached(team=team, report_id=report_id, task_id=task_id, steering=steering)
+        _capture_steering_attached(
+            team=team, report_id=report_id, task_id=task_id, steering=steering, runner_source=runner_source
+        )
     return True
 
 
@@ -1141,11 +1148,12 @@ def _resolve_autostart_assignee(
     reviewers_content: list[ReviewerContent],
     team_default_priority: Priority,
     live_owner_identities: ReviewerIdentitySet | None = None,
+    confirmed_research_user_uuids: set[str] | None = None,
 ) -> User | None:
     """Return the first suggested reviewer whose effective priority threshold allows auto-start.
 
-    Only reviewers with trusted identity evidence can select the task user. Research decisions
-    route the report but do not authorize the task. User-triggered auto-start does not resolve a
+    Research choices require independent ownership or commit confirmation before they can select
+    the task user. User-triggered auto-start does not resolve a
     named reviewer — it runs as the triggering user (see `_resolve_triggering_user`), so a user
     can't name a colleague and have the agent run under that colleague's identity.
 
@@ -1168,11 +1176,12 @@ def _resolve_autostart_assignee(
     # identity (see docstring). Filter before resolving so their logins aren't even looked up as
     # candidates.
     owners = live_owner_identities or ReviewerIdentitySet.empty()
+    confirmed_uuids = confirmed_research_user_uuids or set()
     identity_candidates = [
         r
         for r in reviewers_content
         if not r.get("is_skill_owner")
-        and not r.get("is_research_selected")
+        and (not r.get("is_research_selected") or r.get("user_uuid") in confirmed_uuids)
         and not owners.covers(user_uuid=r.get("user_uuid"), github_login=r.get("github_login"))
     ]
     login_to_user = resolve_org_github_login_to_users(
@@ -1471,6 +1480,7 @@ async def maybe_autostart_implementation_task(
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.
+    runner_source = "triggering_user" if triggering_user_id is not None else "reviewer"
     if triggering_user_id is not None:
         task_user = await database_sync_to_async(_resolve_triggering_user, thread_sensitive=False)(
             team_id, triggering_user_id, priority.priority, team_default_priority
@@ -1486,8 +1496,20 @@ async def maybe_autostart_implementation_task(
             if reviewers_content
             else ReviewerIdentitySet.empty()
         )
+        confirmed_uuids = (
+            await database_sync_to_async(confirmed_research_reviewer_uuids, thread_sensitive=False)(
+                team_id, report_id, repository, reviewers_content
+            )
+            if any(entry.get("is_research_selected") for entry in reviewers_content)
+            else set()
+        )
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
-            team_id, priority.priority, reviewers_content, team_default_priority, live_owner_identities
+            team_id,
+            priority.priority,
+            reviewers_content,
+            team_default_priority,
+            live_owner_identities,
+            confirmed_uuids,
         )
         if (
             task_user is None
@@ -1498,6 +1520,7 @@ async def maybe_autostart_implementation_task(
             # team's default autostart priority, so run it under the member who enabled signals for
             # the team rather than dropping the PR.
             task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
+            runner_source = "team_fallback"
     if task_user is None:
         logger.info(
             "self-driving auto-start skipped",
@@ -1570,6 +1593,7 @@ async def maybe_autostart_implementation_task(
             free_trial_enabled=on_free_trial,
             supersede=supersede,
             dispatch=dispatch,
+            runner_source=runner_source,
         )
     except ReportChangedDuringAutostart:
         if remaining_retries:

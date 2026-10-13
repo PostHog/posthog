@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from asgiref.sync import async_to_sync, sync_to_async
 
 from posthog.constants import AvailableFeature
@@ -241,6 +243,54 @@ def test_later_research_does_not_replace_a_human_reviewer_edit(team, user, propo
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("change", ["none", "wording", "order", "member", "commits", "owner", "research", "skill"])
+def test_pipeline_skips_unchanged_reviewer_selections(team, change):
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.IN_PROGRESS)
+    original = SuggestedReviewers.model_validate([{"github_login": "first"}, {"github_login": "second"}])
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=str(report.id),
+        content=original,
+        attribution=ArtefactAttribution.system(),
+        reevaluate_autostart=False,
+    )
+    proposed = original.model_copy(deep=True)
+    if change == "wording":
+        proposed.root[0].reason = "A new explanation for the same selection."
+        proposed.root[0].github_name = "First reviewer"
+    elif change == "order":
+        proposed.root.reverse()
+    elif change == "member":
+        proposed.root.pop()
+    elif change == "commits":
+        proposed = SuggestedReviewers.model_validate(
+            [
+                {
+                    "github_login": "first",
+                    "relevant_commits": [{"sha": "abcdef0", "reason": "Fix", "url": "https://example.com/commit"}],
+                },
+                {"github_login": "second"},
+            ]
+        )
+    elif change == "owner":
+        proposed.root[0].is_skill_owner = True
+    elif change == "research":
+        proposed.root[0].is_research_selected = True
+    elif change == "skill":
+        proposed.root[0].source_skill = "example-scout"
+
+    wrote = _append_agentic_report_artefacts(
+        team_id=team.id,
+        report_id=str(report.id),
+        artefacts=[ArtefactDraft(content=proposed, attribution=ArtefactAttribution.system())],
+    )
+
+    changed = change not in {"none", "wording"}
+    assert wrote is changed
+    assert SignalReportArtefact.objects.filter(report=report, type="suggested_reviewers").count() == 1 + int(changed)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("selection", ["member", "empty", "inactive", "outsider", "private_project", "missing"])
 def test_research_decision_controls_persisted_reviewers(team, selection):
     member = User.objects.create(email="candidate@example.com", is_active=selection != "inactive")
@@ -252,7 +302,9 @@ def test_research_decision_controls_persisted_reviewers(team, selection):
         ]
         team.organization.save()
         AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
-    report = SignalReport.objects.create(team=team, status=SignalReport.Status.IN_PROGRESS)
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.IN_PROGRESS, inbox_notified_at=timezone.now()
+    )
     SignalReportArtefact.append_status(
         team_id=team.id,
         report_id=str(report.id),
@@ -299,6 +351,7 @@ def test_research_decision_controls_persisted_reviewers(team, selection):
         report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
     ).latest("created_at")
     reviewers = SuggestedReviewers.model_validate_json(latest.content).root
+    assert capture.call_args.kwargs["after_inbox_notification"] is True
     if selection == "member":
         assert len(reviewers) == 1
         assert reviewers[0].user_uuid == str(member.uuid)
