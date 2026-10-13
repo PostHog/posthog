@@ -174,6 +174,13 @@ from products.product_analytics.backend.facade.api import (
     record_insight_views,
     with_last_viewed_at,
 )
+from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
+from products.product_analytics.backend.facade.enums import (
+    InsightDataCheckAction,
+    InsightDataCheckKey,
+    InsightDataCheckLevel,
+    InsightDataChecksStatus,
+)
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
@@ -1679,6 +1686,64 @@ class InsightBulkSetTestAccountFilterResponseSerializer(serializers.Serializer):
     )
 
 
+class InsightDataChecksRequestSerializer(serializers.Serializer):
+    query = QueryFieldSerializer(
+        help_text=(
+            "The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. "
+            "Pass the query of a saved insight, or one that is not saved yet."
+        )
+    )
+
+
+class InsightDataCheckSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(choices=InsightDataCheckKey.choices, help_text="Which check this is.")
+    level = serializers.ChoiceField(
+        choices=InsightDataCheckLevel.choices,
+        help_text=(
+            "`passed` when the check found nothing worth acting on, `warning` for a small share of the events, "
+            "`problem` for a fifth of the events or more, and `skipped` when the check could not run."
+        ),
+    )
+    name = serializers.CharField(help_text="What the check looks for.")
+    result = serializers.CharField(help_text="What the check found, as a sentence to show a person.")
+    fix = serializers.CharField(
+        allow_null=True, help_text="How to fix what the check found. Null when nothing needs fixing."
+    )
+    action = serializers.ChoiceField(
+        choices=InsightDataCheckAction.choices,
+        allow_null=True,
+        help_text=(
+            "The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. "
+            "Null when there is no single change."
+        ),
+    )
+    events = serializers.IntegerField(
+        allow_null=True, help_text="How many of the checked events the check counted. Null where it has no count."
+    )
+    share = serializers.FloatField(
+        allow_null=True, help_text="`events` as a share of the checked events, from 0 to 1. Null where it has no count."
+    )
+
+
+class InsightDataChecksSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=InsightDataChecksStatus.choices,
+        help_text=(
+            "The worst result across the checks. `no_events` when no event matches the insight's events, filters "
+            "and date range, and `unsupported` when the insight has no event series to check, such as a SQL insight."
+        ),
+    )
+    checks = InsightDataCheckSerializer(many=True, help_text="Every check, in a fixed order, whatever its result.")
+    events_checked = serializers.IntegerField(help_text="How many events the checks read.")
+    sample_rate = serializers.FloatField(
+        help_text=(
+            "The share of the insight's events the checks read, from 0 to 1. The checks read every event of a small "
+            "insight and a sample of a large one. Below 1, `events_checked` and the `events` of each check count the "
+            "sample, so divide them by this value to estimate the count across every event."
+        )
+    )
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -2406,6 +2471,42 @@ When set, the specified dashboard's filters and date range override will be appl
         )
 
         return Response(status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=InsightDataChecksRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
+        },
+        description=(
+            "Check the events behind an insight for the common ways they mislead: local development traffic, bots "
+            "and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose "
+            "series are events. The checks apply the insight's own filters and date range, and read a sample of an "
+            "insight with more than 1 million events. Nothing is stored. To check a saved insight by its id, send a "
+            "GET request to `insights/{id}/data_checks/`."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
+    def data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        checks = run_insight_data_checks(request.validated_data["query"], team=self.team)
+        return Response(InsightDataChecksSerializer(checks).data)
+
+    @validated_request(
+        parameters=[INSIGHT_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
+        },
+        description=(
+            "Run the data checks on a saved insight, found by its numeric id or its `short_id`. The checks read the "
+            "query the insight stores, and work the same way as the checks on a query that is not saved. The "
+            "`status` is `unsupported` for an insight that still stores legacy `filters` and no query. Nothing is "
+            "stored."
+        ),
+    )
+    @action(methods=["GET"], detail=True, url_path="data_checks", required_scopes=["insight:read"])
+    def saved_insight_data_checks(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        insight = self.get_object()
+        checks = run_insight_data_checks(upgrade(insight.query) if insight.query else {}, team=self.team)
+        return Response(InsightDataChecksSerializer(checks).data)
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
     # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.

@@ -18,6 +18,13 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from products.product_analytics.backend.facade.enums import (
+    InsightDataCheckAction,
+    InsightDataCheckKey,
+    InsightDataCheckLevel,
+    InsightDataChecksStatus,
+)
+
 
 @dataclass(frozen=True)
 class InsightVariableDefinition:
@@ -49,3 +56,26 @@ class SavedInsightDefinition:
     short_id: str
     name: str | None
     query: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class InsightDataCheck:
+    """One check on the events an insight reads, with what it found."""
+
+    key: InsightDataCheckKey
+    level: InsightDataCheckLevel
+    name: str
+    # A statement that reads without the name next to it. A check with no result repeats the name.
+    result: str
+    fix: str | None = None
+    action: InsightDataCheckAction | None = None
+    events: int | None = None
+    share: float | None = None
+
+
+@dataclass(frozen=True)
+class InsightDataChecks:
+    status: InsightDataChecksStatus
+    checks: list[InsightDataCheck]
+    events_checked: int
+    sample_rate: float
