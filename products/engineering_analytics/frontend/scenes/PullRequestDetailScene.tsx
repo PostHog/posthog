@@ -476,12 +476,14 @@ export function PullRequestDetailScene(): JSX.Element {
         return (
             <SceneContent className="pb-16">
                 <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
-                <CIAnalyticsLoadError
-                    title="Couldn't load this pull request"
-                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
-                    onRetry={loadLifecycle}
-                    loading={lifecycleLoading}
-                />
+                <ProductNav activeTab="pull-requests" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load this pull request"
+                        description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                        onRetry={loadLifecycle}
+                        loading={lifecycleLoading}
+                    />
+                </ProductNav>
             </SceneContent>
         )
     }

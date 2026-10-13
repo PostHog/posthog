@@ -294,12 +294,14 @@ export function WorkflowRunsScene(): JSX.Element {
         return (
             <SceneContent className="pb-16">
                 <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
-                <CIAnalyticsLoadError
-                    title="Couldn't load this workflow's runs"
-                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
-                    onRetry={loadRuns}
-                    loading={runsLoading}
-                />
+                <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load this workflow's runs"
+                        description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                        onRetry={loadRuns}
+                        loading={runsLoading}
+                    />
+                </ProductNav>
             </SceneContent>
         )
     }
