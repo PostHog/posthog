@@ -136,7 +136,7 @@ class HogFunctionTemplate(UUIDTModel):
             self.bytecode = None
             return
         try:
-            from posthog.cdp.validation import compile_hog
+            from products.cdp.backend.validation import compile_hog
 
             # Compile the hog code_language to bytecode and store it in the database field
             self.bytecode = compile_hog(self.code, self.type)

@@ -739,6 +739,12 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
+    # TODO: cdp presentation wave — the helpers, serializers and icon service other products' views
+    # reuse still live in cdp internals, and products/cdp/backend/presentation/ re-exports them.
+    # Move each one into presentation and delete its entry.
+    "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.filters",
+    "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.validation",
+    "products.cdp.backend.presentation.serializers -> products.cdp.backend.validation",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
