@@ -12,10 +12,10 @@ import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 
 export function WorkflowDataSuggestionsLane(): JSX.Element | null {
     const logic = workflowDataSuggestionsLogic({ surface: 'list' })
-    const { cards, aiResultLoading, hidden } = useValues(logic)
+    const { cards, generating, hidden } = useValues(logic)
     const { hideSuggestions, showSuggestions } = useActions(logic)
     const cannotCreate = !!getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor)
-    const loading = cards.length === 0 && aiResultLoading
+    const loading = cards.length === 0 && generating
 
     if (cannotCreate) {
         return null

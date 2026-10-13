@@ -1,15 +1,19 @@
 import uuid
+import dataclasses
+from collections.abc import Callable
+from typing import Any
 
 from django.core.cache import cache
 
 import structlog
-from rest_framework.exceptions import ValidationError
+import posthoganalytics
 
+from posthog.cloud_utils import is_cloud
 from posthog.errors import InternalCHQueryError
-from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
+from posthog.ph_client import get_client
 
 from products.workflows.backend.facade.contracts import (
     BuiltSuggestion,
@@ -19,15 +23,8 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestionsResult,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.presentation.views.graph_validation import validate_graph
-from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
 from products.workflows.backend.services.data_suggestions import team_context
-from products.workflows.backend.services.data_suggestions.builder import (
-    BuildContext,
-    BuiltWorkflow,
-    build_workflow,
-    clean_copy,
-)
+from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, clean_copy
 from products.workflows.backend.services.data_suggestions.event_volume import weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
@@ -59,6 +56,8 @@ CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 FAILURE_CACHE_TTL_SECONDS = 5 * 60
 # Longer than the slowest run, so a crashed worker cannot block a team for good.
 _GENERATION_LOCK_SECONDS = 5 * 60
+# A built draft is kept this long, so a retry after a failed save does not pay for another plan.
+_BUILD_CACHE_SECONDS = 60 * 60
 MAX_SUGGESTIONS = 3
 _PROMPT_EVENTS_LIMIT = 60
 _GENERATION_ERRORS = (
@@ -69,48 +68,86 @@ _GENERATION_ERRORS = (
     ClickHouseQueryMemoryLimitExceeded,
 )
 
+_GENERATING = DataSuggestionsResult(status="generating", suggestions=())
+_UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
 
-def get_data_suggestions(*, team: Team, user: User, refresh: bool = False) -> DataSuggestionsResult:
-    if team.organization.is_ai_data_processing_approved is not True:
-        return DataSuggestionsResult(status="ai_not_approved", suggestions=())
-    # Without Jev the ranking cannot tell a sign-up from routine usage, so no suggestions are made.
-    if not system_one_configured():
-        return DataSuggestionsResult(status="unavailable", suggestions=())
 
-    key = _cache_key(team)
-    cached = cache.get(key)
-    if not refresh and isinstance(cached, DataSuggestionsResult):
+def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
+    """The cards as they are now. This never runs a query or a model, so a read-only caller cannot cause spend."""
+    unavailable = _unavailable_reason(team)
+    if unavailable is not None:
+        return unavailable
+    cached = _read_cache(team)
+    if cached is not None:
         return cached
+    if cache.get(_generation_lock_key(team)) is not None:
+        return _GENERATING
+    return _UNAVAILABLE
 
+
+def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[], None]) -> DataSuggestionsResult:
+    """Returns the cached cards, or starts a background run through `enqueue` and reports that it is generating."""
+    unavailable = _unavailable_reason(team)
+    if unavailable is not None:
+        return unavailable
+    cached = _read_cache(team)
+    if cached is not None and not refresh:
+        return cached
     # Visits that arrive while a run is going would each repeat the queries and the model calls.
-    lock = _generation_lock_key(team)
-    if not cache.add(lock, True, _GENERATION_LOCK_SECONDS):
-        return DataSuggestionsResult(status="unavailable", suggestions=())
+    if not cache.add(_generation_lock_key(team), True, _GENERATION_LOCK_SECONDS):
+        return _GENERATING
     try:
-        result = _generate(team=team, user=user)
-        # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
-        if result.status != "ready" and isinstance(cached, DataSuggestionsResult) and cached.status == "ready":
-            return cached
-        # An empty answer often means the team's events have not arrived yet, so it is retried as soon as a failure.
-        ttl = CACHE_TTL_SECONDS if result.status == "ready" and result.suggestions else FAILURE_CACHE_TTL_SECONDS
-        # Written before the lock is released, so the next visit reads it instead of starting another run.
-        cache.set(key, result, ttl)
-        return result
-    finally:
-        cache.delete(lock)
+        enqueue()
+    except Exception:
+        cache.delete(_generation_lock_key(team))
+        logger.exception("workflows.data_suggestions.enqueue_failed", team_id=team.id)
+        return _UNAVAILABLE
+    return _GENERATING
 
 
 def has_cached_data_suggestions(*, team: Team) -> bool:
-    return isinstance(cache.get(_cache_key(team)), DataSuggestionsResult)
+    return _read_cache(team) is not None
 
 
-def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> BuiltSuggestion:
-    """Plans the steps of one suggestion and returns a validated draft workflow. Nothing is saved here."""
+def run_data_suggestions(*, team_id: int, user_id: int) -> None:
+    """The background run that `start_data_suggestions` queues. It caches the result and releases the lock."""
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+        user = User.objects.get(id=user_id)
+        previous = _read_cache(team)
+        # A Celery task cannot rely on the process-wide client's background flush, so it gets its own. Only cloud
+        # reports to PostHog's analytics project, like ph_scoped_capture.
+        analytics_client = get_client() if is_cloud() else None
+        try:
+            result = _generate(team=team, user=user, analytics_client=analytics_client)
+        finally:
+            if analytics_client is not None:
+                analytics_client.shutdown()
+        # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
+        if result.status != "ready" and previous is not None and previous.status == "ready":
+            return
+        # An empty answer often means the team's events have not arrived yet, so it is retried as soon as a failure.
+        ttl = CACHE_TTL_SECONDS if result.status == "ready" and result.suggestions else FAILURE_CACHE_TTL_SECONDS
+        # Written before the lock is released, so the next visit reads it instead of starting another run.
+        cache.set(_cache_key(team), _to_cache(result), ttl)
+    finally:
+        cache.delete(_generation_lock_key_for(team_id))
+
+
+def build_data_suggestion(
+    *, team: Team, user: User, suggestion_id: str, is_valid_draft: Callable[[dict[str, Any]], bool]
+) -> BuiltSuggestion:
+    """Plans the steps of one suggestion and returns a draft workflow that passes `is_valid_draft`.
+    Nothing is saved here. A repeated build of the same suggestion returns the first draft without a new plan."""
     if team.organization.is_ai_data_processing_approved is not True:
         raise DataSuggestionNotFound()
     suggestion = _cached_suggestion(team, suggestion_id)
     if suggestion is None:
         raise DataSuggestionNotFound()
+    build_key = f"workflows:data_suggestions:build:{team.id}:{suggestion_id}"
+    built_before = cache.get(build_key)
+    if isinstance(built_before, dict):
+        return BuiltSuggestion(**built_before)
 
     idea = WorkflowIdea(
         name=suggestion.name,
@@ -135,6 +172,7 @@ def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> Buil
             channels=channels,
             has_slack=slack_integration_id is not None,
         ),
+        analytics_client=_request_analytics_client(),
     )
     if plan is None:
         raise DataSuggestionBuildFailed()
@@ -151,13 +189,23 @@ def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> Buil
             slack_integration_id=slack_integration_id,
         ),
     )
-    if built is None or not _is_valid(team, built):
+    if built is None or not is_valid_draft(built.workflow):
         raise DataSuggestionBuildFailed()
-    return BuiltSuggestion(workflow=built.workflow, uses_saved_template=built.uses_saved_template)
+    result = BuiltSuggestion(workflow=built.workflow, uses_saved_template=built.uses_saved_template)
+    cache.set(build_key, dataclasses.asdict(result), _BUILD_CACHE_SECONDS)
+    return result
+
+
+def _unavailable_reason(team: Team) -> DataSuggestionsResult | None:
+    if team.organization.is_ai_data_processing_approved is not True:
+        return DataSuggestionsResult(status="ai_not_approved", suggestions=())
+    # Without Jev the ranking cannot tell a sign-up from routine usage, so no suggestions are made.
+    if not system_one_configured():
+        return _UNAVAILABLE
+    return None
 
 
 def _cache_key(team: Team) -> str:
-    # The cache holds pickled DataSuggestionsResult objects, so bump the version when that class changes or moves.
     # A team's first workflow moves it from the new to the existing ranking, so the two get separate entries.
     audience = "new" if _is_new_to_workflows(team) else "existing"
     return f"workflows:data_suggestions:v4:{team.id}:{audience}"
@@ -168,24 +216,55 @@ def _is_new_to_workflows(team: Team) -> bool:
 
 
 def _generation_lock_key(team: Team) -> str:
-    return f"workflows:data_suggestions:generating:{team.id}"
+    return _generation_lock_key_for(team.id)
+
+
+def _generation_lock_key_for(team_id: int) -> str:
+    return f"workflows:data_suggestions:generating:{team_id}"
+
+
+def _to_cache(result: DataSuggestionsResult) -> dict[str, Any]:
+    # Plain data, not a pickled class, so moving or renaming the dataclasses never breaks a cached entry.
+    return dataclasses.asdict(result)
+
+
+def _read_cache(team: Team) -> DataSuggestionsResult | None:
+    stored = cache.get(_cache_key(team))
+    if not isinstance(stored, dict):
+        return None
+    try:
+        return DataSuggestionsResult(
+            status=stored["status"],
+            suggestions=tuple(
+                DataSuggestion(**{**item, "step_outline": tuple(item["step_outline"])})
+                for item in stored["suggestions"]
+            ),
+        )
+    except (KeyError, TypeError):
+        # An entry from before a field change is treated as missing, so the next visit generates new cards.
+        return None
 
 
 def _cached_suggestion(team: Team, suggestion_id: str) -> DataSuggestion | None:
-    cached = cache.get(_cache_key(team))
-    if not isinstance(cached, DataSuggestionsResult):
+    cached = _read_cache(team)
+    if cached is None:
         return None
     return next((item for item in cached.suggestions if item.id == suggestion_id), None)
 
 
-def _generate(*, team: Team, user: User) -> DataSuggestionsResult:
+def _request_analytics_client() -> Any:
+    # In a web request the process-wide client flushes in the background. A Celery task makes its own instead.
+    return posthoganalytics.default_client
+
+
+def _generate(*, team: Team, user: User, analytics_client: Any) -> DataSuggestionsResult:
     try:
-        return _suggest(team=team, user=user)
+        return _suggest(team=team, user=user, analytics_client=analytics_client)
     except _GENERATION_ERRORS:
-        return DataSuggestionsResult(status="unavailable", suggestions=())
+        return _UNAVAILABLE
 
 
-def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
+def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestionsResult:
     used_events = team_context.used_trigger_events(team)
     is_new = _is_new_to_workflows(team)
     counts = weekly_counts(team, team_context.recent_event_names(team, exclude=used_events))
@@ -219,9 +298,10 @@ def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
             channels=team_context.channels(team),
             has_slack=team_context.slack_integration_id(team) is not None,
         ),
+        analytics_client=analytics_client,
     )
     if not ideas:
-        return DataSuggestionsResult(status="unavailable", suggestions=())
+        return _UNAVAILABLE
 
     suggestions: list[DataSuggestion] = []
     seen_events: set[str] = set()
@@ -253,19 +333,3 @@ def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),
     )
-
-
-def _is_valid(team: Team, built: BuiltWorkflow) -> bool:
-    # The draft leaves credentials, channels and filters blank for the team, so it is checked the way the editor
-    # saves a draft. The graph wiring is checked in full, and enabling the workflow later validates every step.
-    serializer = HogFlowSerializer(
-        data={**built.workflow, "status": "draft"},
-        context={"team_id": team.id, "get_team": lambda: team, "is_draft": True, "event_source": EventSource.WEB},
-    )
-    try:
-        validate_graph(built.workflow["actions"], built.workflow["edges"])
-        serializer.is_valid(raise_exception=True)
-    except ValidationError as error:
-        logger.info("workflows.data_suggestions.invalid_workflow", team_id=team.id, errors=str(error.detail)[:500])
-        return False
-    return True

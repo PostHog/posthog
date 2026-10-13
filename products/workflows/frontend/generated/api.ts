@@ -15,6 +15,7 @@ import type {
     BlastRadiusRequestApi,
     DataSuggestionBuildRequestApi,
     DataSuggestionBuildResponseApi,
+    DataSuggestionGenerateRequestApi,
     DataSuggestionsResponseApi,
     EmailDraftApi,
     EmailDraftRequestApi,
@@ -68,7 +69,6 @@ import type {
     PeopleImportApi,
     PeopleImportCreateApi,
     TeamEmailReputationResponseApi,
-    WorkflowDataSuggestionsCurrentParams,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
@@ -1341,23 +1341,8 @@ export const workflowDataSuggestionsBuild = async (
     })
 }
 
-export const getWorkflowDataSuggestionsCurrentUrl = (
-    projectId: string,
-    params?: WorkflowDataSuggestionsCurrentParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/workflow_data_suggestions/current/?${stringifiedParams}`
-        : `/api/projects/${projectId}/workflow_data_suggestions/current/`
+export const getWorkflowDataSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/current/`
 }
 
 /**
@@ -1365,12 +1350,31 @@ export const getWorkflowDataSuggestionsCurrentUrl = (
  */
 export const workflowDataSuggestionsCurrent = async (
     projectId: string,
-    params?: WorkflowDataSuggestionsCurrentParams,
     options?: RequestInit
 ): Promise<DataSuggestionsResponseApi> => {
-    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsCurrentUrl(projectId, params), {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsCurrentUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWorkflowDataSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/generate/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
     })
 }
 

@@ -12,6 +12,8 @@ from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -28,6 +30,7 @@ from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
     _cache_key,
     _generation_lock_key,
+    _to_cache,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
 from products.workflows.backend.services.data_suggestions.team_context import recent_event_names
@@ -115,8 +118,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             actions=[],
         )
 
-    def _list(self, **params: str) -> dict:
-        response = self.client.get(f"/api/projects/{self.team.id}/workflow_data_suggestions/current/", params)
+    def _list(self, refresh: bool = False) -> dict:
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/"
+        # Celery runs eagerly in tests, so the run that generate starts has finished when it returns.
+        started = self.client.post(f"{url}generate/", {"refresh": refresh}, format="json")
+        assert started.status_code == 200, started.json()
+        response = self.client.get(f"{url}current/")
         assert response.status_code == 200, response.json()
         return response.json()
 
@@ -333,10 +340,11 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cached read", "get", {}, True, 200),
-            ("read that has to generate", "get", {}, False, 429),
-            ("refresh", "get", {"refresh": "true"}, True, 429),
-            ("build", "post", {"suggestion_id": "missing"}, True, 429),
+            ("read", "current", {}, False, 200),
+            ("generate answered from the cache", "generate", {}, True, 200),
+            ("generate that has to run", "generate", {}, False, 429),
+            ("refresh", "generate", {"refresh": True}, True, 429),
+            ("build", "build", {"suggestion_id": "missing"}, True, 429),
         ]
     )
     @patch(f"{VIEW}.AIBurstRateThrottle.wait", return_value=None)
@@ -345,7 +353,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def test_only_calls_that_can_run_an_llm_are_throttled(
         self,
         _name: str,
-        method: str,
+        endpoint: str,
         params: dict,
         cached: bool,
         status: int,
@@ -355,14 +363,33 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         _flag,
     ) -> None:
         if cached:
-            cache.set(_cache_key(self.team), DataSuggestionsResult(status="ready", suggestions=()), 60)
-        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/"
-        if method == "get":
-            response = self.client.get(f"{url}current/", params)
+            cache.set(_cache_key(self.team), _to_cache(DataSuggestionsResult(status="ready", suggestions=())), 60)
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/{endpoint}/"
+        if endpoint == "current":
+            response = self.client.get(url)
         else:
-            response = self.client.post(f"{url}build/", params, format="json")
+            response = self.client.post(url, params, format="json")
 
         assert response.status_code == status
+
+    @parameterized.expand([("read", "get", "current", 200), ("generate", "post", "generate", 403)])
+    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    def test_a_read_only_key_cannot_start_a_run(
+        self, _name: str, method: str, endpoint: str, status: int, suggest_ideas: MagicMock, _flag
+    ) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/{endpoint}/",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status
+        suggest_ideas.assert_not_called()
 
     @parameterized.expand(
         [
@@ -391,7 +418,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggestions = self._list()["suggestions"]
         classify.side_effect = StageClassificationFailed()
 
-        assert self._list(refresh="true") == {"status": "ready", "suggestions": suggestions}
+        assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions}
         assert self._list() == {"status": "ready", "suggestions": suggestions}
 
     @patch(f"{SERVICE}.plan_steps")
@@ -423,14 +450,14 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         suggestion_id = self._list()["suggestions"][0]["id"]
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
 
-        build = self.client.post(
-            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
-            {"suggestion_id": suggestion_id},
-            format="json",
-        )
+        build = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")
         assert build.status_code == 200, build.json()
         workflow = build.json()["workflow"]
+        retry = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")
+        assert retry.json()["workflow"] == workflow
+        assert plan_steps.call_count == 1
         assert [action["type"] for action in workflow["actions"]] == [
             "trigger",
             "function_email",
@@ -486,7 +513,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def test_a_second_request_does_not_generate_while_one_is_running(self, suggest_ideas: MagicMock, _flag) -> None:
         cache.add(_generation_lock_key(self.team), True, 60)
 
-        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert self._list() == {"status": "generating", "suggestions": []}
         suggest_ideas.assert_not_called()
 
         cache.delete(_generation_lock_key(self.team))

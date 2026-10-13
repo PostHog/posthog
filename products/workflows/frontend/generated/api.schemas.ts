@@ -2072,6 +2072,7 @@ export interface DataSuggestionBuildResponseApi {
 
 /**
  * * `ready` - Ready
+ * * `generating` - Generating
  * * `ai_not_approved` - Ai Not Approved
  * * `unavailable` - Unavailable
  */
@@ -2080,6 +2081,7 @@ export type DataSuggestionsStatusEnumApi =
 
 export const DataSuggestionsStatusEnumApi = {
     Ready: 'ready',
+    Generating: 'generating',
     AiNotApproved: 'ai_not_approved',
     Unavailable: 'unavailable',
 } as const
@@ -2164,14 +2166,20 @@ export interface DataSuggestionApi {
 }
 
 export interface DataSuggestionsResponseApi {
-    /** ready when suggestions were made (the list can still be empty), ai_not_approved when the organization has not approved AI data processing, unavailable when the AI call failed.
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
      *
      * * `ready` - Ready
+     * * `generating` - Generating
      * * `ai_not_approved` - Ai Not Approved
      * * `unavailable` - Unavailable */
     status: DataSuggestionsStatusEnumApi
     /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
     suggestions: DataSuggestionApi[]
+}
+
+export interface DataSuggestionGenerateRequestApi {
+    /** Make new suggestions even when the cached ones are still valid. */
+    refresh?: boolean
 }
 
 /**
@@ -2807,11 +2815,4 @@ export type HogFlowsReputationRetrieveParams = {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
-}
-
-export type WorkflowDataSuggestionsCurrentParams = {
-    /**
-     * Ignore the weekly cache and ask again.
-     */
-    refresh?: boolean
 }

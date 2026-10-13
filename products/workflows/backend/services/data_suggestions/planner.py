@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -170,7 +170,7 @@ recipients. The team fills them in. Say what is left in setup_note.
 """
 
 
-def suggest_ideas(*, team: Team, user: User, context: IdeaContext) -> list[WorkflowIdea]:
+def suggest_ideas(*, team: Team, user: User, context: IdeaContext, analytics_client: Any = None) -> list[WorkflowIdea]:
     slack_rule = "" if context.has_slack else "The team has not connected Slack yet, so prefer other steps."
     priority_rule = (
         "This team has no workflows yet, and welcome and onboarding workflows convert best. When the list has an "
@@ -198,6 +198,7 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext) -> list[Workf
         ),
         excluded_values=_missing_channels(context.channels),
         human=as_untrusted_data("project_events", lines, source="event names sent by this project's app"),
+        analytics_client=analytics_client,
     )
     return result.ideas if result else []
 
@@ -212,7 +213,9 @@ def _channel_rule(channels: frozenset[Channel]) -> str:
     return f"The team can also send {' and '.join(sorted(channels))}. Use them only when they suit the message better than email."
 
 
-def plan_steps(*, team: Team, user: User, context: StepsContext) -> PlannedWorkflow | None:
+def plan_steps(
+    *, team: Team, user: User, context: StepsContext, analytics_client: Any = None
+) -> PlannedWorkflow | None:
     email_rule = (
         "For each email step, set email_template_id only when a saved template's name and subject clearly match "
         "the purpose of that step. Generic or placeholder templates never match. Otherwise leave it null and "
@@ -270,5 +273,8 @@ def plan_steps(*, team: Team, user: User, context: StepsContext) -> PlannedWorkf
             max_steps=MAX_PLANNED_STEPS,
         ),
         excluded_values=_missing_channels(context.channels),
+        # An empty enum would make every wait_until_event step impossible, so the list is only set when there is one.
+        allowed_values={"wait_event": context.events} if context.events else None,
         human=human,
+        analytics_client=analytics_client,
     )

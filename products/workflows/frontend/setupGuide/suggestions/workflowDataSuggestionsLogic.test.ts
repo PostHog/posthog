@@ -1,10 +1,16 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { initKeaTests } from '~/test/init'
 
-import { hogFlowsCreate, workflowDataSuggestionsBuild, workflowDataSuggestionsCurrent } from '../../generated/api'
+import {
+    hogFlowsCreate,
+    workflowDataSuggestionsBuild,
+    workflowDataSuggestionsCurrent,
+    workflowDataSuggestionsGenerate,
+} from '../../generated/api'
 import { SuggestionCard } from './suggestionCards'
 import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 
@@ -12,6 +18,7 @@ jest.mock('../../generated/api', () => ({
     hogFlowsCreate: jest.fn(),
     workflowDataSuggestionsBuild: jest.fn(),
     workflowDataSuggestionsCurrent: jest.fn(),
+    workflowDataSuggestionsGenerate: jest.fn(),
 }))
 
 const card: SuggestionCard = {
@@ -27,8 +34,42 @@ const card: SuggestionCard = {
 
 describe('workflowDataSuggestionsLogic', () => {
     beforeEach(() => {
-        jest.mocked(workflowDataSuggestionsCurrent).mockResolvedValue({ status: 'ready', suggestions: [] })
+        jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({ status: 'ready', suggestions: [] })
         initKeaTests()
+    })
+
+    it('polls while the background run generates the cards', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(workflowDataSuggestionsGenerate).mockResolvedValue({ status: 'generating', suggestions: [] })
+            jest.mocked(workflowDataSuggestionsCurrent).mockResolvedValue({
+                status: 'ready',
+                suggestions: [
+                    {
+                        id: 'suggestion-1',
+                        name: 'Welcome new users',
+                        description: 'Send a welcome email after sign-up.',
+                        reason: 'user_registered fires every day.',
+                        trigger_event: 'user_registered',
+                        weekly_count: 42,
+                        stage: 'signup',
+                        step_outline: ['email'],
+                    },
+                ],
+            })
+            const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ generating: true, cards: [] })
+            expect(workflowDataSuggestionsCurrent).not.toHaveBeenCalled()
+
+            jest.advanceTimersByTime(2000)
+
+            await expectLogic(logic).toDispatchActions(['pollAiResultSuccess']).toMatchValues({ generating: false })
+            expect(logic.values.cards.map((shown) => shown.suggestionId)).toEqual(['suggestion-1'])
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('opens the saved draft after a successful build', async () => {

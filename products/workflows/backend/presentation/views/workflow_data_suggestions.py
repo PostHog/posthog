@@ -2,15 +2,17 @@ from typing import Any
 
 from django.db import models
 
+import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import EventSource
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
@@ -19,7 +21,12 @@ from products.workflows.backend.facade.data_suggestions import (
     build_data_suggestion,
     get_data_suggestions,
     has_cached_data_suggestions,
+    start_data_suggestions,
 )
+from products.workflows.backend.presentation.views.graph_validation import validate_graph
+from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
+
+logger = structlog.get_logger(__name__)
 
 # pinned: feature flag key - the frontend gates the same surfaces on it
 FEATURE_FLAG_KEY = "workflows-data-suggestions"
@@ -51,6 +58,7 @@ class DataSuggestionStage(models.TextChoices):
 
 class DataSuggestionsStatus(models.TextChoices):
     READY = "ready"
+    GENERATING = "generating"
     AI_NOT_APPROVED = "ai_not_approved"
     UNAVAILABLE = "unavailable"
 
@@ -76,11 +84,18 @@ class DataSuggestionSerializer(serializers.Serializer):
 class DataSuggestionsResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=DataSuggestionsStatus.choices,
-        help_text="ready when suggestions were made (the list can still be empty), ai_not_approved when the "
-        "organization has not approved AI data processing, unavailable when the AI call failed.",
+        help_text="ready when suggestions were made (the list can still be empty), generating while a background "
+        "run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI "
+        "data processing, unavailable when nothing was made or the run failed.",
     )
     suggestions = DataSuggestionSerializer(
         many=True, help_text="Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume."
+    )
+
+
+class DataSuggestionGenerateRequestSerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        default=False, help_text="Make new suggestions even when the cached ones are still valid."
     )
 
 
@@ -101,29 +116,36 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "hog_flow"
     scope_object_read_actions = ["current"]
-    scope_object_write_actions = ["build"]
+    # Both calls can run ClickHouse and the models, so a read-only key cannot cause that spend.
+    scope_object_write_actions = ["generate", "build"]
 
     def get_throttles(self):
         # The AI budget is per user and shared with other AI features, so only a call that can run the LLM counts
-        # against it. A read served from the cache does not.
-        refresh = self.request.query_params.get("refresh") in ("true", "1")
-        if self.action == "build" or refresh or not has_cached_data_suggestions(team=self.team):
+        # against it. A generate call answered from the cache does not.
+        if self.action == "build" or (
+            self.action == "generate"
+            and (self.request.data.get("refresh") in (True, "true") or not has_cached_data_suggestions(team=self.team))
+        ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
 
-    @extend_schema(
-        operation_id="workflow_data_suggestions_current",
-        parameters=[
-            OpenApiParameter("refresh", bool, required=False, description="Ignore the weekly cache and ask again.")
-        ],
-        responses={200: DataSuggestionsResponseSerializer},
-    )
+    @extend_schema(operation_id="workflow_data_suggestions_current", responses={200: DataSuggestionsResponseSerializer})
     @action(detail=False, methods=["get"])
     def current(self, request: Request, **kwargs: Any) -> Response:
+        self._user_with_feature(request)
+        return Response(DataSuggestionsResponseSerializer(get_data_suggestions(team=self.team)).data)
+
+    @extend_schema(
+        operation_id="workflow_data_suggestions_generate",
+        request=DataSuggestionGenerateRequestSerializer,
+        responses={200: DataSuggestionsResponseSerializer},
+    )
+    @action(detail=False, methods=["post"])
+    def generate(self, request: Request, **kwargs: Any) -> Response:
         user = self._user_with_feature(request)
-        result = get_data_suggestions(
-            team=self.team, user=user, refresh=request.query_params.get("refresh") in ("true", "1")
-        )
+        payload = DataSuggestionGenerateRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        result = start_data_suggestions(team=self.team, user=user, refresh=payload.validated_data["refresh"])
         return Response(DataSuggestionsResponseSerializer(result).data)
 
     @extend_schema(
@@ -138,7 +160,10 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload.is_valid(raise_exception=True)
         try:
             built = build_data_suggestion(
-                team=self.team, user=user, suggestion_id=payload.validated_data["suggestion_id"]
+                team=self.team,
+                user=user,
+                suggestion_id=payload.validated_data["suggestion_id"],
+                is_valid_draft=self._is_valid_draft,
             )
         except DataSuggestionNotFound:
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")
@@ -148,6 +173,28 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         return Response(DataSuggestionBuildResponseSerializer(built).data)
+
+    def _is_valid_draft(self, workflow: dict[str, Any]) -> bool:
+        # The draft leaves credentials, channels and filters blank for the team, so it is checked the way the
+        # editor saves a draft. The graph wiring is checked in full, and enabling it later validates every step.
+        serializer = HogFlowSerializer(
+            data={**workflow, "status": "draft"},
+            context={
+                "team_id": self.team.id,
+                "get_team": lambda: self.team,
+                "is_draft": True,
+                "event_source": EventSource.WEB,
+            },
+        )
+        try:
+            validate_graph(workflow["actions"], workflow["edges"])
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as error:
+            logger.info(
+                "workflows.data_suggestions.invalid_workflow", team_id=self.team.id, errors=str(error.detail)[:500]
+            )
+            return False
+        return True
 
     def _user_with_feature(self, request: Request) -> User:
         user = request.user

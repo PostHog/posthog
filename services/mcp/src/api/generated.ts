@@ -29992,8 +29992,14 @@ export namespace Schemas {
       uses_saved_template: boolean;
     }
 
+    export interface DataSuggestionGenerateRequest {
+      /** Make new suggestions even when the cached ones are still valid. */
+      refresh?: boolean;
+    }
+
     /**
      * * `ready` - Ready
+     * * `generating` - Generating
      * * `ai_not_approved` - Ai Not Approved
      * * `unavailable` - Unavailable
      */
@@ -30002,14 +30008,16 @@ export namespace Schemas {
 
     export const DataSuggestionsStatusEnum = {
       Ready: 'ready',
+      Generating: 'generating',
       AiNotApproved: 'ai_not_approved',
       Unavailable: 'unavailable',
     } as const;
 
     export interface DataSuggestionsResponse {
-      /** ready when suggestions were made (the list can still be empty), ai_not_approved when the organization has not approved AI data processing, unavailable when the AI call failed.
+      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
        *
        * * `ready` - Ready
+       * * `generating` - Generating
        * * `ai_not_approved` - Ai Not Approved
        * * `unavailable` - Unavailable */
       status: DataSuggestionsStatusEnum;
@@ -131673,13 +131681,6 @@ export namespace Schemas {
      * @minLength 1
      */
     workflow_id: string;
-    };
-
-    export type WorkflowDataSuggestionsCurrentParams = {
-    /**
-     * Ignore the weekly cache and ask again.
-     */
-    refresh?: boolean;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
