@@ -97,7 +97,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 logger = structlog.get_logger(__name__)
 
 
-def _setup_enabled(request: Request, team: Team, *, include_onboarding: bool = False) -> bool:
+def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = False) -> bool:
     """Evaluate eligible marketing flags once per request.
 
     Evaluated for the requesting person, because the flag's release conditions target
@@ -107,7 +107,7 @@ def _setup_enabled(request: Request, team: Team, *, include_onboarding: bool = F
     condition matches too. Cached on the request because a second call in the same one
     would fire a redundant `$feature_flag_called`.
     """
-    cache_attribute = "_ma_onboarding_flag" if include_onboarding else "_ma_setup_flag"
+    cache_attribute = "_ma_read_only_setup_flag" if include_read_only else "_ma_setup_flag"
     cached = getattr(request, cache_attribute, None)
     if cached is not None:
         return cached
@@ -128,7 +128,11 @@ def _setup_enabled(request: Request, team: Team, *, include_onboarding: bool = F
         for flag in (
             "marketing-analytics-setup",
             "new-marketing-analytics-dashboard",
-            *(("marketing-analytics-source-onboarding",) if include_onboarding else ()),
+            *(
+                ("marketing-analytics-source-onboarding", "marketing-analytics-setup-plan-mcp")
+                if include_read_only
+                else ()
+            ),
         )
     )
     setattr(request, cache_attribute, enabled)
@@ -1636,7 +1640,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False, url_path="setup_plan", required_scopes=["marketing_analytics:read"])
     def setup_plan(self, request: Request, *args, **kwargs) -> Response:
         # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
-        if not _setup_enabled(request, self.team, include_onboarding=True):
+        if not _setup_enabled(request, self.team, include_read_only=True):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
         date_from = request.validated_query_data["date_from"]
