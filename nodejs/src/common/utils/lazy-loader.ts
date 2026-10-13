@@ -43,7 +43,7 @@ const lazyLoaderCacheSize = new Gauge({
  * - Minimize queries to the DB for multiple values (e.g. teams for events)
  * - Keep that value cached ensuring any caller to retrieve it will get the value
  * - "Refresh" the value after a certain age
- * - "Drop" the value after a much longer age
+ * - "Drop" the value once it expires unused
  *
  * Follow up improvements:
  * - Soft and hard refresh times - if soft it can be refreshed in the background, non blocking
@@ -135,6 +135,7 @@ export class LazyLoader<T> {
     private refreshJitterMs: number
     private maxSize: number
     private cacheSize: number = 0
+    private nextExpirySweepAt: number
 
     private buffer:
         | {
@@ -157,6 +158,7 @@ export class LazyLoader<T> {
         this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
         this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
         this.maxSize = this.options.maxSize ?? defaultConfig.LAZY_LOADER_MAX_SIZE
+        this.nextExpirySweepAt = Date.now() + this.refreshAgeMs
 
         if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
             throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
@@ -221,6 +223,7 @@ export class LazyLoader<T> {
             }
             this.cache[key] = { value, lastUsed: now, cacheUntil, backgroundRefreshAfter }
         }
+        this.evictExpired(now)
         this.evictLRU()
         this.updateCacheSizeMetric()
     }
@@ -444,6 +447,21 @@ export class LazyLoader<T> {
                     error: String(error),
                 })
                 await sleep(retry.retryIntervalMs + jitter)
+            }
+        }
+    }
+
+    /** An expired entry reloads before its next lookup returns, so keeping it only costs memory. */
+    private evictExpired(now: number): void {
+        if (now < this.nextExpirySweepAt) {
+            return
+        }
+        this.nextExpirySweepAt = now + this.refreshAgeMs
+        for (const key in this.cache) {
+            const entry = this.cache[key]
+            if (entry && now > entry.cacheUntil) {
+                delete this.cache[key]
+                this.cacheSize--
             }
         }
     }

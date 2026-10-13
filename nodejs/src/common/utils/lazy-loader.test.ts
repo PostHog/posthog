@@ -525,9 +525,9 @@ describe('LazyLoader', () => {
             loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2', key3: 'value3' })
             await customLoader.getMany(['key1', 'key2', 'key3'])
 
-            // Reloading an expired key replaces its entry rather than adding one, so the cache is
-            // still at maxSize and nothing live gets evicted.
-            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            // Reloading a key replaces its entry rather than adding one, so the cache is still at
+            // maxSize and nothing live gets evicted.
+            customLoader.markForRefresh('key1')
             loader.mockResolvedValueOnce({ key1: 'value1-refreshed' })
             await customLoader.get('key1')
 
@@ -576,6 +576,23 @@ describe('LazyLoader', () => {
             await customLoader.getMany(['key1', 'key2', 'key3'])
 
             expect(Object.keys(customLoader.getCache()).length).toBe(2)
+        })
+    })
+
+    describe('expired entries', () => {
+        it('evicts entries past their refresh age once per refresh age, keeping live ones', async () => {
+            const customLoader = new LazyLoader({ name: 'test', loader, refreshJitterMs: 0 })
+
+            loader.mockResolvedValueOnce({ key1: 'value1' })
+            await customLoader.get('key1')
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 3)
+            loader.mockResolvedValueOnce({ key2: 'value2' })
+            await customLoader.get('key2')
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            loader.mockResolvedValueOnce({ key3: 'value3' })
+            await customLoader.get('key3')
+
+            expect(customLoader.getCache()).toEqual({ key2: 'value2', key3: 'value3' })
         })
     })
 
