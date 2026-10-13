@@ -20,6 +20,26 @@ export const insertHogFlow = async (postgres: PostgresRouter, hogFlow: HogFlow):
     return res
 }
 
+export const insertMessageTemplate = async (
+    postgres: PostgresRouter,
+    teamId: number,
+    email: Record<string, string>
+): Promise<{ id: string }> => {
+    return await insertRow(postgres, 'posthog_messagetemplate', {
+        id: new UUIDT().toString(),
+        team_id: teamId,
+        name: 'Password reset',
+        description: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        content: { templating: 'liquid', email },
+        type: 'email',
+        deleted: false,
+        created_by_id: null,
+        message_category_id: null,
+    })
+}
+
 export const createHogFlowInvocationContext = (
     data: Partial<HogFlowInvocationContext> = {}
 ): HogFlowInvocationContext => {

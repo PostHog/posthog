@@ -8,7 +8,7 @@ import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { buildTransactionalEmailFlow } from '../services/messaging/transactional-email'
+import { TransactionalEmailSource, buildTransactionalEmailFlow } from '../services/messaging/transactional-email'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -70,6 +70,15 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return result
     }
 
+    // A template that is gone, or that belongs to another team, fails the job like a missing flow.
+    private async loadTransactionalEmailFlow(
+        teamId: number,
+        source: TransactionalEmailSource
+    ): Promise<HogFlow | null> {
+        const template = await this.messageTemplateManager.get(source.template_id)
+        return template && template.team_id === teamId ? buildTransactionalEmailFlow(teamId, source, template) : null
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
@@ -92,7 +101,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const transactionalEmail = (item.state as CyclotronJobInvocationHogFlow['state'] | null)
                     ?.transactionalEmail
                 const hogFlow = transactionalEmail
-                    ? buildTransactionalEmailFlow(item.teamId, transactionalEmail)
+                    ? await this.loadTransactionalEmailFlow(item.teamId, transactionalEmail)
                     : await this.hogFlowManager.getHogFlow(item.functionId)
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {

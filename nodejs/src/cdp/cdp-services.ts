@@ -37,6 +37,7 @@ import { EmailValidationService } from './services/messaging/email-validation.se
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { MessageAssetsService } from './services/messaging/message-assets.service'
+import { MessageTemplateManagerService } from './services/messaging/message-template-manager.service'
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -79,6 +80,7 @@ export interface CdpCoreServices {
     valkeyShadow: CdpValkeyShadowPools
     hogFunctionManager: HogFunctionManagerService
     hogFlowManager: HogFlowManagerService
+    messageTemplateManager: MessageTemplateManagerService
     hogWatcher: HogWatcherService
     /**
      * Valkey-bound twin of `hogWatcher`. Use at call sites alongside `hogWatcher` via
@@ -394,6 +396,7 @@ export function createCdpCoreServices(
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
+    const messageTemplateManager = new MessageTemplateManagerService(deps.postgres, deps.pubSub)
 
     const hogWatcherConfig = {
         hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
@@ -576,6 +579,7 @@ export function createCdpCoreServices(
         valkeyShadow,
         hogFunctionManager,
         hogFlowManager,
+        messageTemplateManager,
         hogWatcher,
         hogWatcherMirror,
         hogExecutorAsync,

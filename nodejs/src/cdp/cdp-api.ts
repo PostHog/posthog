@@ -56,6 +56,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
+import { MessageTemplateManagerService } from './services/messaging/message-template-manager.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { TransactionalEmailRequestSchema, buildTransactionalEmailFlow } from './services/messaging/transactional-email'
 import {
@@ -139,6 +140,7 @@ export class CdpApi {
 
     private hogFunctionManager: HogFunctionManagerService
     private hogFlowManager: HogFlowManagerService
+    private messageTemplateManager: MessageTemplateManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
@@ -173,6 +175,7 @@ export class CdpApi {
 
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
+        this.messageTemplateManager = services.messageTemplateManager
         this.recipientTokensService = services.recipientTokensService
         this.hogExecutorAsync = services.hogExecutorAsync
         this.hogInputsService = services.hogInputsService
@@ -1237,9 +1240,9 @@ export class CdpApi {
         }
     }
 
-    // Queue one transactional email from a message template. Django validates the request, builds the
-    // email input from the template, and calls this once per send. The job goes straight onto the
-    // email queue's fast lane, where the email worker runs it as a one-step flow built from the state.
+    // Queue one transactional email from a message template. Django validates the request and calls
+    // this once per send. The job stores the template id, not its content, and goes straight onto the
+    // email queue's fast lane. The email worker loads the template and runs it as a one-step flow.
     //
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the
     // template, never the fleet-wide internal secret.
@@ -1269,7 +1272,12 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Team not found' })
             }
 
-            const hogFlow = buildTransactionalEmailFlow(team.id, source)
+            const template = await this.messageTemplateManager.get(source.template_id)
+            if (!template || template.team_id !== team.id) {
+                return res.status(404).json({ error: 'Template not found' })
+            }
+
+            const hogFlow = buildTransactionalEmailFlow(team.id, source, template)
             const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
             if (isLimited) {
                 return res.status(429).json({ error: 'quota_limited' })

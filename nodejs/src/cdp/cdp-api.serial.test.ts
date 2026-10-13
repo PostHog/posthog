@@ -29,7 +29,7 @@ import {
     insertHogFunctionTemplate,
     insertIntegration,
 } from './_tests/fixtures'
-import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
+import { insertHogFlow as _insertHogFlow, insertMessageTemplate } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -2038,20 +2038,8 @@ describe('CDP API', () => {
 
     describe('transactional email', () => {
         let mockQueueInvocations: jest.Mock
-        const templateId = new UUIDT().toString()
-        const body = {
-            template_id: templateId,
-            template_name: 'Password reset',
-            email: {
-                to: { email: 'user@example.com', name: '' },
-                from: { integrationId: 1 },
-                subject: 'Reset your password',
-                html: '<a href="{{ variables.reset_link }}">Reset</a>',
-                text: '',
-            },
-            distinct_id: 'distinct_A_1',
-            variables: { reset_link: 'https://example.com/reset' },
-        }
+        let templateId: string
+        let body: Record<string, any>
 
         // Raw audience literal and Python claim names: the wire contract with Django's
         // WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE, so drift on either side breaks here.
@@ -2064,12 +2052,25 @@ describe('CDP API', () => {
             } = {}
         ) => jwt.sign({ team_id: teamId, template_id: tokenTemplateId }, secret, { audience, expiresIn: '2m' })
 
-        beforeEach(() => {
+        beforeEach(async () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            templateId = (
+                await insertMessageTemplate(hub.postgres, team.id, {
+                    subject: 'Reset your password',
+                    html: '<a href="{{ variables.reset_link }}">Reset</a>',
+                })
+            ).id
+            body = {
+                template_id: templateId,
+                to: 'user@example.com',
+                from_integration_id: 1,
+                distinct_id: 'distinct_A_1',
+                variables: { reset_link: 'https://example.com/reset' },
+            }
         })
 
-        it('queues the send on the email fast lane with the template and data in its state', async () => {
+        it('queues the send on the email fast lane with only the template id and data in its state', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${team.id}/messaging/transactional_email`)
                 .set({ Authorization: `Bearer ${mintToken(team.id, templateId)}` })
@@ -2087,7 +2088,7 @@ describe('CDP API', () => {
                 state: {
                     event: { distinct_id: 'distinct_A_1' },
                     variables: { reset_link: 'https://example.com/reset' },
-                    transactionalEmail: { template_id: templateId, email: body.email },
+                    transactionalEmail: { template_id: templateId, to: 'user@example.com', from_integration_id: 1 },
                 },
             })
         })

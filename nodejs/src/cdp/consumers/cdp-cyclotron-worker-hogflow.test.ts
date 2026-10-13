@@ -12,7 +12,7 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { createHogFlowInvocationContext, insertHogFlow, insertMessageTemplate } from '../_tests/fixtures-hogflows'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -393,24 +393,34 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(personManagerSpy).not.toHaveBeenCalled()
         })
 
-        it('runs a transactional send from its job state without loading the person behind its distinct_id', async () => {
-            const templateId = new UUIDT().toString()
+        it.each([
+            ['its own team', true],
+            ['another team', false],
+        ])('runs a transactional send for a template of %s only', async (_desc, ownTeam) => {
+            const template = await insertMessageTemplate(hub.postgres, ownTeam ? team.id : team2.id, {
+                subject: 'Reset your password',
+                html: '<p>Reset</p>',
+            })
             const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
                 event: { distinct_id: 'distinct_A_1', properties: {} } as any,
-                transactionalEmail: {
-                    template_id: templateId,
-                    template_name: 'Password reset',
-                    email: { to: { email: 'user@example.com' }, subject: 'Reset', html: '', text: '' },
-                },
+                transactionalEmail: { template_id: template.id, to: 'user@example.com', from_integration_id: 1 },
             })
-            invocation.functionId = templateId
+            invocation.functionId = template.id
+            invocation.teamId = team.id
 
             const results = (await processor.processInvocations([
                 invocation,
             ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
 
+            if (!ownTeam) {
+                expect(results).toHaveLength(0)
+                return
+            }
             expect(results).toHaveLength(1)
-            expect(results[0].invocation.hogFlow).toMatchObject({ id: templateId, team_id: team.id, status: 'active' })
+            expect(results[0].invocation.hogFlow).toMatchObject({ id: template.id, team_id: team.id, status: 'active' })
+            expect(results[0].invocation.hogFlow.actions[1].config).toMatchObject({
+                inputs: { email: { value: { to: { email: 'user@example.com' }, subject: 'Reset your password' } } },
+            })
             // The caller may not be allowed to read person properties, so the template must never see them.
             expect(results[0].invocation.person).toBeUndefined()
         })

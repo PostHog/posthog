@@ -28,6 +28,7 @@ import { HogFunctionTemplateManagerService } from '../services/managers/hog-func
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
 import { EmailService } from '../services/messaging/email.service'
+import { MessageTemplateManagerService } from '../services/messaging/message-template-manager.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
@@ -66,6 +67,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
     groupsManager: GroupsManagerService
     hogFlowManager: HogFlowManagerService
+    messageTemplateManager: MessageTemplateManagerService
     hogFunctionManager: HogFunctionManagerService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
@@ -94,6 +96,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.valkeyShadow = services.valkeyShadow
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
+        this.messageTemplateManager = services.messageTemplateManager
         this.hogWatcher = services.hogWatcher
         this.hogWatcherMirror = services.hogWatcherMirror
         this.hogExecutorAsync = services.hogExecutorAsync
