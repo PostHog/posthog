@@ -6242,8 +6242,9 @@ class HogQLQueryModifiers(BaseModel):
         description=(
             "Order funnel steps by `$client_capture_time`, the device's own clock"
             " reading at capture, rather than by the stored timestamp, which includes"
-            " the request's delivery latency. Falls back per row to the stored"
-            " timestamp when the event has no capture instant or no device."
+            " the request's delivery latency. Applies to browser and mobile events,"
+            " anchored per device and day; server-side events, and any device-day where"
+            " an event lacks the capture instant, keep the stored timestamp."
         ),
     )
     inCohortVia: InCohortVia | None = None
