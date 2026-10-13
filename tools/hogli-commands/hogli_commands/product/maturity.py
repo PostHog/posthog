@@ -946,7 +946,7 @@ def _blocked_reason(status: IsolationStatus) -> str:
     wiring = {c.class_name for c in status.unapproved_wiring}
     if wiring:
         reasons.append(
-            f"{len(wiring)} wiring class(es) implement no approved interface ({_class_list(wiring)}): "
+            f"{len(wiring)} wiring class(es) have no confirmed approved interface ({_class_list(wiring)}): "
             "return contracts from a facade function, register a plain function, or use an approved base"
         )
     return "; ".join(reasons) + " (see product:lint)"
