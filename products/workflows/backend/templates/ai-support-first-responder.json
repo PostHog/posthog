@@ -1,7 +1,7 @@
 {
     "id": "01a12fb6-3cfe-0000-5d45-25a5b3a944e0",
     "name": "Ticket: AI triage and investigation",
-    "description": "When a ticket comes in, an AI agent investigates it using the customer's PostHog data, and your docs or code if you connect them. It tags the ticket with a category, sets its priority, and saves its findings and a suggested reply as a private note for your team. It never replies to the customer.",
+    "description": "When a ticket comes in, an AI agent with read-only access investigates it using the customer's PostHog data, and your docs or code if you connect them. It picks a category and priority, which the workflow applies to the ticket, and saves its findings and a suggested reply as a private note for your team. It never replies to the customer.",
     "scope": "global",
     "tags": ["ai", "support", "support lifecycle", "slack"],
     "version": 1,
@@ -43,13 +43,51 @@
         },
         {
             "from": "did_triage",
-            "to": "note_investigation",
+            "to": "has_triage_line",
             "type": "branch",
             "index": 0
         },
         {
             "from": "did_triage",
             "to": "tag_needs_triage",
+            "type": "continue"
+        },
+        {
+            "from": "has_triage_line",
+            "to": "apply_high",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "has_triage_line",
+            "to": "apply_medium",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "has_triage_line",
+            "to": "apply_low",
+            "type": "branch",
+            "index": 2
+        },
+        {
+            "from": "has_triage_line",
+            "to": "note_investigation",
+            "type": "continue"
+        },
+        {
+            "from": "apply_high",
+            "to": "note_investigation",
+            "type": "continue"
+        },
+        {
+            "from": "apply_medium",
+            "to": "note_investigation",
+            "type": "continue"
+        },
+        {
+            "from": "apply_low",
+            "to": "note_investigation",
             "type": "continue"
         },
         {
@@ -101,7 +139,7 @@
         {
             "id": "triage",
             "name": "Investigate and triage the ticket",
-            "description": "An AI agent investigates the ticket, tags its category, sets its priority and drafts a reply for your team. It never replies to the customer. Edit the category list to match your team. To let it check your docs or code, add your GitHub repository under Repository, or a docs or knowledge base connector under Connectors. It needs full access to tag the ticket, and it's told not to change anything else.",
+            "description": "An AI agent investigates the ticket, picks a category and priority, and drafts a reply for your team. It has read-only access, so it can't change anything itself: the next steps apply its category and priority. Edit the category list to match your team. To let it check your docs or code, add your GitHub repository under Repository, or a docs or knowledge base connector under Connectors.",
             "type": "function",
             "on_error": "continue",
             "filters": null,
@@ -109,7 +147,7 @@
                 "template_id": "template-posthog-create-task",
                 "inputs": {
                     "prompt": {
-                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen investigate:\n- Look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n- If you have access to the team's docs, code repository or other connectors, check them for known issues, relevant docs pages or recent changes that explain the problem.\n\nThen classify the ticket:\n- Pick one category and add it to the ticket as a tag: `category_bug`, `category_billing`, `category_how_to`, `category_feature_request`, `category_account_access` or `category_other`.\n- Set the ticket's priority to low, medium or high.\n\nReply with:\n1. A one-line summary of the problem.\n2. The category and priority you set, and why.\n3. What you found in their data, docs or code that explains the problem, with links.\n4. A suggested reply the support team can edit and send.\n\nOnly add the category tag and set the priority. Never reply to the customer, change the ticket's status or assignee, or change anything else. Your write-up is for the support team, who decide what to send.",
+                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen investigate:\n- Look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n- If you have access to the team's docs, code repository or other connectors, check them for known issues, relevant docs pages or recent changes that explain the problem.\n\nThen classify the ticket:\n- Pick one category: `category_bug`, `category_billing`, `category_how_to`, `category_feature_request`, `category_account_access` or `category_other`.\n- Pick a priority: low, medium or high.\n\nReply with:\n1. A one-line summary of the problem.\n2. The category and priority you picked, and why.\n3. What you found in their data, docs or code that explains the problem, with links.\n4. A suggested reply the support team can edit and send.\n\nEnd your reply with this line on its own, exactly in this format, so the workflow can apply it:\nTRIAGE: <category> | <priority>\n\nDo not change anything yourself, and never reply to the customer. Your write-up is for the support team, who decide what to send.",
                         "templating": "hog"
                     },
                     "title": {
@@ -117,7 +155,7 @@
                         "templating": "hog"
                     },
                     "posthog_mcp_scopes": {
-                        "value": "full",
+                        "value": "read_only",
                         "templating": "hog"
                     },
                     "reply_in_slack_thread": {
@@ -160,6 +198,154 @@
                         }
                     }
                 ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "has_triage_line",
+            "name": "Did the agent pick a category and priority?",
+            "description": "Reads the last 'TRIAGE: <category> | <priority>' line of the write-up. Only a category_ tag and a priority of low, medium or high are applied, so a ticket that tries to trick the agent can't do anything else.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "High priority",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[2]) = 'high'",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Medium priority",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[2]) = 'medium'",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Low priority",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.task_final_message like '%TRIAGE:%' and match(trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[1]), '^category_[a-z_]+$') and trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', toString(variables.task_final_message))[-1])[1])[2]) = 'low'",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "apply_high",
+            "name": "Tag category, set high priority",
+            "description": "Tags the ticket with the agent's category and sets it to high priority.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": [
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[-1])[1])[1])}"
+                        ],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    },
+                    "priority": {
+                        "value": "high",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "apply_medium",
+            "name": "Tag category, set medium priority",
+            "description": "Tags the ticket with the agent's category and sets it to medium priority.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": [
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[-1])[1])[1])}"
+                        ],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    },
+                    "priority": {
+                        "value": "medium",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "apply_low",
+            "name": "Tag category, set low priority",
+            "description": "Tags the ticket with the agent's category and sets it to low priority.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "tags": {
+                        "value": [
+                            "{trim(splitByString('|', splitByString('\\n', splitByString('TRIAGE:', variables.task_final_message)[-1])[1])[1])}"
+                        ],
+                        "templating": "hog"
+                    },
+                    "tags_mode": {
+                        "value": "add",
+                        "templating": "hog"
+                    },
+                    "priority": {
+                        "value": "low",
+                        "templating": "hog"
+                    }
+                }
             },
             "output_variable": null
         },
