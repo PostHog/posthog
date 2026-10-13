@@ -3007,7 +3007,7 @@ class FeatureFlagSerializer(
                     try:
                         groups = get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys)
                     except Exception as exc:
-                        # The names are only cosmetic, so a personhog blip must not fail the whole response.
+                        # The names are only for display, so a transient personhog error must not fail the response.
                         if not is_transient_rpc_error(exc):
                             raise
                         logger.warning("Falling back to raw group keys for flag %s", instance.id, exc_info=True)
