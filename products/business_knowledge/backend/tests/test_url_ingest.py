@@ -22,11 +22,13 @@ from posthog.security.url_validation import PinnedUrlVerdict
 from products.business_knowledge.backend import url_fetch
 from products.business_knowledge.backend.html_parse import _bs4_fallback, parse_html
 from products.business_knowledge.backend.logic import (
+    REFRESH_INTERRUPTED_ERROR,
     InvalidUrlError,
     QuotaExceededError,
     SourceBusyError,
     chunk_text,
     create_url_source,
+    execute_refresh_source,
     refresh_source,
     update_url_source,
 )
@@ -361,6 +363,22 @@ class TestUpdateUrlSource(BaseTest):
         source.refresh_from_db()
         assert source.source_url == "https://docs.example.com/billing"
 
+    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    def test_url_change_claims_without_fetching(self, _ssrf: MagicMock, mock_fetch: MagicMock) -> None:
+        source = self._seed()
+        result = update_url_source(
+            source_id=source.id,
+            team_id=self.team.id,
+            url="https://new.example.com/docs",
+        )
+        assert result is not None
+        assert result.refresh_claimed
+        mock_fetch.assert_not_called()
+        source.refresh_from_db()
+        assert source.source_url == "https://new.example.com/docs"
+        assert source.status == SourceStatus.PROCESSING
+
 
 class TestRefreshSource(BaseTest):
     def _seed(self, etag: str = '"old"') -> KnowledgeSource:
@@ -450,6 +468,19 @@ class TestRefreshSource(BaseTest):
         KnowledgeSource.objects.unscoped().filter(id=source_a.id).update(status=SourceStatus.PROCESSING)
         with self.assertRaises(SourceBusyError):
             refresh_source(source_id=source_b.id, team_id=self.team.id)
+
+    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    def test_interrupted_refresh_releases_claim(self, _ssrf: MagicMock, mock_fetch: MagicMock) -> None:
+        source = self._seed()
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=SourceStatus.PROCESSING)
+        mock_fetch.side_effect = RuntimeError("cannot schedule new futures after interpreter shutdown")
+        with self.assertRaises(RuntimeError):
+            execute_refresh_source(source_id=source.id, team_id=self.team.id)
+        source.refresh_from_db()
+        assert source.status == SourceStatus.READY
+        assert source.last_refresh_status == RefreshStatus.ERROR
+        assert source.last_refresh_error == REFRESH_INTERRUPTED_ERROR
 
     def test_cross_team_refresh_returns_none(self) -> None:
         from posthog.models.team import Team
