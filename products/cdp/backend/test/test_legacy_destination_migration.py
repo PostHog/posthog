@@ -1,7 +1,9 @@
 from posthog.test.base import BaseTest
 
-from posthog.cdp.legacy_destination_migration import disable_migrated_plugin_configs, migrate_legacy_destinations
-
+from products.cdp.backend.legacy_destination_migration import (
+    disable_migrated_plugin_configs,
+    migrate_legacy_destinations,
+)
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import Plugin, PluginAttachment, PluginConfig

@@ -6,11 +6,11 @@ from typing import Any, Optional, cast
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import compile_hog
 
 from common.hogvm.python.execute import execute_bytecode
@@ -192,7 +192,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             payload = edit_payload(payload)
 
         # Mock the transpile function to avoid Node.js/pnpm dependency
-        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+        with patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data=payload,
