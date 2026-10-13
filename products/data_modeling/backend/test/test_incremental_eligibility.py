@@ -513,6 +513,24 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                 None,
             ),
             ("column_types_unknown", GROUPED, {}, None),
+            (
+                "union_branches_can_repeat_a_key",
+                f"{GROUPED} UNION ALL {GROUPED}",
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "nullable_grouped_column_behind_low_cardinality",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                {**DAILY_EVENT_TYPES, "event": "LowCardinality(Nullable(String))"},
+                None,
+            ),
+            (
+                "group_by_all_over_an_unnamed_expression",
+                "SELECT toStartOfDay(timestamp) AS day, lower(event), count() AS c FROM events GROUP BY ALL",
+                DAILY_EVENT_TYPES,
+                None,
+            ),
         ]
     )
     def test_proposes_a_config_only_when_the_keys_are_certain(

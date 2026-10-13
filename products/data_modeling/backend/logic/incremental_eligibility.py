@@ -61,7 +61,8 @@ NON_DETERMINISTIC_FUNCTIONS = {
     "generateuuidv7",
 }
 
-_CLICKHOUSE_TYPE_WRAPPERS = ("nullable(", "lowcardinality(")
+_LOW_CARDINALITY_WRAPPER = ("lowcardinality(",)
+_CLICKHOUSE_TYPE_WRAPPERS = ("nullable(", *_LOW_CARDINALITY_WRAPPER)
 
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
 
@@ -193,37 +194,44 @@ def check_incremental_eligibility(
     )
 
 
-def propose_incremental_config(query: str, column_types: Mapping[str, str]) -> Optional[IncrementalConfig]:
+def propose_incremental_config(
+    query: str, column_types: Mapping[str, str], *, database: Optional["Database"] = None
+) -> Optional[IncrementalConfig]:
     """The incremental config a grouped query admits on its own, or None when choosing one needs a person."""
     try:
         node = parse_select(query)
     except (ExposedHogQLError, ValueError):
         return None
-    selects = _leaf_selects(node)
-    if not all(_groups_only_by_output_columns(select) for select in selects):
+    if not isinstance(node, ast.SelectQuery) or not _groups_only_by_output_columns(node):
         return None
-    unique_key = sorted(_grouping_key_names(selects[0]))
+    unique_key = sorted(_grouping_key_names(node))
     time_keys = [name for name in unique_key if _is_time_type(column_types.get(name))]
     if len(time_keys) != 1:
         return None
     config = IncrementalConfig(incremental_key=time_keys[0], unique_key=tuple(unique_key))
-    result = check_incremental_eligibility(query, config, column_types=dict(column_types))
+    result = check_incremental_eligibility(query, config, column_types=dict(column_types), database=database)
     return config if result.eligible else None
 
 
 def _groups_only_by_output_columns(select: ast.SelectQuery) -> bool:
     if select.group_by_mode == "all" and not select.group_by:
-        return True
+        return all(
+            _output_name(item) is not None
+            for item in select.select
+            if not has_aggregation(item.expr if isinstance(item, ast.Alias) else item)
+        )
     return bool(select.group_by) and len(_grouping_key_names(select)) == len(select.group_by or [])
 
 
 def _is_time_type(clickhouse_type: Optional[str]) -> bool:
-    if clickhouse_type is None:
-        return False
+    return clickhouse_type is not None and _unwrapped(clickhouse_type, _CLICKHOUSE_TYPE_WRAPPERS).startswith("date")
+
+
+def _unwrapped(clickhouse_type: str, wrappers: tuple[str, ...]) -> str:
     unwrapped = clickhouse_type.strip().lower()
-    while unwrapped.startswith(_CLICKHOUSE_TYPE_WRAPPERS):
+    while unwrapped.startswith(wrappers):
         unwrapped = unwrapped.split("(", 1)[1]
-    return unwrapped.startswith("date")
+    return unwrapped
 
 
 def _unique(messages: list[str]) -> list[str]:
@@ -531,7 +539,9 @@ def _check_nullable_unique_key(
         return
     for column in config.unique_key:
         clickhouse_type = column_types.get(column)
-        if isinstance(clickhouse_type, str) and clickhouse_type.strip().lower().startswith("nullable("):
+        if isinstance(clickhouse_type, str) and _unwrapped(clickhouse_type, _LOW_CARDINALITY_WRAPPER).startswith(
+            "nullable("
+        ):
             blockers.append(
                 f'Unique key column "{column}" can be null. A null key adds a duplicate row on '
                 f"every run instead of updating. Wrap it in coalesce() to give it a fallback value."

@@ -3,6 +3,8 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, User
 from posthog.models.organization import OrganizationMembership
@@ -20,6 +22,7 @@ from products.data_modeling.backend.test.helpers import warehouse_source_node
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
+STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 NODE_MATERIALIZATION_SYNC_CONNECT = "products.data_modeling.backend.logic.node_materialization.sync_connect"
 
 
@@ -152,23 +155,58 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         schedule_materialization.assert_not_called()
         assert self.saved_query.is_materialized is False
 
-    def test_an_incremental_config_is_stored_before_the_first_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("incremental", None, DAY_KEY, STORED_DAY_KEY),
+            ("full_refresh_clears_leftover_keys", STORED_DAY_KEY, None, None),
+        ]
+    )
+    def test_the_refresh_mode_is_stored_before_the_first_run(
+        self,
+        _name: str,
+        stored_before: dict | None,
+        incremental_config: IncrementalConfig | None,
+        expected: dict | None,
+    ) -> None:
         self.saved_query.query = {"kind": "HogQLQuery", "query": DAILY_COUNTS}
-        self.saved_query.save(update_fields=["query"])
+        self.saved_query.incremental_config = stored_before
+        self.saved_query.save(update_fields=["query", "incremental_config"])
+        configs_seen_by_the_first_run: list[dict | None] = []
 
-        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
-            self._enable(timedelta(hours=1), incremental_config=DAY_KEY)
+        def record_config(saved_query: DataWarehouseSavedQuery, **_kwargs: object) -> None:
+            configs_seen_by_the_first_run.append(
+                DataWarehouseSavedQuery.objects.get(id=saved_query.id).incremental_config
+            )
 
-        self.saved_query.refresh_from_db()
-        assert self.saved_query.is_materialized is True
-        assert self.saved_query.incremental_config == {
-            "enabled": True,
-            "incremental_key": "day",
-            "unique_key": ["day"],
-            "lookback_seconds": 0,
-        }
+        with patch.object(
+            DataWarehouseSavedQuery, "schedule_materialization", autospec=True, side_effect=record_config
+        ):
+            self._enable(timedelta(hours=1), incremental_config=incremental_config)
 
-    def test_an_incremental_config_the_query_forbids_is_refused_before_anything_is_written(self) -> None:
+        assert configs_seen_by_the_first_run == [expected]
+
+    @parameterized.expand(
+        [
+            ("limit_in_its_own_query", None),
+            ("limit_inside_a_view_it_reads", "SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 100"),
+        ]
+    )
+    def test_an_incremental_config_the_query_forbids_is_refused_before_anything_is_written(
+        self, _name: str, upstream_query: str | None
+    ) -> None:
+        if upstream_query is not None:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="recent_events",
+                query={"kind": "HogQLQuery", "query": upstream_query},
+                columns={"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}},
+            )
+            self.saved_query.query = {
+                "kind": "HogQLQuery",
+                "query": "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM recent_events GROUP BY day",
+            }
+            self.saved_query.save(update_fields=["query"])
+
         with (
             patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization,
             self.assertRaises(api.IncrementalConfigRefusedError),
