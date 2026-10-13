@@ -161,6 +161,6 @@
     "variables": [],
     "billable_action_types": ["function"],
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
-    "tags": ["slack", "support ticket", "support"],
+    "tags": ["support", "support lifecycle", "slack"],
     "scope": "global"
 }

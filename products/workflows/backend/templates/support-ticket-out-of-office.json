@@ -1,0 +1,193 @@
+{
+    "id": "01a1352a-0c41-0000-b8e6-3c0f72d94a15",
+    "name": "Ticket routing: reassign while an agent is out of office",
+    "description": "When a customer replies on a ticket assigned to someone who's out of office, reassign it so the reply doesn't sit unanswered. Add one branch per person, with their email and the dates they're away.",
+    "scope": "global",
+    "tags": ["support", "support routing"],
+    "version": 1,
+    "created_at": "2026-10-13T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-13T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_message_received",
+                    "name": "$conversation_message_received",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": null,
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "get_ticket",
+            "type": "continue"
+        },
+        {
+            "from": "get_ticket",
+            "to": "who_is_away",
+            "type": "continue"
+        },
+        {
+            "from": "who_is_away",
+            "to": "reassign",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "who_is_away",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "reassign",
+            "to": "note",
+            "type": "continue"
+        },
+        {
+            "from": "note",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Customer replies",
+            "description": "Runs when a customer sends a message on a ticket.",
+            "type": "trigger",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_message_received",
+                            "name": "$conversation_message_received",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "get_ticket",
+            "name": "Get ticket",
+            "description": "Load the ticket's current assignee.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": {
+                "key": "ticket"
+            }
+        },
+        {
+            "id": "who_is_away",
+            "name": "Is the assignee out of office?",
+            "description": "Example branch: change the email and dates (UTC) to match the time off. Copy the branch for each person who's away, and remove it once they're back.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Example: alex@example.com, 22 Dec to 2 Jan",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.ticket.assignee.user.email = 'alex@example.com' and now() >= toDateTime('2026-12-22 00:00:00', 'UTC') and now() < toDateTime('2027-01-02 00:00:00', 'UTC')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "reassign",
+            "name": "Reassign ticket",
+            "description": "Pick the person or team that covers while they're away.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "note",
+            "name": "Add a private note",
+            "description": "Tells the team why the ticket moved. Only your team can see private notes.",
+            "type": "function",
+            "on_error": "continue",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-send-ticket-message",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "message": {
+                        "value": "Reassigned automatically because {variables.ticket.assignee.user.email} is out of office.",
+                        "templating": "hog"
+                    },
+                    "is_private": {
+                        "value": true,
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "type": "exit",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "reason": "Done"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"]
+}
