@@ -208,6 +208,8 @@ The background task uses `tokio::select!` over two sources:
 ```
 
 The channel is not read while a tick runs, so updates wait in it until the tick ends.
+Between ticks the loop takes up to `UPDATE_DRAIN_BATCH` (1,024) updates per poll, because a single `recv` stops after Tokio's per-poll budget and a CPU-starved pod would then drain slower than events arrive.
+A full channel drops the update and increments `global_rate_limiter_error_total` with `cause=channel_full`. It writes no log line.
 
 Each tick, per Redis instance:
 
@@ -334,7 +336,7 @@ Where the two read different env vars, both are listed.
 | `max_concurrent_commands` | 4 | `GLOBAL_RATE_LIMIT_MAX_CONCURRENT_COMMANDS` | Commands in flight at once per instance |
 | `max_write_batch_entries` | 200,000 | `GLOBAL_RATE_LIMIT_MAX_WRITE_BATCH_ENTRIES` | Buffered `(key, epoch)` entries. At the cap, updates for new keys drop and are counted |
 | `max_pending_sync_entries` | 200,000 | `GLOBAL_RATE_LIMIT_MAX_PENDING_SYNC_ENTRIES` | Queued syncs. At the cap, new sync requests drop and re-queue on the key's next request |
-| `channel_capacity` | 1,000,000 | — | mpsc channel buffer for async update requests |
+| `channel_capacity` | 1,000,000 | — | mpsc channel buffer for async update requests. A full channel drops the update |
 
 #### Local cache (Moka)
 
@@ -368,7 +370,7 @@ Without `GLOBAL_RATE_LIMIT_REDIS_URL`, both limiters share capture's main Redis 
 
 - An entry idles out only when no request touches it for `local_cache_idle_timeout`, so a key's sync cadence never evicts an active key.
 - Under high key cardinality with cold-skewed traffic, a shorter idle timeout reclaims slots faster.
-- **`min_sync_floor` gates reads only.** It never drops a count; it only suppresses the `MGET` for keys too far under their threshold to be limited. Counts can still be lost to a full channel, the write-batch cap, or a failed write.
+- **`min_sync_floor` gates reads only.** It never drops a count; it only suppresses the `MGET` for keys too far under their threshold to be limited. Counts can still be lost to a full channel, the write-batch cap, a failed write, or the stale-epoch purge.
 - Writes are bounded separately. `absorb_update` merges updates by `(key, epoch)` between ticks, so write volume scales with distinct active keys, not event rate.
 
 ## Request Flow

@@ -70,6 +70,8 @@ const CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE: &str =
 /// distribution moves slowly and prod metrics dedup to 60s, so a periodic scan
 /// keeps these gauges fresh enough without scanning the cache every tick.
 const TIER_SCAN_INTERVAL_TICKS: u64 = 30;
+/// Updates taken per poll, because one `recv` stops after Tokio's budget of 128 and a starved pod falls behind.
+const UPDATE_DRAIN_BATCH: usize = 1024;
 /// Tier label order, indexed by `PressureTier::index()`.
 const TIER_LABELS: [&str; 4] = ["idle", "low", "normal", "hot"];
 
@@ -905,7 +907,7 @@ impl GlobalRateLimiterImpl {
             timestamp,
         };
 
-        if let Some(Err(e)) = self.update_tx.as_ref().map(|tx| tx.try_send(update)) {
+        if let Some(Err(_)) = self.update_tx.as_ref().map(|tx| tx.try_send(update)) {
             metrics::counter!(
                 GLOBAL_RATE_LIMITER_ERROR_COUNTER,
                 "scope" => self.scope,
@@ -914,11 +916,6 @@ impl GlobalRateLimiterImpl {
                 "cause" => "channel_full",
             )
             .increment(1);
-            error!(
-                key = key,
-                error = %e,
-                "Failed to queue rate limit update, channel may be full"
-            );
         }
     }
 
@@ -1017,32 +1014,31 @@ impl GlobalRateLimiterImpl {
             // Pre-aggregate writes by (key, epoch)
             let mut write_batch: HashMap<(String, i64), u64> = HashMap::new();
             let mut tick_n: u64 = 0;
+            let mut update_buf: Vec<UpdateRequest> = Vec::with_capacity(UPDATE_DRAIN_BATCH);
 
             loop {
                 tokio::select! {
-                    result = update_rx.recv() => {
-                        match result {
-                            Some(req) => {
-                                let epoch = epoch_from_timestamp(req.timestamp, config.window_interval);
-                                Self::absorb_update(
-                                    &mut write_batch,
-                                    req.key,
-                                    epoch,
-                                    req.count,
-                                    config.max_write_batch_entries,
-                                    scope,
-                                );
+                    drained = update_rx.recv_many(&mut update_buf, UPDATE_DRAIN_BATCH) => {
+                        if drained == 0 {
+                            // Channel closed: run one last bounded tick and exit
+                            if !write_batch.is_empty() {
+                                Self::tick(
+                                    &config, &redis_instances, &cache,
+                                    &pending_sync, &mut write_batch, &read_health, scope, tick_n,
+                                ).await;
                             }
-                            None => {
-                                // Channel closed: run one last bounded tick and exit
-                                if !write_batch.is_empty() {
-                                    Self::tick(
-                                        &config, &redis_instances, &cache,
-                                        &pending_sync, &mut write_batch, &read_health, scope, tick_n,
-                                    ).await;
-                                }
-                                break;
-                            }
+                            break;
+                        }
+                        for req in update_buf.drain(..) {
+                            let epoch = epoch_from_timestamp(req.timestamp, config.window_interval);
+                            Self::absorb_update(
+                                &mut write_batch,
+                                req.key,
+                                epoch,
+                                req.count,
+                                config.max_write_batch_entries,
+                                scope,
+                            );
                         }
                     }
                     _ = tick.tick() => {
@@ -2756,6 +2752,47 @@ mod tests {
 
     fn limited(result: EvalResult) -> bool {
         matches!(result, EvalResult::Limited(_))
+    }
+
+    fn written_total(mock: &MockRedisClient) -> u64 {
+        mock.get_calls()
+            .iter()
+            .filter(|c| c.op == "batch_incr_by_expire_at")
+            .flat_map(|c| c.key.split(','))
+            .filter_map(|item| {
+                item.split_once('=')?
+                    .1
+                    .split('@')
+                    .next()?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .sum()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_burst_larger_than_one_poll_budget_is_not_dropped() {
+        let mock = Arc::new(MockRedisClient::new());
+        let config = GlobalRateLimiterConfig {
+            channel_capacity: 400,
+            tick_interval: Duration::from_millis(10),
+            ..config_with_floor(0)
+        };
+        let limiter = GlobalRateLimiterImpl::new(config, vec![mock.clone()]).unwrap();
+
+        for i in 0..400 {
+            limiter.check_limit(&format!("first{i}"), 1, None).await;
+        }
+        // The background task gets one poll here, and a single `recv` would take only 128 updates.
+        tokio::task::yield_now().await;
+        for i in 0..300 {
+            limiter.check_limit(&format!("second{i}"), 1, None).await;
+        }
+
+        wait_until!(
+            "a burst larger than one poll overflowed the channel and lost updates",
+            written_total(&mock) == 700
+        );
     }
 
     fn failing_reads() -> Arc<dyn Client + Send + Sync> {
