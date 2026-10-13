@@ -27,6 +27,7 @@ import hashlib
 from typing import Any, cast
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpRequest
 
@@ -183,6 +184,11 @@ class ExternalAccountPersonalKeyAccess(TeamAndOrgViewSetMixin, GenericViewSet):
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against a team."""
+    # Kill switch (#66179): with legacy tokens off, migrated tokens authenticate as PSAKs
+    # (the deferral also goes inert) and never reach here; the rest get a plain 401.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None, Response({"error": "Missing or invalid Authorization header"}, status=status.HTTP_401_UNAUTHORIZED)

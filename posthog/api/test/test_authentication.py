@@ -2501,6 +2501,16 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
             access_method=AccessMethod.TEAM_SECRET_TOKEN,
         )
 
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_authenticate_returns_none_when_legacy_tokens_switched_off(self):
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        result = TeamSecretTokenAuthentication().authenticate(Request(wsgi_request))
+
+        self.assertIsNone(result)
+
     def test_authenticate_with_valid_secret_api_key_in_body_not_supported(self):
         # Body tokens were removed after the audit in #66176: even a valid token must not authenticate.
         wsgi_request = self.factory.post(

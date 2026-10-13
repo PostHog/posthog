@@ -17,6 +17,7 @@ import logging
 from dataclasses import field as dataclass_field
 from typing import Literal
 
+from django.conf import settings
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -117,10 +118,13 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     migrated. Verification is unaffected: such a row still verifies via `legacy_backup`.
     """
     legacy_secrets: list[_IdentitySecret] = []
-    if team.secret_api_token:
-        legacy_secrets.append(_IdentitySecret(source="legacy_token", secret=team.secret_api_token))
-    if team.secret_api_token_backup:
-        legacy_secrets.append(_IdentitySecret(source="legacy_backup", secret=team.secret_api_token_backup))
+    # Kill switch (#66179): with legacy tokens off, the signing secret row is the sole
+    # authority — no fallbacks, and the staleness guard below goes vacuously quiet.
+    if settings.ACCEPT_TEAM_SECRET_TOKENS:
+        if team.secret_api_token:
+            legacy_secrets.append(_IdentitySecret(source="legacy_token", secret=team.secret_api_token))
+        if team.secret_api_token_backup:
+            legacy_secrets.append(_IdentitySecret(source="legacy_backup", secret=team.secret_api_token_backup))
 
     secrets: list[_IdentitySecret] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()

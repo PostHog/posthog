@@ -4,7 +4,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -85,6 +85,31 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.RESOLVED)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_migrated_token_flows_through_its_psak_row(self):
+        # Flip semantics (#66179): the deferral above goes inert, so the same legacy string
+        # authenticates as a PSAK — reads keep working, the legacy-only PATCH stops.
+        token = self.team.secret_api_token
+        create_project_secret_api_key(
+            self.team,
+            label="Migrated legacy secret API key",
+            scopes=["feature_flag:read", "support_ticket:read"],
+            value=token,
+        )
+
+        response = self.client.get(self.url, **self._auth_headers(token))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            self.url, {"status": "resolved"}, content_type="application/json", **self._auth_headers(token)
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_rejects_legacy_token_without_mirror_row(self):
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @parameterized.expand(
         [

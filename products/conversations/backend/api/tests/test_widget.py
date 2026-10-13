@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -831,6 +831,32 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+
+    @parameterized.expand(
+        [
+            # setUp signs the hash with the value held in team.secret_api_token; with the
+            # kill switch off (#66179) that column must stop verifying — only a
+            # SigningSecret row may.
+            ("signing_secret_row_verifies", True, status.HTTP_200_OK),
+            ("legacy_fallback_is_gone", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_list_tickets_with_legacy_tokens_switched_off(self, _name, has_signing_secret_row, expected_status):
+        if has_signing_secret_row:
+            SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, expected_status)
 
     def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
         # After the backfill both stores hold the same value, so the response is 200 either

@@ -464,6 +464,9 @@ class TeamSecretTokenAuthentication(ActivityCredentialMixin, authentication.Base
     activity_credential_type = "team_secret_token"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+            return None
+
         secret_api_token = _extract_phs_token(request)
 
         if not secret_api_token:
@@ -535,9 +538,14 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
         if psak is None:
             return None
 
-        if self.defer_migrated_team_tokens and token in (
-            psak.team.secret_api_token,
-            psak.team.secret_api_token_backup,
+        if (
+            self.defer_migrated_team_tokens
+            and settings.ACCEPT_TEAM_SECRET_TOKENS
+            and token
+            in (
+                psak.team.secret_api_token,
+                psak.team.secret_api_token_backup,
+            )
         ):
             return None
 
