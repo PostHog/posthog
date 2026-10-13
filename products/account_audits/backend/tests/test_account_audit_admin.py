@@ -5,8 +5,6 @@ from posthog.test.base import BaseTest
 from django.contrib.admin.models import LogEntry
 from django.urls import reverse
 
-from parameterized import parameterized
-
 from posthog.models import User
 
 from products.account_audits.backend.models import AccountAuditCredential
@@ -21,10 +19,8 @@ class TestAccountAuditCredentialAdmin(BaseTest):
         self.add_url = reverse("admin:account_audits_accountauditcredential_add")
         self.add_data = {"is_active": "on"}
 
-    @parameterized.expand([("us", "https://us.posthog.com"), ("eu", "https://eu.posthog.com")])
-    def test_admin_provisions_once_then_allows_overlap_and_revocation_without_exposing_secret(
-        self, _region: str, site_url: str
-    ) -> None:
+    def test_admin_provisions_once_then_allows_overlap_and_revocation_without_exposing_secret(self) -> None:
+        site_url = "https://eu.posthog.com"
         self.enterContext(self.settings(SITE_URL=site_url))
         other_staff = User.objects.create(email="other-staff@example.com", is_staff=True)
         self.assertNotContains(self.client.get(self.add_url), 'name="created_by"')

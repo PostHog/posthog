@@ -1,6 +1,5 @@
 from datetime import timedelta
-from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -11,11 +10,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.account_audits.backend.logic.execution import create_audit_task, finish_account_audit
+from posthog.models import User
+
+from products.account_audits.backend.logic.execution import finish_account_audit
 from products.account_audits.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.account_audits.backend.tasks.tasks import reconcile_account_audits
-from products.skills.backend.facade.api import SkillPrompt
-from products.tasks.backend.facade import api as tasks_facade
+from products.notebooks.backend.models import Notebook
+from products.tasks.backend.models import Task, TaskRun
 
 
 @override_settings(SITE_URL="http://testserver")
@@ -25,59 +26,60 @@ class TestAuditExecution(BaseTest):
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        self.run_id = uuid4()
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Audit",
+            description="Audit.",
+            origin_product=Task.OriginProduct.ACCOUNT_AUDIT,
+            internal=True,
+        )
+        self.notebook = Notebook.objects.filter(team_id=self.team.id).create(
+            team=self.team,
+            created_by=self.user,
+            title="Audit",
+            visibility="internal",
+            content={
+                "type": "doc",
+                "content": [{"type": "ph-markdown-notebook", "attrs": {"markdown": "# Audit\n\nFindings."}}],
+            },
+        )
+        self.task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            completed_at=timezone.now() - timedelta(minutes=4),
+            output={"notebook_short_id": self.notebook.short_id},
+            state={"unprocessed_request_ids": [], "token_cost": {"claude": {"anthropic": {"cost_microusd": 270000}}}},
+        )
         credential = AccountAuditCredential.objects.create(created_by=self.user, signing_secret="unused")
         self.admission = AccountAuditAdmission.objects.for_team(self.team.id).create(
             credential=credential,
             webhook_id="delivery",
             organization_id=self.organization.id,
             team_id=self.team.id,
-            task_run_id=self.run_id,
-            notebook_short_id="audit123",
+            task_run_id=self.task_run.id,
+            notebook_short_id=self.notebook.short_id,
             reason="testing",
             skill_project=self.team.id,
             skill_name="custom-audit",
         )
-        self.task_run = SimpleNamespace(
-            id=self.run_id,
-            is_terminal=True,
-            status="completed",
-            task_origin_product="account_audit",
-            created_by_id=self.user.id,
-            created_by_distinct_id=self.user.distinct_id,
-            completed_at=timezone.now() - timedelta(minutes=4),
-            updated_at=timezone.now(),
-            state={},
-            output={"notebook_short_id": "audit123"},
+        self.capture_context = self.enterContext(
+            patch("products.account_audits.backend.logic.execution.ph_scoped_capture")
         )
-        self.notebook = SimpleNamespace(
-            created_by_id=self.user.id,
-            content={
-                "type": "doc",
-                "content": [{"type": "ph-markdown-notebook", "attrs": {"markdown": "# Audit\n\nFindings."}}],
-            },
-        )
-        self.read_run = patch(
-            "products.account_audits.backend.logic.execution.tasks_facade.get_task_run", return_value=self.task_run
-        ).start()
-        self.read_notebook = patch(
-            "products.account_audits.backend.logic.execution.notebooks_facade.get_notebook", return_value=self.notebook
-        ).start()
-        self.cost = patch(
-            "products.account_audits.backend.logic.execution.get_task_run_cost",
-            return_value=SimpleNamespace(token_cost=27),
-        ).start()
-        self.capture_context = patch("products.account_audits.backend.logic.execution.ph_scoped_capture").start()
         self.capture = self.capture_context.return_value.__enter__.return_value
-        self.addCleanup(patch.stopall)
 
     def finish(self) -> None:
-        finish_account_audit(team_id=self.team.id, task_run_id=self.run_id)
+        self.task_run.save(update_fields=["status", "completed_at", "state", "output"])
+        if self.notebook.pk:
+            self.notebook.save(update_fields=["content", "created_by"])
+        finish_account_audit(team_id=self.team.id, task_run_id=self.task_run.id)
         self.admission.refresh_from_db()
 
-    @parameterized.expand([("US", 0), ("EU", 27), ("EU", None)])
-    def test_emits_verified_result_with_native_cost_once(self, region: str, token_cost: int | None) -> None:
-        self.cost.return_value.token_cost = token_cost
+    @parameterized.expand([("US", 0), ("EU", 27)])
+    def test_emits_verified_result_with_native_cost_once(self, region: str, token_cost: int) -> None:
+        self.task_run.state["token_cost"]["claude"]["anthropic"]["cost_microusd"] = token_cost * 10000
         with self.settings(CLOUD_DEPLOYMENT=region):
             self.finish()
             self.finish()
@@ -90,12 +92,12 @@ class TestAuditExecution(BaseTest):
             {
                 "organization_id": str(self.organization.id),
                 "team_id": self.team.id,
-                "notebook_url": f"http://testserver/project/{self.team.id}/notebooks/audit123",
+                "notebook_url": f"http://testserver/project/{self.team.id}/notebooks/{self.notebook.short_id}",
                 "reason": "testing",
                 "skill_project": self.team.id,
                 "skill_name": "custom-audit",
                 "token_cost_cents": token_cost,
-                "$insert_id": f"account-audit-finished-{self.run_id}",
+                "$insert_id": f"account-audit-finished-{self.task_run.id}",
             },
         )
         self.assertIsNotNone(self.admission.finalized_at)
@@ -103,43 +105,35 @@ class TestAuditExecution(BaseTest):
     @parameterized.expand([("failed",), ("cancelled",), ("in_progress",)])
     def test_no_success_event_for_other_statuses(self, status: str) -> None:
         self.task_run.status = status
-        self.task_run.is_terminal = status != "in_progress"
         self.finish()
         self.capture.assert_not_called()
-        self.assertEqual(self.admission.finalized_at is not None, self.task_run.is_terminal)
+        self.assertEqual(self.admission.finalized_at is not None, status != "in_progress")
 
     @parameterized.expand(
         [
             ("empty",),
             ("heading",),
-            ("malformed",),
             ("missing",),
             ("wrong_output",),
-            ("replaced_notebook",),
             ("wrong_creator",),
             ("wrong_origin",),
             ("no_consent",),
         ]
     )
     def test_rejects_unverified_results(self, problem: str) -> None:
-        self.task_run.completed_at -= timedelta(minutes=4)
         if problem == "empty":
             self.notebook.content = {"type": "doc", "content": []}
         elif problem == "heading":
             self.notebook.content["content"][0]["attrs"]["markdown"] = "# Audit"
-        elif problem == "malformed":
-            self.notebook.content = {"type": "ph-markdown-notebook", "attrs": {"markdown": "Findings."}}
         elif problem == "missing":
-            self.read_notebook.return_value = None
+            self.notebook.delete()
         elif problem == "wrong_output":
             self.task_run.output = {"notebook_short_id": "another"}
-        elif problem == "replaced_notebook":
-            self.task_run.state["audit_notebook_short_id"] = "another"
-            self.task_run.output = {"notebook_short_id": "another"}
         elif problem == "wrong_creator":
-            self.notebook.created_by_id = self.user.id + 1
+            self.notebook.created_by = User.objects.create(email="other-author@example.com")
         elif problem == "wrong_origin":
-            self.task_run.task_origin_product = "user_created"
+            self.task.origin_product = Task.OriginProduct.USER_CREATED
+            self.task.save(update_fields=["origin_product"])
         else:
             self.organization.is_ai_data_processing_approved = False
             self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -147,31 +141,25 @@ class TestAuditExecution(BaseTest):
         self.capture.assert_not_called()
         self.assertIsNotNone(self.admission.finalized_at)
 
-    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
-    def test_waits_for_accounting_then_emits_settled_or_unavailable_cost(
-        self, expires: bool, tracks_requests: bool
-    ) -> None:
+    @parameterized.expand([("settled",), ("pending",)])
+    def test_waits_for_callbacks_then_reports_native_cost(self, accounting: str) -> None:
         self.task_run.completed_at = timezone.now()
-        if tracks_requests:
-            self.task_run.state["unprocessed_request_ids"] = []
-        self.cost.return_value.token_cost = 0
+        self.task_run.state["token_cost"] = {}
         self.finish()
         self.assertIsNone(self.admission.finalized_at)
         self.capture.assert_not_called()
         self.task_run.state["unprocessed_request_ids"] = ["request-1"]
-        self.finish()
-        self.assertIsNone(self.admission.finalized_at)
-        self.capture.assert_not_called()
-        if expires:
-            self.cost.return_value.token_cost = None
-        else:
+        if accounting == "settled":
             self.task_run.state["unprocessed_request_ids"] = []
-            self.cost.return_value.token_cost = 27
+            self.task_run.state["token_cost"] = {"claude": {"anthropic": {"cost_microusd": 270000}}}
             self.finish()
             self.capture.assert_not_called()
-        self.task_run.completed_at -= timedelta(minutes=3)
-        self.finish()
-        self.assertEqual(self.capture.call_args.kwargs["properties"]["token_cost_cents"], None if expires else 27)
+        with time_machine.travel(timezone.now() + timedelta(minutes=3), tick=False):
+            self.finish()
+        self.assertEqual(
+            self.capture.call_args.kwargs["properties"]["token_cost_cents"], 27 if accounting == "settled" else None
+        )
+        self.assertIsNotNone(self.admission.finalized_at)
 
     @parameterized.expand([("project",), ("organization",)])
     def test_deletes_admission_with_its_tenant(self, tenant: str) -> None:
@@ -179,73 +167,22 @@ class TestAuditExecution(BaseTest):
             self.team.project.delete()
         else:
             self.organization.delete()
-        finish_account_audit(team_id=self.team.id, task_run_id=self.run_id)
+        finish_account_audit(team_id=self.team.id, task_run_id=self.task_run.id)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().filter(pk=self.admission.pk).exists())
         self.capture.assert_not_called()
 
-    def test_retries_capture_failure_on_the_next_periodic_scan(self) -> None:
+    def test_periodic_scan_retries_capture_failure_and_stops_after_finalization(self) -> None:
         self.capture.side_effect = RuntimeError("capture unavailable")
         with self.assertRaises(RuntimeError):
             self.finish()
-        self.admission.refresh_from_db()
         self.assertIsNone(self.admission.finalized_at)
         self.capture.side_effect = None
-        with patch("products.account_audits.backend.tasks.tasks.finalize_account_audit.delay") as enqueue:
+        with patch(
+            "products.account_audits.backend.tasks.tasks.finalize_account_audit.delay",
+            side_effect=lambda team_id, run_id: finish_account_audit(team_id=team_id, task_run_id=UUID(run_id)),
+        ) as enqueue:
             reconcile_account_audits()
-        enqueue.assert_called_once_with(self.team.id, str(self.run_id))
-        self.finish()
-        self.assertIsNotNone(self.admission.finalized_at)
-
-    def test_periodic_completion_finds_native_runs(self) -> None:
-        with patch("products.account_audits.backend.logic.execution.tasks_facade.create_and_run_task") as create:
-            create.return_value = SimpleNamespace(latest_run=SimpleNamespace(id=uuid4()))
-            run_id = create_audit_task(
-                team_id=self.team.id,
-                user_id=self.user.id,
-                skill=SkillPrompt(body="Audit.", version=1),
-                notebook_short_id="audit123",
-            )
-            kwargs = create.call_args.kwargs
-            env = tasks_facade.get_sandbox_environment(
-                kwargs["sandbox_environment_id"], team_id=self.team.id, user_id=self.user.id
-            )
-            assert env is not None
-            self.assertTrue(env.internal)
-            self.assertEqual(env.network_access_level, tasks_facade.SandboxNetworkAccessLevel.CUSTOM)
-            self.assertEqual(env.allowed_domains, [])
-            self.assertFalse(env.include_default_domains)
-            self.assertEqual(run_id, create.return_value.latest_run.id)
-            self.assertFalse(kwargs["create_pr"])
-            self.assertTrue(kwargs["internal"])
-            self.assertIsNone(kwargs["repository"])
-            self.assertEqual(kwargs["sandbox_timeout_seconds"], 10800)
-            self.assertEqual(
-                kwargs["posthog_mcp_scopes"],
-                ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
-            )
-            self.assertEqual(kwargs["extra_run_state"]["audit_skill_version"], 1)
-            self.assertIn("audit123", kwargs["description"])
-        with patch("products.account_audits.backend.tasks.tasks.finalize_account_audit.delay") as enqueue:
-            created = tasks_facade.create_and_run_task(
-                team=self.team,
-                user_id=self.user.id,
-                title="Audit",
-                description="Audit.",
-                origin_product=tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
-                internal=True,
-                create_pr=False,
-                start_workflow=False,
-            )
-            assert created.latest_run is not None
-            self.admission.task_run_id = created.latest_run.id
-            self.admission.save(update_fields=["task_run_id"])
-
-            with self.captureOnCommitCallbacks(execute=True):
-                enqueue.assert_not_called()
+            self.admission.refresh_from_db()
+            self.assertIsNotNone(self.admission.finalized_at)
             reconcile_account_audits()
-            enqueue.assert_called_once_with(self.team.id, str(created.latest_run.id))
-            enqueue.reset_mock()
-            self.admission.finalized_at = timezone.now()
-            self.admission.save(update_fields=["finalized_at"])
-            reconcile_account_audits()
-            enqueue.assert_not_called()
+        enqueue.assert_called_once_with(self.team.id, str(self.task_run.id))

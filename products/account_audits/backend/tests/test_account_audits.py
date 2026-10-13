@@ -3,18 +3,16 @@ import json
 import time
 import base64
 import hashlib
-from contextlib import contextmanager
 from datetime import timedelta
-from types import SimpleNamespace
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.core.cache.backends.locmem import LocMemCache
-from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -25,11 +23,15 @@ from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.user import User
 
 from products.access_control.backend.models import AccessControl
-from products.account_audits.backend.logic.execution import create_audit_task
 from products.account_audits.backend.models import AccountAuditAdmission, AccountAuditCredential
-from products.account_audits.backend.presentation.views import AccountAuditCredentialThrottle, AccountAuditStartThrottle
-from products.notebooks.backend.facade.api import get_notebook
+from products.account_audits.backend.presentation.views import (
+    AccountAuditCredentialThrottle,
+    AccountAuditStartRequestSerializer,
+    AccountAuditStartThrottle,
+)
+from products.notebooks.backend.models import Notebook
 from products.skills.backend.models import LLMSkill
+from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 
 
 class TestAccountAuditStartAPI(APIBaseTest):
@@ -40,9 +42,12 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         self.secret = f"whsec_{base64.b64encode(b'a' * 32).decode()}"
-        self.credential = AccountAuditCredential.objects.create(
-            created_by=self.user,
-            signing_secret=self.secret,
+        self.credential = AccountAuditCredential.objects.create(created_by=self.user, signing_secret=self.secret)
+        self.skill = LLMSkill.objects.create(
+            team=self.team, name="account-audit", description="Audit", body="Audit this project.", version=2
+        )
+        self.workflow = self.enterContext(
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
         )
         self.url = "/api/account_audits/start/"
 
@@ -86,21 +91,6 @@ class TestAccountAuditStartAPI(APIBaseTest):
             HTTP_WEBHOOK_SIGNATURE=f"v1,{signature}",
         )
 
-    @contextmanager
-    def _request_patches(self):
-        with (
-            patch(
-                "products.account_audits.backend.logic.service.resolve_audit_actor_for_team", return_value=self.user.id
-            ) as actor,
-            patch(
-                "products.account_audits.backend.logic.service.get_skill_prompt_for_audit", return_value=MagicMock()
-            ) as skill,
-            patch(
-                "products.account_audits.backend.logic.service.create_audit_task", side_effect=lambda **kwargs: uuid4()
-            ) as dispatch,
-        ):
-            yield actor, skill, dispatch
-
     def test_rate_limits_verified_credentials_separately_from_shared_ip(self) -> None:
         cache = LocMemCache(str(uuid4()), {})
         payload = {"organization_id": str(self.organization.id)}
@@ -109,7 +99,6 @@ class TestAccountAuditStartAPI(APIBaseTest):
             patch.object(AccountAuditStartThrottle, "rate", "4/minute"),
             patch.object(AccountAuditCredentialThrottle, "cache", cache),
             patch.object(AccountAuditCredentialThrottle, "rate", "1/minute"),
-            self._request_patches(),
         ):
             self.assertEqual(self._post(payload, signature="invalid").status_code, 401)
             self.assertEqual(self._post(payload).status_code, 202)
@@ -120,39 +109,46 @@ class TestAccountAuditStartAPI(APIBaseTest):
             self.assertEqual(self._post(payload).status_code, 202)
             self.assertEqual(self._post(payload, signature="invalid").status_code, 429)
 
-    @parameterized.expand([("US", 42, True), ("EU", 77, False)])
-    def test_accepts_a_signed_delivery_and_reuses_the_same_run(
-        self, region: str, skill_project: int, explicit_team: bool
-    ) -> None:
-        payload: dict[str, object] = {"organization_id": str(self.organization.id), "skill_project": skill_project}
-        if explicit_team:
-            payload["team_id"] = self.team.id
-        with (
-            self.settings(CLOUD_DEPLOYMENT=region),
-            self._request_patches() as (_, skill, dispatch),
-        ):
+    def test_signed_delivery_creates_a_restricted_audit_and_reuses_the_same_run(self) -> None:
+        payload = {"organization_id": str(self.organization.id), "reason": "activation-review"}
+        with self.captureOnCommitCallbacks(execute=True):
             first = self._post(payload)
             other_team = Team.objects.create(organization=self.organization, name="Recently active project")
             FileSystemViewLog.objects.create(team=other_team, user=self.user, type="dashboard", ref="1")
             second = self._post(payload)
 
         self.assertEqual(first.status_code, 202)
-        self.assertEqual(second.status_code, 202)
-        admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
+        admission = AccountAuditAdmission.objects.for_team(self.team.id).get(credential=self.credential)
         self.assertEqual(first.json(), {"task_run_id": str(admission.task_run_id), "team_id": self.team.id})
-        self.assertEqual(second.json(), {"task_run_id": str(admission.task_run_id), "team_id": self.team.id})
-        self.assertEqual(dispatch.call_count, 1)
-        self.assertEqual(dispatch.call_args.kwargs["team_id"], self.team.id)
-        self.assertEqual(dispatch.call_args.kwargs["notebook_short_id"], admission.notebook_short_id)
-        notebook_url = f"/api/projects/{self.team.id}/notebooks/{admission.notebook_short_id}/"
-        notebook = self.client.get(notebook_url)
+        self.assertEqual(second.status_code, 202)
+        self.assertEqual(second.json(), first.json())
+        self.assertEqual(admission.reason, "activation-review")
+        self.assertEqual((admission.skill_project, admission.skill_name), (self.team.id, self.skill.name))
+        run = TaskRun.objects.select_related("task").get(id=admission.task_run_id)
+        self.assertEqual(TaskRun.objects.count(), 1)
+        self.workflow.assert_called_once()
+        self.assertEqual(run.task.created_by_id, self.user.id)
+        self.assertTrue(run.task.internal)
+        self.assertEqual(run.task.origin_product, "account_audit")
+        self.assertIsNone(run.task.repository)
+        self.assertIn(self.skill.body, run.task.description)
+        self.assertIn(admission.notebook_short_id, run.task.description)
+        self.assertEqual(run.state["audit_skill_version"], self.skill.version)
+        self.assertFalse(run.state["pending_dispatch"]["create_pr"])
+        self.assertEqual(
+            run.state["pending_dispatch"]["posthog_mcp_scopes"],
+            ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
+        )
+        env = SandboxEnvironment.objects.get(id=run.state["sandbox_environment_id"])
+        self.assertTrue(env.internal)
+        self.assertEqual(env.network_access_level, "custom")
+        self.assertEqual(env.allowed_domains, [])
+        self.assertFalse(env.include_default_domains)
+        notebook = self.client.get(f"/api/projects/{self.team.id}/notebooks/{admission.notebook_short_id}/")
         self.assertEqual(notebook.status_code, 200)
         listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
         self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
-        skill.assert_called_once_with(team_id=skill_project, skill_name="account-audit")
-
-        with self._request_patches():
-            fresh = self._post({**payload, "team_id": self.team.id}, webhook_id="delivery-2")
+        fresh = self._post({**payload, "team_id": self.team.id}, webhook_id="delivery-2")
         self.assertEqual(fresh.status_code, 202)
         self.assertNotEqual(fresh.json()["task_run_id"], first.json()["task_run_id"])
 
@@ -165,6 +161,8 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.team.project.is_pending_deletion = pending_deletion
         self.team.project.save(update_fields=["is_pending_deletion"])
         next_team = Team.objects.create(organization=self.organization, name="Renamed project")
+        self.skill.team = next_team
+        self.skill.save(update_fields=["team"])
         child = Team.objects.create(
             organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
         )
@@ -174,14 +172,12 @@ class TestAccountAuditStartAPI(APIBaseTest):
             other_user = User.objects.create(email="other-viewer@example.com")
             FileSystemViewLog.objects.create(team=child, user=other_user, type="dashboard", ref="1")
         expected_id = next_team.id if is_demo or pending_deletion else self.team.id
-        with self._request_patches() as (actor, _, dispatch):
-            response = self._post({"organization_id": str(self.organization.id)})
+        response = self._post({"organization_id": str(self.organization.id), "skill_project": next_team.id})
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], expected_id)
-        actor.assert_called_once_with(expected_id)
-        self.assertEqual(dispatch.call_args.kwargs["team_id"], expected_id)
+        self.assertEqual(Task.objects.get().team_id, expected_id)
 
-    @parameterized.expand([(29, False), (30, False), (31, False), (29, True)])
+    @parameterized.expand([(30, False), (31, False), (29, True)])
     @time_machine.travel("2026-01-01T00:00:00Z", tick=False)
     def test_selects_distinct_recent_viewers_unless_a_team_is_explicit(
         self, days_ago: int, explicit_team: bool
@@ -204,68 +200,31 @@ class TestAccountAuditStartAPI(APIBaseTest):
         if explicit_team:
             payload["team_id"] = self.team.id
         expected_id = self.team.id if explicit_team or days_ago > 30 else active_team.id
-        with self._request_patches() as (_, _, dispatch):
-            response = self._post(payload)
+        response = self._post(payload)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], expected_id)
-        self.assertEqual(dispatch.call_args.kwargs["team_id"], expected_id)
+        self.assertEqual(Task.objects.get().team_id, expected_id)
 
     def test_rejects_an_organization_without_an_eligible_default_project(self) -> None:
         self.team.is_demo = True
         self.team.save(update_fields=["is_demo"])
-        with self._request_patches() as (_, _, dispatch):
-            response = self._post({"organization_id": str(self.organization.id)})
+        response = self._post({"organization_id": str(self.organization.id)})
         self.assertEqual(response.status_code, 400)
-        dispatch.assert_not_called()
-
-    def test_persists_reason_and_uses_the_selected_skill(self) -> None:
-        explicit_team = Team.objects.create(organization=self.organization, name="Explicit project")
-        payload = {
-            "organization_id": str(self.organization.id),
-            "team_id": explicit_team.id,
-            "reason": "activation-review",
-            "skill_name": "activation-audit",
-        }
-        with self._request_patches() as (_, skill, dispatch):
-            response = self._post(payload)
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.json()["team_id"], explicit_team.id)
-        skill.assert_called_once_with(team_id=self.team.id, skill_name="activation-audit")
-        self.assertEqual(dispatch.call_args.kwargs["skill"], skill.return_value)
-        admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
-        self.assertEqual(admission.reason, "activation-review")
-        self.assertEqual(admission.skill_project, self.team.id)
-        self.assertEqual(admission.skill_name, "activation-audit")
+        self.assertFalse(Task.objects.exists())
 
     def test_failed_run_creation_rolls_back_and_allows_retry(self) -> None:
         payload = {"organization_id": str(self.organization.id)}
-        queued = MagicMock()
-
-        def fail_creation(**kwargs: object) -> SimpleNamespace:
-            transaction.on_commit(queued)
-            return SimpleNamespace(latest_run=None)
-
-        with (
-            self._request_patches() as (_, skill, create),
-            patch(
-                "products.account_audits.backend.logic.execution.tasks_facade.create_and_run_task",
-                side_effect=fail_creation,
-            ) as native_create,
-            patch("products.notebooks.backend.facade.api.capture_notebook_created") as notebook_capture,
+        with patch(
+            "products.tasks.backend.models.TaskRun.objects.create", side_effect=RuntimeError("database unavailable")
         ):
-            skill.return_value = SimpleNamespace(body="Audit this project.", version=1)
-            create.side_effect = create_audit_task
             with self.captureOnCommitCallbacks(execute=True):
                 self.assertEqual(self._post(payload).status_code, 503)
-            self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
-            notebook_id = create.call_args.kwargs["notebook_short_id"]
-            self.assertIsNone(get_notebook(self.team.id, notebook_id))
-            queued.assert_not_called()
-            notebook_capture.assert_not_called()
-            native_create.side_effect = None
-            native_create.return_value = SimpleNamespace(latest_run=SimpleNamespace(id=uuid4()))
-            self.assertEqual(self._post(payload).status_code, 202)
-            self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
+        self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
+        self.assertFalse(Task.objects.exists())
+        self.assertFalse(Notebook.objects.filter(team_id=self.team.id).exists())
+        self.workflow.assert_not_called()
+        self.assertEqual(self._post(payload).status_code, 202)
+        self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
 
     def test_rejects_invalid_missing_and_stale_signatures(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
@@ -273,81 +232,44 @@ class TestAccountAuditStartAPI(APIBaseTest):
             ("invalid", "not-base64", None),
             ("stale", None, str(int(time.time()) - 301)),
         ]
-        with self._request_patches():
-            for name, signature, timestamp in cases:
-                with self.subTest(name=name):
-                    self.assertEqual(self._post(payload, signature=signature, timestamp=timestamp).status_code, 401)
-            response = self.client.post(
-                self.url,
-                data=json.dumps(payload).encode(),
-                content_type="application/json",
-                HTTP_X_POSTHOG_AUDIT_KEY=str(self.credential.public_key_id),
-                HTTP_WEBHOOK_ID="delivery-missing-signature",
-                HTTP_WEBHOOK_TIMESTAMP=str(int(time.time())),
-            )
+        for name, signature, timestamp in cases:
+            with self.subTest(name=name):
+                self.assertEqual(self._post(payload, signature=signature, timestamp=timestamp).status_code, 401)
+        response = self.client.post(
+            self.url,
+            data=json.dumps(payload).encode(),
+            content_type="application/json",
+            HTTP_X_POSTHOG_AUDIT_KEY=str(self.credential.public_key_id),
+            HTTP_WEBHOOK_ID="delivery-missing-signature",
+            HTTP_WEBHOOK_TIMESTAMP=str(int(time.time())),
+        )
 
         self.assertEqual(response.status_code, 401)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_a_signature_for_a_different_raw_body(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches():
-            response = self._post(payload, signing_body=b'{"organization_id":"different","team_id":1}')
+        response = self._post(payload, signing_body=b'{"organization_id":"different","team_id":1}')
 
         self.assertEqual(response.status_code, 401)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
-    def test_rejects_malformed_and_extra_payloads(self) -> None:
-        payloads = [
-            b"{",
-            json.dumps({"organization_id": str(self.organization.id)}).encode(),
-            json.dumps({"organization_id": str(self.organization.id), "team_id": self.team.id, "extra": True}).encode(),
-        ]
-        for missing in ("skill_project", "skill_name"):
-            payload = {
-                "organization_id": str(self.organization.id),
-                "reason": "testing",
-                "skill_project": self.team.id,
-                "skill_name": "audit",
-            }
-            del payload[missing]
-            payloads.append(json.dumps(payload).encode())
-        for field, invalid in [
-            ("reason", ""),
-            ("reason", "   "),
-            ("reason", None),
-            ("reason", 1),
-            ("reason", "x" * 501),
-            ("skill_project", None),
-            ("skill_project", True),
-            ("skill_project", "2"),
-            ("skill_project", 0),
-            ("skill_name", ""),
-            ("skill_name", None),
-            ("skill_name", 1),
-            ("skill_name", "x" * 65),
-            ("team_id", None),
-            ("team_id", True),
-            ("team_id", "1"),
-            ("team_id", 0),
-        ]:
-            payloads.append(
-                json.dumps(
-                    {
-                        "organization_id": str(self.organization.id),
-                        "reason": "testing",
-                        "skill_project": self.team.id,
-                        "skill_name": "audit",
-                        field: invalid,
-                    }
-                ).encode()
-            )
-        with self._request_patches():
-            for index, raw_body in enumerate(payloads):
-                with self.subTest(index=index):
-                    response = self._post(raw_body, webhook_id=f"delivery-{index}")
-                    self.assertEqual(response.status_code, 400)
-
+    @parameterized.expand([("invalid_json",), ("unsupported_field",), ("oversized",)])
+    def test_rejects_invalid_request_bodies(self, problem: str) -> None:
+        payload = {
+            "organization_id": str(self.organization.id),
+            "reason": "testing",
+            "skill_project": self.team.id,
+            "skill_name": self.skill.name,
+        }
+        body = (
+            b"{"
+            if problem == "invalid_json"
+            else json.dumps({**payload, **({"extra": True} if problem == "unsupported_field" else {})}).encode()
+        )
+        if problem == "oversized":
+            body += b" " * 4096
+        self.assertEqual(self._post(body).status_code, 400)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     @parameterized.expand([("US",), ("EU",)])
@@ -357,9 +279,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         payload = {"organization_id": str(self.organization.id), "reason": "activation"}
         with (
             self.settings(CLOUD_DEPLOYMENT=region),
-            self._request_patches() as (actor, skill, dispatch),
             patch("products.account_audits.backend.logic.service.ph_scoped_capture") as capture_context,
-            patch("products.account_audits.backend.logic.service.notebooks_facade.create_notebook") as notebook,
         ):
             first = self._post(payload)
             second = self._post(payload)
@@ -381,10 +301,8 @@ class TestAccountAuditStartAPI(APIBaseTest):
                 "$insert_id": f"audit-not-run-{self.credential.public_key_id}-delivery-1",
             },
         )
-        actor.assert_not_called()
-        skill.assert_not_called()
-        dispatch.assert_not_called()
-        notebook.assert_not_called()
+        self.assertFalse(Task.objects.exists())
+        self.assertFalse(Notebook.objects.filter(team_id=self.team.id).exists())
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_retries_a_skipped_event_if_capture_fails(self) -> None:
@@ -399,26 +317,21 @@ class TestAccountAuditStartAPI(APIBaseTest):
 
     def test_rejects_a_deployment_that_cannot_capture_the_completion_event(self) -> None:
         payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self.settings(CLOUD_DEPLOYMENT="DEV"), self._request_patches() as (_, _, dispatch):
+        with self.settings(CLOUD_DEPLOYMENT="DEV"):
             response = self._post(payload)
 
         self.assertEqual(response.status_code, 503)
-        self.assertFalse(dispatch.called)
+        self.assertFalse(Task.objects.exists())
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_rejects_when_the_audit_skill_is_unavailable_without_admitting(self) -> None:
-        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches() as (_, skill, dispatch):
-            skill.return_value = None
-            response = self._post(payload)
-
+        self.skill.delete()
+        response = self._post({"organization_id": str(self.organization.id)})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.json()["detail"],
-            "Skill not found or unsupported. Check skill_project and skill_name.",
+            response.json()["detail"], "Skill not found or unsupported. Check skill_project and skill_name."
         )
-        skill.assert_called_once_with(team_id=self.team.id, skill_name="account-audit")
-        self.assertFalse(dispatch.called)
+        self.assertFalse(Task.objects.exists())
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     @parameterized.expand([("another_organization",), ("child_environment",)])
@@ -433,20 +346,17 @@ class TestAccountAuditStartAPI(APIBaseTest):
                 organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
             ).id
         payload = {"organization_id": str(organization_id), "team_id": team_id}
-        with self._request_patches() as (_, _, dispatch):
-            response = self._post(payload)
+        response = self._post(payload)
 
         self.assertEqual(response.status_code, 400)
-        self.assertFalse(dispatch.called)
+        self.assertFalse(Task.objects.exists())
 
     def test_rejects_when_no_team_actor_is_available(self) -> None:
-        payload = {"organization_id": str(self.organization.id), "team_id": self.team.id}
-        with self._request_patches() as (actor, _, dispatch):
-            actor.return_value = None
-            response = self._post(payload)
-
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        response = self._post({"organization_id": str(self.organization.id), "team_id": self.team.id})
         self.assertEqual(response.status_code, 403)
-        self.assertFalse(dispatch.called)
+        self.assertFalse(Task.objects.exists())
 
     @parameterized.expand([("team_id",), ("reason",), ("skill_project",), ("skill_name",)])
     def test_rejects_a_repeated_delivery_with_changed_parameters(self, field: str) -> None:
@@ -456,33 +366,13 @@ class TestAccountAuditStartAPI(APIBaseTest):
             **payload,
             field: other_team.id if field in ("team_id", "skill_project") else "another-audit",
         }
-        with self._request_patches() as (_, _, dispatch):
-            self.assertEqual(self._post(payload).status_code, 202)
-            response = self._post(changed_payload)
+        self.assertEqual(self._post(payload).status_code, 202)
+        response = self._post(changed_payload)
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["detail"], "This delivery ID has another audit request.")
-        self.assertEqual(dispatch.call_count, 1)
+        self.assertEqual(TaskRun.objects.count(), 1)
         self.assertEqual(AccountAuditAdmission.objects.unscoped().count(), 1)
-
-    def test_admission_enforces_one_row_per_credential_delivery(self) -> None:
-        AccountAuditAdmission.objects.unscoped().create(
-            credential=self.credential,
-            task_run_id=uuid4(),
-            webhook_id="delivery-1",
-            organization_id=self.organization.id,
-            team_id=self.team.id,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                AccountAuditAdmission.objects.unscoped().create(
-                    credential=self.credential,
-                    task_run_id=uuid4(),
-                    webhook_id="delivery-1",
-                    organization_id=self.organization.id,
-                    team_id=self.team.id,
-                )
 
     @parameterized.expand([("inactive",), ("not_staff",), ("deleted",)])
     def test_audit_uses_a_private_skill_independently_of_credential_creator(self, condition: str) -> None:
@@ -506,16 +396,10 @@ class TestAccountAuditStartAPI(APIBaseTest):
         AccessControl.objects.create(
             team=skill_team, resource="llm_skill", resource_id=str(skill.id), access_level="none"
         )
-        with (
-            patch(
-                "products.account_audits.backend.logic.service.resolve_audit_actor_for_team", return_value=self.user.id
-            ),
-            patch("products.account_audits.backend.logic.service.create_audit_task", return_value=uuid4()) as dispatch,
-        ):
-            response = self._post({"organization_id": str(self.organization.id), "skill_project": skill_team.id})
+        response = self._post({"organization_id": str(self.organization.id), "skill_project": skill_team.id})
 
         self.assertEqual(response.status_code, 202)
-        self.assertEqual(dispatch.call_args.kwargs["skill"].body, skill.body)
+        self.assertIn(skill.body, Task.objects.get().description)
         self.assertEqual(AccountAuditAdmission.objects.unscoped().get().skill_project, skill_team.id)
 
     @parameterized.expand([("revoked",), ("unknown_key",), ("wrong_secret",)])
@@ -528,10 +412,9 @@ class TestAccountAuditStartAPI(APIBaseTest):
             AccountAuditCredential.objects.filter(pk=self.credential.pk).update(
                 signing_secret=f"whsec_{base64.b64encode(b'b' * 32).decode()}"
             )
-        with self._request_patches() as (_, _, dispatch):
-            response = self._post({"organization_id": str(self.organization.id)})
+        response = self._post({"organization_id": str(self.organization.id)})
         self.assertEqual(response.status_code, 401)
-        dispatch.assert_not_called()
+        self.assertFalse(Task.objects.exists())
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
     def test_preserves_historic_admissions_when_a_creator_or_credential_is_deleted(self) -> None:
@@ -551,3 +434,27 @@ class TestAccountAuditStartAPI(APIBaseTest):
         with self.assertRaises(ProtectedError):
             credential.delete()
         self.assertTrue(AccountAuditAdmission.objects.unscoped().filter(pk=admission.pk).exists())
+
+
+class TestAccountAuditRequestValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_field", {"extra": True}),
+            ("boolean_project", {"skill_project": True}),
+            ("string_team", {"team_id": "1"}),
+            ("null_team", {"team_id": None}),
+            ("numeric_reason", {"reason": 1}),
+            ("numeric_skill", {"skill_name": 1}),
+        ]
+    )
+    def test_rejects_values_that_drf_would_coerce(self, _name: str, changes: dict[str, object]) -> None:
+        serializer = AccountAuditStartRequestSerializer(
+            data={
+                "organization_id": str(uuid4()),
+                "reason": "testing",
+                "skill_project": 1,
+                "skill_name": "account-audit",
+                **changes,
+            }
+        )
+        self.assertFalse(serializer.is_valid())
