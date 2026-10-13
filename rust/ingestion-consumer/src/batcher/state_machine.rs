@@ -664,6 +664,8 @@ mod tests {
     use std::collections::VecDeque;
     use std::num::NonZeroUsize;
 
+    use rstest::rstest;
+
     use super::*;
     use crate::batcher::key_queues::RunCap;
     use crate::batcher::packer::PackTargets;
@@ -1607,8 +1609,18 @@ mod tests {
         assert!(effects.completions.is_empty());
     }
 
-    #[test]
-    fn a_partial_completes_the_accepted_offsets_and_requeues_the_unfinished_ones_at_the_front() {
+    /// Key `a` holds offsets 1 to 3 and key `b` offset 4. The ack for `a`
+    /// stops before its first unfinished offset, and a key with nothing
+    /// finished gets no ack.
+    #[rstest]
+    #[case::a_middle_message_of_a_shared_key(&[2], &[1, 3, 4], Some(1))]
+    #[case::the_tail_of_a_key(&[2, 3], &[1, 4], Some(1))]
+    #[case::a_whole_key(&[1, 2, 3], &[4], None)]
+    fn a_partial_completes_the_accepted_offsets_and_requeues_the_unfinished_ones_at_the_front(
+        #[case] unfinished: &[i64],
+        #[case] completed: &[i64],
+        #[case] ack_for_a: Option<i64>,
+    ) {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let sentinel = KeyOrderSentinel::new();
@@ -1627,25 +1639,32 @@ mod tests {
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[5])]);
         assert!(effects.sends.is_empty(), "a's run is in flight");
 
+        let accepted = 4 - unfinished.len() as u32;
+        let unfinished_messages = unfinished
+            .iter()
+            .map(|&offset| message("a", 0, offset))
+            .collect();
         let (batcher, effects) =
-            batcher.on_request_partial(now, &workers, request, 3, vec![message("a", 0, 2)]);
+            batcher.on_request_partial(now, &workers, request, accepted, unfinished_messages);
         assert_eq!(
             effects.completions[0].offsets,
-            vec![Offset(1), Offset(3), Offset(4)]
+            completed
+                .iter()
+                .map(|&offset| Offset(offset))
+                .collect::<Vec<_>>()
         );
-        assert_eq!(
-            effects.key_acks,
-            vec![
-                KeyAck {
-                    routing_key: "a".into(),
-                    max_offset: 1
-                },
-                KeyAck {
-                    routing_key: "b".into(),
-                    max_offset: 4
-                },
-            ]
-        );
+        let mut expected_acks = Vec::new();
+        if let Some(max_offset) = ack_for_a {
+            expected_acks.push(KeyAck {
+                routing_key: "a".into(),
+                max_offset,
+            });
+        }
+        expected_acks.push(KeyAck {
+            routing_key: "b".into(),
+            max_offset: 4,
+        });
+        assert_eq!(effects.key_acks, expected_acks);
         assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("b")]);
         assert_eq!(
             effects.sends.len(),
@@ -1653,7 +1672,7 @@ mod tests {
             "a's fresh message waits for the replay"
         );
         assert!(effects.sends[0].class.replay);
-        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2])]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", unfinished.to_vec())]);
         let violations = apply_to_sentinel(&sentinel, &effects);
         assert!(
             violations.is_empty(),
@@ -1662,8 +1681,15 @@ mod tests {
         );
         let replay = effects.sends[0].request;
 
-        let (_, effects) = batcher.on_request_succeeded(now, &workers, replay, 1);
-        assert_eq!(effects.completions[0].offsets, vec![Offset(2)]);
+        let (_, effects) =
+            batcher.on_request_succeeded(now, &workers, replay, unfinished.len() as u32);
+        assert_eq!(
+            effects.completions[0].offsets,
+            unfinished
+                .iter()
+                .map(|&offset| Offset(offset))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![5])]);
         let violations = apply_to_sentinel(&sentinel, &effects);
         assert!(
