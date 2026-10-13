@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { CSSProperties } from 'react'
+import { CSSProperties, useRef, useState } from 'react'
 
 import { cn } from '@posthog/quill-primitives'
 
+import { captureCommentScreenshot } from '../artifactCommentScreenshot'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import { ArtifactCommentComposer } from './ArtifactCommentComposer'
 
@@ -23,12 +24,15 @@ export function ArtifactPendingComment({
 }): JSX.Element | null {
     const { pendingAnchor, drafts, writing } = useValues(taskArtifactCommentsLogic(logicProps))
     const { setDraft, submitComment, dismissPending } = useActions(taskArtifactCommentsLogic(logicProps))
+    const cardRef = useRef<HTMLDivElement>(null)
+    const [capturing, setCapturing] = useState(false)
     if (!pendingAnchor) {
         return null
     }
     const isText = pendingAnchor.kind === 'text'
     return (
         <div
+            ref={cardRef}
             data-quill
             data-pending-artifact-comment
             className={cn(
@@ -45,11 +49,19 @@ export function ArtifactPendingComment({
                 autoFocus
                 value={drafts.pending ?? ''}
                 onChange={(value) => setDraft('pending', value)}
-                onSubmit={(addToChat) => submitComment('pending', addToChat)}
+                onSubmit={async (addToChat) => {
+                    if (!addToChat || !cardRef.current) {
+                        submitComment('pending', addToChat)
+                        return
+                    }
+                    setCapturing(true)
+                    const screenshot = await captureCommentScreenshot(cardRef.current)
+                    setCapturing(false)
+                    submitComment('pending', true, screenshot)
+                }}
                 onCancel={dismissPending}
-                saving={writing === 'pending'}
+                saving={writing === 'pending' || capturing}
                 busy={!!writing && writing !== 'pending'}
-                quote={isText ? pendingAnchor.quote : undefined}
                 label={isText ? 'Comment on the selected text' : 'Comment on this spot'}
                 placeholder={isText ? 'Add a comment about this selection' : 'Add a comment about this spot'}
                 rows={3}

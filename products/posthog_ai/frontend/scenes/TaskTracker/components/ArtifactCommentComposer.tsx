@@ -1,15 +1,6 @@
 import { ChangeEvent, KeyboardEvent, useId, useState } from 'react'
 
-import {
-    Button,
-    Checkbox,
-    Label,
-    Text,
-    Textarea,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill-primitives'
+import { Button, Checkbox, Label, Textarea, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
 
 import { isMac } from 'lib/utils/dom'
 
@@ -24,7 +15,6 @@ export function ArtifactCommentComposer({
     label,
     placeholder,
     submitLabel = 'Comment',
-    quote,
     autoFocus = false,
     rows = 2,
     dataAttr,
@@ -40,8 +30,6 @@ export function ArtifactCommentComposer({
     label: string
     placeholder: string
     submitLabel?: string
-    /** The selected text the comment is about. */
-    quote?: string
     autoFocus?: boolean
     rows?: number
     dataAttr: string
@@ -61,16 +49,6 @@ export function ArtifactCommentComposer({
                 submit()
             }}
         >
-            {quote && (
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<blockquote />}
-                    className="m-0 line-clamp-3 border-l-2 border-border pl-2 break-words whitespace-pre-wrap"
-                >
-                    {quote}
-                </Text>
-            )}
             <Textarea
                 autoFocus={autoFocus}
                 aria-label={label}

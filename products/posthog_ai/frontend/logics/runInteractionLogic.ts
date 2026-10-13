@@ -611,12 +611,24 @@ export type runInteractionLogicType = MakeLogicType<
     runInteractionLogicMeta
 >
 
-function takeCommentContexts(taskId: string, content: string): string {
-    const commentLogic = taskId ? taskCommentContextsLogic.findMounted({ taskId }) : null
+function takeCommentContexts(props: RunInteractionLogicProps, content: string): string {
+    const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
     if (!commentLogic || isClearCommand(content)) {
         return content
     }
-    const message = withCommentContexts(commentLogic.values.commentContexts, content)
+    const attachments = composerAttachmentsLogic.findMounted({ attachmentsKey: props.interactionKey ?? props.runId })
+    const screenshots: File[] = []
+    const contexts = commentLogic.values.commentContexts.map(({ label, body, screenshotFile }) => {
+        if (!screenshotFile || !attachments) {
+            return { label, body }
+        }
+        screenshots.push(screenshotFile)
+        return { label, body, screenshot: screenshotFile.name }
+    })
+    if (screenshots.length > 0) {
+        attachments?.actions.addFiles(screenshots)
+    }
+    const message = withCommentContexts(contexts, content)
     commentLogic.actions.clearCommentContexts()
     return message
 }
@@ -959,7 +971,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (staged.length > 0) {
                         actions.clearQueue()
                     }
-                    actions.startNewRun([...staged, takeCommentContexts(props.taskId, content)].join('\n\n'))
+                    actions.startNewRun([...staged, takeCommentContexts(props, content)].join('\n\n'))
                     return
                 }
                 // While the agent is working, a send is in flight, or a message is already staged — concatenate
@@ -971,12 +983,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     values.sending ||
                     values.queuedMessages.length > 0
                 ) {
-                    actions.enqueueMessage(takeCommentContexts(props.taskId, content))
+                    actions.enqueueMessage(takeCommentContexts(props, content))
                     actions.claimAttachmentsForQueue()
                     actions.resetComposerForm()
                     actions.flushQueue()
                 } else {
-                    actions.sendNow(takeCommentContexts(props.taskId, content), 'draft')
+                    actions.sendNow(takeCommentContexts(props, content), 'draft')
                 }
             },
         },

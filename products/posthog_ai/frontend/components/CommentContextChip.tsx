@@ -5,15 +5,22 @@ import { type CommentContext, commentContextPreview } from '../utils/commentCont
 
 export function CommentContextChip({
     context,
+    screenshotUrl,
     onRemove,
 }: {
     context: CommentContext
+    screenshotUrl?: string | null
     onRemove?: () => void
 }): JSX.Element {
     return (
         <Tooltip
             title={
-                <div className="max-w-80 whitespace-pre-wrap break-words text-xs">{commentContextPreview(context)}</div>
+                <div className="flex max-w-80 flex-col gap-1">
+                    {screenshotUrl && (
+                        <img src={screenshotUrl} alt={`Screenshot of ${context.label}`} className="max-h-48 rounded" />
+                    )}
+                    <div className="whitespace-pre-wrap break-words text-xs">{commentContextPreview(context)}</div>
+                </div>
             }
         >
             <span

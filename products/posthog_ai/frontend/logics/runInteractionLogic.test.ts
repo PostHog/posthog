@@ -263,6 +263,36 @@ describe('runInteractionLogic', () => {
             expect(attachments.values.uploading).toBe(false)
         })
 
+        it('uploads a comment chip screenshot with the message and names it in the chip block', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValue(['art-1', 'art-2'])
+            const comments = taskCommentContextsLogic({ taskId: TASK_ID })
+            comments.mount()
+            const screenshot = new File(['png'], 'comment-1.png', { type: 'image/png' })
+            comments.actions.addCommentToChat(
+                { label: 'chart.png (region)', body: '- **Artifact** chart.png' },
+                'x',
+                screenshot
+            )
+
+            logic.actions.setComposerFormValues({ draft: 'Fix this bar' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(uploadRunAttachments).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, [
+                expect.objectContaining({ name: 'rows.csv' }),
+                screenshot,
+            ])
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                jsonrpc: '2.0',
+                method: 'user_message',
+                params: {
+                    content:
+                        '<comment_context label="chart.png (region)" screenshot="comment-1.png">\n- **Artifact** chart.png\n</comment_context>\nFix this bar',
+                    artifact_ids: ['art-1', 'art-2'],
+                },
+            })
+            comments.unmount()
+        })
+
         it('keeps the files staged when the send fails', async () => {
             ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
 

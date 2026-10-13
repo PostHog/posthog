@@ -91,13 +91,16 @@ export interface taskArtifactCommentsLogicValues {
 export interface taskArtifactCommentsLogicActions {
     addCommentToChat: (
         context: CommentContext | null,
-        comment: string
+        comment: string,
+        screenshotFile?: File | undefined
     ) => {
         comment: string
         context: {
             body: string
             id: string
             label: string
+            screenshot?: string | undefined
+            screenshotFile?: File | undefined
         } | null
     } // taskCommentContextsLogic
     activateThread: (
@@ -161,9 +164,11 @@ export interface taskArtifactCommentsLogicActions {
     }
     submitComment: (
         target: 'document' | 'pending',
-        addToChat?: boolean
+        addToChat?: boolean,
+        screenshot?: File | null
     ) => {
         addToChat: boolean
+        screenshot: File | null
         target: 'document' | 'pending'
     }
     writeFinished: (target: CommentTarget | null) => {
@@ -216,7 +221,15 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
             position,
         }),
         dismissPending: true,
-        submitComment: (target: 'document' | 'pending', addToChat: boolean = false) => ({ target, addToChat }),
+        submitComment: (
+            target: 'document' | 'pending',
+            addToChat: boolean = false,
+            screenshot: File | null = null
+        ) => ({
+            target,
+            addToChat,
+            screenshot,
+        }),
         replyToThread: (rootId: string, addToChat: boolean = false) => ({ rootId, addToChat }),
         setThreadResolved: (rootId: string, resolved: boolean) => ({ rootId, resolved }),
         /** The write for `target` ended. `target` is null when it failed. */
@@ -359,8 +372,16 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
                 return null
             }
         }
-        const sendToChat = (anchor: ArtifactCommentAnchor | null, content: string): void => {
-            actions.addCommentToChat(artifactCommentChatContext(anchor, props.artifactName), content)
+        const sendToChat = (
+            anchor: ArtifactCommentAnchor | null,
+            content: string,
+            screenshot: File | null = null
+        ): void => {
+            actions.addCommentToChat(
+                artifactCommentChatContext(anchor, props.artifactName),
+                content,
+                screenshot ?? undefined
+            )
             taskRunArtifactsLogic.findMounted({ taskId: props.taskId })?.actions.setActiveTab('conversation')
             posthog.capture('task artifact comment added to chat', {
                 anchor_kind: anchorKindLabel(anchor),
@@ -375,7 +396,7 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
                     kind: props.kind,
                 })
             },
-            submitComment: async ({ target, addToChat }) => {
+            submitComment: async ({ target, addToChat, screenshot }) => {
                 const content = (values.drafts[target] ?? '').trim()
                 const anchor: ArtifactCommentAnchor | null =
                     target === 'document' ? { kind: 'document' } : values.pendingAnchor
@@ -396,7 +417,7 @@ export const taskArtifactCommentsLogic = kea<taskArtifactCommentsLogicType>([
                         actions.activateThread(saved.id, 'created')
                     }
                     if (addToChat) {
-                        sendToChat(anchor, content)
+                        sendToChat(anchor, content, screenshot)
                     }
                 }
             },

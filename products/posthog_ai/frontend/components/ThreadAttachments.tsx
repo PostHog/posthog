@@ -1,49 +1,17 @@
 import { useValues } from 'kea'
-import { memo, useEffect, useState } from 'react'
+import { memo, useState } from 'react'
 
 import { IconDocument } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { getTasksRunsArtifactsDownloadRetrieveUrl } from 'products/tasks/frontend/generated/api'
-
+import { threadAttachmentDownloadUrl, useLocalPreviewUrl } from '../hooks/useThreadAttachmentUrl'
 import type { ThreadAttachment } from '../types/streamTypes'
-import { getAttachmentPreview } from '../utils/attachmentPreviews'
 import { isImageAttachment } from '../utils/attachments'
 
 // Capped on both axes and free to shrink, so no screenshot pushes a message past its panel.
 const THUMBNAIL_CLASSES = 'max-h-48 max-w-full w-auto rounded border border-primary object-contain'
-
-/** The endpoint redirects to a presigned URL and takes the session, so an `img` and an `a` use it directly. */
-function downloadUrl(projectId: string, attachment: ThreadAttachment): string | null {
-    if (!attachment.taskId || !attachment.runId || !attachment.artifactId) {
-        return null
-    }
-    // The run that holds the artifact, not necessarily the one being read: a resume chain reaches back.
-    return getTasksRunsArtifactsDownloadRetrieveUrl(
-        projectId,
-        attachment.taskId,
-        attachment.runId,
-        attachment.artifactId
-    )
-}
-
-/** The staged file's own bytes, available from the send until its upload lands. */
-function useLocalPreviewUrl(previewId: string | undefined): string | null {
-    const [url, setUrl] = useState<string | null>(null)
-    useEffect(() => {
-        const file = getAttachmentPreview(previewId)
-        if (!file) {
-            setUrl(null)
-            return
-        }
-        const objectUrl = URL.createObjectURL(file)
-        setUrl(objectUrl)
-        return () => URL.revokeObjectURL(objectUrl)
-    }, [previewId])
-    return url
-}
 
 function AttachmentChip({ name, href }: { name: string; href: string | null }): JSX.Element {
     const chip = (
@@ -125,7 +93,7 @@ export function ThreadAttachments({ attachments }: { attachments: ThreadAttachme
                             <ThreadAttachmentImage
                                 key={key}
                                 attachment={attachment}
-                                href={projectId ? downloadUrl(projectId, attachment) : null}
+                                href={projectId ? threadAttachmentDownloadUrl(projectId, attachment) : null}
                                 onUnavailable={() => setUnavailable((seen) => new Set(seen).add(key))}
                             />
                         )
@@ -138,7 +106,7 @@ export function ThreadAttachments({ attachments }: { attachments: ThreadAttachme
                         <AttachmentChip
                             key={attachmentKey(attachment)}
                             name={attachment.name}
-                            href={projectId ? downloadUrl(projectId, attachment) : null}
+                            href={projectId ? threadAttachmentDownloadUrl(projectId, attachment) : null}
                         />
                     ))}
                 </div>

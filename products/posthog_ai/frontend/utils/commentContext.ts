@@ -5,6 +5,7 @@ export const COMMENT_CONTEXT_TAG = 'comment_context'
 export interface CommentContext {
     label: string
     body: string
+    screenshot?: string
 }
 
 export type MessageSegment = { type: 'text'; text: string } | ({ type: 'comment_context' } & CommentContext)
@@ -12,6 +13,7 @@ export type MessageSegment = { type: 'text'; text: string } | ({ type: 'comment_
 const OPEN_TAG = `<${COMMENT_CONTEXT_TAG}`
 const CLOSE_TAG = `</${COMMENT_CONTEXT_TAG}>`
 const LABEL_ATTR = /\blabel="([^"]*)"/
+const SCREENSHOT_ATTR = /\bscreenshot="([^"]*)"/
 const FILE_TAG = /<file\s+path="[^"]*"\s*\/>\n?/g
 
 function escapeXmlText(value: string): string {
@@ -22,8 +24,9 @@ function escapeXmlAttr(value: string): string {
     return escapeXmlText(value).replace(/"/g, '&quot;')
 }
 
-export function commentContextXml({ label, body }: CommentContext): string {
-    return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}">\n${escapeXmlText(body)}\n</${COMMENT_CONTEXT_TAG}>`
+export function commentContextXml({ label, body, screenshot }: CommentContext): string {
+    const screenshotAttr = screenshot ? ` screenshot="${escapeXmlAttr(screenshot)}"` : ''
+    return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}"${screenshotAttr}>\n${escapeXmlText(body)}\n</${COMMENT_CONTEXT_TAG}>`
 }
 
 export function withCommentContexts(contexts: CommentContext[], content: string): string {
@@ -31,6 +34,10 @@ export function withCommentContexts(contexts: CommentContext[], content: string)
         return content
     }
     return [...contexts.map(commentContextXml), content].join('\n')
+}
+
+function commentContextOf({ label, body, screenshot }: CommentContext): CommentContext {
+    return screenshot ? { label, body, screenshot } : { label, body }
 }
 
 interface CommentContextBlock extends CommentContext {
@@ -60,7 +67,9 @@ function findCommentContextBlocks(text: string): CommentContextBlock[] {
             break
         }
         const attrs = text.slice(start + OPEN_TAG.length, openEnd)
+        const screenshot = SCREENSHOT_ATTR.exec(attrs)?.[1]
         blocks.push({
+            ...(screenshot ? { screenshot: unescapeXml(screenshot) } : {}),
             start,
             end: close + CLOSE_TAG.length,
             label: unescapeXml(LABEL_ATTR.exec(attrs)?.[1] ?? '') || 'Comment',
@@ -79,12 +88,12 @@ function findCommentContextBlocks(text: string): CommentContextBlock[] {
 export function splitCommentContexts(text: string): MessageSegment[] {
     const segments: MessageSegment[] = []
     let cursor = 0
-    for (const { start, end, label, body } of findCommentContextBlocks(text)) {
+    for (const { start, end, ...context } of findCommentContextBlocks(text)) {
         const before = text.slice(cursor, start)
         if (before.trim()) {
             segments.push({ type: 'text', text: before })
         }
-        segments.push({ type: 'comment_context', label, body })
+        segments.push({ type: 'comment_context', ...context })
         cursor = end
     }
     const rest = text.slice(cursor)
@@ -98,7 +107,7 @@ export function extractCommentContexts(text: string): { contexts: CommentContext
     const segments = splitCommentContexts(text)
     return {
         contexts: segments.flatMap((segment) =>
-            segment.type === 'comment_context' ? [{ label: segment.label, body: segment.body }] : []
+            segment.type === 'comment_context' ? [commentContextOf(segment)] : []
         ),
         text: segments
             .flatMap((segment) => (segment.type === 'text' ? [segment.text.trim()] : []))
@@ -118,7 +127,7 @@ export function splitLeadingCommentContexts(text: string): {
         if (text.slice(prefixEnd, block.start).trim()) {
             break
         }
-        contexts.push({ label: block.label, body: block.body })
+        contexts.push(commentContextOf(block))
         prefixEnd = block.end
     }
     const rest = text.slice(prefixEnd)
@@ -143,4 +152,8 @@ export function commentContextPreview({ label, body }: CommentContext): string {
         }
     }
     return quoteLines.length > 0 ? quoteLines.join('\n') : snippetLines.length > 0 ? snippetLines.join('\n') : label
+}
+
+export function commentScreenshotNames(text: string): Set<string> {
+    return new Set(findCommentContextBlocks(text).flatMap((block) => (block.screenshot ? [block.screenshot] : [])))
 }

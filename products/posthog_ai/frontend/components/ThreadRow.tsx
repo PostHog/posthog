@@ -13,6 +13,7 @@ import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem, ToolInvocation } from '../types/streamTypes'
+import { commentScreenshotNames } from '../utils/commentContext'
 import { toolInvocationToMessage } from '../utils/toolCallMessage'
 import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
@@ -126,14 +127,16 @@ export const ThreadRow = memo(function ThreadRow({
             return <QuillHumanMessage item={item} />
         }
         const text = userMessageDisplayText(item.text ?? '')
+        const screenshotNames = commentScreenshotNames(item.text ?? '')
+        const attachments = item.attachments?.filter((attachment) => !screenshotNames.has(attachment.name))
         return (
             <MessageTemplate
                 type="human"
                 className="group"
                 action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
             >
-                <HumanMessageText text={item.text ?? ''} id={item.id} />
-                {item.attachments && <ThreadAttachments attachments={item.attachments} />}
+                <HumanMessageText text={item.text ?? ''} id={item.id} attachments={item.attachments} />
+                {attachments && attachments.length > 0 && <ThreadAttachments attachments={attachments} />}
             </MessageTemplate>
         )
     }
