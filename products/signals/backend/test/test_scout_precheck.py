@@ -21,6 +21,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.customer_analytics.backend.facade.testing import create_account
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
@@ -30,7 +31,7 @@ from products.signals.backend.scout_harness.precheck import (
     resolve_effective_precheck,
 )
 from products.skills.backend.models.skills import LLMSkill
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 NOW = datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC)
 SKILL = "signals-scout-errors"
@@ -289,6 +290,21 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
         report = SignalReport.objects.create(team=self.team, status=status, title="r")
         SignalReport.objects.filter(pk=report.pk).update(updated_at=NOW - timedelta(days=days_since_update))
 
+    def _seed_source_schema(self, *, should_sync: bool) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", source_type="Stripe", prefix=""
+        )
+        ExternalDataSchema.objects.create(team=self.team, name="customers", source=source, should_sync=should_sync)
+
+    def _seed_warehouse_table(self, *, deleted: bool) -> None:
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="uploaded",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/uploaded",
+            deleted=deleted,
+        )
+
     @parameterized.expand(
         [
             ("customer_analytics_no_accounts", "signals-scout-customer-analytics", None, "skip"),
@@ -307,6 +323,12 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             ("inbox_validation_old_resolution", "signals-scout-inbox-validation", "resolved_15d", "skip"),
             ("inbox_validation_recent_unresolved", "signals-scout-inbox-validation", "ready_1d", "skip"),
             ("inbox_validation_recent_resolution", "signals-scout-inbox-validation", "resolved_13d", "run"),
+            ("data_warehouse_absent", "signals-scout-data-warehouse", None, "skip"),
+            ("data_warehouse_paused_schema", "signals-scout-data-warehouse", "paused_schema", "skip"),
+            ("data_warehouse_deleted_table", "signals-scout-data-warehouse", "deleted_table", "skip"),
+            ("data_warehouse_armed_schema", "signals-scout-data-warehouse", "armed_schema", "run"),
+            ("data_warehouse_table_only", "signals-scout-data-warehouse", "table", "run"),
+            ("data_warehouse_view_only", "signals-scout-data-warehouse", "view", "run"),
         ]
     )
     def test_system_table_defaults_skip_only_on_absence(self, _name, skill, seed, outcome) -> None:
@@ -339,6 +361,18 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             self._seed_report(SignalReport.Status.READY, days_since_update=1)
         elif seed == "resolved_13d":
             self._seed_report(SignalReport.Status.RESOLVED, days_since_update=13)
+        elif seed == "paused_schema":
+            self._seed_source_schema(should_sync=False)
+        elif seed == "armed_schema":
+            self._seed_source_schema(should_sync=True)
+        elif seed == "deleted_table":
+            self._seed_warehouse_table(deleted=True)
+        elif seed == "table":
+            self._seed_warehouse_table(deleted=False)
+        elif seed == "view":
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="v", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+            )
 
         with (
             patch(ROLLOUT_PERCENT, return_value=100),
