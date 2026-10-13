@@ -44227,6 +44227,117 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `flag_off_while_running` - Flag Off While Running
+     * * `variant_shipped_while_running` - Variant Shipped While Running
+     * * `flag_live_after_end` - Flag Live After End
+     * * `flag_live_before_launch` - Flag Live Before Launch
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `no_metric` - No Metric
+     * * `srm` - Sample Ratio Mismatch
+     * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     */
+    export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
+
+
+    export const ExperimentHealthFindingCodeEnum = {
+      FlagOffWhileRunning: 'flag_off_while_running',
+      VariantShippedWhileRunning: 'variant_shipped_while_running',
+      FlagLiveAfterEnd: 'flag_live_after_end',
+      FlagLiveBeforeLaunch: 'flag_live_before_launch',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      NoMetric: 'no_metric',
+      Srm: 'srm',
+      ZeroExposures: 'zero_exposures',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    } as const;
+
+    /**
+     * * `critical` - Critical severity
+     * * `warning` - Warning severity
+     * * `info` - Info severity
+     */
+    export type ExperimentHealthFindingSeverityEnum = typeof ExperimentHealthFindingSeverityEnum[keyof typeof ExperimentHealthFindingSeverityEnum];
+
+
+    export const ExperimentHealthFindingSeverityEnum = {
+      Critical: 'critical',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    /**
+     * * `open_feature_flag` - Open Feature Flag
+     * * `adjust_distribution` - Adjust Distribution
+     * * `use_first_seen_variant` - Use First Seen Variant
+     * * `add_primary_metric` - Add Primary Metric
+     * * `add_secondary_metric` - Add Secondary Metric
+     * * `edit_exposure_criteria` - Edit Exposure Criteria
+     * * `edit_release_conditions` - Edit Release Conditions
+     */
+    export type ExperimentHealthFindingActionKindEnum = typeof ExperimentHealthFindingActionKindEnum[keyof typeof ExperimentHealthFindingActionKindEnum];
+
+
+    export const ExperimentHealthFindingActionKindEnum = {
+      OpenFeatureFlag: 'open_feature_flag',
+      AdjustDistribution: 'adjust_distribution',
+      UseFirstSeenVariant: 'use_first_seen_variant',
+      AddPrimaryMetric: 'add_primary_metric',
+      AddSecondaryMetric: 'add_secondary_metric',
+      EditExposureCriteria: 'edit_exposure_criteria',
+      EditReleaseConditions: 'edit_release_conditions',
+    } as const;
+
+    /**
+     * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
+     */
+    export type ExperimentHealthFindingEvidence = {[key: string]: string | number | null};
+
+    export interface ExperimentHealthFinding {
+      /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
+       *
+       * * `flag_off_while_running` - Flag Off While Running
+       * * `variant_shipped_while_running` - Variant Shipped While Running
+       * * `flag_live_after_end` - Flag Live After End
+       * * `flag_live_before_launch` - Flag Live Before Launch
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `no_metric` - No Metric
+       * * `srm` - Sample Ratio Mismatch
+       * * `zero_exposures` - Zero Exposures
+       * * `forced_variant_release_condition` - Forced Variant Release Condition */
+      code: ExperimentHealthFindingCodeEnum;
+      /**
+         * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
+         * @nullable
+         */
+      subcode: string | null;
+      /** How much the problem affects the results: critical, warning, or info.
+       *
+       * * `critical` - Critical severity
+       * * `warning` - Warning severity
+       * * `info` - Info severity */
+      severity: ExperimentHealthFindingSeverityEnum;
+      /** One-line summary of the problem. */
+      title: string;
+      /** What is wrong, what it does to the experiment, and how to fix it. */
+      detail: string;
+      /** The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code. */
+      evidence: ExperimentHealthFindingEvidence;
+      /** The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'. */
+      actions: ExperimentHealthFindingActionKindEnum[];
+      /**
+         * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
+         * @nullable
+         */
+      diagnostic_ref: string | null;
+    }
+
+    export interface ExperimentHealth {
+      /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed. */
+      findings: ExperimentHealthFinding[];
+    }
+
+    /**
      * Full experiment representation for the detail, create, and update endpoints.
      *
      * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
@@ -44358,6 +44469,8 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
+      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -44755,117 +44868,6 @@ export namespace Schemas {
       pr_url: string | null;
       /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
       can_view_task: boolean;
-    }
-
-    /**
-     * * `flag_off_while_running` - Flag Off While Running
-     * * `variant_shipped_while_running` - Variant Shipped While Running
-     * * `flag_live_after_end` - Flag Live After End
-     * * `flag_live_before_launch` - Flag Live Before Launch
-     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `no_metric` - No Metric
-     * * `srm` - Sample Ratio Mismatch
-     * * `zero_exposures` - Zero Exposures
-     * * `forced_variant_release_condition` - Forced Variant Release Condition
-     */
-    export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
-
-
-    export const ExperimentHealthFindingCodeEnum = {
-      FlagOffWhileRunning: 'flag_off_while_running',
-      VariantShippedWhileRunning: 'variant_shipped_while_running',
-      FlagLiveAfterEnd: 'flag_live_after_end',
-      FlagLiveBeforeLaunch: 'flag_live_before_launch',
-      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
-      NoMetric: 'no_metric',
-      Srm: 'srm',
-      ZeroExposures: 'zero_exposures',
-      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
-    } as const;
-
-    /**
-     * * `critical` - Critical severity
-     * * `warning` - Warning severity
-     * * `info` - Info severity
-     */
-    export type ExperimentHealthFindingSeverityEnum = typeof ExperimentHealthFindingSeverityEnum[keyof typeof ExperimentHealthFindingSeverityEnum];
-
-
-    export const ExperimentHealthFindingSeverityEnum = {
-      Critical: 'critical',
-      Warning: 'warning',
-      Info: 'info',
-    } as const;
-
-    /**
-     * * `open_feature_flag` - Open Feature Flag
-     * * `adjust_distribution` - Adjust Distribution
-     * * `use_first_seen_variant` - Use First Seen Variant
-     * * `add_primary_metric` - Add Primary Metric
-     * * `add_secondary_metric` - Add Secondary Metric
-     * * `edit_exposure_criteria` - Edit Exposure Criteria
-     * * `edit_release_conditions` - Edit Release Conditions
-     */
-    export type ExperimentHealthFindingActionKindEnum = typeof ExperimentHealthFindingActionKindEnum[keyof typeof ExperimentHealthFindingActionKindEnum];
-
-
-    export const ExperimentHealthFindingActionKindEnum = {
-      OpenFeatureFlag: 'open_feature_flag',
-      AdjustDistribution: 'adjust_distribution',
-      UseFirstSeenVariant: 'use_first_seen_variant',
-      AddPrimaryMetric: 'add_primary_metric',
-      AddSecondaryMetric: 'add_secondary_metric',
-      EditExposureCriteria: 'edit_exposure_criteria',
-      EditReleaseConditions: 'edit_release_conditions',
-    } as const;
-
-    /**
-     * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
-     */
-    export type ExperimentHealthFindingEvidence = {[key: string]: string | number | null};
-
-    export interface ExperimentHealthFinding {
-      /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
-       *
-       * * `flag_off_while_running` - Flag Off While Running
-       * * `variant_shipped_while_running` - Variant Shipped While Running
-       * * `flag_live_after_end` - Flag Live After End
-       * * `flag_live_before_launch` - Flag Live Before Launch
-       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-       * * `no_metric` - No Metric
-       * * `srm` - Sample Ratio Mismatch
-       * * `zero_exposures` - Zero Exposures
-       * * `forced_variant_release_condition` - Forced Variant Release Condition */
-      code: ExperimentHealthFindingCodeEnum;
-      /**
-         * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
-         * @nullable
-         */
-      subcode: string | null;
-      /** How much the problem affects the results: critical, warning, or info.
-       *
-       * * `critical` - Critical severity
-       * * `warning` - Warning severity
-       * * `info` - Info severity */
-      severity: ExperimentHealthFindingSeverityEnum;
-      /** One-line summary of the problem. */
-      title: string;
-      /** What is wrong, what it does to the experiment, and how to fix it. */
-      detail: string;
-      /** The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code. */
-      evidence: ExperimentHealthFindingEvidence;
-      /** The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'. */
-      actions: ExperimentHealthFindingActionKindEnum[];
-      /**
-         * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
-         * @nullable
-         */
-      diagnostic_ref: string | null;
-    }
-
-    export interface ExperimentHealth {
-      /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed. */
-      findings: ExperimentHealthFinding[];
     }
 
     /**
@@ -46932,6 +46934,8 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
+      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -80223,6 +80227,8 @@ export namespace Schemas {
       readonly can_freeze_exposure?: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
+      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      readonly health?: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
          * @nullable
