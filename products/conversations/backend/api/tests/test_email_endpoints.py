@@ -32,6 +32,7 @@ from products.conversations.backend.mailgun import (
     MailgunTransientError,
 )
 from products.conversations.backend.models import (
+    AgentSignature,
     EmailChannel,
     EmailChannelConnectionStatus,
     EmailChannelKind,
@@ -2012,14 +2013,21 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert outbox.status == EmailOutboxMessage.Status.SENT
         assert outbox.sent_at is not None
 
-    @parameterized.expand([("signature_on", True), ("signature_off", False)])
+    @parameterized.expand(
+        [
+            ("no_signature", None, True),
+            ("with_picture", "Ann & Co\nSupport lead", True),
+            ("without_picture", "Ann & Co\nSupport lead", False),
+        ]
+    )
     @patch("products.conversations.backend.tasks.email.send_mime")
-    def test_send_email_reply_agent_signature(self, _name: str, enabled: bool, mock_send_mime: MagicMock):
-        self.team.conversations_settings = {"email_enabled": True, "email_agent_signature_enabled": enabled}
-        self.team.save()
-        self.user.first_name = "Ann & Co"
-        self.user.last_name = "Agent"
-        self.user.save()
+    def test_send_email_reply_agent_signature(
+        self, _name: str, signature_text: str | None, include_picture: bool, mock_send_mime: MagicMock
+    ):
+        if signature_text is not None:
+            AgentSignature.objects.for_team(self.team.id).create(
+                team=self.team, user=self.user, text=signature_text, include_profile_picture=include_picture
+            )
         ticket = self._create_ticket(self._create_config("support@example.com", "aaa111"))
 
         self._run_reply(ticket)
@@ -2031,11 +2039,12 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert text_part is not None and html_part is not None
         text_body = text_part.get_content().replace("\r\n", "\n")
         html_body = html_part.get_content()
+        has_signature = signature_text is not None
         assert text_body.startswith("Reply from agent")
-        assert ("-- \nAnn & Co Agent\nTest" in text_body) is enabled
-        assert ('<div style="font-size:14px;font-weight:600;">Ann &amp; Co Agent</div>' in html_body) is enabled
-        assert ("https://www.gravatar.com/avatar/" in html_body) is enabled
-        assert "Ann & Co Agent" not in html_body
+        assert ("-- \nAnn & Co\nSupport lead" in text_body) is has_signature
+        assert ("Ann &amp; Co<br>Support lead" in html_body) is has_signature
+        assert ("https://www.gravatar.com/avatar/" in html_body) is (has_signature and include_picture)
+        assert "Ann & Co" not in html_body
 
     @parameterized.expand(
         [

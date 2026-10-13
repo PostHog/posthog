@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AIContextAccountPropertyApi,
     AIReplyPlaybookApi,
+    AgentSignatureApi,
     AiFeedbackRequestApi,
     AiHumanOutcomeRequestApi,
     BulkUpdateStatusRequestApi,
@@ -88,6 +89,43 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsMySignatureRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/my_signature/`
+}
+
+/**
+ * Your own email signature for support replies in this project.
+ */
+export const conversationsMySignatureRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentSignatureApi> => {
+    return apiMutator<AgentSignatureApi>(getConversationsMySignatureRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMySignatureCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/my_signature/`
+}
+
+/**
+ * Save your own email signature for support replies in this project.
+ */
+export const conversationsMySignatureCreate = async (
+    projectId: string,
+    agentSignatureApi: AgentSignatureApi,
+    options?: RequestInit
+): Promise<AgentSignatureApi> => {
+    return apiMutator<AgentSignatureApi>(getConversationsMySignatureCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentSignatureApi),
     })
 }
 

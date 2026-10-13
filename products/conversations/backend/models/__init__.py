@@ -1,3 +1,4 @@
+from .agent_signature import AGENT_SIGNATURE_MAX_CHARS, AgentSignature
 from .assignment import TicketAssignment
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
 from .delivery import (
@@ -35,6 +36,8 @@ from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
 
 __all__ = [
+    "AGENT_SIGNATURE_MAX_CHARS",
+    "AgentSignature",
     "Channel",
     "ChannelDetail",
     "ConversationDelivery",

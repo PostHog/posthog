@@ -2,15 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonCollapse,
-    LemonInput,
-    LemonSwitch,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -20,6 +12,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
 import { TrustedRelaySenderSettings } from '../../components/TrustedRelaySenderSettings/TrustedRelaySenderSettings'
+import { MySignatureSection } from './MySignatureSection'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
 
 interface DnsRecord {
@@ -302,32 +295,6 @@ function configHeader(config: EmailConfigStatus): JSX.Element {
     )
 }
 
-function AgentSignatureSetting(): JSX.Element {
-    const { emailAgentSignatureEnabled, currentTeamLoading } = useValues(supportSettingsLogic)
-    const { setEmailAgentSignatureEnabled } = useActions(supportSettingsLogic)
-    const adminRestrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Organization,
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
-
-    return (
-        <LemonCard hoverEffect={false} className="flex items-center gap-4 justify-between px-4 py-3">
-            <div className="min-w-0">
-                <label className="font-medium">Add agent signature</label>
-                <p className="text-xs text-muted-alt mb-0">
-                    Adds the name and profile picture of the person who replied to the end of each email. The picture
-                    comes from Gravatar.
-                </p>
-            </div>
-            <LemonSwitch
-                checked={emailAgentSignatureEnabled}
-                onChange={setEmailAgentSignatureEnabled}
-                disabledReason={adminRestrictionReason ?? (currentTeamLoading ? 'Saving…' : undefined)}
-            />
-        </LemonCard>
-    )
-}
-
 export function EmailSection(): JSX.Element {
     const { emailConfigs } = useValues(supportSettingsLogic)
     const [expandedKeys, setExpandedKeys] = useState<string[]>([])
@@ -352,7 +319,7 @@ export function EmailSection(): JSX.Element {
                     />
                 )}
                 <AddEmailForm />
-                {emailConfigs.length > 0 && <AgentSignatureSetting />}
+                {emailConfigs.length > 0 && <MySignatureSection />}
             </div>
         </SceneSection>
     )

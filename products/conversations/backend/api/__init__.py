@@ -1,3 +1,4 @@
+from .agent_signature import AgentSignatureViewSet
 from .ai_context import AIContextAccountPropertiesViewSet
 from .ai_reply_playbook import AIReplyPlaybookViewSet
 from .ticket_views import TicketViewViewSet
@@ -6,6 +7,7 @@ from .widget import WidgetMessagesView, WidgetMessageView, WidgetTicketsView
 from .zendesk_import import ZendeskImportViewSet
 
 __all__ = [
+    "AgentSignatureViewSet",
     "AIContextAccountPropertiesViewSet",
     "AIReplyPlaybookViewSet",
     "TicketViewSet",
