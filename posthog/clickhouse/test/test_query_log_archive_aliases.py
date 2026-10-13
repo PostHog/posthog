@@ -6,6 +6,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.query_log_archive import RawQueryLogArchiveTable
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_OPS_TABLE_SQL
 
@@ -67,3 +70,16 @@ class TestQueryLogArchiveCostPlannerAliases(ClickhouseTestMixin, SimpleTestCase)
         self._insert(name, log_comment)
 
         assert self._read(name) == expected
+
+    @parameterized.expand([("private", True, False), ("ordinary", False, True), ("missing", None, True)])
+    def test_hogql_excludes_only_private_scout_queries(self, name: str, marker: bool | None, visible: bool) -> None:
+        log_comment: dict[str, object] = {"team_id": 2}
+        if marker is not None:
+            log_comment["is_scout_experiment"] = marker
+        self._insert(name, log_comment)
+        table = RawQueryLogArchiveTable().to_printed_clickhouse_table_ref(HogQLContext(team_id=2))
+        table = table.replace("FROM query_log_archive ", f"FROM {TABLE} ")
+
+        rows = sync_execute(f"SELECT query_id FROM {table} WHERE query_id = %(query_id)s", {"query_id": name})
+
+        assert rows == ([(name,)] if visible else [])

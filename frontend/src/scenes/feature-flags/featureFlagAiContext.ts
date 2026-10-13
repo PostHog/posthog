@@ -1,5 +1,6 @@
 import { FeatureFlagType } from '~/types'
 
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 // The backend rejects a text attachment longer than this and fails the whole send with a 400
@@ -29,6 +30,12 @@ export function featureFlagContextItems(featureFlag: FeatureFlagType): AttachedC
 
 function targetingValue(featureFlag: FeatureFlagType): string {
     const filters = featureFlag.filters
+    if (!isV1FeatureFlagConfig(filters)) {
+        const full = JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config: filters })
+        return full.length <= MAX_TARGETING_VALUE_LENGTH
+            ? full
+            : JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config_version: filters.version })
+    }
     const identity = {
         key: featureFlag.key,
         description: featureFlag.name.slice(0, MAX_DESCRIPTION_LENGTH),

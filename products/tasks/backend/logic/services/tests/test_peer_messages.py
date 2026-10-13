@@ -94,7 +94,7 @@ class TestVisibilityPolicy:
 
     @pytest.mark.parametrize(
         "mutation",
-        ["other_user", "acp_runtime", "local_environment", "completed", "deleted_task"],
+        ["other_user", "acp_runtime", "local_environment", "completed", "deleted_task", "scout_trial"],
     )
     def test_excluded_runs(self, team, user, other_user, sender_run, mutation):
         if mutation == "other_user":
@@ -105,19 +105,33 @@ class TestVisibilityPolicy:
             run = make_run(make_task(team, user), environment=TaskRun.Environment.LOCAL)
         elif mutation == "completed":
             run = make_run(make_task(team, user), status=TaskRun.Status.COMPLETED)
+        elif mutation == "scout_trial":
+            task = make_task(team, user)
+            task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            task.origin_key = f"scout-trial:{uuid.uuid4()}"
+            task.save(update_fields=["origin_product", "origin_key"])
+            run = make_run(task)
         else:
             task = make_task(team, user)
             task.deleted = True
             task.save(update_fields=["deleted"])
             run = make_run(task)
         assert run.id not in set(peer_messages.visible_peer_runs(sender_run).values_list("id", flat=True))
+        assert peer_messages.resolve_peer_target(sender_run, str(run.id)) is None
 
-    def test_creatorless_sender_sees_nothing(self, team, user, target_run):
+    @pytest.mark.parametrize("sender_kind", ["creatorless", "scout_trial"])
+    def test_isolated_sender_sees_nothing(self, team, user, target_run, sender_kind):
         task = make_task(team, user)
-        task.created_by = None
-        task.save(update_fields=["created_by"])
+        if sender_kind == "creatorless":
+            task.created_by = None
+            task.save(update_fields=["created_by"])
+        else:
+            task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            task.origin_key = f"scout-trial:{uuid.uuid4()}"
+            task.save(update_fields=["origin_product", "origin_key"])
         sender = make_run(task)
         assert not peer_messages.visible_peer_runs(sender).exists()
+        assert peer_messages.resolve_peer_target(sender, str(target_run.id)) is None
 
     def test_sendable_flag_only_for_in_progress(self, team, user, sender_run, target_run):
         queued = make_run(make_task(team, user), status=TaskRun.Status.QUEUED)

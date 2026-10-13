@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, TableNode
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
@@ -429,3 +430,46 @@ class TestStarExpansion:
 
         assert result.eligible
         assert any("cannot be pushed down" in warning for warning in result.warnings), result.warnings
+
+    @parameterized.expand(
+        [
+            ("limit", "SELECT id AS team_id_, 1 AS has_views FROM events LIMIT 50000", "LIMIT"),
+            (
+                "having",
+                "SELECT toStartOfDay(timestamp) AS team_id_, count() AS has_views FROM events "
+                "GROUP BY team_id_ HAVING count() > 0",
+                "HAVING",
+            ),
+        ]
+    )
+    def test_a_blocked_shape_behind_a_saved_query_reference_still_blocks(
+        self, _name: str, view_query: str, expected: str
+    ) -> None:
+        database = Database()
+        database._add_views(
+            TableNode(
+                children={
+                    "upstream_view": TableNode(
+                        name="upstream_view",
+                        table=SavedQuery(
+                            id="upstream_view",
+                            name="upstream_view",
+                            query=view_query,
+                            fields={
+                                "team_id_": IntegerDatabaseField(name="team_id_"),
+                                "has_views": IntegerDatabaseField(name="has_views"),
+                            },
+                        ),
+                    )
+                }
+            )
+        )
+
+        result = self._check(
+            "SELECT coalesce(team_id_, 0) AS new_team_id, has_views FROM upstream_view WHERE team_id_ < 100000",
+            IncrementalConfig(incremental_key="new_team_id", unique_key=("new_team_id",)),
+            database=database,
+        )
+
+        assert not result.eligible
+        assert any(expected in blocker for blocker in result.blockers), result.blockers

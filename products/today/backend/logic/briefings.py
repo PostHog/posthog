@@ -18,7 +18,7 @@ from posthog.temporal.common.client import sync_connect
 from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
-from ..facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemState
+from ..facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemReason, ItemState
 from ..models import DailyBriefing
 from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, generate_workflow_id
 from .content import BriefingContent
@@ -188,7 +188,9 @@ class InboxCounts:
 def _inbox_counts(team: Team, user: User, shown: list[FactSheetItem]) -> InboxCounts:
     shown_reports = [item.key.split(":", 1)[1] for item in shown if item.group == ItemGroup.REPORT]
     try:
-        counts = signals.open_report_counts(team_id=team.id, user=user, exclude_report_ids=shown_reports)
+        counts = signals.open_report_counts(
+            team_id=team.id, user=user, exclude_report_ids=shown_reports, include_unowned=False
+        )
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return InboxCounts(more_for_you=0, open_in_project=0)
@@ -212,6 +214,32 @@ def _report_details(
 def _live_states(reports: dict[str, signals.BriefingReportDetails]) -> dict[str, ItemState]:
     """Which reports were resolved or dismissed since the briefing was written."""
     return {key: _REPORT_STATES[detail.status] for key, detail in reports.items() if detail.status in _REPORT_STATES}
+
+
+_NAMES_PERSON_REASONS = frozenset({ItemReason.WAITING_FOR_YOU, ItemReason.SUGGESTED_REVIEWER})
+
+
+def _left_item_keys(team: Team, user: User, items: list[FactSheetItem], states: dict[str, ItemState]) -> set[str]:
+    """Items the briefing picked because the report named the person, which it no longer does.
+
+    The briefing is a saved list, so without this the report comes back on the next page load as
+    though nothing happened. A report that already resolved or was dismissed keeps that state, which
+    is the stronger thing to say about it.
+    """
+    candidates = {
+        item.key: item.key.split(":", 1)[1]
+        for item in items
+        if item.key.startswith("report:") and item.reason in _NAMES_PERSON_REASONS and item.key not in states
+    }
+    if not candidates:
+        return set()
+    try:
+        naming = signals.report_ids_naming_user(team_id=team.id, user=user, report_ids=list(candidates.values()))
+    except Exception as error:
+        # A failed lookup costs the label, not the briefing.
+        capture_exception(error, {"team_id": team.id, "product": "today"})
+        return set()
+    return {key for key, report_id in candidates.items() if report_id not in naming}
 
 
 def _report_contract(detail: signals.BriefingReportDetails) -> contracts.BriefingItemReport | None:
@@ -265,6 +293,7 @@ def to_contract(
     content = BriefingContent.model_validate(briefing.content or {})
     reports = _report_details(team, shown, metric_access)
     states = _live_states(reports)
+    states |= dict.fromkeys(_left_item_keys(team, user, shown, states), ItemState.LEFT)
     counts = _inbox_counts(team, user, shown)
     return contracts.Briefing(
         id=str(briefing.id),

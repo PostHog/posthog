@@ -1,17 +1,24 @@
-from enum import StrEnum
-
 from posthog.enums import LabeledStrEnum
 
 
-class AccountPropertyPinKind(StrEnum):
-    CUSTOM_PROPERTY = "custom_property"
-    RELATIONSHIP = "relationship"
+class AccountPropertyPinKind(LabeledStrEnum):
+    CUSTOM_PROPERTY = "custom_property", "Custom property"
+    RELATIONSHIP = "relationship", "Relationship"
 
 
-ACCOUNT_PROPERTY_PIN_KIND_CHOICES: tuple[tuple[str, str], ...] = (
-    (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
-    (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
-)
+# Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class CustomPropertyOptionColor(LabeledStrEnum):
+    PRESET_1 = "preset-1", "preset-1"
+    PRESET_2 = "preset-2", "preset-2"
+    PRESET_3 = "preset-3", "preset-3"
+    PRESET_4 = "preset-4", "preset-4"
+    PRESET_5 = "preset-5", "preset-5"
+    PRESET_6 = "preset-6", "preset-6"
+    PRESET_7 = "preset-7", "preset-7"
+    PRESET_8 = "preset-8", "preset-8"
+    PRESET_9 = "preset-9", "preset-9"
+    PRESET_10 = "preset-10", "preset-10"
 
 
 class AccountViewVisibility(LabeledStrEnum):
@@ -59,9 +66,9 @@ class OwnershipRoleDiagnostic(LabeledStrEnum):
 __all__ = [
     "AccountPropertyPinKind",
     "AccountViewVisibility",
+    "CustomPropertyOptionColor",
     "AccountRelationshipSource",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
     "TaskDigestCadence",
-    "ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
 ]

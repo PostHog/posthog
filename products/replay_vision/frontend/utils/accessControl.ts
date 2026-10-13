@@ -7,8 +7,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
  * label data requires BOTH replay_scanner editor access (the resource RBAC is actually
  * configured against — see RESOURCE_INHERITANCE_MAP) AND session_recording viewer access (since the
  * write exposes or processes recording-derived content). The backend enforces both unconditionally for
- * these actions (see `_scanner_for_url`/`initial()`'s `_CONFIG_ACTIONS` across scanners.py,
- * observations.py, and prompt_suggestions.py) — this must match exactly, or a
+ * these actions (see `_scanner_for_url`/`initial()`'s `_CONFIG_ACTIONS` across scanners.py and
+ * observations.py) — this must match exactly, or a
  * disabled-looking control can silently permit a request the backend blocks, and vice versa.
  */
 export function getReplayVisionEditDisabledReason(scannerUserAccessLevel?: AccessControlLevel | null): string | null {

@@ -6,6 +6,8 @@ export interface ActivityProps {
     id: string
     title: ReactNode
     subtitle?: ReactNode
+    /** Wraps a long title instead of truncating it, for a row that carries a message rather than a tool call. */
+    wrapTitle?: boolean
     status: ActivityStatus
     icon?: ReactNode
     animate?: boolean

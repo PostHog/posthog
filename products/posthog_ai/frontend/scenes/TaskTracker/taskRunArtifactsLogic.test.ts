@@ -1,5 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -77,6 +81,46 @@ describe('taskRunArtifactsLogic', () => {
 
         logic.actions.setActiveTab('conversation')
         expect(router.values.searchParams).toEqual({})
+    })
+
+    it('shows the list first on a phone and opens no file until one is picked', async () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            runArtifacts = [reportVersion('report-v1', '2026-09-28T18:00:00Z')]
+            router.actions.push('/project/1/ai', { task: TASK_ID })
+            const capture = jest.spyOn(posthog, 'capture')
+            const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
+            logic.mount()
+            logic.actions.setActiveTab('artifacts')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.showArtifactList).toBe(true)
+            expect(router.values.searchParams).toEqual({ task: TASK_ID })
+            expect(capture).not.toHaveBeenCalledWith('task artifact previewed', expect.anything())
+
+            logic.actions.selectArtifact('report.md')
+            expect(logic.values.showArtifactList).toBe(false)
+            expect(router.values.searchParams).toEqual({ task: TASK_ID, artifact: 'report.md' })
+            expect(capture).toHaveBeenCalledWith(
+                'task artifact previewed',
+                expect.objectContaining({ kind: 'markdown', source: 'click' })
+            )
+
+            logic.actions.setCommentsOpen(true)
+            logic.actions.closeArtifact()
+            expect(logic.values.showArtifactList).toBe(true)
+            expect(router.values.searchParams).toEqual({ task: TASK_ID })
+
+            logic.actions.selectArtifact('report.md')
+            expect(logic.values.commentsOpen).toBe(false)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
     })
 
     it('ignores an artifact link for another task', async () => {

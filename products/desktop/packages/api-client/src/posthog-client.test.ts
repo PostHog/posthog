@@ -39,6 +39,9 @@ describe("PostHogAPIClient", () => {
       const [url, request] = fetch.mock.calls[0];
       expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
       expect(request.method).toBe("POST");
+      expect(
+        (request.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe("posthog_desktop");
       expect(JSON.parse(request.body)).toEqual({
         description: "Read the report evidence",
         title: "Review report",
@@ -49,6 +52,45 @@ describe("PostHogAPIClient", () => {
           ? { signal_report_discussion_question: "What caused this?" }
           : {}),
       });
+    },
+  );
+
+  it.each([
+    { provenance: "posthog_mobile", action: "creates" },
+    { provenance: "posthog_web", action: "creates" },
+    { provenance: "posthog_mobile", action: "warms" },
+    { provenance: "posthog_web", action: "warms" },
+  ] as const)(
+    "sends $provenance provenance when it $action a task",
+    async ({ provenance, action }) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "task-1",
+            task_id: "task-1",
+            run_id: "run-1",
+          }),
+          { status: 201 },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch, taskClientProvenance: provenance },
+      );
+
+      if (action === "creates") {
+        await client.createTask({ description: "Create a task" });
+      } else {
+        await client.warmTask({ repository: null, github_integration: null });
+      }
+
+      const request = fetch.mock.calls[0]?.[1];
+      expect(
+        (request?.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe(provenance);
     },
   );
 
@@ -2699,11 +2741,24 @@ describe("PostHogAPIClient", () => {
               status: "scored",
               roles: ["served"],
               scores: { pr_merged: 0.52, action: 0.78, refund: 0.04 },
+              lifts: { action: 1.3 },
               metadata: {
                 heads: [
-                  { head: "action", readable: true },
-                  { head: "pr_merged", readable: true },
-                  { head: "refund", readable: false },
+                  {
+                    head: "action",
+                    readable: true,
+                    refit_classification_threshold: 0.6,
+                  },
+                  {
+                    head: "pr_merged",
+                    readable: true,
+                    refit_classification_threshold: 0.2,
+                  },
+                  {
+                    head: "refund",
+                    readable: false,
+                    refit_classification_threshold: 0,
+                  },
                 ],
               },
             },
@@ -2735,10 +2790,12 @@ describe("PostHogAPIClient", () => {
           roles: ["served"],
           status: "scored",
           skip_reason: null,
+          // Stored lifts win, older rows derive lift from a positive base rate,
+          // and a head without one sorts last.
           heads: [
-            { name: "action", probability: 0.78, readable: true },
-            { name: "pr_merged", probability: 0.52, readable: true },
-            { name: "refund", probability: 0.04, readable: false },
+            { name: "pr_merged", probability: 0.52, lift: 2.6, readable: true },
+            { name: "action", probability: 0.78, lift: 1.3, readable: true },
+            { name: "refund", probability: 0.04, lift: null, readable: false },
           ],
         },
         challengers: [

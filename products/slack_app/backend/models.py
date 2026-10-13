@@ -190,6 +190,12 @@ class SlackSettings(UUIDModel):
         choices=ChannelWelcomeMode.choices,
         help_text="Where the greeting goes when someone adds the app to a channel in this workspace.",
     )
+    # Only read on a personal row. NULL means the user never turned it on, which resolves to off.
+    auto_model_choice = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Let PostHog pick the model for each new task this user starts from Slack.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

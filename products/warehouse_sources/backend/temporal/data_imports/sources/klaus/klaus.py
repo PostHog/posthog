@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.settings import (
     KLAUS_ENDPOINTS,
     KlausEndpointConfig,
+    KlausFanOutParent,
 )
 
 REQUEST_TIMEOUT = 60
@@ -38,15 +39,16 @@ class KlausRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class KlausResumeConfig:
     # Next page number to request, in the server's own page indexing. None means
     # "start the stream at its first page" — used when the fan-out bookmark advances
-    # to a workspace whose first page index isn't known until its response arrives.
+    # to a parent whose first page index isn't known until its response arrives.
     next_page: int | None = None
-    # The workspace currently being processed for fan-out endpoints. A stable
-    # workspace-ID bookmark (not a positional index) so workspaces added/removed
-    # between a crash and the retry can't resume us into the wrong workspace.
+    # The parent (workspace or quiz) currently being processed for fan-out endpoints.
+    # A stable ID bookmark (not a positional index) so parents added/removed between
+    # a crash and the retry can't resume us into the wrong one. The name stays
+    # `workspace_id` so state saved by running syncs still loads.
     workspace_id: str | None = None
 
 
@@ -187,10 +189,10 @@ def _iter_endpoint_pages(
     config: KlausEndpointConfig,
     resumable_source_manager: ResumableSourceManager[KlausResumeConfig],
     resume_page: int | None,
-    workspace_id: str | None,
+    parent: tuple[str, str] | None,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Page through one endpoint (or one workspace of a fan-out endpoint), yielding row batches.
+    """Page through one endpoint (or one parent of a fan-out endpoint), yielding row batches.
 
     The docs don't say whether page numbering starts at 0 or 1, so the first request
     omits `page` and later requests derive the next index from the response's
@@ -208,12 +210,16 @@ def _iter_endpoint_pages(
                 request_params["page"] = next_page
 
         data = _fetch_page(session, url, request_params, headers, logger)
-        items = data.get(config.data_selector) or []
+        if config.data_selector is None:
+            items = [data] if data else []
+        else:
+            items = data.get(config.data_selector) or []
         if not items:
             return
 
-        if workspace_id is not None:
-            items = [{**item, "workspace_id": workspace_id} for item in items]
+        if parent is not None:
+            parent_column, parent_id = parent
+            items = [{**item, parent_column: parent_id} for item in items]
 
         if not config.paginated:
             yield items
@@ -238,17 +244,20 @@ def _iter_endpoint_pages(
         next_page = current_page + 1
         # Save AFTER yielding (and only when more pages remain) so a crash re-yields
         # the last page rather than skipping it — merge dedupes on the primary key.
-        resumable_source_manager.save_state(KlausResumeConfig(next_page=next_page, workspace_id=workspace_id))
+        resumable_source_manager.save_state(
+            KlausResumeConfig(next_page=next_page, workspace_id=parent[1] if parent is not None else None)
+        )
 
 
-def _get_workspace_ids(
+def _get_parent_ids(
     session: requests.Session,
     headers: dict[str, str],
     base_url: str,
+    fan_out: KlausFanOutParent,
     logger: FilteringBoundLogger,
 ) -> list[str]:
-    data = _fetch_page(session, f"{base_url}/api/export/workspaces", {}, headers, logger)
-    return [str(workspace["id"]) for workspace in data.get("workspaces") or []]
+    data = _fetch_page(session, base_url + fan_out.list_path, {}, headers, logger)
+    return [str(parent["id"]) for parent in data.get(fan_out.data_selector) or []]
 
 
 def _iter_fanout_pages(
@@ -257,30 +266,39 @@ def _iter_fanout_pages(
     base_url: str,
     params: dict[str, Any],
     config: KlausEndpointConfig,
+    fan_out: KlausFanOutParent,
     resumable_source_manager: ResumableSourceManager[KlausResumeConfig],
     resume: KlausResumeConfig | None,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    workspace_ids = _get_workspace_ids(session, headers, base_url, logger)
+    parent_ids = _get_parent_ids(session, headers, base_url, fan_out, logger)
 
-    # Resolve the saved workspace bookmark to the slice still to process. If the
-    # bookmarked workspace no longer exists, start over from the first one — merge
+    # Resolve the saved parent bookmark to the slice still to process. If the
+    # bookmarked parent no longer exists, start over from the first one — merge
     # dedupes the re-pulled rows on the primary key.
-    remaining = workspace_ids
+    remaining = parent_ids
     resume_page: int | None = None
-    if resume is not None and resume.workspace_id is not None and resume.workspace_id in workspace_ids:
-        remaining = workspace_ids[workspace_ids.index(resume.workspace_id) :]
+    if resume is not None and resume.workspace_id is not None and resume.workspace_id in parent_ids:
+        remaining = parent_ids[parent_ids.index(resume.workspace_id) :]
         resume_page = resume.next_page
-        logger.debug(f"Zendesk QA: resuming {config.name} from workspace={resume.workspace_id}, page={resume_page}")
+        logger.debug(f"Zendesk QA: resuming {config.name} from parent={resume.workspace_id}, page={resume_page}")
 
-    for index, workspace_id in enumerate(remaining):
-        url = base_url + config.path.format(workspace=workspace_id)
+    for index, parent_id in enumerate(remaining):
+        url = base_url + config.path.format(**{fan_out.path_param: parent_id})
         yield from _iter_endpoint_pages(
-            session, headers, url, params, config, resumable_source_manager, resume_page, workspace_id, logger
+            session,
+            headers,
+            url,
+            params,
+            config,
+            resumable_source_manager,
+            resume_page,
+            (fan_out.parent_column, parent_id),
+            logger,
         )
-        resume_page = None  # only the resumed-into workspace starts mid-stream
+        resume_page = None  # only the resumed-into parent starts mid-stream
 
-        # Advance the bookmark so a crash between workspaces resumes at the next one.
+        # Advance the bookmark so a crash between parents resumes at the next one.
         if index + 1 < len(remaining):
             resumable_source_manager.save_state(KlausResumeConfig(next_page=None, workspace_id=remaining[index + 1]))
 
@@ -309,9 +327,9 @@ def get_rows(
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.fan_out_over_workspaces:
+    if config.fan_out is not None:
         yield from _iter_fanout_pages(
-            session, headers, base_url, params, config, resumable_source_manager, resume, logger
+            session, headers, base_url, params, config, config.fan_out, resumable_source_manager, resume, logger
         )
     else:
         yield from _iter_endpoint_pages(

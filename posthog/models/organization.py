@@ -292,6 +292,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.",
     )
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    member_notice = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Notice shown in a banner to every member of the organization, with an optional link button.",
+    )
     read_only_mcp_access = models.BooleanField(
         default=False,
         null=True,

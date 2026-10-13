@@ -570,7 +570,7 @@ describe('cohortEditLogic', () => {
             // The panel fills in behind a one second timer, so the default one second find budget
             // has almost no margin. Waiting on a sibling action also separates a panel that never
             // rendered from one that rendered without this entry.
-            await screen.findByText('Message this cohort', {}, { timeout: 5000 })
+            await screen.findByText('Build a custom workflow', {}, { timeout: 5000 })
 
             // An unloaded cohort has a falsy is_static, which satisfies the gate this test exists
             // to catch, so pin that the fixture reached the scene before asserting on it.

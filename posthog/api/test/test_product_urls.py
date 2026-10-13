@@ -47,7 +47,6 @@ class TestProductRootRoutes(SimpleTestCase):
 class TestProductRootRoutesInTheUrlConf(SimpleTestCase):
     @parameterized.expand(
         [
-            ("a path a product declares", "/api/user_interviews/vapi_webhook/", "user_interviews_vapi_webhook"),
             ("a path without a trailing slash", "/api/legal_documents/pandadoc", "legal_document_pandadoc_webhook"),
             ("a list a product includes", "/api/customer_analytics/external/account", "external-account"),
         ]

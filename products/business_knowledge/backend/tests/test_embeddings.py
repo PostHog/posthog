@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.business_knowledge.backend import logic
+from products.business_knowledge.backend import llm_telemetry, logic
 from products.business_knowledge.backend.constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
@@ -207,9 +207,29 @@ class TestEmitOneDocument(BaseTest):
     def test_emits_each_chunk_and_stamps(self) -> None:
         doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")
 
-        with patch.object(coordinator, "emit_embedding_request") as emit:
+        with (
+            patch.object(coordinator, "emit_embedding_request") as emit,
+            patch.object(llm_telemetry.posthoganalytics, "capture_ai") as capture,
+        ):
             written = coordinator._emit_one_document(entry)
 
+        capture.assert_called_once()
+        assert capture.call_args.args == ("$ai_embedding",)
+        assert capture.call_args.kwargs["distinct_id"] == f"team-{self.team.id}"
+        assert capture.call_args.kwargs["properties"] == {
+            "$ai_model": "text-embedding-3-small",
+            "$ai_provider": "openai",
+            "$ai_input_tokens": llm_telemetry.estimate_tokens(c.content for c in entry.chunks),
+            "$ai_trace_id": str(doc.id),
+            "$process_person_profile": False,
+            "ai_product": "business_knowledge",
+            "ai_feature": "bk_ingest_embedding",
+            "team_id": self.team.id,
+            "document_id": str(doc.id),
+            "source_id": str(doc.source_id),
+            "source_type": SourceType.TEXT,
+            "chunk_count": len(entry.chunks),
+        }
         assert written == len(entry.chunks)
         assert emit.call_count == len(entry.chunks)
         emitted_doc_ids = {call.kwargs["document_id"] for call in emit.call_args_list}

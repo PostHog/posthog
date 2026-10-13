@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
+import { WorkflowRejectedSuggestions } from './WorkflowRejectedSuggestions'
 import { WorkflowStagedSuggestion } from './WorkflowStagedSuggestion'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 import { WorkflowSuggestionsIntroduction } from './WorkflowSuggestionsIntroduction'
@@ -18,6 +21,24 @@ function SuggestionsOffNotice(): JSX.Element {
                 suggest changes. Only the workflows you turn on are read.
             </p>
         </div>
+    )
+}
+
+function SuggestionsPausedNotice({ byUser }: { byUser: boolean }): JSX.Element {
+    return (
+        <LemonBanner
+            type="warning"
+            action={{
+                children: 'Open scout settings',
+                to: urls.inboxScout('signals-scout-workflows'),
+                // pinned: data-attr - autocapture dashboards read it
+                'data-attr': 'workflow-suggestions-scout-paused-open',
+            }}
+        >
+            {byUser
+                ? 'Suggestions are paused for this project because someone paused the workflows scout. Resume it to get new suggestions.'
+                : 'Suggestions are paused for this project because the workflows scout kept failing. Check it and resume it to get new suggestions.'}
+        </LemonBanner>
     )
 }
 
@@ -51,6 +72,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         pendingProposals,
         approvedProposals,
         appliedProposals,
+        rejectedProposals,
         outcomes,
         optimizationEnabled,
         optimization,
@@ -59,20 +81,24 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         proposalsResponse,
         approvedResponse,
         appliedResponse,
+        rejectedResponse,
         proposalsResponseLoading,
         approvedResponseLoading,
         appliedResponseLoading,
+        rejectedResponseLoading,
         listsUnreadable,
     } = useValues(workflowProposalsLogic({ id }))
     const { reloadLists } = useActions(workflowProposalsLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
     // Each list answers separately; "nothing here" is unknown until all have.
-    const listsUnknown = proposalsResponse === null || approvedResponse === null || appliedResponse === null
+    const listsUnknown =
+        proposalsResponse === null || approvedResponse === null || appliedResponse === null || rejectedResponse === null
     const listsSettling =
         proposalsResponseLoading ||
         approvedResponseLoading ||
         appliedResponseLoading ||
+        rejectedResponseLoading ||
         appliedProposals.some((proposal) => !outcomes[proposal.id])
 
     if ((optimization === null && optimizationLoading) || (optimizationEnabled && listsUnknown && !listsUnreadable)) {
@@ -83,24 +109,45 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         return <SuggestionsUnreadableList onRetry={reloadLists} />
     }
 
-    const nothingFiled = pendingProposals.length === 0 && approvedProposals.length === 0 && measuredApplied.length === 0
+    // A rejected suggestion still counts as filed, so a mistaken rejection stays visible rather than vanishing.
+    const nothingFiled =
+        pendingProposals.length === 0 &&
+        approvedProposals.length === 0 &&
+        measuredApplied.length === 0 &&
+        rejectedProposals.length === 0
 
+    const scoutStatus = optimization?.scout_status
+    const pausedNotice =
+        optimizationEnabled && (scoutStatus === 'paused_by_user' || scoutStatus === 'paused_by_system') ? (
+            <SuggestionsPausedNotice byUser={scoutStatus === 'paused_by_user'} />
+        ) : null
     // A failed read leaves the setting unknown, so it cannot stand in for "off".
     const notice = optimizationUnreadable ? (
         <SuggestionsUnreadableNotice />
     ) : !optimizationEnabled ? (
         <SuggestionsOffNotice />
-    ) : null
+    ) : (
+        pausedNotice
+    )
 
     if (nothingFiled) {
         // Off with nothing filed is the introduction; an unreadable setting keeps its own notice, since it
         // is not "off". Either one with a queue still shows the queue, which the server keeps resolvable.
-        if (notice) {
-            return optimizationUnreadable ? notice : <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+        if (optimizationUnreadable || !optimizationEnabled) {
+            return optimizationUnreadable ? (
+                <SuggestionsUnreadableNotice />
+            ) : (
+                <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+            )
         }
 
         if (!listsSettling) {
-            return <WorkflowSuggestionsIntroduction id={id} enabled />
+            return (
+                <div className="flex flex-col gap-4">
+                    {pausedNotice}
+                    <WorkflowSuggestionsIntroduction id={id} enabled />
+                </div>
+            )
         }
     }
 
@@ -149,6 +196,12 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                         <WorkflowAppliedOutcome key={proposal.id} proposal={proposal} outcome={outcomes[proposal.id]} />
                     ))}
                 </div>
+            )}
+            {rejectedProposals.length > 0 && (
+                <WorkflowRejectedSuggestions
+                    proposals={rejectedProposals}
+                    total={rejectedResponse?.count ?? rejectedProposals.length}
+                />
             )}
         </div>
     )

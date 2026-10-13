@@ -23,6 +23,7 @@ interface QueryPaneProps {
     originalValue?: string
     onRun?: () => void
     editorVimModeEnabled?: boolean
+    editorVimrc?: string
     constrainHeight?: boolean
 }
 
@@ -90,6 +91,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         width={width}
                                         originalValue={props.originalValue}
                                         enableVimMode={props.editorVimModeEnabled}
+                                        vimrc={props.editorVimrc}
                                         {...props.codeEditorProps}
                                         autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
                                         options={editorOptions}

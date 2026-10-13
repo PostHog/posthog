@@ -46,7 +46,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "reviews": {
-        "description": "App Store and Google Play reviews for your tracked apps, incrementally synced on the review's last-modified timestamp.",
+        "description": "App Store and Google Play reviews for your tracked apps, incrementally synced on the review's last-modified timestamp (API v2) or its date (API v3).",
         "docs_url": "https://docs.api.appfollow.io/reference/reviews_api_v2_reviews_get-1",
         "columns": {
             "id": "AppFollow's internal review identifier.",

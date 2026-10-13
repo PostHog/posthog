@@ -372,10 +372,7 @@ describe('setupPlanLogic', () => {
         })
     })
 
-    it('asks the server for a fresh scan only when the user asks for one', async () => {
-        // The mount-time load is happy with the server's short cache — that's what
-        // stops section navigation re-running six ClickHouse queries. An explicit
-        // Rescan has to bypass it or the button looks broken.
+    it('allows manual scans once per hour after the initial scan', async () => {
         const urls: string[] = []
         useMocks({
             get: {
@@ -387,9 +384,15 @@ describe('setupPlanLogic', () => {
         })
 
         await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.loadSetupPlan({ refresh: true })).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.rescanSources()).toFinishAllListeners()
+        expect(urls).toHaveLength(1)
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 60 * 60 * 1000 + 1)
+        await expectLogic(logic, () => logic.actions.rescanSources()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.rescanSources()).toFinishAllListeners()
+        clock.mockRestore()
+        expect(urls).toHaveLength(2)
 
-        expect(urls[0]).not.toContain('refresh')
+        expect(new URL(urls[0]).searchParams.get('refresh')).toBe('false')
         expect(urls[1]).toContain('refresh=true')
     })
 

@@ -5,7 +5,6 @@ import asyncio
 from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
-from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
@@ -22,6 +21,10 @@ from products.signals.backend.scout_harness.rubrics import (
     RUBRIC_TEAM_ID,
     ScoutRubricCriterion,
     ScoutRubricGenerationStatus,
+    ScoutRubricReferenceContext,
+    ScoutRubricReferenceLimits,
+    ScoutRubricReferenceText,
+    ScoutRubricReportChannel,
     ScoutRubricSource,
     ScoutRubricSuggestionBatch,
     fail_generation,
@@ -29,6 +32,7 @@ from products.signals.backend.scout_harness.rubrics import (
     update_generation,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, resolve_report_channel_variant
+from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -44,6 +48,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 MAX_RUNTIME_SECONDS = 15 * 60
+MAX_GENERATION_INSTRUCTION_CHARACTERS = 60_000
+MAX_GENERATION_REFERENCE_CHARACTERS = 60_000
+MAX_GENERATION_REFERENCE_FILES = 4
+MAX_GENERATION_REFERENCE_PATHS = 20
 
 RUBRIC_GENERATION_PROMPT = """Help the scout's owner decide whether a run did useful work. Suggest a small set of checks they can
 read, choose and edit in the UI. Use everyday language in every field, including references to the
@@ -81,6 +89,8 @@ refer to the complete rule instead. Requiring an action in one situation does no
 other situations. A correct reference does not undo an incorrect statement elsewhere in the check.
 If a rule allows a manual handoff, for example, requiring an electronic receipt would wrongly
 reject it. Leave unspecified choices open. An exception to a general rule is not a conflict.
+If scope, an exception or explicit precedence does not resolve genuinely conflicting requirements,
+name the conflict in the summary for the owner. Do not silently choose a side or invent a stricter rule.
 
 Use concrete words for things people can identify: the report, the number of users, the last time
 checked, or the notes needed next time. Do not replace a technical term with an equally unclear
@@ -93,9 +103,10 @@ conditions to at most three short sentences. Missing evidence means unknown;
 known unmet work fails.
 
 Return only the requested JSON. Keep the summary under 40 words: tell the owner what these checks
-cover and any important evidence limit. Do not inventory inputs, claim to have seen unavailable
-logs or reports, invent observed behavior, include customer names or literal messages, or ask a
-question. Do not change project memory or create or edit reports. The required task_summary_update
+cover, any important evidence limit and any unresolved conflict in the source requirements.
+Do not inventory inputs, claim to have seen unavailable logs or reports, invent observed behavior,
+include customer names or literal messages, or ask a question. Do not change project memory or create
+or edit reports. The required task_summary_update
 may describe this generation's own progress before the final JSON. Do not append a note afterward.
 """
 
@@ -144,7 +155,8 @@ Deliberately disabled judgments stay excluded. Use the saved definitions as writ
 narrower or broader meanings to justify a selection.
 
 Return only the selection JSON matching the supplied schema. The summary is shown to the scout's
-owner. In under 40 words, say what the suggested checks cover and any important evidence limit.
+owner. In under 40 words, say what the suggested checks cover, any important evidence limit and any
+unresolved source conflict identified during drafting. Preserve that warning even when no checks are added.
 If nothing is added, explain why in plain words. Use normal spoken English;
 do not describe your selection process, refer to "draft judgments" or inventory the inputs.
 Do not claim to have inspected unprovided transcripts or reports. Do not include customer names or
@@ -203,7 +215,8 @@ def build_selection_prompt(
         + "\nSelection schema:\n"
         + json.dumps(RubricSelection.model_json_schema())
         + "\nWrite the summary for the scout's owner in one or two short sentences, under 40 words. "
-        "Say what the suggested checks cover and any important evidence limit in everyday words. "
+        "Say what the suggested checks cover, any important evidence limit and any unresolved source conflict "
+        "in everyday words. "
         "If there are no additions, explain why in plain words. "
         "Do not describe the selection process or use internal shorthand. "
         "Keep the selected criteria unchanged. Return only the selection JSON."
@@ -228,25 +241,93 @@ def read_selection_output(text: str, draft: ScoutRubricSuggestionBatch) -> Scout
     )
 
 
-def build_rubric_prompt(team: Team, config: SignalScoutConfig, *, generation_context: str = "") -> str:
+def build_rubric_reference_context(team: Team, config: SignalScoutConfig) -> ScoutRubricReferenceContext:
     skill = load_skill_for_run(team, config.skill_name)
-    report_channel = resolve_report_channel_variant(skill.allowed_tools)
+    report_channel = ScoutRubricReportChannel(resolve_report_channel_variant(skill.allowed_tools))
+    files = (
+        LLMSkillFile.objects.filter(skill_id=skill.skill_id, skill__team_id=team.id)
+        .order_by("path")
+        .values("path", "content_type", "content")
+    )
+    references = tuple(
+        ScoutRubricReferenceText(path=file["path"], content_type=file["content_type"], content=file["content"])
+        for file in files.iterator()
+    )
+    return ScoutRubricReferenceContext(
+        skill_id=skill.skill_id,
+        skill_name=skill.name,
+        skill_version=skill.version,
+        description=skill.description,
+        report_channel=report_channel,
+        report_disposition_instructions=report_disposition_instructions(report_channel),
+        instructions=skill.body,
+        instructions_truncated=False,
+        reference_files=tuple(reference.path for reference in references),
+        reference_files_truncated=False,
+        reference_texts=references,
+        reference_limits=ScoutRubricReferenceLimits(omitted_files=0, truncated_files=()),
+    )
+
+
+def _generation_reference(reference_context: ScoutRubricReferenceContext) -> ScoutRubricReferenceContext:
+    # Prompt budgets must not shorten the saved reference used for judging.
+    remaining_characters = MAX_GENERATION_REFERENCE_CHARACTERS
+    references: list[ScoutRubricReferenceText] = []
+    truncated_references = list(reference_context.reference_limits.truncated_files)
+    for reference in reference_context.reference_texts[:MAX_GENERATION_REFERENCE_FILES]:
+        if remaining_characters == 0:
+            break
+        included = reference.content[:remaining_characters]
+        references.append(reference.model_copy(update={"content": included}))
+        if len(reference.content) > remaining_characters and reference.path not in truncated_references:
+            truncated_references.append(reference.path)
+        remaining_characters -= len(included)
+    return reference_context.model_copy(
+        update={
+            "instructions": reference_context.instructions[:MAX_GENERATION_INSTRUCTION_CHARACTERS],
+            "instructions_truncated": reference_context.instructions_truncated
+            or len(reference_context.instructions) > MAX_GENERATION_INSTRUCTION_CHARACTERS,
+            "reference_files": reference_context.reference_files[:MAX_GENERATION_REFERENCE_PATHS],
+            "reference_files_truncated": reference_context.reference_files_truncated
+            or len(reference_context.reference_files) > MAX_GENERATION_REFERENCE_PATHS,
+            "reference_texts": tuple(references),
+            "reference_limits": ScoutRubricReferenceLimits(
+                omitted_files=reference_context.reference_limits.omitted_files
+                + len(reference_context.reference_texts)
+                - len(references),
+                truncated_files=tuple(truncated_references),
+            ),
+        }
+    )
+
+
+def build_rubric_prompt(
+    team: Team,
+    config: SignalScoutConfig,
+    reference_context: ScoutRubricReferenceContext,
+    *,
+    generation_context: str = "",
+) -> str:
+    reference_context = _generation_reference(reference_context)
+    # TODO: Let the generator inspect past run transcripts and reports through read-only MCP
+    # so it can identify gaps that the supplied summaries hide.
     runs = list(
         SignalScoutRun.objects.for_team(team.id)
         .filter(skill_name=config.skill_name)
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .select_related("task_run")
         .order_by("-created_at")[:5]
     )
     context = {
-        "skill_name": skill.name,
-        "skill_version": skill.version,
-        "description": skill.description,
-        "report_channel": report_channel,
-        "report_disposition_instructions": report_disposition_instructions(report_channel),
-        "instructions": skill.body[:60_000],
-        "instructions_truncated": len(skill.body) > 60_000,
-        "reference_files": [file.path for file in skill.files[:20]],
-        "reference_files_truncated": len(skill.files) > 20,
+        "skill_name": reference_context.skill_name,
+        "skill_version": reference_context.skill_version,
+        "description": reference_context.description,
+        "report_channel": reference_context.report_channel,
+        "report_disposition_instructions": reference_context.report_disposition_instructions,
+        "instructions": reference_context.instructions,
+        "instructions_truncated": reference_context.instructions_truncated,
+        "reference_files": reference_context.reference_files,
+        "reference_files_truncated": reference_context.reference_files_truncated,
         "recent_runs": [
             {
                 "run_id": str(run.id),
@@ -267,31 +348,10 @@ def build_rubric_prompt(team: Team, config: SignalScoutConfig, *, generation_con
             if not (item.source == ScoutRubricSource.CUSTOM and item.enabled)
         ],
     }
-    remaining_characters = 60_000
-    references: list[dict[str, str]] = []
-    truncated_references: list[str] = []
-    files = (
-        LLMSkillFile.objects.filter(skill_id=skill.skill_id, skill__team_id=team.id)
-        .annotate(snippet=Substr("content", 1, remaining_characters + 1))
-        .order_by("path")
-        .values("path", "content_type", "snippet")[:4]
-    )
-    for file in files:
-        if remaining_characters == 0:
-            break
-        content = file["snippet"]
-        included = content[:remaining_characters]
-        references.append({"path": file["path"], "content_type": file["content_type"], "content": included})
-        if len(content) > remaining_characters:
-            truncated_references.append(file["path"])
-        remaining_characters -= len(included)
     source_bundle = {
         "scout_context": context,
-        "reference_texts": references,
-        "reference_limits": {
-            "omitted_files": len(skill.files) - len(references),
-            "truncated_files": truncated_references,
-        },
+        "reference_texts": [reference.model_dump(mode="json") for reference in reference_context.reference_texts],
+        "reference_limits": reference_context.reference_limits.model_dump(mode="json"),
         "history_evidence_scope": (
             "Only the supplied run records and summaries are provided here. Historical task transcripts "
             "and report contents were not inspected or supplied to this generation."
@@ -320,8 +380,8 @@ implementation. Use everyday words throughout, including any reference to the sc
   The owner must understand the check without opening those instructions.
 - Applicability: say when the check is needed. "Every run" is enough when that is correct. Missing
   a required report must not make the check inapplicable.
-- Summary: say what the checks cover and any important evidence limit in under 40 words. Do not
-  describe your drafting process or inventory the inputs.
+- Summary: say what the checks cover, any important evidence limit and any unresolved source conflict
+  in under 40 words. Do not describe your drafting process or inventory the inputs.
 
 The first check must name both the scout's investigation and the required report, update or action
 in its pass condition. Putting the required result only in another check is not enough. Preserve
@@ -377,8 +437,14 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
             or generation.status != ScoutRubricGenerationStatus.QUEUED
         ):
             return
+        if generation.reference_context is None:
+            generation.reference_context = await database_sync_to_async(
+                build_rubric_reference_context, thread_sensitive=True
+            )(team, config)
+        if not await database_sync_to_async(update_generation, thread_sensitive=True)(team_id, config_id, generation):
+            return
         prompt = await database_sync_to_async(build_rubric_prompt, thread_sensitive=True)(
-            team, config, generation_context=generation.context
+            team, config, generation.reference_context, generation_context=generation.context
         )
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=True)(
             team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED

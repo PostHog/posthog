@@ -713,7 +713,7 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
     @patch("products.business_knowledge.backend.logic.rerank_chunks")
     def test_search_rerank_param_calls_reranker(self, mock_rerank, _embed, _ff) -> None:
         self._ready_safe_source(text="Return policy details " * 60)
-        mock_rerank.side_effect = lambda _team, query, results, *, top_k: list(reversed(results))
+        mock_rerank.side_effect = lambda _team, query, results, *, top_k, trace: list(reversed(results))
 
         response = self.client.get(self.url, {"query": "return policy", "rerank": "true"})
         assert response.status_code == status.HTTP_200_OK, response.content

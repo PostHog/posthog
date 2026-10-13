@@ -87,6 +87,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "cves": "CVE identifiers associated with the occurrence.",
         },
     },
+    "issue_targets": {
+        "description": "A target affected by an issue. Fanned out per issue and tagged with its parent issue_id.",
+        "docs_url": "https://developers.intruder.io/reference/issues_targets_list",
+        "columns": {
+            "id": "Unique identifier for the target.",
+            "issue_id": "Identifier of the parent issue that affects this target (added by the connector).",
+            "address": "The target's address (hostname, IP, URL, or cloud account identifier).",
+            "display_address": "Human-readable address (e.g. a cloud account name).",
+            "target_type": "The kind of target (external, internal, cloud, or container_image).",
+        },
+    },
     "fixed_occurrences": {
         "description": "An occurrence of an issue that has since been resolved (remediated).",
         "docs_url": "https://developers.intruder.io/reference/occurrences_fixed_list",

@@ -134,9 +134,19 @@ def serving_mirror_storage() -> ObjectStorage:
 
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
 ROW_COUNT_METADATA_KEY = "row-count"
+# The FEATURE_SCHEMA_VERSION the labels asset wrote an object under. The refresh sensor rewrites a
+# partition whose stamp is missing or older, so a new label column reaches the whole lookback.
+SCHEMA_VERSION_METADATA_KEY = "feature-schema-version"
 
 
-def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date: str | None = None) -> None:
+def write_parquet(
+    client,
+    bucket: str,
+    key: str,
+    table: pa.Table,
+    snapshot_date: str | None = None,
+    schema_version: int | None = None,
+) -> None:
     """Write one Parquet object at a deterministic key.
 
     Spooled to a temp file and uploaded with `upload_fileobj` rather than held as bytes for
@@ -147,6 +157,8 @@ def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date:
     metadata = {ROW_COUNT_METADATA_KEY: str(table.num_rows)}
     if snapshot_date:
         metadata[SNAPSHOT_DATE_METADATA_KEY] = snapshot_date
+    if schema_version is not None:
+        metadata[SCHEMA_VERSION_METADATA_KEY] = str(schema_version)
     with tempfile.TemporaryFile() as spool:
         pq.write_table(table, spool, compression="zstd")
         spool.seek(0)
@@ -175,6 +187,19 @@ def object_row_count(client, bucket: str, key: str) -> int | None:
             return None
         raise
     stamped = head.get("Metadata", {}).get(ROW_COUNT_METADATA_KEY)
+    return int(stamped) if stamped is not None else None
+
+
+def object_schema_version(client, bucket: str, key: str) -> int | None:
+    """The schema version stamped on an object at write time, or None when the object is missing
+    or predates the stamp."""
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    stamped = head.get("Metadata", {}).get(SCHEMA_VERSION_METADATA_KEY)
     return int(stamped) if stamped is not None else None
 
 

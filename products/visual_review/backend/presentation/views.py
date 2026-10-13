@@ -43,7 +43,7 @@ from ..facade.contracts import (
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
-from ..facade.enums import ActorType
+from ..facade.enums import ActorType, RunReviewFilter
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
@@ -53,6 +53,7 @@ from .serializers import (
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    ErrorDetailSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
     FlakinessOverviewSerializer,
@@ -96,6 +97,31 @@ def _parse_uuid(value: str, field: str = "id") -> UUID:
         return UUID(value)
     except ValueError:
         raise ValidationError({field: "Must be a valid UUID."})
+
+
+REVIEW_STATE_PARAMETER = OpenApiParameter(
+    "review_state",
+    str,
+    required=False,
+    enum=[state.value for state in RunReviewFilter],
+    description=(
+        "Filter by where the run stands in review. `needs_review`: a completed pull request run with "
+        "changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. "
+        "`stale`: superseded by a newer run while its changes were unapproved."
+    ),
+)
+
+
+def _parse_review_state(request: Request) -> RunReviewFilter | None:
+    """Reject an unknown review state, so a typo returns a 400 instead of every run."""
+    value = request.query_params.get("review_state")
+    if value is None:
+        return None
+    try:
+        return RunReviewFilter(value)
+    except ValueError:
+        allowed = ", ".join(state.value for state in RunReviewFilter)
+        raise ValidationError({"review_state": f"Must be one of: {allowed}."})
 
 
 # Both run-scoped snapshot lookups need a run id AND a snapshot identifier. Clients that
@@ -149,7 +175,8 @@ class SnapshotsPagination(PrecountedLimitOffsetPagination):
             "type": "integer",
             "description": (
                 "Count of this run's snapshots that match the other filters and whose identifier "
-                "is currently quarantined. Excluded from results unless include_quarantined=true is passed."
+                "is quarantined now. Excluded from results unless include_quarantined=true is passed. "
+                "This can differ from the run's own counts, which use the quarantines at gating time."
             ),
         }
         return schema
@@ -334,7 +361,15 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=UnquarantineQuerySerializer,
-        responses={204: None},
+        responses={
+            204: None,
+            400: OpenApiResponse(response=ErrorDetailSerializer, description="No GitHub integration."),
+            429: OpenApiResponse(response=ErrorDetailSerializer, description="GitHub rate limit. See Retry-After."),
+            503: OpenApiResponse(
+                response=ErrorDetailSerializer,
+                description="GitHub cannot name the default branch head. The quarantine stays.",
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
     def unquarantine(self, request: TypedRequest, pk: str, run_type: str, **kwargs) -> Response:
@@ -348,6 +383,23 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.GitHubIntegrationNotFoundError:
+            return Response(
+                {"detail": "No GitHub integration configured. Please install the GitHub App for this team."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except api.GitHubRateLimitError as e:
+            response = Response(
+                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if e.retry_after:
+                response["Retry-After"] = str(e.retry_after)
+            return response
+        except api.LiftCommitUnknownError as e:
+            return Response(
+                {"detail": str(e), "code": "lift_commit_unknown"}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -376,9 +428,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: FlakinessOverviewSerializer},
         description=(
-            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or "
-            "were absorbed by a toleration on a recent default-branch run, and those under an "
-            "active quarantine. Everything else is omitted, so this is far smaller than the "
+            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a "
+            "recent default-branch run, those whose absorbed diff is close to the threshold, and those "
+            "under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is "
+            "everything else, so this is far smaller than the "
             "baselines universe; `totals.tracked` gives the full denominator. Each entry carries "
             f"the share of the last {contracts.FLAKINESS_RATE_DAYS} days of default-branch runs "
             "that failed the gate (`hard_rate`) and the share a toleration absorbed "
@@ -495,7 +548,7 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            REVIEW_STATE_PARAMETER,
             OpenApiParameter(
                 "search",
                 str,
@@ -507,7 +560,7 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, **kwargs) -> Response:
         """List runs in this repo, optionally filtered by review state and free-text search."""
-        review_state = request.query_params.get("review_state")
+        review_state = _parse_review_state(request)
         search = request.query_params.get("search")
         if search and len(search) > MAX_SEARCH_LENGTH:
             return Response(
@@ -563,7 +616,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            REVIEW_STATE_PARAMETER,
             OpenApiParameter("pr_number", int, required=False, description="Filter by GitHub PR number"),
             OpenApiParameter("commit_sha", str, required=False, description="Filter by full commit SHA"),
             OpenApiParameter("branch", str, required=False, description="Filter by branch name"),
@@ -591,7 +644,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         runs = api.list_runs(
             self.team_id,
-            review_state=request.query_params.get("review_state"),
+            review_state=_parse_review_state(request),
             pr_number=pr_number,
             commit_sha=request.query_params.get("commit_sha"),
             branch=request.query_params.get("branch"),

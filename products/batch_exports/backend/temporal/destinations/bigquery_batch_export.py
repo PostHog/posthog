@@ -20,6 +20,7 @@ import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
     BadRequest,
+    DeadlineExceeded,
     Forbidden,
     GatewayTimeout,
     GoogleAPICallError,
@@ -255,7 +256,7 @@ class BigQueryField(Field):
     @classmethod
     def from_destination_field(cls, field: bigquery.SchemaField) -> typing.Self:
         name = field.name
-        type_name = field.field_type
+        type_name = typing.cast(BigQueryTypeName, field.field_type)
 
         mode = field.mode
         repeated = mode == "REPEATED"
@@ -480,12 +481,16 @@ async def get_service_account_description(
     client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
 
     retryable_get_service_account = make_retryable_with_exponential_backoff(
-        client.get_service_account, retryable_exceptions=(InternalServerError,), max_attempts=max_attempts
+        client.get_service_account,
+        retryable_exceptions=(InternalServerError, DeadlineExceeded, ServiceUnavailable),
+        max_attempts=max_attempts,
     )
 
     try:
         sa = await retryable_get_service_account(
-            request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}")
+            request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}"),
+            # Retries are handled by our wrapper, have the client just raise
+            retry=None,
         )
     except PermissionDenied:
         EXTERNAL_LOGGER.exception(

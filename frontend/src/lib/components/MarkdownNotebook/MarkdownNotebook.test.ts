@@ -1890,6 +1890,15 @@ Repeated block`),
         componentShell.focus()
 
         expect(onCaretChange).toHaveBeenLastCalledWith({ nodeIndex: 1 })
+
+        onCaretChange.mockClear()
+        fireEvent.scroll(window)
+        fireEvent.scroll(componentShell)
+        fireEvent.resize(window)
+        expect(onCaretChange).not.toHaveBeenCalled()
+
+        fireEvent(document, new Event('selectionchange'))
+        expect(onCaretChange).toHaveBeenLastCalledWith({ nodeIndex: 1 })
     })
 
     it('does not open editors or steal focus for blocks that mount on load', () => {

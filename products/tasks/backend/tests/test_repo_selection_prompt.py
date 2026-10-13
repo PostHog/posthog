@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
@@ -113,6 +114,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
         )
@@ -200,6 +202,7 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
         )
@@ -227,6 +230,7 @@ def test_pinned_repository_answers_without_running_the_agent(pinned: str, expect
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
             pinned_repository=pinned,
@@ -254,6 +258,7 @@ def test_pinned_repository_beats_the_single_candidate_shortcut() -> None:
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
+            priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a"],
             pinned_repository="acme/b",

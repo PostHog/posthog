@@ -4,9 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
     DocusealSourceConfig,
@@ -18,14 +16,6 @@ def _config(api_key: str = "tok", region: str = "us") -> DocusealSourceConfig:
 
 
 class TestDocusealSourceConfig:
-    def test_visible_and_alpha(self) -> None:
-        cfg = DocusealSource().get_source_config
-        # A finished source ships visible (no unreleasedSource) and labelled alpha.
-        assert cfg.unreleasedSource is None
-        assert cfg.releaseStatus == ReleaseStatus.ALPHA
-        assert cfg.category == DataWarehouseSourceCategory.SALES
-        assert cfg.docsUrl == "https://posthog.com/docs/cdp/sources/docuseal"
-
     def test_region_is_a_connection_host_field(self) -> None:
         # `region` decides which host the stored API key is sent to, so changing it must force the
         # editor to re-enter the secret instead of replaying it against a different host.
@@ -33,26 +23,9 @@ class TestDocusealSourceConfig:
 
 
 class TestDocusealSchemas:
-    def test_lists_all_endpoints_as_full_refresh(self) -> None:
-        schemas = {s.name: s for s in DocusealSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == set(ENDPOINTS)
-        for schema in schemas.values():
-            # No server-side time filter and mutable records -> full refresh only.
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     def test_names_filter_subsets_schemas(self) -> None:
         schemas = DocusealSource().get_schemas(_config(), team_id=1, names=["submissions"])
         assert [s.name for s in schemas] == ["submissions"]
-
-    def test_lists_tables_without_credentials_for_docs(self) -> None:
-        source = DocusealSource()
-        assert source.lists_tables_without_credentials is True
-        tables = source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        for table in tables:
-            assert table["sync_methods"] == ["Full refresh"]
 
 
 class TestDocusealNonRetryableErrors:

@@ -51,7 +51,7 @@ __all__ = [
 ]
 
 # Loop CRUD MCP tools must never be reachable from inside a loop-fired run, regardless of the
-# loop's configured connector scope (products/tasks/docs/LOOPS.md, Connectors section): a
+# loop's configured connector scope: a
 # triggered run has no legitimate reason to create/edit/delete loops, and this closes the
 # injected-instructions plant-a-persistent-loop path. loop:read stays granted.
 LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
@@ -82,7 +82,8 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 
 
 def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
-    if task.origin_product == Task.OriginProduct.POSTHOG_AI:
+    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
+    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"
@@ -291,6 +292,15 @@ def create_oauth_access_token_for_run(
         actor_user = get_task_run_credential_user(locked_task, state)
         loop_id = (state or {}).get("loop_id")
         effective_scopes = scopes
+        trial_origin = locked_task.is_scout_experiment
+        if trial_origin or "scout_experiment_internal:read" in resolve_scopes(scopes):
+            if not trial_origin:
+                raise TaskInvalidStateError(
+                    "The scout trial has no trusted execution context.",
+                    {"task_id": task.id},
+                    cause=RuntimeError("missing scout trial context"),
+                )
+            effective_scopes = "signals_scout_experiment"
         credential_owner_kind: str | None = None
         if locked_task.origin_product == Task.OriginProduct.WORKFLOW:
             effective_scopes = _workflow_run_scopes(scopes, state)

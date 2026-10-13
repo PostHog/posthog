@@ -22,7 +22,9 @@ from posthog.migration_helpers import (
     AddConstraintNotValid,
     AddForeignKeyNotValid,
     DropColumnConstraints,
+    DropFieldIndexesConcurrently,
     DropForeignKey,
+    DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeDropTable,
     SafeRemoveIndexConcurrently,
@@ -2199,6 +2201,7 @@ class TestAtomicFalsePolicy:
     @parameterized.expand(
         [
             "CreateIndexConcurrently",
+            "DropFieldIndexesConcurrently",
             "DropIndexConcurrently",
             "SafeAddIndexConcurrently",
             "SafeRemoveIndexConcurrently",
@@ -2440,6 +2443,7 @@ class TestConcurrentIndexIdempotencyPolicy:
         [
             (SafeAddIndexConcurrently(model_name="dashboard", index=models.Index(fields=["name"], name="idx")),),
             (SafeRemoveIndexConcurrently(model_name="dashboard", name="idx"),),
+            (DropFieldIndexesConcurrently(model_name="dashboard", name="team"),),
         ]
     )
     def test_safe_state_aware_helpers_score_safe(self, op):
@@ -3140,3 +3144,17 @@ class TestGeneratedNameDropPolicy:
         assert len(violations) == (1 if expected else 0)
         for name in expected:
             assert name in violations[0]
+
+    def test_a_generated_name_is_not_typed_into_a_concurrent_index_drop(self):
+        drop = DropIndexConcurrently(
+            index_name="posthog_x_owner_id_5a6b7c8d", table_name="posthog_x", columns="(owner_id)"
+        )
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [migrations.SeparateDatabaseAndState(database_operations=[drop])]
+
+        violations = GeneratedNameDropPolicy().check_migration(migration)
+
+        assert len(violations) == 1
+        assert "DropIndexConcurrently drops posthog_x_owner_id_5a6b7c8d" in violations[0]

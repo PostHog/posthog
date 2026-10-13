@@ -61,6 +61,9 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
         balance_variants = scanner_config.get("balance_variants")
         if balance_variants is not None and not isinstance(balance_variants, bool):
             return "balance_variants must be true or false."
+        start_on_launch = scanner_config.get("start_on_launch")
+        if start_on_launch is not None and not isinstance(start_on_launch, bool):
+            return "start_on_launch must be true or false."
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):

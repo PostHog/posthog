@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { type MutableRefObject, useEffect, useRef } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
@@ -165,7 +166,7 @@ function TaskRunChatContent({
                 textAreaRef={textAreaRef}
                 onEscape={handleEscape}
                 disabled={readOnly}
-                className="@container/thread flex flex-col h-full -mx-4"
+                className={cn('@container/thread flex flex-col h-full', skin === 'lemon' && '-mx-4')}
             >
                 <RunSurface.Thread
                     restoreReadPosition

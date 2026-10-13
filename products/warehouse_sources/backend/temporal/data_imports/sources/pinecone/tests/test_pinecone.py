@@ -160,14 +160,18 @@ class TestPineconeTransport(SimpleTestCase):
             response = source.source_for_pipeline(PineconeSourceConfig(api_key="fake-pinecone-key"), manager, inputs)
             pages = iter(sync_items(response))
             assert next(pages) == [{key: "first"}]
+            manager.confirm()
             assert not manager.has_staged_state()
             assert next(pages) == [{key: "second"}]
+            manager.confirm()
             manager.commit()
             assert json.loads(redis.set.call_args.args[1]) == {"cursor": "next+/="}
             assert next(pages) == [{key: "third"}]
+            manager.confirm()
             manager.commit()
             assert json.loads(redis.set.call_args.args[1]) == {"cursor": "last-token"}
             assert list(pages) == []
+            manager.confirm()
             assert not manager.has_staged_state()
             assert redis.set.call_count == 2
             assert [parse_qs(urlsplit(call.request.url or "").query).get("paginationToken") for call in http.calls] == [

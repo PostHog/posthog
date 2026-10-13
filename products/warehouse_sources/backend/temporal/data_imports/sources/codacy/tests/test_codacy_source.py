@@ -1,7 +1,9 @@
-from unittest.mock import MagicMock, patch
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source import CodacySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codacy import CodacySourceConfig
 
 
@@ -37,12 +39,11 @@ class TestCodacySource:
         tables = self.source.get_documented_tables()
         assert [table["name"] for table in tables] == list(ENDPOINTS)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source.validate_codacy_credentials")
-    def test_validate_credentials_maps_transport_result(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = True
-        assert self.source.validate_credentials(_config(), team_id=1) == (True, None)
+    def test_validate_credentials_maps_transport_result(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]):
+            assert self.source.validate_credentials(_config(), team_id=1) == (True, None)
 
-        mock_validate.return_value = False
-        ok, error = self.source.validate_credentials(_config(), team_id=1)
+        with scripted_network([ScriptedResponse(status=401)]):
+            ok, error = self.source.validate_credentials(_config(), team_id=1)
         assert ok is False
         assert error == "Invalid Codacy API token"

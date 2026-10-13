@@ -700,6 +700,81 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
         self.assertEqual(batch_import.import_config["sink"]["send_rate"], DEFAULT_SEND_RATE)
 
+    @parameterized.expand(
+        [
+            (
+                "project_secret",
+                {"secret_key": "project-secret"},
+                "https://data.mixpanel.com/api/2.0/export",
+                {"type": "mixpanel_auth", "secret_key_secret": "secret_key"},
+            ),
+            (
+                "service_account",
+                {"access_key": "sa-user", "secret_key": "sa-secret", "mixpanel_project_id": 12345},
+                "https://data.mixpanel.com/api/2.0/export?project_id=12345",
+                {"type": "basic_auth", "username_secret": "api_key", "password_secret": "secret_key"},
+            ),
+            (
+                "service_account_eu",
+                {
+                    "access_key": "sa-user",
+                    "secret_key": "sa-secret",
+                    "mixpanel_project_id": 12345,
+                    "is_eu_region": True,
+                },
+                "https://data-eu.mixpanel.com/api/2.0/export?project_id=12345",
+                {"type": "basic_auth", "username_secret": "api_key", "password_secret": "secret_key"},
+            ),
+        ]
+    )
+    def test_mixpanel_auth_config(self, _name, credentials, expected_base_url, expected_auth):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "mixpanel",
+                "content_type": "mixpanel",
+                "start_date": "2023-01-01T00:00:00Z",
+                "end_date": "2023-01-02T00:00:00Z",
+                **credentials,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["base_url"], expected_base_url)
+        self.assertEqual(batch_import.import_config["source"]["auth"], expected_auth)
+        assert batch_import.secrets is not None
+        self.assertEqual(batch_import.secrets["secret_key"], credentials["secret_key"])
+        if "access_key" in credentials:
+            self.assertEqual(batch_import.secrets["api_key"], credentials["access_key"])
+
+    @parameterized.expand(
+        [
+            ("missing_username", "mixpanel", {"secret_key": "sa-secret"}, "Service account username is required"),
+            (
+                "not_mixpanel",
+                "amplitude",
+                {"access_key": "key", "secret_key": "secret"},
+                "Mixpanel project ID only applies to Mixpanel migrations",
+            ),
+        ]
+    )
+    def test_mixpanel_project_id_validation(self, _name, source_type, credentials, expected_error):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": source_type,
+                "content_type": source_type,
+                "start_date": "2023-01-01T00:00:00Z",
+                "end_date": "2023-01-02T00:00:00Z",
+                "mixpanel_project_id": 12345,
+                **credentials,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(expected_error, str(response.json()))
+
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
         response = self.client.post(
@@ -1218,6 +1293,32 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["available"])
+
+    @parameterized.expand([("default_descending", None, True), ("explicit_ascending", "created_at", False)])
+    def test_tied_timestamps_page_without_gaps_or_repeats(self, _name, ordering, newest_first):
+        tied_at = datetime(2024, 3, 1, tzinfo=UTC)
+        imports = [
+            BatchImport.objects.create(
+                team=self.team,
+                created_by_id=self.user.id,
+                import_config={"source": {"type": "s3"}},
+                secrets={"access_key": "test", "secret_key": "secret_test"},
+                status=BatchImport.Status.COMPLETED,
+            )
+            for _ in range(6)
+        ]
+        BatchImport.objects.filter(id__in=[i.id for i in imports]).update(created_at=tied_at, updated_at=tied_at)
+
+        paged: list[str] = []
+        for offset in (0, 3):
+            params: dict = {"limit": 3, "offset": offset}
+            if ordering is not None:
+                params["ordering"] = ordering
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations", params)
+            self.assertEqual(response.status_code, 200)
+            paged.extend(r["id"] for r in response.json()["results"])
+
+        self.assertEqual(paged, sorted((str(i.id) for i in imports), reverse=newest_first))
 
 
 class TestBatchImportTrialAPI(APIBaseTest):

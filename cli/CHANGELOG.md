@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.18.10 — 2026-10-07
+
+### Patch changes
+
+- [7c55058c01a](https://github.com/PostHog/posthog/commit/7c55058c01ae8b9b85f3ec47838b255cf8eba829) Upload native bundler debug IDs without rewriting source files, and skip files without uploadable IDs instead of failing CI — Thanks @hpouillot!
+
 ## 0.18.9 — 2026-09-28
 
 ### Patch changes

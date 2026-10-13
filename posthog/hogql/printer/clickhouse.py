@@ -34,13 +34,10 @@ from posthog.hogql.escape_sql import (
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
-from posthog.hogql.functions.udfs import (
-    JSON_DROP_KEYS_CLICKHOUSE_NAME,
-    JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME,
-)
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
-from posthog.hogql.printer.events_json_document import event_document_sql, json_member_pairs_sql
+from posthog.hogql.printer.events_json_document import event_document_sql, json_document_sql, person_document_sql
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import (
     RESTRICTABLE_JSON_BLOB_COLUMNS,
@@ -399,6 +396,9 @@ class ClickHousePrinter(BasePrinter):
                 # Re-inserted so it prints after the global settings rather than at the field's declared position.
                 merged.pop("json_type_escape_dots_in_keys", None)
                 merged["json_type_escape_dots_in_keys"] = True
+            if self._reads_native_events_table:
+                # Property sub-objects and arrays must retain the slashes returned by legacy reads.
+                merged["output_format_json_escape_forward_slashes"] = False
             if self.context.emit_top_level_settings:
                 printed = self._print_settings(merged)
                 if printed is not None:
@@ -591,9 +591,11 @@ class ClickHousePrinter(BasePrinter):
             serialized = event_document_sql(
                 field_sql, temporary_properties_sql, self._document_feature_flags_sql(type, field_sql)
             )
+        elif resolved_field.name == "person_properties":
+            serialized = person_document_sql(field_sql)
         else:
-            serialized = f"concat('{{', arrayStringConcat({json_member_pairs_sql(field_sql)}, ','), '}}')"
-        return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}({serialized})"
+            serialized = json_document_sql(field_sql)
+        return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
         """The `$feature_flags` map without restricted flags, or None when a restricted `$feature_flags` hides them all."""
@@ -614,8 +616,6 @@ class ClickHousePrinter(BasePrinter):
         if node.name != "toJSONString" or len(node.args) != 1:
             return None
         arg = node.args[0]
-        if isinstance(arg, ast.JsonSubcolumnAccess) and arg.access_type == "sub_object":
-            return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}(toJSONString({self.visit(arg)}))"
         arg_type = resolve_field_type(arg)
         if not isinstance(arg_type, ast.FieldType):
             return None

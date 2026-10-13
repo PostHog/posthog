@@ -35,6 +35,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     WindowedCandidateQuery,
     build_candidate_batch,
 )
+from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
@@ -63,6 +64,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
 )
+from products.replay_vision.backend.variant_analysis import pause_variant_analysis_scouts
 
 
 @frozen
@@ -112,6 +114,21 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | Non
     return None
 
 
+def _stop_variant_analysis(scanner: ReplayScanner) -> bool:
+    """Pause the scanner's variant analysis scouts and return whether that worked.
+
+    A failure here leaves the scout running one more day, which must never fail the tick.
+    """
+    try:
+        pause_variant_analysis_scouts(scanner)
+    except Exception:
+        activity.logger.exception(
+            "replay_vision.sweep.variant_analysis_pause_failed", extra={"scanner_id": str(scanner.id)}
+        )
+        return False
+    return True
+
+
 def _swept_past(scanner: ReplayScanner, end: dt.datetime) -> bool:
     """Whether both passes have covered everything up to `end`."""
     deep_done = scanner.deep_swept_through is None or scanner.deep_swept_through >= end
@@ -145,7 +162,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     sweep_until: dt.datetime | None = None
     if lifecycle_block is not None and lifecycle_block.kind == "deleted":
         # A deleted experiment can't resolve a population again, so disable: the reconciler drops
-        # the schedule and the owner sees the scanner off instead of silently idle.
+        # the schedule and the owner sees the scanner off instead of silently idle. Its scout is
+        # paused first: a disabled scanner has no schedule left to retry a failed pause, so a
+        # failure keeps the scanner on and the next tick tries again.
+        if not _stop_variant_analysis(scanner):
+            record_sweep_outcome("experiment_deleted_pause_failed")
+            return FindScannerCandidatesOutput(candidates=[], saturated=False)
         # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
         scanner.enabled = False
         scanner.save(update_fields=["enabled"])
@@ -159,6 +181,11 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             # relaunch, but a disabled scanner has no schedule left to notice either. So skip the
             # tick instead, before any ClickHouse read. Both watermarks move to now, as a re-enable
             # does, so the sweep picks up from the resume or relaunch and never bills the gap.
+            if lifecycle_block.kind != "paused":
+                # A pause resumes, and the scout can sit it out. An ended or archived experiment's
+                # data stops changing, so its scout would only re-read the same summaries on the
+                # customer's bill.
+                _stop_variant_analysis(scanner)
             record_sweep_outcome("experiment_over")
             horizon = initial_watermark()
             return FindScannerCandidatesOutput(
@@ -189,6 +216,16 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 
     started_at = time.monotonic()
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
+    variant_plan = variant_sampling_plan_for_scope(
+        scanner.team,
+        scanner_type=scanner.scanner_type,
+        scope=scanner.experiment_scope(),
+        scanner_config=scanner.scanner_config,
+        sampling_rate=scanner.sampling_rate,
+        user=scanner.created_by,
+        scanner_id=str(scanner.id),
+    )
+    variant_rates = variant_plan.rates if variant_plan is not None else None
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
@@ -205,6 +242,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
         until=sweep_until,
+        variant_sampling_rates=variant_rates,
     )
     # The fast walk has reached the end; only the deep pass is still behind it.
     fast_done = sweep_until is not None and scanner.last_swept_at >= sweep_until
@@ -253,6 +291,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
                 candidate_query,
                 deep_limit,
                 seconds_remaining=_seconds_left(started_at),
+                variant_sampling_rates=variant_rates,
             )
         except Exception:
             # Best-effort catch-up must never fail the tick: the fast pass has already found and
@@ -307,6 +346,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         priming_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in priming_candidates
         ],
+        variant_sampling_rates=variant_rates,
     )
 
 
@@ -390,6 +430,7 @@ def _deep_sweep(
     limit: int,
     *,
     seconds_remaining: float,
+    variant_sampling_rates: dict[str, float] | None = None,
 ) -> tuple[list[CandidateSession], _DeepProgress | None]:
     """Catch-up pass behind the fast watermark with the full events lookback.
 
@@ -462,6 +503,7 @@ def _deep_sweep(
         candidate_limit=limit,
         max_execution_time_seconds=budget,
         scanner_id=str(scanner.id),
+        variant_sampling_rates=variant_sampling_rates,
     )
     # Stamped before the query, so a pass that times out still counts against the cadence. Queryset
     # update rather than save(): `updated_at` means "the scanner was edited", which the skip above reads.

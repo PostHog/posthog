@@ -14,6 +14,7 @@ the source-validation import path (the builder imports it for verb names).
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.db import transaction
 
@@ -25,8 +26,6 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from rest_framework.response import Response
-
-    from posthog.models import Team
 
     from products.canvas.backend.models import Canvas
 
@@ -45,12 +44,12 @@ class CanvasActionDenied(Exception):
 CANVAS_ACTIONS_KILL_SWITCH_FLAG = "canvas-actions-disabled"
 
 
-def canvas_actions_disabled(team: "Team") -> bool:
+def canvas_actions_disabled(team_uuid: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 CANVAS_ACTIONS_KILL_SWITCH_FLAG,
-                str(team.uuid),
+                str(team_uuid),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
@@ -107,12 +106,15 @@ def _set_workflows_enabled(team_id: int, user_id: int, payload: dict[str, Any], 
     from rest_framework.response import Response  # noqa: PLC0415
 
     from products.workflows.backend.facade import api as workflows_facade  # noqa: PLC0415 — load on execute
+    from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 — load on execute
+        set_workflow_enabled,
+    )
 
     with transaction.atomic():
         changed = []
         for workflow_id in payload["workflow_ids"]:
             try:
-                new_status = workflows_facade.set_workflow_enabled(
+                new_status = set_workflow_enabled(
                     team_id=team_id, user_id=user_id, workflow_id=workflow_id, enabled=enabled
                 )
             except workflows_facade.WorkflowNotFound:

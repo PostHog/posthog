@@ -853,6 +853,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             body: form.body,
                             cron: form.cron,
                             outputDestinations: form.outputDestinations,
+                            templateKey,
                         })
                     )
                     return result.config

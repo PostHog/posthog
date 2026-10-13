@@ -57,7 +57,7 @@ export const SideBar = (): JSX.Element => {
     const activeTab = tabs.some((tab) => tab.key === activeSideBarTab) ? activeSideBarTab : SideBarTab.Series
 
     return (
-        <div className="bg-surface-primary w-[18rem] flex flex-col">
+        <div className="bg-surface-primary w-72 min-h-0 max-w-[50%] shrink-0 flex flex-col">
             <LemonTabs
                 size="small"
                 activeKey={activeTab}
@@ -66,7 +66,7 @@ export const SideBar = (): JSX.Element => {
                 className="pt-1"
                 barClassName="px-3"
             />
-            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeTab].content}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeTab].content}</div>
         </div>
     )
 }

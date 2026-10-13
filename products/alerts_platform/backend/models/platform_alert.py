@@ -20,6 +20,12 @@ from products.alerts_platform.backend.facade.enums import (
 )
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def source_kind_choices() -> list[tuple[str, str]]:
+    # A callable, so a new source does not write a state-only migration for its choice.
+    return PlatformAlertConfigurationSourceKind.choices
+
+
 class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
 
@@ -45,13 +51,13 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)
 
-    source_kind = models.CharField(max_length=32, choices=SourceKind.choices)
+    source_kind = models.CharField(max_length=32, choices=source_kind_choices)
     source_config = models.JSONField(default=dict)
 
-    threshold_count = models.PositiveIntegerField()
-    threshold_operator = models.CharField(max_length=16)
-
-    window_minutes = models.PositiveIntegerField()
+    # Retired, because a source keeps its bound in `source_config["condition"]`. Nothing reads these.
+    threshold_count = models.PositiveIntegerField(null=True, blank=True)
+    threshold_operator = models.CharField(max_length=16, null=True, blank=True)
+    window_minutes = models.PositiveIntegerField(null=True, blank=True)
 
     check_interval_minutes = models.PositiveIntegerField()
 
@@ -154,6 +160,10 @@ class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
     # The provider's own handle, `{"channel": ..., "ts": ...}` for Slack. Opaque to everything
     # but the transport that issued it.
     external_ref = models.JSONField(default=dict)
+    # What the transport posted to open the conversation, so an edit to it keeps what fired and
+    # changes only the current state. Opaque to everything but that transport. Null for a
+    # provider that cannot edit a message it posted.
+    root_message = models.JSONField(null=True, blank=True)
 
     # Evaluations already delivered into this conversation, newest last. Capped, because a
     # thread lives as long as its firing and the list only has to outlive a retry.

@@ -6,8 +6,6 @@ from typing import Any, Optional
 
 from django.db import transaction
 
-from posthog.models import Team
-
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 
@@ -17,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 class CustomerIOImportService:
-    def __init__(self, team: Team, api_key: Optional[str], user):
-        self.team = team
-        self.user = user
+    def __init__(self, team_id: int, api_key: Optional[str], created_by_id: Optional[int]):
+        self.team_id = team_id
+        self.created_by_id = created_by_id
         self.client: Optional[CustomerIOClient] = None
         self.api_key = api_key
         self.topic_mapping: dict[str, str] = {}  # Maps Customer.io topic IDs to PostHog MessageCategory IDs
@@ -230,7 +228,7 @@ class CustomerIOImportService:
                 emails = list(email_to_categories.keys())
                 existing_prefs = {
                     pref.identifier: pref
-                    for pref in MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier__in=emails)
+                    for pref in MessageRecipientPreference.objects.filter(team_id=self.team_id, identifier__in=emails)
                 }
 
                 to_create = []
@@ -253,7 +251,7 @@ class CustomerIOImportService:
                         }
                         to_create.append(
                             MessageRecipientPreference(
-                                team_id=self.team.id,
+                                team_id=self.team_id,
                                 identifier=email,
                                 preferences=preferences_dict,
                             )
@@ -295,14 +293,14 @@ class CustomerIOImportService:
                 # Create or update the MessageCategory
                 with transaction.atomic():
                     category, _ = MessageCategory.objects.update_or_create(
-                        team=self.team,
+                        team_id=self.team_id,
                         key=topic_key,
                         defaults={
                             "name": topic_name,
                             "description": description,
                             "public_description": public_description,
                             "category_type": category_type,
-                            "created_by": self.user,
+                            "created_by_id": self.created_by_id,
                             "deleted": False,
                         },
                     )
@@ -385,7 +383,7 @@ class CustomerIOImportService:
                 # Fetch existing preferences
                 existing_prefs = {
                     pref.identifier: pref
-                    for pref in MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier__in=emails)
+                    for pref in MessageRecipientPreference.objects.filter(team_id=self.team_id, identifier__in=emails)
                 }
 
                 to_create = []
@@ -405,7 +403,7 @@ class CustomerIOImportService:
                         }
                         to_create.append(
                             MessageRecipientPreference(
-                                team_id=self.team.id,
+                                team_id=self.team_id,
                                 identifier=email,
                                 preferences=preferences_dict,
                             )
@@ -428,7 +426,7 @@ class CustomerIOImportService:
 
     def _load_topic_mapping(self) -> None:
         """Load topic mapping from existing categories"""
-        categories = MessageCategory.objects.filter(team=self.team, key__startswith="customerio_", deleted=False)
+        categories = MessageCategory.objects.filter(team_id=self.team_id, key__startswith="customerio_", deleted=False)
 
         for category in categories:
             # Extract topic identifier from key (e.g., "customerio_topic_1" -> "topic_1")

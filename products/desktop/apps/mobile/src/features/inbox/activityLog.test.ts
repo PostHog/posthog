@@ -34,7 +34,7 @@ function taskRun(id: string, createdAt: string): AnySignalReportArtefact {
 }
 
 describe("selectActivityArtefacts", () => {
-  it("keeps only commit and task_run, sorted oldest-first", () => {
+  it("keeps only commit, task_run and parsed ranking_score, sorted oldest-first", () => {
     const artefacts: AnySignalReportArtefact[] = [
       taskRun("b", "2026-01-02T00:00:00Z"),
       {
@@ -44,11 +44,36 @@ describe("selectActivityArtefacts", () => {
         content: { note: "" },
       },
       commit("a", "2026-01-01T00:00:00Z"),
+      {
+        id: "r",
+        type: "ranking_score",
+        created_at: "2026-01-04T00:00:00Z",
+        content: {
+          scored_at: null,
+          manifest_version: null,
+          served: {
+            key: "m@1",
+            roles: ["served"],
+            status: "scored",
+            skip_reason: null,
+            heads: [],
+          },
+          challengers: [],
+        },
+      },
+      {
+        id: "degraded",
+        type: "ranking_score",
+        created_at: "2026-01-05T00:00:00Z",
+        content: { content: "{}" },
+        degraded: true,
+      } as AnySignalReportArtefact,
     ];
 
     expect(selectActivityArtefacts(artefacts).map((a) => a.id)).toEqual([
       "a",
       "b",
+      "r",
     ]);
   });
 

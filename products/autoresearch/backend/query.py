@@ -1,8 +1,11 @@
-from typing import Any
+from collections.abc import Callable
+from time import perf_counter
+from typing import Any, TypeVar
 
 from posthog.schema import CacheMissResponse, HogQLQuery, QueryStatusResponse
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
@@ -10,6 +13,8 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 from posthog.models.user import User
+
+T = TypeVar("T")
 
 
 class AutoresearchQueryError(Exception):
@@ -30,6 +35,28 @@ INTERACTIVE_QUERY = QueryContext(limit_context=LimitContext.QUERY, workload=Work
 # Scoring and online validation run in a Temporal activity that nobody waits on, so they
 # get the increased batch limit and run on the offline workload.
 BATCH_QUERY = QueryContext(limit_context=LimitContext.QUERY_ASYNC, workload=Workload.OFFLINE)
+
+
+@frozen
+class QueryCost:
+    """What the ClickHouse queries of one call cost: wall-clock seconds and the rows they read."""
+
+    elapsed_s: float
+    rows_read: int
+
+
+def measure_queries(call: Callable[[], T]) -> tuple[T, QueryCost]:
+    """Run ``call`` and return its result with the cost of the ClickHouse queries it ran.
+
+    A scope that is already open (a query runner around this call) collects the same queries,
+    so the cost is the difference of its totals across the call.
+    """
+    start = perf_counter()
+    with query_stats_scope() as stats:
+        rows_before = stats.rows_read
+        result = call()
+        rows_read = stats.rows_read - rows_before
+    return result, QueryCost(elapsed_s=round(perf_counter() - start, 3), rows_read=rows_read)
 
 
 @frozen

@@ -13,8 +13,14 @@ from rest_framework.response import Response
 from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.constants import DEFAULT_SURFACE, RETIRED_FILE_SYSTEM_TYPES, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
+
+
+def reject_retired_type(value: str) -> str:
+    if value in RETIRED_FILE_SYSTEM_TYPES:
+        raise serializers.ValidationError(f"Shortcuts of type '{value}' can no longer be created.")
+    return value
 
 
 class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -44,6 +50,9 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
             },
             "order": {"help_text": "Display order within the user's shortcut list, ascending."},
         }
+
+    def validate_type(self, value: str) -> str:
+        return reject_retired_type(value)
 
     def update(self, instance: FileSystemShortcut, validated_data: dict[str, Any]) -> FileSystemShortcut:
         instance.team_id = self.context["team_id"]
@@ -105,6 +114,9 @@ class FileSystemShortcutBulkItemSerializer(serializers.Serializer):
         help_text="Destination URL the shortcut opens. Null when the shortcut points at an item by ref.",
     )
 
+    def validate_type(self, value: str) -> str:
+        return reject_retired_type(value)
+
 
 class FileSystemShortcutBulkUpdateSerializer(serializers.Serializer):
     add = serializers.ListField(
@@ -152,6 +164,9 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
+        # Destroy keeps retired rows, so that a user can still remove a shortcut that no other action returns.
+        if self.action != "destroy":
+            queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         ordering_param = self.request.GET.get("ordering", "")
         if ordering_param == "-created_at":
             return queryset.order_by("-created_at")
