@@ -45,6 +45,7 @@ from products.wizard.backend.logic import (
 from products.wizard.backend.logic.artifacts import service as artifacts
 from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
+from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -54,6 +55,10 @@ def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
 
 def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
     return scans.record_scan(params)
+
+
+def get_tool_catalog_json() -> bytes:
+    return tool_catalog_json()
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:

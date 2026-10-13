@@ -1,8 +1,9 @@
 """The tools the wizard can detect in a codebase, and what each one means to PostHog.
 
 Each warehouse source declares its own `codebase_detection`. The image build renders the catalog to
-`products/wizard/tool-catalog.json` with `manage.py render_wizard_tool_catalog`. The backend reads
-that file to classify reported scans.
+`products/wizard/tool-catalog.json` with `manage.py render_wizard_tool_catalog`. The public
+`/api/wizard/tool_catalog/` endpoint serves that file, and the wizard downloads it at runtime from US,
+then EU. The backend reads the same file to classify reported scans.
 """
 
 import json
@@ -69,14 +70,19 @@ def write_catalog(path: Path) -> None:
     path.write_text(json.dumps(build_catalog_document(), separators=(",", ":")))
 
 
-# A web worker reads the file that the image build rendered, so classifying a reported scan never
-# imports every warehouse source module. Local dev and tests have no such file, and render the
-# catalog from the source declarations on first use.
+# A web worker reads the file that the image build rendered, so serving the catalog or classifying a
+# reported scan never imports every warehouse source module. Local dev and tests have no such file, and
+# render the catalog from the source declarations on first use.
 @cache
 def _catalog_document() -> dict[str, Any]:
     if CATALOG_JSON.exists():
         return json.loads(CATALOG_JSON.read_text())
     return build_catalog_document()
+
+
+@cache
+def tool_catalog_json() -> bytes:
+    return json.dumps(_catalog_document(), separators=(",", ":")).encode()
 
 
 @cache
