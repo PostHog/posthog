@@ -11,7 +11,8 @@ is visible in one place.
 and ``temporalio`` on the ``django.setup()`` path. Core config-time consumers import this
 facade, so it reaches the service only through ``_service()``, which imports it at call
 time. For the same reason the Temporal client is built in ``_get_temporal_client()``, and
-the HogQL and file download modules load through ``_hogql_source()`` and ``_file_downloads()``.
+the HogQL and file download modules load through ``_import_hogql_source()`` and
+``_import_file_downloads()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
 ``facade/temporal.py``. The destination clients the warehouse writers reuse live in
@@ -119,14 +120,14 @@ def _service() -> ModuleType:
     return service
 
 
-def _hogql_source() -> ModuleType:
+def _import_hogql_source() -> ModuleType:
     """Import the HogQL helpers at call time. See the module docstring for why."""
     from products.batch_exports.backend import hogql_source
 
     return hogql_source
 
 
-def _file_downloads() -> ModuleType:
+def _import_file_downloads() -> ModuleType:
     """Import the file download module at call time. See the module docstring for why."""
     from products.batch_exports.backend.logic import file_downloads
 
@@ -507,7 +508,7 @@ def find_hogql_interval_placeholders(hogql_query: str) -> frozenset[str]:
     ``contracts.UnsupportedHogQLQueryError`` when the query is not a SELECT, or references
     another placeholder.
     """
-    hogql_source = _hogql_source()
+    hogql_source = _import_hogql_source()
     return frozenset(
         hogql_source.find_interval_placeholders(hogql_source.parse_hogql_select_for_batch_export(hogql_query))
     )
@@ -520,7 +521,7 @@ def validate_hogql_query(
 
     Raises ``contracts.UnsupportedHogQLQueryError`` when it cannot.
     """
-    hogql_source = _hogql_source()
+    hogql_source = _import_hogql_source()
     hogql_source.validate_hogql_query_for_batch_export(
         hogql_query,
         Team.objects.get(id=team_id),
@@ -545,7 +546,7 @@ def count_hogql_rows(
     lets the HogQL and ClickHouse query errors through: ``ExposedHogQLError``,
     ``ExposedCHQueryError`` and ``ClickHouseQueryTimeOut``.
     """
-    return _file_downloads().count_rows_for_hogql_batch_export(
+    return _import_file_downloads().count_rows_for_hogql_batch_export(
         team_id,
         hogql_query,
         user_id=user_id,
@@ -559,13 +560,13 @@ def list_file_download_runs(
     team_id: int, *, offset: int, limit: int
 ) -> tuple[list[contracts.BatchExportRunSummary], int]:
     """Return one page of the team's file download runs, newest first, and how many there are in total."""
-    runs, count = _file_downloads().list_file_download_runs(team_id, offset=offset, limit=limit)
+    runs, count = _import_file_downloads().list_file_download_runs(team_id, offset=offset, limit=limit)
     return [_to_run_summary(run) for run in runs], count
 
 
 def get_file_download_run(team_id: int, run_id: UUID) -> contracts.FileDownloadRun:
     """Return a file download run. Raises ``contracts.FileDownloadNotFoundError`` when the team has no such run."""
-    return _file_downloads().get_file_download_run(team_id, run_id)
+    return _import_file_downloads().get_file_download_run(team_id, run_id)
 
 
 def start_file_download(team_id: int, *, user_id: int, request: contracts.FileDownloadRequest) -> UUID:
@@ -576,7 +577,7 @@ def start_file_download(team_id: int, *, user_id: int, request: contracts.FileDo
     ``contracts.TooManyConcurrentFileDownloadsError`` and creates nothing. When the workflow
     does not start, the run is saved as failed and this raises ``contracts.FileDownloadStartError``.
     """
-    return _file_downloads().start_file_download(team_id, user_id, request)
+    return _import_file_downloads().start_file_download(team_id, user_id, request)
 
 
 def cancel_file_download(team_id: int, run_id: UUID) -> str:
@@ -584,7 +585,7 @@ def cancel_file_download(team_id: int, run_id: UUID) -> str:
 
     Raises ``contracts.InvalidFileDownloadRequestError`` when the run is in another status.
     """
-    return _file_downloads().cancel_file_download(team_id, run_id)
+    return _import_file_downloads().cancel_file_download(team_id, run_id)
 
 
 def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
@@ -595,4 +596,4 @@ def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
     complete, the part is not valid or the file has expired, and
     ``contracts.FileDownloadNotFoundError`` when the run or the file does not exist.
     """
-    return _file_downloads().get_file_download_url(team_id, run_id, part)
+    return _import_file_downloads().get_file_download_url(team_id, run_id, part)
