@@ -23,6 +23,8 @@ export function isFeatureFlagGatedError(error: unknown): boolean {
 /** DRF code for `ClickHouseQueryMemoryLimitExceeded` (posthog/exceptions.py). Keep in sync with the backend. */
 export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 
+export const TABLE_ACCESS_DENIED_ERROR_CODE = 'table_access_denied'
+
 /**
  * A 409 from the approvals gate: the change was policy-gated and a change request was created,
  * or one is already pending. Approval 409 bodies always carry `change_request_id`

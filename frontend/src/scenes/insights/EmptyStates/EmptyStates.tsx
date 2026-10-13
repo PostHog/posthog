@@ -14,7 +14,7 @@ import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-contro
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
+import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
@@ -617,13 +617,15 @@ export function InsightValidationError({
     // unless the code says otherwise: a memory failure is not a broken query definition.
     const errorKind = getInsightErrorKind(400, validationErrorCode)
     const isMemoryLimitError = errorKind === 'memory_limit'
+    const isPermissionError = errorKind === 'permission'
     const displayDetail = getInsightValidationDetail(detail)
     const showQueryDebuggerInstruction =
         query &&
         !isMemoryLimitError &&
+        !isPermissionError &&
         displayDetail !== 'Check the query for errors, then run it again.' &&
         placement !== DashboardPlacement.Export
-    const shouldExcludeActions = excludeActions || placement === DashboardPlacement.Export
+    const shouldExcludeActions = excludeActions || isPermissionError || placement === DashboardPlacement.Export
     const defaultCta =
         cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
@@ -644,10 +646,14 @@ export function InsightValidationError({
             <InsightErrorHoggie kind={errorKind} />
 
             <h2 data-attr="insight-loading-too-long" className="text-xl leading-tight font-bold mb-0 text-danger">
-                {getInsightErrorTitle(errorKind, null)}
+                {getInsightErrorTitle(errorKind, isPermissionError ? displayDetail : null)}
             </h2>
 
-            <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(displayDetail)}</p>
+            <p className="text-sm text-muted max-w-120 mb-2">
+                {isPermissionError
+                    ? 'Ask a project admin to grant you access to this table.'
+                    : renderDetailWithLinks(displayDetail)}
+            </p>
 
             {showQueryDebuggerInstruction && !shouldExcludeActions && (
                 <p className="text-sm text-muted max-w-120 mb-2">Open the query debugger and correct the query.</p>
@@ -743,6 +749,9 @@ function getInsightErrorKind(status?: number | null, code?: string | null): Insi
     // The code is the surer signal: a tile failure carries it even when the status was rebuilt.
     if (code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
         return 'memory_limit'
+    }
+    if (code === TABLE_ACCESS_DENIED_ERROR_CODE) {
+        return 'permission'
     }
     if (status === 429) {
         return 'rate_limit'
