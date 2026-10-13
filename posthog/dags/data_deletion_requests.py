@@ -1149,9 +1149,9 @@ def _with_copied_inserted_at_bound(predicate: _ShardPredicate, copied_inserted_a
 def _drop_keys_expr(source: str, keys_param: str) -> str:
     # JSONDropKeysPool fails on an empty string. A legacy events row stores '' in a JSON column its
     # producer omitted, because those columns have no DEFAULT. An insert can also set '' explicitly.
-    # Such a row has no key to drop, so it keeps its value. The copy query forces short-circuit
-    # evaluation, so the UDF only runs on the rows that are not empty.
-    return f"if(empty({source}), {source}, JSONDropKeysPool({source}, %({keys_param})s))"
+    # Such a row has no key to drop, so it keeps its value. ClickHouse can evaluate both branches of
+    # `if`, so the UDF gets '{}' in place of '' and the outer `if` discards that result.
+    return f"if(empty({source}), {source}, JSONDropKeysPool(if(empty({source}), '{{}}', {source}), %({keys_param})s))"
 
 
 @frozen
@@ -1367,11 +1367,7 @@ def _copy_property_removal_target(
         client.execute(
             copy_sql,
             {**predicate.params, **cleaned.params},
-            settings={
-                **_LONG_QUERY_SETTINGS,
-                "s3_truncate_on_insert": 1,
-                "short_circuit_function_evaluation": "force_enable",
-            },
+            settings={**_LONG_QUERY_SETTINGS, "s3_truncate_on_insert": 1},
         )
 
     staged = staging.count_staged_uuids(client, sorted(months))

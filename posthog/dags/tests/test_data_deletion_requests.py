@@ -1072,11 +1072,12 @@ def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
     )
 
     assert (
-        "CAST(if(empty(properties), properties, JSONDropKeysPool(properties, %(keys)s)) AS String) AS `properties`"
-        in cleaned.expressions
+        "CAST(if(empty(properties), properties, JSONDropKeysPool(if(empty(properties), '{}', properties), %(keys)s)) "
+        "AS String) AS `properties`" in cleaned.expressions
     )
     assert (
-        "CAST(if(empty(person_properties), person_properties, JSONDropKeysPool(person_properties, %(person_keys)s)) "
+        "CAST(if(empty(person_properties), person_properties, "
+        "JSONDropKeysPool(if(empty(person_properties), '{}', person_properties), %(person_keys)s)) "
         "AS String) AS `person_properties`" in cleaned.expressions
     )
 
