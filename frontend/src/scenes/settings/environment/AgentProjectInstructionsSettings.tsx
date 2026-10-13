@@ -4,13 +4,15 @@ import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { agentInstructionsSettingsLogic } from './agentInstructionsSettingsLogic'
 import { InstructionsEditor } from './InstructionsEditor'
 
 export function AgentProjectInstructionsSettings(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { projectInstructions, projectValue, projectDirty, projectInstructionsLoading } =
         useValues(agentInstructionsSettingsLogic)
     const { setProjectDraft, submitProjectDraft } = useActions(agentInstructionsSettingsLogic)
@@ -33,16 +35,18 @@ export function AgentProjectInstructionsSettings(): JSX.Element {
                 dataAttr="agent-project-instructions"
                 ariaLabel="Project instructions"
             />
-            <LemonButton
-                className="self-start"
-                type="tertiary"
-                size="small"
-                to={`${urls.inbox('settings')}#steering`}
-                sideIcon={<IconArrowRight aria-hidden />}
-                data-attr="agent-project-instructions-self-driving"
-            >
-                Customize Self-driving agents
-            </LemonButton>
+            {featureFlags[FEATURE_FLAGS.INBOX_REDESIGN] && (
+                <LemonButton
+                    className="self-start"
+                    type="tertiary"
+                    size="small"
+                    to={`${urls.inbox('settings')}#steering`}
+                    sideIcon={<IconArrowRight aria-hidden />}
+                    data-attr="agent-project-instructions-self-driving"
+                >
+                    Customize Self-driving agents
+                </LemonButton>
+            )}
             {restrictionReason ? (
                 <p className="text-secondary mb-0">
                     Only project admins can change these. You can still add your own instructions below.
