@@ -1,5 +1,5 @@
 name: Core types
-model_file: ../model.fga
+model_file: ../generated/model.fga
 tuple_files:
     - fixtures.yaml
 

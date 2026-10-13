@@ -2,10 +2,10 @@
 
 ## OpenFGA model
 
-`model.fga` and `openfga_model.json` are generated. Never edit them by hand.
+The files in `generated/` (`model.fga` and `openfga_model.json`) are generated. Never edit them by hand.
 Edit the sources in `model/`, then run `products/authz/generate_model.sh`.
 The script builds the model, checks the model rules and runs the OpenFGA tests.
-The pre-commit hook runs it when a commit touches `model/` or `model.fga`, and `tests/test_model_builder.py` runs the rule checks in CI.
+The pre-commit hook runs it when a commit touches `model/` or `generated/`, and `tests/test_model_builder.py` runs the rule checks in CI.
 
 A resource is all objects of one type in a project, such as the dashboards in project 3 (`resource:<org_id>/3/dashboard`).
 An object is one item, such as dashboard 12 (`dashboard:<org_id>/3/12`).

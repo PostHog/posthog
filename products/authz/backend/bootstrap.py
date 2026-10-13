@@ -6,7 +6,7 @@ from openfga_sdk import CreateStoreRequest, WriteAuthorizationModelRequest
 
 from products.authz.backend.client import DEFAULT_OPENFGA_STORE_NAME, get_openfga_client
 
-MODEL_PATH = Path(__file__).resolve().parents[1] / "openfga_model.json"
+MODEL_PATH = Path(__file__).resolve().parents[1] / "generated" / "openfga_model.json"
 
 
 def bootstrap_openfga() -> str:

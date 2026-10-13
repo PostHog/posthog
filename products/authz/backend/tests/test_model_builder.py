@@ -16,7 +16,7 @@ from products.authz.backend.logic.model_builder import (
 )
 
 NOTEBOOK = "type notebook extends object\n  relations\n{statements}"
-NOTEBOOK_TESTS = "name: Notebook\nmodel_file: ../../model.fga\ntests: []\n"
+NOTEBOOK_TESTS = "name: Notebook\nmodel_file: ../../generated/model.fga\ntests: []\n"
 WHY = "    # A test relation.\n"
 DASHBOARD = "resources/dashboard.fga"
 
