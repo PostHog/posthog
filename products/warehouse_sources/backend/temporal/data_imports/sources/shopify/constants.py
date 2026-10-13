@@ -48,7 +48,7 @@ SUBSCRIPTION_CONTRACTS = "subscriptionContracts"
 # Shopify rejects a query whose requested cost is above 1000 points, and the cost grows with the
 # page size. An object listed here starts at a page size that is known to fit. The request layer
 # then grows the page from the cost Shopify reports.
-SHOPIFY_PAGE_SIZE_OVERRIDES = {ORDERS: 20}
+SHOPIFY_COST_LIMITED_START_PAGE_SIZES = {ORDERS: 20}
 SHOPIFY_MAX_QUERY_COST = 1000
 # The largest `first` Shopify accepts on a connection.
 SHOPIFY_MAX_PAGE_SIZE = 250
