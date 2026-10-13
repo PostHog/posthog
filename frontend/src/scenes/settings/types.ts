@@ -138,7 +138,6 @@ export type SettingId =
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
     | 'core-memory'
-    | 'correlation-analysis'
     | 'csp-reporting'
     | 'custom-bot-definitions'
     | 'customer-analytics-accounts'

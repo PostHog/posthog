@@ -197,15 +197,7 @@ FUNNEL_FROM_STEP = "funnel_from_step"
 FUNNEL_TO_STEP = "funnel_to_step"
 FUNNEL_STEP = "funnel_step"
 FUNNEL_CUSTOM_STEPS = "funnel_custom_steps"
-FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
 FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "SECOND", "MINUTE", "HOUR", "WEEK", "MONTH"]
-# Funnel Correlation Properties
-FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
-FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
-# Funnel Correlation Events
-FUNNEL_CORRELATION_EVENT_NAMES = "funnel_correlation_event_names"
-FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES = "funnel_correlation_exclude_event_names"
-FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES = "funnel_correlation_event_exclude_property_names"
 FUNNEL_PATHS = "funnel_paths"
 PATHS_HOGQL_EXPRESSION = "paths_hogql_expression"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
@@ -243,12 +235,6 @@ class FunnelVizType(StrEnum):
     TRENDS = "trends"
     TIME_TO_CONVERT = "time_to_convert"
     STEPS = "steps"
-
-
-class FunnelCorrelationType(StrEnum):
-    EVENTS = "events"
-    PROPERTIES = "properties"
-    EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
 RETENTION_RECURRING = "retention_recurring"

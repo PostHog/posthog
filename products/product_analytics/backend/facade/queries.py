@@ -26,7 +26,6 @@ _LAZY = {
     "BoxPlotTrendsQueryRunner": "trends.boxplot_trends_query_runner",
     "CalendarHeatmapQueryRunner": "trends.calendar_heatmap_query_runner",
     "CalendarHeatmapTrendsQueryRunner": "trends.calendar_heatmap_trends_query_runner",
-    "FunnelCorrelationQueryRunner": "funnels.funnel_correlation_query_runner",
     "FunnelsQueryRunner": "funnels.funnels_query_runner",
     "LifecycleQueryRunner": "lifecycle.lifecycle_query_runner",
     "PathsQueryRunner": "paths.paths_query_runner",

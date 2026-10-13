@@ -1337,11 +1337,6 @@ class EvaluationRuntime(StrEnum):
     SENTIMENT = "sentiment"
 
 
-class CorrelationType(StrEnum):
-    SUCCESS = "success"
-    FAILURE = "failure"
-
-
 class HrefMatching(Enum):
     CONTAINS = "contains"
     EXACT = "exact"
@@ -1627,12 +1622,6 @@ class FunnelConversionWindowTimeUnit(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
-
-
-class FunnelCorrelationResultsType(StrEnum):
-    EVENTS = "events"
-    PROPERTIES = "properties"
-    EVENT_WITH_PROPERTIES = "event_with_properties"
 
 
 class FunnelLayout(StrEnum):
@@ -2327,7 +2316,6 @@ class NodeKind(StrEnum):
     ACTORS_QUERY = "ActorsQuery"
     GROUPS_QUERY = "GroupsQuery"
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
-    FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
     PATHS_V2_ACTORS_QUERY = "PathsV2ActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     RECORDINGS_QUERY = "RecordingsQuery"
@@ -2365,7 +2353,6 @@ class NodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
     INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
-    FUNNEL_CORRELATION_QUERY = "FunnelCorrelationQuery"
     WEB_OVERVIEW_QUERY = "WebOverviewQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
