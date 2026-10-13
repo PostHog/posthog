@@ -2618,6 +2618,13 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
         _run_event_deletion(cluster, ctx)
         assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == {chrome}
 
+        # The queued event no longer matches the predicate, so only its queued uuid holds the request.
+        cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), chrome)).result()
+        cluster.any_host(
+            partial(_insert_events_with_properties, [(ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, "{}")])
+        ).result()
+        assert verify_queued_request(request).promoted is False
+
         cluster.any_host(partial(_delete_uuid, EVENTS_DATA_TABLE(), chrome)).result()
         assert verify_queued_request(request).promoted is False
 

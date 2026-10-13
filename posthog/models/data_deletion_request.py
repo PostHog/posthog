@@ -221,6 +221,33 @@ def reaches_target_through_event_uuids(obj, target: "DeletionTarget") -> bool:
     )
 
 
+# With ttl_only_drop_parts and monthly partitions, a part drops only once its newest row expires, so
+# a row can outlive the TTL by up to a month.
+_COPY_HORIZON_SLACK_DAYS = 33
+
+
+def _without_events_copy(target: "DeletionTarget") -> tuple[str, dict]:
+    """A condition on ``uuid`` that holds for the rows of ``target`` with no copy in ``target.copied_from``.
+
+    The subquery reuses the ``team_id``, ``start_time`` and ``end_time`` params of
+    ``portable_event_removal_where``, so the caller's query must bind them.
+    """
+    assert target.copied_from is not None
+    copies = _EVENT_REMOVAL_TIME_PREDICATE
+    params: dict = {}
+    if target.ttl_days is not None:
+        # The target holds no row older than its TTL horizon. A row older than the bound reads as
+        # having no copy, which refuses or holds the request.
+        copies += " AND timestamp >= now64(6, 'UTC') - toIntervalDay(%(copies_horizon_days)s)"
+        params["copies_horizon_days"] = target.ttl_days + _COPY_HORIZON_SLACK_DAYS
+    if target.stored_events is not None:
+        copies += " AND event IN %(copied_events)s"
+        params["copied_events"] = sorted(target.stored_events)
+    # The subquery names the storage table rather than its Distributed proxy, so each shard compares
+    # its rows against its own events. That finds every copy only because a copy shares its row's shard.
+    return f"uuid NOT IN (SELECT uuid FROM {settings.CLICKHOUSE_DATABASE}.{target.copied_from} WHERE {copies})", params
+
+
 def rows_without_events_copy_where(obj, target: "DeletionTarget") -> tuple[str, dict]:
     """``portable_event_removal_where`` narrowed to the rows of ``target`` with no copy in ``target.copied_from``.
 
@@ -228,22 +255,8 @@ def rows_without_events_copy_where(obj, target: "DeletionTarget") -> tuple[str, 
     only rows of ``target`` that a HogQL predicate cannot reach.
     """
     predicate, params = portable_event_removal_where(obj)
-    return f"{predicate} AND {_without_events_copy(target, params)}", params
-
-
-def _without_events_copy(target: "DeletionTarget", params: dict) -> str:
-    """A condition on ``uuid`` that holds for the rows of ``target`` with no copy in ``target.copied_from``.
-
-    Reads the time bounds from ``params``, which must come from ``portable_event_removal_where``.
-    """
-    assert target.copied_from is not None
-    copies = _EVENT_REMOVAL_TIME_PREDICATE
-    if target.stored_events is not None:
-        copies += " AND event IN %(copied_events)s"
-        params["copied_events"] = sorted(target.stored_events)
-    # The subquery names the storage table rather than its Distributed proxy, so each shard compares
-    # its rows against its own events. That finds every copy only because a copy shares its row's shard.
-    return f"uuid NOT IN (SELECT uuid FROM {settings.CLICKHOUSE_DATABASE}.{target.copied_from} WHERE {copies})"
+    without_copy, copy_params = _without_events_copy(target)
+    return f"{predicate} AND {without_copy}", {**params, **copy_params}
 
 
 def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
@@ -717,8 +730,6 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict, *, user_id: int 
     automatically via :class:`QueryTags`). The auto-approval sweep job has no
     acting user and passes None.
     """
-    from django.conf import settings as django_settings
-
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -750,7 +761,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict, *, user_id: int 
         workload=Workload.OFFLINE,
         query_type="delete_part_count",
     ):
-        cluster = django_settings.CLICKHOUSE_CLUSTER
+        cluster = settings.CLICKHOUSE_CLUSTER
 
         # nosemgrep: clickhouse-fstring-param-audit (filter built from internal helpers; cluster from Django settings)
         parts_result = sync_execute(
@@ -855,6 +866,14 @@ def refresh_deletion_stats(request: "DataDeletionRequest", *, user_id: int | Non
     return stats
 
 
+def _queued_by_request_where(request: "DataDeletionRequest") -> tuple[str, dict]:
+    """The ``adhoc_events_deletion`` rows that ``request`` queued."""
+    return (
+        "team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s",
+        {"team_id": request.team_id, "request_id": str(request.pk)},
+    )
+
+
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     """Count rows still matching an event-removal request's criteria in ClickHouse.
 
@@ -862,11 +881,12 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     complete once its rows are gone from every table that the scheduled deletion job sweeps.
 
     On a deferred request, a target that cannot take the compiled HogQL fragment but holds copies of
-    events is counted by the uuids this request queued, because the drain deletes exactly those rows
-    there, plus the rows that have no events copy, which the drain cannot reach. Any other target that cannot take the fragment is counted with the portable predicate
-    instead, which matches a superset. That can only hold a request in QUEUED, never promote one
-    early. It also means a non-zero count is not proof that rows were missed: for a HogQL request
-    the superset can match rows the predicate itself never would.
+    events is counted on two sets of rows. The first set is the rows whose uuids this request queued,
+    because the drain deletes exactly those rows there. The second set is the rows with no events
+    copy, which the drain cannot reach. Any other target that cannot take the fragment is counted
+    with the portable predicate instead, which matches a superset. That can only hold a request in
+    QUEUED, never promote one early. It also means a non-zero count is not proof that rows were
+    missed: for a HogQL request the superset can match rows the predicate itself never would.
     """
     from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
     from posthog.clickhouse.client import sync_execute
@@ -894,17 +914,17 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
             if target.accepts_hogql_predicate:
                 predicate, params = event_removal_where(request, use_new_events_schema=target.uses_new_events_schema)
             elif reaches_target_through_event_uuids(request, target):
-                # The rows the drain had to remove, and the rows it cannot reach. The second set keeps a
-                # request the gate refused from passing verification when it queued nothing.
+                # The queued set matches nothing after deletes_job, because the drain's is_deleted marker
+                # has no data_deletion_request_id. docs/internal/clickhouse-deletion-coverage.md says which
+                # set holds the request at each stage.
                 predicate, params = portable_event_removal_where(request)
                 queued, queued_params = _queued_by_request_where(request)
-                # The subquery keeps queue rows that the drain marked is_deleted, because their uuids
-                # name the rows the drain had to remove.
+                without_copy, copy_params = _without_events_copy(target)
                 predicate += (
-                    f" AND (uuid IN (SELECT uuid FROM {ADHOC_EVENTS_DELETION_TABLE} WHERE {queued})"
-                    f" OR {_without_events_copy(target, params)})"
+                    f" AND (uuid IN (SELECT uuid FROM {ADHOC_EVENTS_DELETION_TABLE} WHERE {queued}) OR {without_copy})"
                 )
                 params.update(queued_params)
+                params.update(copy_params)
             else:
                 predicate, params = portable_event_removal_where(request)
             result = sync_execute(
@@ -939,8 +959,6 @@ def discover_affected_mat_columns(properties: list[str], table_column: str, tabl
     if not properties:
         return []
 
-    from django.conf import settings as django_settings
-
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
 
@@ -955,7 +973,7 @@ def discover_affected_mat_columns(properties: list[str], table_column: str, tabl
           AND comment LIKE '%%column_materializer::%%'
           AND comment NOT LIKE '%%column_materializer::elements_chain::%%'
         """,
-        {"database": django_settings.CLICKHOUSE_DATABASE, "table": table},
+        {"database": settings.CLICKHOUSE_DATABASE, "table": table},
         readonly=True,
         ch_user=ClickHouseUser.META,
     )
@@ -1084,14 +1102,6 @@ def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
     return None
 
 
-def _queued_by_request_where(request: "DataDeletionRequest") -> tuple[str, dict]:
-    """The ``adhoc_events_deletion`` rows that ``request`` queued."""
-    return (
-        "team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s",
-        {"team_id": request.team_id, "request_id": str(request.pk)},
-    )
-
-
 def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
     from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
     from posthog.clickhouse.client import sync_execute
@@ -1107,6 +1117,7 @@ def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
         query_type="data_deletion_request_verify_queued",
     ):
         queued, params = _queued_by_request_where(request)
+        # nosemgrep: clickhouse-fstring-param-audit (queued is constant SQL text; request values are bound params)
         result = sync_execute(
             f"SELECT count() FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL WHERE {queued} AND is_deleted = 0",
             params,

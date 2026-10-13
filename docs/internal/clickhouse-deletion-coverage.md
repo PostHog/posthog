@@ -240,9 +240,14 @@ Requests without a predicate, immediate or deferred, are swept normally.
 A deferred one reads the table's own uuids into the queue.
 
 Verification of a deferred request with a predicate counts two sets of the table's rows: the rows whose uuids the request queued, and the rows with no copy in `sharded_events`.
-The second set keeps a request the gate refused, which queued nothing, from passing verification as a FAILED request.
+The first set holds the request before the drain, including a queued row whose event a property removal changed so that the predicate no longer matches it.
+It matches nothing once `deletes_job` finishes, because the drain writes its `is_deleted` marker without `data_deletion_request_id` and `OPTIMIZE FINAL` keeps only the marker.
+The second set holds the request after the drain.
+A flag row stamped after its uuid was queued falls outside the drain's `inserted_at` bound, so it survives the drain.
+The drain still deletes its events copy.
+The second set therefore counts it and keeps the request in QUEUED.
+The second set also keeps a request the gate refused, which queued nothing, from passing verification as a FAILED request.
 Counting every row that matches the request's other criteria would hold the request in QUEUED until the TTL, whenever the team has flag calls the predicate does not name.
-A flag row stamped after its uuid was queued falls outside the drain's `inserted_at` bound, survives the drain, and keeps the request in QUEUED.
 
 ## Producer prerequisite: person_id parity
 

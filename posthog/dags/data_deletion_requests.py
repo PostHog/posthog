@@ -650,26 +650,22 @@ def _event_removal_placements(
 
     unsweepable = [p.target for p in placements if not p.target.accepts_hogql_predicate]
     criteria = portable_event_removal_where(deletion_request)
-
-    def rows_without_events_copy(target: DeletionTarget) -> tuple[str, dict] | NotCounted:
-        # The cheap count runs first. The copy check reads the uuid of every matching event, which is
-        # wasted work when this table holds no rows in the request's window.
-        if not count_surviving_rows(cluster, target, *criteria):
-            return NotCounted(reason="it holds no rows that match the request's other criteria")
-        return rows_without_events_copy_where(deletion_request, target)
+    reachable = [t for t in unsweepable if reaches_target_through_event_uuids(deletion_request, t)]
 
     _refuse_unsweepable(
         cluster,
-        [t for t in unsweepable if not reaches_target_through_event_uuids(deletion_request, t)],
+        [t for t in unsweepable if t not in reachable],
         deletion_request,
         lambda _target: criteria,
         reason=_HOGQL_UNSWEEPABLE_REASON,
     )
+    # The copy check reads the uuid of every matching event, so it runs only on tables that hold rows
+    # in the request's window.
     _refuse_unsweepable(
         cluster,
-        [t for t in unsweepable if reaches_target_through_event_uuids(deletion_request, t)],
+        [t for t in reachable if count_surviving_rows(cluster, t, *criteria)],
         deletion_request,
-        rows_without_events_copy,
+        lambda target: rows_without_events_copy_where(deletion_request, target),
         reason=_HOGQL_NO_EVENTS_COPY_REASON,
     )
     return [p for p in placements if p.target.accepts_hogql_predicate]
