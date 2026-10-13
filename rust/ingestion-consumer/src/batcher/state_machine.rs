@@ -668,6 +668,7 @@ mod tests {
     use crate::batcher::key_queues::RunCap;
     use crate::batcher::packer::PackTargets;
     use crate::batcher::test_support::{message, offsets};
+    use crate::order_sentinel::{KeyOrderSentinel, KeyOrderViolation, SendKind};
     use crate::routing::{Router, RoutingStrategy};
 
     const FAULT_DELAY: Duration = Duration::from_millis(200);
@@ -739,6 +740,30 @@ mod tests {
             .iter()
             .map(|run| (&*run.routing_key, offsets(&run.messages)))
             .collect()
+    }
+
+    /// Applies the effects in the order the driver does, so the sentinel judges
+    /// the sends against the ACK marks of the same action.
+    fn apply_to_sentinel(sentinel: &KeyOrderSentinel, effects: &Effects) -> Vec<KeyOrderViolation> {
+        let mut batch = sentinel.batch();
+        for ack in &effects.key_acks {
+            batch.note_acked(&ack.routing_key, ack.max_offset);
+        }
+        for key in &effects.evicted_keys {
+            batch.evict(key);
+        }
+        let mut violations = Vec::new();
+        for send in &effects.sends {
+            let kind = if send.class.replay {
+                SendKind::Resend
+            } else {
+                SendKind::Fresh
+            };
+            for run in &send.runs {
+                violations.extend(batch.note_sent(&run.routing_key, &run.messages, kind));
+            }
+        }
+        violations
     }
 
     fn sent_messages(send: &SendRequest) -> Vec<SerializedKafkaMessage> {
@@ -1586,6 +1611,7 @@ mod tests {
     fn a_partial_completes_the_accepted_offsets_and_requeues_the_unfinished_ones_at_the_front() {
         let now = Instant::now();
         let workers = pool(&["w"]);
+        let sentinel = KeyOrderSentinel::new();
         let (batcher, effects) = packing_batcher(4, Duration::ZERO, 4, now).on_groups(
             now,
             &workers,
@@ -1596,6 +1622,7 @@ mod tests {
             shape(&effects.sends[0]),
             vec![("a", vec![1, 2, 3]), ("b", vec![4])]
         );
+        assert!(apply_to_sentinel(&sentinel, &effects).is_empty());
         let request = effects.sends[0].request;
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[5])]);
         assert!(effects.sends.is_empty(), "a's run is in flight");
@@ -1627,11 +1654,22 @@ mod tests {
         );
         assert!(effects.sends[0].class.replay);
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2])]);
+        let violations = apply_to_sentinel(&sentinel, &effects);
+        assert!(
+            violations.is_empty(),
+            "the ACK mark stops before the unfinished message, so its resend is legal: \
+             {violations:?}"
+        );
         let replay = effects.sends[0].request;
 
         let (_, effects) = batcher.on_request_succeeded(now, &workers, replay, 1);
         assert_eq!(effects.completions[0].offsets, vec![Offset(2)]);
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![5])]);
+        let violations = apply_to_sentinel(&sentinel, &effects);
+        assert!(
+            violations.is_empty(),
+            "the fresh send after the resend is legal: {violations:?}"
+        );
     }
 
     #[test]
