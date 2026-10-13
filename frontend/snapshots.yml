@@ -8363,9 +8363,9 @@ snapshots:
     replay-scenes-group--group-recording-tab-multiple-and-not-found--light:
         hash: v1.k794b7964.092f4fdc76fdb9442364fabdc44300fa63a0abc91972a1b2e3af8add45c2376a.xolNSMmljXBHHuXay69_UL9WlJu--Bu3qEOku7UkV_Y
     replay-scenes-person--person-recording-tab-empty--dark:
-        hash: v1.k794b7964.d337c9b3822884b424ceca688c767202c2b1a72e2b0e466092ae5f9795dbcabd.TZsx90e31kbDKuYkmYXRtlH0jo7mxK0xNIrohR9Jf-Y
+        hash: v1.k794b7964.780ebb0cce27487fe3b96cc12b0fd349b85831533b56ca595b2ccc0fde108248.Irbmch9ma-zZqglhXDQ65t9bzAzahrb02xgePpOGEW8
     replay-scenes-person--person-recording-tab-empty--light:
-        hash: v1.k794b7964.e29314b81472a69779a7da88417f5d840eec03de97125db890eafa3d5190e0c5.y27QikyGJb8Eoewgpuj-zbqSGWjYT4ZmwD_GUvqyL4I
+        hash: v1.k794b7964.789bce0f8fb49cf35aa71a5acd93dfee063c9bfab78cd5982cfb546dd6e127d6.sppuzH3Vws1f_t48MTuaafbm4h8OyoWIBRN3kbtZddM
     replay-scenes-person--person-recording-tab-multiple-and-not-found--dark:
         hash: v1.k794b7964.1dee48a3acfe43f3d2aa04f482f7e45c22353c30e4023233276c31b5c672979c.E6eQpwi_zHT0sFIXrmivGsjGrJdeq0I-bhklMnZKuJY
     replay-scenes-person--person-recording-tab-multiple-and-not-found--light:
@@ -13093,7 +13093,7 @@ snapshots:
     scenes-app-people-person--person--dark:
         hash: v1.k794b7964.3865d15fa873d551018dc5aa0aa1680ff644d11d49fab16a9a579693750b4d52.2fqNPzGAdSqQHpLRJE38ta4HcLkaYU5foxzMMT8oY2I
     scenes-app-people-person--person--light:
-        hash: v1.k794b7964.ebfa0a58e5c8ffe4768203ea8ffdb023625af85b56b624a29e3cb25c9b705752.qykleErq4ZzoltxkYeeujNnuSw65dGytbXzrC7P7pcU
+        hash: v1.k794b7964.dc20dff8e661e93ac49e05c857b98444d52b2ec59fe6041176da77568bc7c6c9.0HnOROPc94oYPZ4pjCAFFXK5kBXWV4dWK2F-weEdoVw
     scenes-app-people-person--person-not-found--dark:
         hash: v1.k794b7964.ce572a54f38627af650ca022bce22418ba4f4df4a2adc99d73d9080d79f82591.VQJZMjET9BIhBZGP9V0L96mX6Rcku3XZ4zcpJgCQGXk
     scenes-app-people-person--person-not-found--light:
