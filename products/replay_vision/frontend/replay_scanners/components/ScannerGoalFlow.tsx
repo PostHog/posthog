@@ -22,6 +22,13 @@ import { startScannerFromTemplate } from './startScannerFromTemplate'
 const MIN_SCAN_BUDGET = 1
 const MAX_SCAN_BUDGET = 100000000
 
+interface PendingDraft {
+    goal: string
+    templateKey?: string
+    budget: number | undefined
+    freeOnly: boolean
+}
+
 /** The goal-based creation flow: a typed goal and a monthly budget on the left, one-click starting
  * points on the right. Both draft a full scanner through the agent and land the user on the overview
  * step to review it, so a one-click start still gets a scanner fitted to the project. */
@@ -31,7 +38,8 @@ export function ScannerGoalFlow(): JSX.Element {
     const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode } = useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { freeCreditsLeft } = useValues(visionQuotaLogic)
-    const [pendingDraft, setPendingDraft] = useState<{ goal: string; templateKey?: string } | null>(null)
+    // The spend choice is captured with the goal, so a quota that loads while consent is open cannot change it.
+    const [pendingDraft, setPendingDraft] = useState<PendingDraft | null>(null)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
@@ -48,16 +56,17 @@ export function ScannerGoalFlow(): JSX.Element {
         startDisabledReason ?? (!goalDraftInput.trim() ? 'Describe what you want to find out' : null)
 
     const start = (goal: string, templateKey?: string): void => {
+        const request = { goal, templateKey, budget: spend.budget, freeOnly: spendMode === 'free' }
         // Drafting calls an AI endpoint the backend rejects without org consent; interpose the
         // popover instead of letting the request 400.
         if (!dataProcessingAccepted) {
-            setPendingDraft({ goal, templateKey })
+            setPendingDraft(request)
             return
         }
-        draft(goal, templateKey)
+        draft(request)
     }
-    const draft = (goal: string, templateKey?: string): void => {
-        draftScannerFromGoal(goal, spend.budget, templateKey, spendMode === 'free')
+    const draft = ({ goal, templateKey, budget, freeOnly }: PendingDraft): void => {
+        draftScannerFromGoal(goal, budget, templateKey, freeOnly)
     }
     const startFromTypedGoal = (): void => {
         if (!typedGoalDisabledReason) {
@@ -81,7 +90,7 @@ export function ScannerGoalFlow(): JSX.Element {
                 hidden={pendingDraft === null}
                 onApprove={() => {
                     if (pendingDraft) {
-                        draft(pendingDraft.goal, pendingDraft.templateKey)
+                        draft(pendingDraft)
                     }
                     setPendingDraft(null)
                 }}
@@ -142,8 +151,11 @@ export function ScannerGoalFlow(): JSX.Element {
                             {spendMode === 'free' ? (
                                 <div className="text-xs text-muted">
                                     The scanner only uses your free monthly credits
-                                    {freeCreditsLeft != null ? ` (${formatCreditCount(freeCreditsLeft)} left)` : ''}. It
-                                    pauses when they run out, so it never adds to your bill.
+                                    {/* Its own span, so page translation cannot strand the changing balance. */}
+                                    <span>
+                                        {freeCreditsLeft != null ? ` (${formatCreditCount(freeCreditsLeft)} left)` : ''}
+                                    </span>
+                                    . It pauses when they run out, so it never adds to your bill.
                                 </div>
                             ) : (
                                 <>
