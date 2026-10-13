@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    ExperimentWarehouseNativeNode,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -367,7 +368,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return "retention_window"
 
     def _metric_source_ineligibility_reason(
-        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode
     ) -> Optional[str]:
         """The per-source rules for a mean-shaped build: a mean metric's source or either ratio side."""
         if not isinstance(source, (EventsNode, ActionsNode)):
