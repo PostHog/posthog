@@ -332,9 +332,10 @@ fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCom
     }
 }
 
-/// A complete poll commits only when workers accepted all of it and a
-/// completion covered every charged offset.
-fn ensure_committable(poll: &InFlightPoll) -> anyhow::Result<()> {
+/// Pops the front poll for its commit. A complete poll commits only when
+/// workers accepted all of it and a completion covered every charged offset.
+fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InFlightPoll> {
+    let poll = in_flight.pop_front().expect("front is present");
     if poll.accepted < poll.message_count {
         anyhow::bail!(
             "accepted {}/{} messages — not committing offsets",
@@ -351,7 +352,7 @@ fn ensure_committable(poll: &InFlightPoll) -> anyhow::Result<()> {
             topic_partition.partition
         );
     }
-    Ok(())
+    Ok(poll)
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
@@ -725,8 +726,7 @@ impl IngestionConsumer {
             }
         }
 
-        let poll = in_flight_polls.pop_front().expect("front is present");
-        ensure_committable(&poll).map_err(Failure::Batch)?;
+        let poll = pop_committable(in_flight_polls).map_err(Failure::Batch)?;
 
         self.settle_poll(&poll.partitions);
         if let Some(offsets) = self.commit_sentinel.take_due() {
@@ -1295,7 +1295,9 @@ mod tests {
         apply_completion(&mut in_flight, completion(1, 0, &[10, 12, 12], 3));
 
         assert!(in_flight[0].is_complete());
-        let error = ensure_committable(&in_flight[0]).expect_err("offset 11 has no completion");
+        let error = pop_committable(&mut in_flight)
+            .err()
+            .expect("offset 11 has no completion");
         assert!(error.to_string().contains("offset 11 "), "{error}");
     }
 
@@ -1351,7 +1353,7 @@ mod tests {
         apply_completion(&mut in_flight, completion(1, 0, &[0, 1], 2));
         assert!(in_flight[0].is_complete());
         assert_eq!(in_flight[0].accepted, 2);
-        assert!(ensure_committable(&in_flight[0]).is_ok());
+        assert!(pop_committable(&mut in_flight).is_ok());
     }
 
     #[test]
@@ -1441,11 +1443,8 @@ mod tests {
 
         apply_completion(&mut in_flight, completion(1, 0, &[10, 10], 2));
         assert!(in_flight[0].is_complete());
-        assert!(
-            ensure_committable(&in_flight[0]).is_ok(),
-            "an offset credited twice still counts as credited"
-        );
-        let reassigned = in_flight.pop_front().unwrap();
+        let reassigned = pop_committable(&mut in_flight)
+            .expect("an offset credited twice still counts as credited");
         let retained = reassigned.partitions.get(&topic_partition).unwrap();
         ledger
             .settle(
