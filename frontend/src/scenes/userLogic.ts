@@ -77,8 +77,8 @@ export interface userLogicValues {
     credentialReviewDismissedInSession: boolean
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
     isImpersonationUpgradeInProgress: boolean
-    isSwitchingOrganization: boolean
     isProvisionedUser: boolean
+    isSwitchingOrganization: boolean
     isUserDetailsSubmitting: boolean
     isUserDetailsValid: boolean
     isUserNonTechnical: boolean
@@ -254,15 +254,15 @@ export interface userLogicActions {
         teamIds: number[]
         types: string[]
     }
-    updateCurrentOrganizationFailure: () => {
-        value: true
-    }
     updateCurrentOrganization: (
         organizationId: string,
         destination?: string
     ) => {
         destination: string | undefined
         organizationId: string
+    }
+    updateCurrentOrganizationFailure: () => {
+        value: true
     }
     updateDataPipelineErrorThreshold: (threshold: number) => {
         threshold: number

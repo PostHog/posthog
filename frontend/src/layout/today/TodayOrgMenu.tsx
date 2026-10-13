@@ -60,10 +60,10 @@ export function TodayOrgMenu(): JSX.Element {
     return (
         <DropdownMenu open={isOrgSwitcherOpen} onOpenChange={(open) => (open ? openOrgSwitcher() : closeOrgSwitcher())}>
             <Tooltip>
-                <TooltipTrigger
-                    delay={0}
+                <DropdownMenuTrigger
                     render={
-                        <DropdownMenuTrigger
+                        <TooltipTrigger
+                            delay={0}
                             render={
                                 <Button
                                     size="icon"
@@ -82,7 +82,7 @@ export function TodayOrgMenu(): JSX.Element {
                         size="medium"
                     />
                     {pendingInvites.length > 0 && <PendingInviteDot className="absolute top-1 right-1" />}
-                </TooltipTrigger>
+                </DropdownMenuTrigger>
                 <TooltipContent side="right">{currentOrganization?.name ?? 'Select organization'}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent side="bottom" align="start" className="w-64">
