@@ -92,6 +92,16 @@ class Migration(migrations.Migration):
                 ("source_team_id", models.BigIntegerField(blank=True, null=True)),
                 ("preview_team_id", models.BigIntegerField(blank=True, null=True)),
                 ("preview_dashboard_id", models.BigIntegerField(blank=True, null=True)),
+                (
+                    "preview_unbuilt_keys",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=200),
+                        blank=True,
+                        default=list,
+                        help_text="The panels that the preview left out, because its project does not send their metrics.",
+                        size=None,
+                    ),
+                ),
                 ("reviewed_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),

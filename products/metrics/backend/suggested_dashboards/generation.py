@@ -49,7 +49,9 @@ from products.metrics.backend.suggested_dashboards.spec import (
     GenerationRound,
     PreviewCritique,
     TemplatePanel,
+    template_panels,
 )
+from products.metrics.backend.suggested_dashboards.timeouts import GENERATE_TIMEOUT
 
 logger = structlog.get_logger(__name__)
 
@@ -59,8 +61,8 @@ MAX_ATTRIBUTES_PER_METRIC = 8
 MAX_LISTED_VALUES = 8
 CHECK_DEADLINE_SECONDS = 30.0
 PICTURE_TTL = dt.timedelta(days=90)
-# Longer than the generate workflow timeout, and longer than any one step of it.
-STALE_GENERATION = dt.timedelta(hours=4)
+# A generation that has not saved for this long has stopped: it is longer than the whole workflow may run.
+STALE_GENERATION = GENERATE_TIMEOUT + dt.timedelta(hours=1)
 # Vision models downscale a longer edge, so a tall dashboard goes in parts that keep its text readable.
 MAX_PICTURE_EDGE = 1568
 MAX_PICTURE_WIDTH = 1200
@@ -255,7 +257,7 @@ def _refresh_preview(context: _Context, round_number: int) -> int | None:
         user=user,
         name=template.name,
         description=template.description,
-        panels=[TemplatePanel.model_validate(panel) for panel in template.panels],
+        panels=template_panels(template.panels),
         catalog=context.catalog,
         idempotency_key=f"metrics-template-preview:{template.id}:{round_number}:{uuid.uuid4()}",
         unlisted=True,
@@ -362,6 +364,9 @@ def check_preview(template_id: str, round_number: int, *, revise: bool) -> bool:
 def finish_generation(template_id: str, *, error: str | None = None) -> None:
     with transaction.atomic():
         template = MetricsDashboardTemplate.objects.select_for_update().get(id=template_id)
+        # The workflow and the stale sweep can both try to finish a generation. The first one wins.
+        if template.status != MetricsDashboardTemplate.Status.GENERATING:
+            return
         record = _record(template)
         if error is None and not template.panels:
             error = "No drafted panel passed the query checks."
@@ -369,7 +374,13 @@ def finish_generation(template_id: str, *, error: str | None = None) -> None:
         template.status = (
             MetricsDashboardTemplate.Status.FAILED if error else MetricsDashboardTemplate.Status.PENDING_REVIEW
         )
-        _save_record(template, record, "status")
+        if error and template.preview_team_id and template.preview_dashboard_id:
+            # Nobody reviews a failed template, so its preview would stay in the project for good.
+            delete_unlisted_dashboard(team_id=template.preview_team_id, dashboard_id=template.preview_dashboard_id)
+            template.preview_team_id = None
+            template.preview_dashboard_id = None
+            template.preview_unbuilt_keys = []
+        _save_record(template, record, "status", "preview_team_id", "preview_dashboard_id", "preview_unbuilt_keys")
     _capture_generated(template, record)
 
 
@@ -384,7 +395,12 @@ def fail_stale_generations(now: dt.datetime) -> int:
     ).values_list("id", flat=True)
     count = 0
     for template_id in list(stale):
-        finish_generation(str(template_id), error="The generation stopped before it finished.")
+        try:
+            finish_generation(str(template_id), error="The generation stopped before it finished.")
+        except Exception:
+            # One broken template must not stop the sweep for every team.
+            logger.exception("metrics_suggested_dashboards_stale_generation_not_failed", template_id=str(template_id))
+            continue
         count += 1
     return count
 

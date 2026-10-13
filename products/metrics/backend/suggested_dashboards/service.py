@@ -20,7 +20,7 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.enums import DashboardTemplateSource, DashboardTemplateStatus
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards import review
-from products.metrics.backend.suggested_dashboards.spec import GenerationRecord, TemplatePanel
+from products.metrics.backend.suggested_dashboards.spec import GenerationRecord, template_panels
 from products.metrics.backend.temporal import schedule
 
 logger = structlog.get_logger(__name__)
@@ -74,13 +74,15 @@ def _get_suggestion(team: Team, suggestion_id: str) -> MetricsDashboardSuggestio
 def create_from_suggestion(team: Team, user: User, suggestion_id: str) -> int:
     try:
         return review.create_from_suggestion(suggestion=_get_suggestion(team, suggestion_id), team=team, user=user)
+    except review.SuggestionGone as error:
+        raise SuggestedDashboardNotFound(str(error)) from error
     except review.NoPanelsWithData as error:
         raise SuggestedDashboardError(str(error)) from error
 
 
 def _summary(template: MetricsDashboardTemplate, suggestion_count: int = 0) -> DashboardTemplateSummary:
     record = GenerationRecord.model_validate(template.generation or {})
-    panels = [TemplatePanel.model_validate(panel) for panel in template.panels or []]
+    panels = template_panels(template.panels)
     reviewer = template.reviewed_by
     return DashboardTemplateSummary(
         id=str(template.id),

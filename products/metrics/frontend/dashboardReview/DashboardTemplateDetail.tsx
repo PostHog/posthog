@@ -100,6 +100,7 @@ export function DashboardTemplateDetail(): JSX.Element {
                                 status="danger"
                                 size="small"
                                 onClick={rejectTemplate}
+                                loading={templateLoading}
                                 data-attr="metrics-dashboard-review-reject"
                             >
                                 Reject
@@ -110,6 +111,7 @@ export function DashboardTemplateDetail(): JSX.Element {
                                 type="primary"
                                 size="small"
                                 onClick={approveTemplate}
+                                loading={templateLoading}
                                 tooltip="Projects that send these metrics see this dashboard as a suggestion. Your changes to the preview become part of it."
                                 data-attr="metrics-dashboard-review-approve"
                             >

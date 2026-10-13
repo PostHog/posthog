@@ -18,7 +18,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.metrics.backend.facade.contracts import METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG
 from products.metrics.backend.models import MetricsDashboardDiscovery
 from products.metrics.backend.suggested_dashboards.analysis import bank_revision
-from products.metrics.backend.temporal.inputs import SUGGEST_TIMEOUT
+from products.metrics.backend.suggested_dashboards.timeouts import SUGGEST_TIMEOUT
 
 logger = structlog.get_logger(__name__)
 
@@ -30,6 +30,8 @@ RETRY_AFTER = dt.timedelta(minutes=30)
 # A team whose users opened its suggestions this recently gets background analyses, whatever the flag
 # says for the team. The flag can target people, which the sweep cannot evaluate.
 OPENED_WINDOW = dt.timedelta(days=7)
+# A row that changed this long after its last analysis holds changes that no analysis has read.
+NOTED_AFTER = dt.timedelta(minutes=1)
 _NEVER = dt.datetime.min.replace(tzinfo=dt.UTC)
 
 # `metrics4_names` is the physical table behind the HogQL `metric_names` table: one row for each
@@ -109,6 +111,7 @@ def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
         key=lambda team_id: (states[team_id].analyzed_at or _NEVER) if team_id in states else _NEVER,
     )
     teams = {team.id: team for team in Team.objects.filter(id__in=changed).only("id", "uuid", "organization_id")}
+    opened = _recently_opened(changed)
     picked: dict[int, int] = {}
     for team_id in changed:
         if len(picked) >= MAX_TEAMS_PER_SWEEP:
@@ -117,13 +120,10 @@ def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
         if team is None:
             continue
         state = states.get(team_id)
-        if _recently_opened(team_id) or suggestions_enabled(team):
+        if team_id in opened or suggestions_enabled(team):
+            # An analysis marks the row when it starts, so a failed or running one waits RETRY_AFTER.
             if state is not None and state.updated_at > now - RETRY_AFTER:
                 continue
-            # Marks the pick, so the team waits RETRY_AFTER before the next one.
-            MetricsDashboardDiscovery.objects.for_team(team_id).update_or_create(
-                team_id=team_id, defaults={"updated_at": now}
-            )
             picked[team_id] = fingerprints[team_id]
             continue
         MetricsDashboardDiscovery.objects.for_team(team_id).update_or_create(
@@ -132,7 +132,7 @@ def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
     return picked
 
 
-def _first_analysis_key(team_id: int) -> str:
+def _analysis_on_open_key(team_id: int) -> str:
     return f"metrics_suggested_dashboards_first_analysis:{team_id}"
 
 
@@ -140,11 +140,13 @@ def _opened_key(team_id: int) -> str:
     return f"metrics_suggested_dashboards_opened:{team_id}"
 
 
-def _recently_opened(team_id: int) -> bool:
+def _recently_opened(team_ids: list[int]) -> set[int]:
+    keys = {_opened_key(team_id): team_id for team_id in team_ids}
     try:
-        return bool(cache.get(_opened_key(team_id)))
+        found = cache.get_many(list(keys))
     except Exception:
-        return False
+        return set()
+    return {keys[key] for key, value in found.items() if value}
 
 
 def record_opened(team_id: int) -> None:
@@ -155,23 +157,24 @@ def record_opened(team_id: int) -> None:
         logger.warning("metrics_suggested_dashboards_opened_not_recorded", team_id=team_id)
 
 
-def needs_first_analysis(team_id: int) -> bool:
-    """True when the team was never analyzed and no first analysis started recently.
+def needs_analysis_on_open(team_id: int) -> bool:
+    """True when the team was never analyzed, or changed since its last analysis, and no analysis started recently.
 
+    A sweep only notes the changes of a team that the flag check missed. Its next open analyzes them.
     The menu lists suggestions on every open, so without the cache each open would start a workflow.
     """
-    state = MetricsDashboardDiscovery.objects.for_team(team_id).only("analyzed_at").first()
-    if state is not None and state.analyzed_at is not None:
+    state = MetricsDashboardDiscovery.objects.for_team(team_id).only("analyzed_at", "updated_at").first()
+    if state is not None and state.analyzed_at is not None and state.updated_at - state.analyzed_at < NOTED_AFTER:
         return False
     try:
-        return cache.add(_first_analysis_key(team_id), True, timeout=int(SUGGEST_TIMEOUT.total_seconds()))
+        return cache.add(_analysis_on_open_key(team_id), True, timeout=int(SUGGEST_TIMEOUT.total_seconds()))
     except Exception:
         return True
 
 
-def forget_first_analysis(team_id: int) -> None:
+def forget_analysis_on_open(team_id: int) -> None:
     """Let the next list start the first analysis again, after a start that failed."""
     try:
-        cache.delete(_first_analysis_key(team_id))
+        cache.delete(_analysis_on_open_key(team_id))
     except Exception:
         logger.warning("metrics_suggested_dashboards_first_analysis_not_reset", team_id=team_id)

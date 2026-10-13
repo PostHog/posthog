@@ -17,6 +17,7 @@ from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from products.metrics.backend.suggested_dashboards.timeouts import GENERATE_TIMEOUT, SUGGEST_TIMEOUT
     from products.metrics.backend.temporal.activities import (
         analyze_team_activity,
         check_preview_activity,
@@ -29,7 +30,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.metrics.backend.temporal.inputs import (
         DISCOVERY_WORKFLOW_NAME,
         GENERATE_WORKFLOW_NAME,
-        SUGGEST_TIMEOUT,
         SUGGEST_WORKFLOW_NAME,
         DiscoveryInputs,
         FinishInputs,
@@ -41,9 +41,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
 
 MAX_ROUNDS = 3
-# Longer than the worst case of the activity timeouts and retries below (about 2 hours), so that
-# finish_generation runs. The discovery sweep fails a generation that stopped without it.
-GENERATE_TIMEOUT = timedelta(hours=3)
 _SHORT = timedelta(minutes=2)
 _ANALYZE = timedelta(minutes=10)
 _MODEL_STEP = timedelta(minutes=10)

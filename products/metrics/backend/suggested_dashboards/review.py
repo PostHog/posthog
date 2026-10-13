@@ -24,6 +24,10 @@ class TemplateNotReviewable(Exception):
     """The template is in a state that the action does not apply to. The message is safe to show."""
 
 
+class SuggestionGone(Exception):
+    """An analysis or a review removed the suggestion while the user created its dashboard."""
+
+
 class NoPanelsWithData(Exception):
     """The team sends none of the metrics of the template, so no dashboard was created."""
 
@@ -151,7 +155,14 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
     catalog.look_up(team, template.metric_names)
     with transaction.atomic():
         # Concurrent requests wait here, so a double click creates one dashboard.
-        locked = MetricsDashboardSuggestion.objects.for_team(team.id).select_for_update().get(id=suggestion.id)
+        locked = (
+            MetricsDashboardSuggestion.objects.for_team(team.id)
+            .select_for_update()
+            .filter(id=suggestion.id, template__status=MetricsDashboardTemplate.Status.APPROVED)
+            .first()
+        )
+        if locked is None:
+            raise SuggestionGone("This suggestion does not exist anymore.")
         previous = locked.dashboard_id
         if previous is not None and not unknown_dashboard_ids([previous], team_id=team.id):
             return previous

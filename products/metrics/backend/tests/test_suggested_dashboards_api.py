@@ -24,6 +24,7 @@ from products.metrics.backend.suggested_dashboards.generation import (
     finish_generation,
     generation_key,
 )
+from products.metrics.backend.suggested_dashboards.review import SuggestionGone, create_from_suggestion
 from products.metrics.backend.suggested_dashboards.spec import EvaluationAnswer
 
 QUEUE_METRICS = ["queue_depth", "queue_wait_seconds", "queue_dropped_total", "queue_retries_total"]
@@ -214,18 +215,43 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert template.status == template_status
 
     def test_the_sweep_fails_a_generation_that_stopped(self) -> None:
+        preview = Dashboard.objects.create(
+            team=self.team, name="Preview", creation_mode=Dashboard.CreationMode.UNLISTED
+        )
+        broken = _template("generated-broken", "generating", "queue_depth", source="generated")
         stopped = _template("generated-stopped", "generating", "queue_depth", source="generated")
         running = _template("generated-running", "generating", "queue_depth", source="generated")
+        MetricsDashboardTemplate.objects.filter(id=broken.id).update(generation={"rounds": "not a list"})
         MetricsDashboardTemplate.objects.filter(id=stopped.id).update(
+            preview_team_id=self.team.id, preview_dashboard_id=preview.id
+        )
+        MetricsDashboardTemplate.objects.filter(id__in=[broken.id, stopped.id]).update(
             updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=5)
         )
 
-        with patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture"):
+        with patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture") as background:
             fail_stale_generations(dt.datetime.now(dt.UTC))
+            # The workflow's own finish arrives late. The sweep's verdict stays.
+            finish_generation(str(stopped.id))
 
         stopped.refresh_from_db()
         running.refresh_from_db()
         assert (stopped.status, running.status) == ("failed", "generating")
+        assert background.return_value.call_count == 1
+        assert stopped.preview_dashboard_id is None
+        assert Dashboard.objects_including_soft_deleted.get(id=preview.id).deleted
+
+    def test_creating_from_a_suggestion_that_was_removed_returns_not_found(self) -> None:
+        suggestion = MetricsDashboardSuggestion.objects.for_team(self.team.id).create(
+            team_id=self.team.id, template=self.orders, coverage=1.0
+        )
+        loaded = (
+            MetricsDashboardSuggestion.objects.for_team(self.team.id).select_related("template").get(id=suggestion.id)
+        )
+        suggestion.delete()
+
+        with self.assertRaises(SuggestionGone):
+            create_from_suggestion(suggestion=loaded, team=self.team, user=self.user)
 
     @parameterized.expand([("flag_on", True), ("flag_off_after_suggestions_were_opened", False)])
     def test_discovery_picks_only_teams_whose_names_or_bank_changed(self, _name: str, flag_on: bool) -> None:
@@ -246,6 +272,11 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert picked == {self.team.id: 5}
         # The analysis records the fingerprint, so a team whose analysis fails is picked again, but not at once.
         assert not MetricsDashboardDiscovery.objects.for_team(self.team.id).filter(names_fingerprint=5).exists()
+        with (
+            patch("products.metrics.backend.suggested_dashboards.analysis.ask_model", side_effect=RuntimeError),
+            self.assertRaises(RuntimeError),
+        ):
+            analyze_team(self.team.id, names_fingerprint=5)
         with patch(
             "products.metrics.backend.suggested_dashboards.discovery.name_fingerprints",
             return_value={self.team.id: 5, unchanged.id: 7},
@@ -282,13 +313,25 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert preview.json()["dashboard_id"]
         assert bank_revision() == revision
 
+    def test_opening_suggestions_analyzes_changes_that_the_sweep_only_noted(self) -> None:
+        # The flag check missed the team, so the sweep noted its new names without an analysis.
+        MetricsDashboardDiscovery.objects.for_team(self.team.id).create(
+            team_id=self.team.id, analyzed_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=2)
+        )
+
+        self.client.get(f"{self.base_url}/suggested_dashboards/")
+
+        self.start_analysis.assert_called_once_with(self.team.id, force=True)
+
     def test_listing_suggestions_starts_the_first_analysis_of_a_team(self) -> None:
         # The first start fails, so the next list tries again. After a start, more lists do not start another.
         self.start_analysis.side_effect = [RuntimeError("Temporal is unavailable"), None]
         self.client.get(f"{self.base_url}/suggested_dashboards/")
         self.client.get(f"{self.base_url}/suggested_dashboards/")
         self.client.get(f"{self.base_url}/suggested_dashboards/")
-        MetricsDashboardDiscovery.objects.for_team(self.team.id).create(team_id=self.team.id, analyzed_at="2026-01-01")
+        MetricsDashboardDiscovery.objects.for_team(self.team.id).create(
+            team_id=self.team.id, analyzed_at=dt.datetime.now(dt.UTC)
+        )
         self.client.get(f"{self.base_url}/suggested_dashboards/")
 
         assert isinstance(self.start_analysis, MagicMock)

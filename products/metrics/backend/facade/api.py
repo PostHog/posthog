@@ -725,11 +725,11 @@ def list_suggested_dashboards(*, team: Team) -> list[SuggestedDashboard]:
     )
 
     discovery.record_opened(team.id)
-    if discovery.needs_first_analysis(team.id):
+    if discovery.needs_analysis_on_open(team.id):
         try:
             start_team_analysis(team.id, force=True)
         except Exception:
-            discovery.forget_first_analysis(team.id)
+            discovery.forget_analysis_on_open(team.id)
             logger.warning("metrics_suggested_dashboards_first_analysis_not_started", team_id=team.id)
     return service.list_suggestions(team)
 

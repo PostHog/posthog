@@ -20,9 +20,9 @@ from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
+from products.metrics.backend.suggested_dashboards.timeouts import SUGGEST_TIMEOUT
 from products.metrics.backend.temporal.inputs import (
     DISCOVERY_WORKFLOW_NAME,
-    SUGGEST_TIMEOUT,
     SUGGEST_WORKFLOW_NAME,
     DiscoveryInputs,
     SuggestInputs,
@@ -32,7 +32,9 @@ from products.metrics.backend.temporal.inputs import (
 SCHEDULE_ID = "metrics-suggested-dashboards-discovery-schedule"
 DISCOVERY_WORKFLOW_ID = "metrics-suggested-dashboards-discovery"
 INTERVAL = timedelta(minutes=5)
-DISCOVERY_TIMEOUT = timedelta(minutes=4)
+# Covers the discovery activity's own timeout, so the workflow still starts the analyses after a slow sweep.
+# The schedule skips a run while the previous one is still going.
+DISCOVERY_TIMEOUT = timedelta(minutes=15)
 
 
 async def create_suggested_dashboards_discovery_schedule(client: Client) -> None:
