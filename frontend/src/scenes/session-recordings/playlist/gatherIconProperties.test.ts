@@ -22,6 +22,10 @@ describe('gatherIconProperties', () => {
         ])
     })
 
+    it('does not fall back to person country when the loaded session country is null', () => {
+        expect(gatherIconProperties({ $geoip_country_code: null }, recording)).toEqual([])
+    })
+
     it('uses each session country instead of the same person country', () => {
         expect(
             ['AR', 'DE'].map(($geoip_country_code) =>
