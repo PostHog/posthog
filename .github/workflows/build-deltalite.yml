@@ -129,7 +129,9 @@ jobs:
                       manylinux: musllinux_1_2
                     - os: macos-14
                       target: aarch64
-                    - os: macos-15-intel
+                    # `macos-15` is an arm64 runner, so this leg cross-compiles. The
+                    # Intel runner builds the same wheel much slower.
+                    - os: macos-15
                       target: x86_64
 
         steps:

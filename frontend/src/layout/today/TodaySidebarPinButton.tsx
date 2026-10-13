@@ -15,7 +15,7 @@ export function TodaySidebarPinButton(): JSX.Element | null {
     }
 
     return (
-        <Tooltip>
+        <Tooltip disableHoverablePopup>
             <TooltipTrigger
                 delay={0}
                 render={
