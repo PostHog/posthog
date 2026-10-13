@@ -317,12 +317,15 @@ describe('Hog Inputs', () => {
             expect(inputs.is_enabled).toBe(false)
         })
 
-        it('should not load integrations from a different team', async () => {
-            hogFunction.team_id = 100
+        it.each([
+            ['was deleted', (): void => void (hogFunction.inputs!.oauth = { value: 99999999 })],
+            ['belongs to a different team', (): void => void (hogFunction.team_id = 100)],
+        ])('fails instead of running without the integration when it %s', async (_name, setup) => {
+            setup()
 
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
-
-            expect(inputs.oauth).toMatchInlineSnapshot(`null`)
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
+                "The integration for input 'oauth' no longer exists."
+            )
         })
 
         it('should not load a posthog connection', async () => {
@@ -380,7 +383,7 @@ describe('Hog Inputs', () => {
             expect(inputs.email.design).toBeUndefined()
         })
 
-        it('resolves push subscription inputs without a valid integration', async () => {
+        it('resolves push subscription inputs without a push integration', async () => {
             const hogFunction = createHogFunction({
                 id: 'hog-function-1',
                 team_id: team.id,
@@ -388,7 +391,7 @@ describe('Hog Inputs', () => {
                 enabled: true,
                 type: 'destination',
                 inputs: {
-                    push_provider: { value: 999 },
+                    push_provider: { value: integrationId1 },
                     push_subscription: { value: 'user-123' },
                 },
                 inputs_schema: [

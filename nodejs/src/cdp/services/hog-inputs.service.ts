@@ -41,7 +41,7 @@ export class HogInputsService {
             // Plus any additional inputs
             ...additionalInputs,
             // and decode any integration inputs (and push subscription inputs when newGlobals provided)
-            ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
+            ...(await this.loadIntegrationInputs(hogFunction, newGlobals, { throwIfMissing: true })),
         }
 
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
@@ -169,7 +169,8 @@ export class HogInputsService {
 
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
-        newGlobals?: HogFunctionInvocationGlobalsWithInputs
+        newGlobals?: HogFunctionInvocationGlobalsWithInputs,
+        options?: { throwIfMissing?: boolean }
     ): Promise<Record<string, { value: Record<string, any> | Record<string, any>[] | null }>> {
         // Single integration inputs map a key to one id; integration_multi maps a key to a list of ids.
         const singleInputsToLoad: Record<string, number> = {}
@@ -237,6 +238,12 @@ export class HogInputsService {
         }
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
+            // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
+            if (options?.throwIfMissing && (!integrations[id] || integrations[id].team_id !== hogFunction.team_id)) {
+                throw new Error(
+                    `The integration for input '${key}' no longer exists. It may have been deleted. Select a connected integration for this input.`
+                )
+            }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
 
