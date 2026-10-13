@@ -1,9 +1,14 @@
 import { MOCK_USER_UUID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { toast } from '@posthog/quill'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -11,6 +16,8 @@ import { initKeaTests } from '~/test/init'
 
 import { buildCanvasGenerationPrompt } from './canvasGenerationPrompt'
 import { canvasSceneLogic } from './canvasSceneLogic'
+
+jest.mock('./deleteCanvasWithUndo', () => ({ deleteCanvasWithUndo: jest.fn() }))
 
 const CANVAS_ID = 'canvas-1'
 const DATA_DRIFT = {
@@ -327,5 +334,36 @@ describe('canvasSceneLogic', () => {
             logic.actions.loadViewSuccess({ ...view, current_version_id: 'version-2' })
         }).toDispatchActions(['loadDataCheck', 'loadDataCheckSuccess'])
         expect(logic.values.dataCheck).toEqual(DATA_DRIFT)
+    })
+
+    describe('space links', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+        })
+
+        it('links the space breadcrumb and returns to the space after delete in the rail navigation', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+            const logic = canvasSceneLogic({ id: CANVAS_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
+
+            expect(logic.values.breadcrumbs[0]).toMatchObject({ key: 'canvas-space', path: urls.taskSpace('space-1') })
+
+            logic.actions.deleteCanvas()
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.taskSpace('space-1'))
+        })
+
+        it('keeps the space name without a link and returns to the views list in the standard navigation', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true })
+            const logic = canvasSceneLogic({ id: CANVAS_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
+
+            expect(logic.values.breadcrumbs[0]).toMatchObject({ key: 'canvas-space' })
+            expect(logic.values.breadcrumbs[0].path).toBeUndefined()
+
+            logic.actions.deleteCanvas()
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.views())
+        })
     })
 })
