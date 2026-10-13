@@ -11,6 +11,8 @@ from django.db.models import F, Q, QuerySet
 from django.utils.timezone import now
 
 from posthog.helpers.dashboard_templates import (
+    FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+    FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
     FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
@@ -56,7 +58,10 @@ def _classifier_q() -> Q:
         )
         | Q(name=FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME)
         | Q(name=FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME)
-        | Q(description__startswith="Shows the number of", description__contains="calls made on feature flag")
+        | Q(
+            description__startswith=FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
+            description__contains=FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+        )
         | Q(description__startswith="Shows the total number of times this feature was viewed")
     )
 

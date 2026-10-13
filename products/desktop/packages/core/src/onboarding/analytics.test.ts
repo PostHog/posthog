@@ -15,17 +15,17 @@ describe("durationSeconds", () => {
 describe("buildStepCompletedProps", () => {
   it("computes duration and merges context", () => {
     const props = buildStepCompletedProps({
-      stepId: "select-repo",
-      stepIndex: 4,
-      totalSteps: 5,
+      stepId: "install-cli",
+      stepIndex: 3,
+      totalSteps: 4,
       stepEnteredAtMs: 1000,
       nowMs: 6000,
       context: { github_connected: true },
     });
     expect(props).toEqual({
-      step_id: "select-repo",
-      step_index: 4,
-      total_steps: 5,
+      step_id: "install-cli",
+      step_index: 3,
+      total_steps: 4,
       duration_seconds: 5,
       github_connected: true,
     });
@@ -39,12 +39,10 @@ describe("buildCompletedProps", () => {
         flowStartedAtMs: 0,
         nowMs: 10000,
         githubConnected: true,
-        repoSkipped: false,
       }),
     ).toEqual({
       duration_seconds: 10,
       github_connected: true,
-      repo_skipped: false,
     });
   });
 });

@@ -149,7 +149,7 @@ def _lock_key(organization_id: uuid.UUID | str) -> str:
 
 # Renewal and release must check ownership and act atomically: after TTL expiry
 # another writer may hold the key, and a plain get-then-expire/delete could
-# extend or drop that writer's lock. Same scripts as posthog/api/query_coalescer.py.
+# extend or drop that writer's lock.
 _RENEW_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("pexpire", KEYS[1], ARGV[2])
@@ -739,6 +739,7 @@ def land_dream_branch(
     *,
     branch: str,
     summary: str | None = None,
+    task_run_id: uuid.UUID | None = None,
 ) -> str:
     """Land a night's `dream/<YYYY-MM-DD>` branch as one two-parent merge commit
     (`dream: <date>`), keeping the branch ref, so every night stays trackable
@@ -762,6 +763,8 @@ def land_dream_branch(
             merge_args = ["merge", "--no-ff", "--quiet", "-m", f"dream: {branch.removeprefix('dream/')}"]
             if summary:
                 merge_args.extend(["-m", summary])
+            if task_run_id is not None:
+                merge_args.extend(["-m", f"Task-Run-Id: {task_run_id}"])
             _run_git([*merge_args, branch], cwd=workdir)
         except ContextLayerStoreError as error:
             raise BundleConflictError(f"the dream branch conflicts with the current head: {error}") from error

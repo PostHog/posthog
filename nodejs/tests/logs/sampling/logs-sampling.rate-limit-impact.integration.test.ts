@@ -5,6 +5,7 @@ import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
+import { runPipelineStages } from '~/logs/pipeline/log-processing-pipeline'
 import { compileRuleSet } from '~/logs/sampling/compile-rules'
 import { LogsSamplingService } from '~/logs/sampling/logs-sampling.service'
 import { Hub } from '~/types'
@@ -89,7 +90,7 @@ function logRow(uuid: string, bytesUncompressed: number): LogRecord {
 }
 
 describe('logs drop-rule rate limit — save-to-impact', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
 
     let hub: Hub
     let redis: RedisV2
@@ -132,7 +133,7 @@ describe('logs drop-rule rate limit — save-to-impact', () => {
         ruleSet: ReturnType<typeof compileRuleSet>
     ): Promise<{ kept: LogRecord[]; recordsDropped: number; allDropped: boolean }> {
         const [, , records] = await decodeLogRecords(buffer)
-        const { kept, stats } = await service.sampleRecords(records, ruleSet, TEAM_ID)
+        const { kept, stats } = await runPipelineStages(records, [service.makeSamplingStage(ruleSet, TEAM_ID)])
         return { kept, recordsDropped: stats.recordsDropped, allDropped: kept.length === 0 }
     }
 

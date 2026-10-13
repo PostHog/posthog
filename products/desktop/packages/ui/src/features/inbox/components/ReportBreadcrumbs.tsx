@@ -1,5 +1,6 @@
 import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
+import { cn } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
@@ -10,6 +11,7 @@ import {
   BreadcrumbSegment,
   BreadcrumbSeparator,
 } from "@posthog/ui/primitives/Breadcrumb";
+import { LEADING_BUTTON_PULL } from "@posthog/ui/primitives/ChromeBar";
 import {
   type NavigationSource,
   resolveNavigationSource,
@@ -41,7 +43,12 @@ export function ReportBreadcrumbs({
   );
 
   return (
-    <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-0.5 overflow-hidden",
+        LEADING_BUTTON_PULL,
+      )}
+    >
       {crumbs.map((crumb, index) => (
         <div
           key={`${index}-${crumb.label}`}

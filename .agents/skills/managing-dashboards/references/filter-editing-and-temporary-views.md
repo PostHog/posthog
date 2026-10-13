@@ -185,8 +185,8 @@ Also check these separate boundaries:
 
 Use one local dashboard with at least two working insight tiles and three SQL variables.
 
-1. Set `dashboard-auto-preview-limit` above the insight-tile count. Edit filters and variables. Confirm immediate preview and one draft.
-2. Set the limit at or below the insight-tile count. Edit filters and variables. Confirm that the URL changes without an automatic preview.
+1. Use a dashboard with fewer than 22 insight tiles. Edit filters and variables. Confirm immediate preview and one draft.
+2. Use a dashboard with at least 22 insight tiles. Edit filters and variables. Confirm that the URL changes without an automatic preview.
 3. Reload the URL override view. Confirm that the dashboard data uses the overrides and the status shows Previewing.
 4. Select Preview. Confirm that Preview updates data without saving the draft.
 5. Save combined changes. Confirm both URL parameters clear. Reload and confirm the saved values.

@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -9,6 +8,8 @@ import { captureException } from '~/common/utils/posthog'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
+import { CDP_EVENTS_DLQ_OUTPUT } from '../outputs/outputs'
+import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -28,18 +29,27 @@ export class CdpEventsConsumer<
 
     private hogFunctionPipeline: HogFunctionInvocationPipeline
     private hogFlowPipeline: HogFlowInvocationPipeline
+    private deadLetterService: CdpDeadLetterService
+    /** The message each set of globals was built from, so a failure can find its bytes. */
+    private messageByGlobals = new WeakMap<HogFunctionInvocationGlobals, Message>()
 
     constructor(
         config: TConfig,
         deps: CdpConsumerBaseDeps,
         jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
-        topic: string = KAFKA_EVENTS_JSON,
-        groupId: string = 'cdp-processed-events-consumer'
+        topic: string = config.CDP_EVENTS_CONSUMER_TOPIC,
+        groupId: string = config.CDP_EVENTS_CONSUMER_GROUP_ID
     ) {
         super(config, deps)
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
+        this.deadLetterService = new CdpDeadLetterService(config, {
+            outputs: this.outputs,
+            output: CDP_EVENTS_DLQ_OUTPUT,
+            consumerGroup: groupId,
+            resolveMessage: (globals) => this.messageByGlobals.get(globals),
+        })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
             hogInputsService: this.hogInputsService,
@@ -51,6 +61,7 @@ export class CdpEventsConsumer<
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
+            deadLetterService: this.deadLetterService,
         })
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
             hogFlowManager: this.hogFlowManager,
@@ -62,13 +73,18 @@ export class CdpEventsConsumer<
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
+            deadLetterService: this.deadLetterService,
         })
     }
 
     public async processBatch(
-        invocationGlobals: HogFunctionInvocationGlobals[]
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        /** Runs after the build and before anything is queued, so a throw here queues nothing. */
+        beforeQueue?: () => Promise<void>
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (!invocationGlobals.length) {
+            // A batch whose every message failed to parse still has records to write.
+            await beforeQueue?.()
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
@@ -89,6 +105,8 @@ export class CdpEventsConsumer<
         ])
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
+
+        await beforeQueue?.()
 
         // Emit a `running` lifecycle row for each freshly-created invocation.
         // This fires ONCE per invocation_id at creation — not on every dequeue
@@ -180,10 +198,29 @@ export class CdpEventsConsumer<
                         return
                     }
 
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
+                    const globals = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
+                    // The one place holding both. A failure found later in the pipeline carries
+                    // these globals, and this is how it gets back to the bytes to park.
+                    this.messageByGlobals.set(globals, message)
+                    events.push(globals)
                 } catch (e) {
+                    // A dependency outage is not a poison message. Rethrowing fails the batch, so the
+                    // offsets stay put and the consumer retries, instead of dropping every event of a
+                    // team for the length of a Postgres blip.
+                    if (e?.isRetriable === true) {
+                        throw e
+                    }
+                    // A thrown non-Error has no `message`, and an undefined reason fails the
+                    // produce, which stalls the partition on the message this exists to keep.
+                    const error = e instanceof Error ? e.message : String(e)
                     logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                    counterParseError.labels({ error }).inc()
+                    // Parked rather than dropped: a schema we cannot read today is often one a
+                    // later version can.
+                    this.deadLetterService.recordMessageFailure(message, {
+                        step: 'parse',
+                        error,
+                    })
                 }
             })
         )
@@ -202,6 +239,7 @@ export class CdpEventsConsumer<
     public override async start(): Promise<void> {
         await super.start()
         await this.startQueueProducers()
+        await this.deadLetterService.checkTopic()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -210,7 +248,11 @@ export class CdpEventsConsumer<
 
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
-                const { backgroundTask } = await this.processBatch(invocationGlobals)
+                // Awaited, not backgrounded: the offsets for these messages are stored once this
+                // handler resolves, so a record has to exist by then or the event is gone.
+                const { backgroundTask } = await this.processBatch(invocationGlobals, () =>
+                    this.deadLetterService.produceForBatch(messages)
+                )
 
                 return { backgroundTask }
             })

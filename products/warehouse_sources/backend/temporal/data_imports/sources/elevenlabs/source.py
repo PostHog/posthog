@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -45,7 +43,7 @@ class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ELEVEN_LABS,
+            name=ExternalDataSourceType.ELEVENLABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ElevenLabs",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -55,8 +53,10 @@ You can create an API key in your [ElevenLabs account settings](https://elevenla
 
 Grant the following read permissions when creating the key:
 - **History** (text-to-speech generation history)
-- **Conversational AI** (conversations and agents)
+- **Conversational AI** (conversations, agents, triage tickets, tools, and tool executions)
 - **Voices**
+- **Models**
+- **Workspace** (members and groups)
 """,
             iconPath="/static/services/elevenlabs.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/elevenlabs",

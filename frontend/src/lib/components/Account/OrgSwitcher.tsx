@@ -7,12 +7,14 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
@@ -21,6 +23,7 @@ import { AvailableFeature, OrganizationBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
+import { pendingInvitesLogic, PendingInviteForCurrentUser } from './pendingInvitesLogic'
 
 interface OrgListItem {
     type: 'org'
@@ -31,13 +34,19 @@ interface OrgListItem {
     disabledReason?: string
 }
 
+interface PendingInviteListItem {
+    type: 'pending-invite'
+    id: string
+    invite: PendingInviteForCurrentUser
+}
+
 interface CreateOrgItem {
     type: 'create'
     id: 'create-new-org'
     label: string
 }
 
-type ListItem = OrgListItem | CreateOrgItem
+type ListItem = OrgListItem | PendingInviteListItem | CreateOrgItem
 
 export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -45,6 +54,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { otherOrganizations } = useValues(userLogic)
+    const { pendingInvites } = useValues(pendingInvitesLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
     const { closeOrgSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
@@ -77,6 +87,16 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
         return items
     }, [currentOrganization, otherOrganizations])
 
+    const allPendingInviteItems: PendingInviteListItem[] = useMemo(
+        () =>
+            pendingInvites.map((invite) => ({
+                type: 'pending-invite' as const,
+                id: invite.id,
+                invite,
+            })),
+        [pendingInvites]
+    )
+
     const filteredItems = useMemo(() => {
         const searchLower = searchValue.trim().toLowerCase()
 
@@ -84,6 +104,10 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
         const filteredOrgs = searchLower
             ? allOrgItems.filter((item) => item.org.name.toLowerCase().includes(searchLower))
             : allOrgItems
+
+        const filteredInvites = searchLower
+            ? allPendingInviteItems.filter((item) => item.invite.organization_name.toLowerCase().includes(searchLower))
+            : allPendingInviteItems
 
         // Create the "create" item - show different label based on search
         const createItem: CreateOrgItem = {
@@ -94,13 +118,16 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
             // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New organization',
         }
 
-        return [...filteredOrgs, createItem] as ListItem[]
-    }, [allOrgItems, searchValue])
+        return [...filteredOrgs, ...filteredInvites, createItem] as ListItem[]
+    }, [allOrgItems, allPendingInviteItems, searchValue])
 
     const currentOrgItem = filteredItems.find((o): o is OrgListItem => o.type === 'org' && o.isCurrent)
     const otherOrgItems = filteredItems
         .filter((o): o is OrgListItem => o.type === 'org' && !o.isCurrent)
         .sort((a, b) => a.org.name.localeCompare(b.org.name))
+    const pendingInviteItems = filteredItems
+        .filter((o): o is PendingInviteListItem => o.type === 'pending-invite')
+        .sort((a, b) => a.invite.organization_name.localeCompare(b.invite.organization_name))
     const createItem = filteredItems.find((o): o is CreateOrgItem => o.type === 'create')
 
     const handleItemClick = useCallback(
@@ -115,6 +142,9 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                     { guardOnCloud: false }
                 )
                 closeOrgSwitcher()
+            } else if (item.type === 'pending-invite') {
+                closeOrgSwitcher()
+                window.location.href = urls.inviteSignup(item.invite.id)
             } else if (!item.isCurrent && !item.isDisabled) {
                 closeOrgSwitcher()
                 updateCurrentOrganization(item.org.id)
@@ -135,6 +165,9 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
         }
         if (item.type === 'create') {
             return item.label
+        }
+        if (item.type === 'pending-invite') {
+            return item.invite.organization_name
         }
         return item.org.name
     }, [])
@@ -262,6 +295,41 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                                     <span className="truncate">{item.org.name}</span>
                                                     <div className="ml-auto">
                                                         <AccessLevelIndicator organization={item.org} />
+                                                    </div>
+                                                </ButtonPrimitive>
+                                            )}
+                                        />
+                                    )}
+                                </Combobox.Collection>
+                            </Combobox.Group>
+                        )}
+
+                        {/* Pending Invitations */}
+                        {pendingInviteItems.length > 0 && (
+                            <Combobox.Group items={pendingInviteItems}>
+                                <Combobox.Collection>
+                                    {(item: PendingInviteListItem) => (
+                                        <Combobox.Item
+                                            key={item.id}
+                                            value={item}
+                                            onClick={() => handleItemClick(item)}
+                                            render={(props) => (
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    fullWidth
+                                                    tooltip={`Accept pending invitation to ${item.invite.organization_name}`}
+                                                    tooltipPlacement="right"
+                                                >
+                                                    <IconBlank />
+                                                    <UploadedLogo
+                                                        size="xsmall"
+                                                        name={item.invite.organization_name}
+                                                        entityId={item.invite.organization_id}
+                                                    />
+                                                    <span className="truncate">{item.invite.organization_name}</span>
+                                                    <div className="ml-auto">
+                                                        <LemonTag>pending invite</LemonTag>
                                                     </div>
                                                 </ButtonPrimitive>
                                             )}

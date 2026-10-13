@@ -1,9 +1,9 @@
 """Public facade for the demo product.
 
 Core (`posthog/`, `ee/`) generates demo/simulation data only through the surface exposed
-here — signup, the demo celery tasks, the `generate_demo_data`/`setup_dev`/eval tooling,
-and the `demo_route` view. The matrix scenario classes cross the boundary as objects core
-instantiates; the data-generation helpers are thin functions over the product's logic.
+here — signup, the demo celery tasks, and the `generate_demo_data`/`setup_dev`/eval
+tooling. The matrix scenario classes cross the boundary as objects core instantiates; the
+data-generation helpers are thin functions over the product's logic.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from products.demo.backend.logic.legacy import (
     ORGANIZATION_NAME,
     TEAM_NAME,
     create_demo_data as _create_demo_data,
-    demo_route,
 )
 from products.demo.backend.logic.matrix import Matrix, MatrixManager
 from products.demo.backend.logic.matrix.persons_db_sync import (
@@ -71,7 +70,6 @@ __all__ = [
     "MatrixManager",
     "SpikeGPTMatrix",
     "create_demo_data",
-    "demo_route",
     "get_group_type_mapping_count",
     "infer_taxonomy_for_team",
     "seed_dev_dashboard_templates",

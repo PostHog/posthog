@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { pluralize } from 'lib/utils/strings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -13,14 +14,38 @@ import { Experiment } from '~/types'
 import {
     ExperimentRecordingsEmptyAction,
     ExperimentRecordingsListEmptyContext,
+    ExperimentRecordingsNarrowingAction,
     ExperimentReplayListEmptyReason,
     experimentReplayTabLogic,
+    offeredNarrowingAction,
 } from './experimentReplayTabLogic'
 
 // The two hints the shared replay panel offers, kept at the same URLs so a viewer who knows one
 // surface lands on the same page from the other.
 const RETENTION_DOCS = 'https://posthog.com/docs/session-replay/data-retention'
 const AD_BLOCKER_DOCS = 'https://posthog.com/docs/session-replay/troubleshooting#4-adtracking-blockers'
+
+/**
+ * What each way out of a narrowing is labeled. Two banners offer these: the narrowing's own, and
+ * the too-early banner on a run too young for the narrowing to be named. One map, so the same
+ * action cannot read as two different buttons.
+ */
+const NARROWING_ACTION_LABELS: Record<
+    ExperimentRecordingsNarrowingAction,
+    Pick<LemonBannerAction, 'children' | 'data-attr'>
+> = {
+    clear_filters: { children: 'Clear filters', 'data-attr': 'experiment-recordings-empty-clear-filters' },
+    show_all_variants: { children: 'Show all variants', 'data-attr': 'experiment-recordings-empty-show-all-variants' },
+    all_sessions: { children: 'All sessions', 'data-attr': 'experiment-recordings-empty-all-sessions' },
+}
+
+/** The banner action for one way out of a narrowing. */
+function narrowingActionProps(
+    action: ExperimentRecordingsNarrowingAction,
+    onAction: (action: ExperimentRecordingsEmptyAction) => void
+): LemonBannerAction {
+    return { ...NARROWING_ACTION_LABELS[action], onClick: () => onAction(action) }
+}
 
 /** How long ago the run started, as the copy says it. Day zero has no count that reads right. */
 function startedWhen(daysSinceStart: number | null): string {
@@ -43,6 +68,9 @@ function ReasonBanner({
     context: ExperimentRecordingsListEmptyContext
     onAction: (action: ExperimentRecordingsEmptyAction) => void
 }): JSX.Element {
+    const offered = offeredNarrowingAction(reason, context.narrowingAction)
+    const offeredAction = offered ? narrowingActionProps(offered, onAction) : undefined
+
     if (reason === ExperimentReplayListEmptyReason.ReplayDisabled) {
         return (
             <LemonBanner
@@ -64,7 +92,10 @@ function ReasonBanner({
     }
     if (reason === ExperimentReplayListEmptyReason.TooEarly) {
         return (
-            <LemonBanner type="info">
+            // The age of the run is the reason on a list this young, whatever the viewer narrowed
+            // it by. A viewer who did narrow it still gets that narrowing's way out, rather than a
+            // banner that only tells them to wait.
+            <LemonBanner type="info" action={offeredAction}>
                 No recordings yet. The experiment started {startedWhen(context.daysSinceStart)}, and a recording appears
                 here once an exposed person's session has been captured.
             </LemonBanner>
@@ -113,42 +144,21 @@ function ReasonBanner({
     }
     if (reason === ExperimentReplayListEmptyReason.FiltersNarrowed) {
         return (
-            <LemonBanner
-                type="info"
-                action={{
-                    children: 'Clear filters',
-                    onClick: () => onAction('clear_filters'),
-                    'data-attr': 'experiment-recordings-empty-clear-filters',
-                }}
-            >
+            <LemonBanner type="info" action={offeredAction}>
                 No recordings match the filters added above. Clear them to widen the list back to everyone exposed.
             </LemonBanner>
         )
     }
     if (reason === ExperimentReplayListEmptyReason.VariantHasNone) {
         return (
-            <LemonBanner
-                type="info"
-                action={{
-                    children: 'Show all variants',
-                    onClick: () => onAction('show_all_variants'),
-                    'data-attr': 'experiment-recordings-empty-show-all-variants',
-                }}
-            >
+            <LemonBanner type="info" action={offeredAction}>
                 No recordings for the {context.variantKey} variant. The other variants can still have some.
             </LemonBanner>
         )
     }
     if (reason === ExperimentReplayListEmptyReason.InSessionHasNone) {
         return (
-            <LemonBanner
-                type="info"
-                action={{
-                    children: 'All sessions',
-                    onClick: () => onAction('all_sessions'),
-                    'data-attr': 'experiment-recordings-empty-all-sessions',
-                }}
-            >
+            <LemonBanner type="info" action={offeredAction}>
                 No recordings of the sessions the exposure happened in. The same people can still have recordings of
                 their other sessions.
             </LemonBanner>

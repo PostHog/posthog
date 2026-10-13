@@ -267,10 +267,11 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             <div className="space-y-1 flex w-full justify-between items-center">
                                 <div>
                                     <div className="text-xs font-semibold text-muted uppercase tracking-wide">
-                                        Idle timeout
+                                        Shut down after
                                     </div>
                                     <div className="text-xs text-muted">
-                                        Automatically stop after this period of inactivity.
+                                        The kernel stops this long after it starts, even if you're still using it. A
+                                        change applies the next time the kernel starts.
                                     </div>
                                 </div>
                                 <LemonSelect

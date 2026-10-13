@@ -1,19 +1,17 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     UNVERSIONED_API_VERSION,
@@ -49,10 +47,21 @@ from .linkedin_ads import (
     linkedin_ads_source,
 )
 
+_MISSING_INTEGRATION_ERROR = (
+    "The LinkedIn Ads connection for this source no longer exists. Reconnect your LinkedIn Ads account, then try again."
+)
+# The catch-all this backs also covers a transient database failure, which a reconnect never fixes,
+# so lead with the retry and keep reconnecting as the fallback.
+_CONNECTION_CHECK_ERROR = (
+    "PostHog couldn't check your LinkedIn Ads connection. Try again in a few minutes, "
+    "and reconnect your LinkedIn Ads account if it keeps failing."
+)
+
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
 LINKEDIN_ADS_VERSION_202606 = "202606"
 LINKEDIN_ADS_VERSION_202607 = "202607"
 LINKEDIN_ADS_VERSION_202608 = "202608"
+LINKEDIN_ADS_VERSION_202609 = "202609"
 
 # Opaque source version label -> LinkedIn API version header. The legacy `v1` pin keeps sending the
 # header it always has (`API_VERSION`), so existing syncs are byte-for-byte unchanged.
@@ -61,6 +70,7 @@ _API_HEADER_BY_VERSION = {
     LINKEDIN_ADS_VERSION_202606: LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607: LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608: LINKEDIN_ADS_VERSION_202608,
+    LINKEDIN_ADS_VERSION_202609: LINKEDIN_ADS_VERSION_202609,
 }
 
 
@@ -73,8 +83,9 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         LINKEDIN_ADS_VERSION_202606,
         LINKEDIN_ADS_VERSION_202607,
         LINKEDIN_ADS_VERSION_202608,
+        LINKEDIN_ADS_VERSION_202609,
     )
-    default_version = LINKEDIN_ADS_VERSION_202608
+    default_version = LINKEDIN_ADS_VERSION_202609
     # LinkedIn supports each version for a minimum of one year, then starts rejecting it with a 426
     # `NONEXISTENT_VERSION` (see `get_non_retryable_errors`). The legacy `v1` pin sends the header it
     # always has (202508, August 2025 — `_API_HEADER_BY_VERSION`), which reached that one-year mark;
@@ -113,6 +124,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
             # access. Retrying can't recover it, so stop syncing instead of looping the 404.
             "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a plain 404 with this generic error code (no "RESOURCE_" prefix) for
+            # the same underlying condition — a deleted account, a wrong Account ID, or lost access
+            # to it. Match the quoted JSON key/value so this never also matches "RESOURCE_NOT_FOUND"
+            # above, which carries a more specific message.
+            '"code":"NOT_FOUND"': "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
             # LinkedIn returns a 401 with this stable error code when the member who authorized the
             # integration has been restricted on LinkedIn's side (suspended / flagged account). The
             # token can't be used until LinkedIn lifts the restriction, so retrying never recovers —
@@ -150,7 +166,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LINKEDIN_ADS,
+            name=ExternalDataSourceType.LINKEDINADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
             keywords=["linkedin advertising"],
@@ -259,10 +275,10 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
             return True, None
         except Integration.DoesNotExist:
-            return False, "LinkedIn Ads integration not found. Please re-authenticate."
+            return False, _MISSING_INTEGRATION_ERROR
         except Exception as e:
             capture_exception(e)
-            return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
+            return False, _CONNECTION_CHECK_ERROR
 
     def get_schemas(
         self,

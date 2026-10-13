@@ -12,7 +12,7 @@ import {
   GithubLogo,
   Keyboard,
   Lightbulb,
-  Lightning,
+  PaintBrush,
   Palette,
   Plugs,
   Robot,
@@ -22,15 +22,12 @@ import {
   TrafficSignal,
   TreeStructure,
   Wrench,
+  X,
 } from "@phosphor-icons/react";
-import { Input, MenuLabel } from "@posthog/quill";
-import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
-import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
+import { Button, Input, MenuLabel } from "@posthog/quill";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { useSettingsBackupAvailable } from "@posthog/ui/features/settings/hooks/useSettingsBackupAvailable";
 import {
   type SettingsSearchEntry,
   searchSettings,
@@ -41,11 +38,9 @@ import {
   SETTINGS_PAGE_LABELS,
   type SettingsCategory,
 } from "@posthog/ui/features/settings/types";
-import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { type ReactNode, useState } from "react";
-import { useHotkeys } from "react-hotkeys-hook";
 
 interface SidebarItem {
   id: SettingsCategory;
@@ -66,10 +61,10 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
     label: "App",
     items: [
       { id: "general", icon: <GearSix size={16} /> },
+      { id: "appearance", icon: <PaintBrush size={16} /> },
       { id: "notifications", icon: <Bell size={16} /> },
       { id: "personalization", icon: <Palette size={16} /> },
       { id: "shortcuts", icon: <Keyboard size={16} /> },
-      { id: "quick-ask", icon: <Lightning size={16} /> },
     ],
   },
   {
@@ -122,8 +117,10 @@ export interface SettingsPanelProps {
    * pre-router `ConsentScreen` shell where RouterProvider isn't mounted.
    */
   activeCategory?: SettingsCategory;
-  /** Override the close handler. Defaults to router history back. */
+  /** Leave settings. Defaults to router history back. */
   onClose?: () => void;
+  /** Step back out of a page opened inside settings. Shows a Back button. */
+  onBack?: () => void;
   /** Override the category-change handler. Defaults to router navigation. */
   onCategoryChange?: (category: SettingsCategory) => void;
   children?: ReactNode;
@@ -132,6 +129,7 @@ export interface SettingsPanelProps {
 export function SettingsPanel({
   activeCategory: activeCategoryProp,
   onClose,
+  onBack,
   onCategoryChange,
   children,
 }: SettingsPanelProps = {}) {
@@ -142,23 +140,19 @@ export function SettingsPanel({
   const setCategory =
     onCategoryChange ??
     ((cat: SettingsCategory) => nav.navigateToSettings(cat, { replace: true }));
-  const isAuthenticated = useAuthStateValue(
-    (state) => state.status === "authenticated",
-  );
-  const client = useOptionalAuthenticatedClient();
-  const { data: user } = useCurrentUser({ client });
   const { localWorkspaces } = useHostCapabilities();
-  const quickAskAvailable = useQuickAskAvailable();
+  const backupAvailable = useSettingsBackupAvailable();
 
-  const hiddenCategories = getHiddenSettingsCategories({
-    localWorkspaces,
-    quickAskAvailable,
-  });
+  const hiddenCategories = getHiddenSettingsCategories({ localWorkspaces });
   const sidebarGroups = SIDEBAR_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) => !hiddenCategories.has(item.id)),
   })).filter((group) => group.items.length > 0);
-  const searchResults = searchSettings(searchQuery, hiddenCategories);
+  const searchResults = searchSettings(
+    searchQuery,
+    hiddenCategories,
+    backupAvailable,
+  );
 
   // Guard direct navigation (URL, deep link, programmatic openSettings) to a
   // category hidden on this host. Fall back to General so a hidden section is
@@ -173,13 +167,6 @@ export function SettingsPanel({
       ? "environments"
       : resolvedCategory;
 
-  useHotkeys("escape", close, {
-    enabled: true,
-    enableOnContentEditable: true,
-    enableOnFormTags: true,
-    preventDefault: true,
-  });
-
   const activeCategoryIcon = SIDEBAR_ITEMS.find(
     (item) => item.id === activeSidebarCategory,
   )?.icon;
@@ -187,25 +174,16 @@ export function SettingsPanel({
   return (
     <div className="flex h-full w-full bg-background" data-page="settings">
       <div className="flex h-full w-[256px] shrink-0 flex-col border-border border-r bg-chrome">
-        <div className="drag h-[36px] shrink-0 border-b border-b-border" />
-
-        {isAuthenticated && user && (
-          <div className="flex h-14 items-center gap-3 border-b border-b-border px-3">
-            <UserAvatar user={user} />
-            <div className="flex min-w-0 flex-col">
-              <span className="truncate font-medium text-sm">{user.email}</span>
-            </div>
-          </div>
+        {onBack && (
+          <button
+            type="button"
+            className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-fill-hover"
+            onClick={onBack}
+          >
+            <ArrowLeft size={14} />
+            <span>Back</span>
+          </button>
         )}
-
-        <button
-          type="button"
-          className="mt-2 flex cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-fill-hover"
-          onClick={close}
-        >
-          <ArrowLeft size={14} />
-          <span>{children ? "Back" : "Back to app"}</span>
-        </button>
 
         <SettingsSearchInput
           query={searchQuery}
@@ -251,16 +229,19 @@ export function SettingsPanel({
             </div>
           )}
         </div>
-
-        {isAuthenticated && (
-          <div className="border-border border-t p-2">
-            <ProjectSwitcher onNavigateToSettings={setCategory} />
-          </div>
-        )}
       </div>
 
       <div className="relative flex flex-1 flex-col overflow-hidden">
-        <div className="drag h-[36px] shrink-0 border-b border-b-border" />
+        <div className="flex h-10 shrink-0 items-center justify-end border-b border-b-border px-2">
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label="Close settings"
+            onClick={close}
+          >
+            <X size={14} />
+          </Button>
+        </div>
         <div className="relative flex flex-1 justify-center overflow-hidden">
           <svg
             aria-hidden="true"
@@ -319,7 +300,7 @@ function SettingsSearchInput({
         value={query}
         onChange={(e) => onQueryChange(e.currentTarget.value)}
         onKeyDown={(e) => {
-          // Escape clears the query before the panel-level hotkey can close
+          // Escape clears the query before the dialog's hotkey can close
           // settings; a second Escape (empty query) closes as usual.
           if (e.key === "Escape" && query) {
             e.preventDefault();

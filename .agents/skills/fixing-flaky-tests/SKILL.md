@@ -83,6 +83,14 @@ The `trunk` MCP server in `.mcp.json` queries it (tools are marked experimental 
 
 Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org token to the server entry.
 
+Two limits worth knowing before you start here.
+AI investigations are not enabled for this repo, so `fix-flaky-test` returns history or nothing, never a root cause.
+And lookup only goes name to ID: a bare dashboard link identifies a test you cannot name, so ask for the test name rather than guessing at the ID.
+
+Trunk attributes each test to a team through CODEOWNERS, which cannot express the `owners.yaml` map.
+`.github/scripts/trunk-codeowners.sh` projects the map into a generated CODEOWNERS before each upload (`hogli owners:codeowners` builds the same file locally), so a test's owner in Trunk should match `hogli owners:who`.
+Where it does not, the projection dropped a spelling two teams would both claim.
+
 Like `ci:insights`, this is corroboration and history, not the classification authority — flaky-vs-deterministic and the rate still come from the run data above.
 
 ## 2. Extract the failure from CI

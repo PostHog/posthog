@@ -17,7 +17,7 @@ use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
 use personhog_common::grpc::semantic_refusal;
-use personhog_common::persons::person_uuid;
+use personhog_common::persons::{person_uuid, COOKIELESS_SENTINEL_VALUE};
 use serde_json::json;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
@@ -49,7 +49,7 @@ impl MergeHarness {
     async fn new_with_tables(tables: personhog_identity::config::IdentityTables) -> Self {
         let ctx = TestContext::new_with_tables(tables).await;
         let engine = ctx.engine();
-        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
         let driver = MergeDriver::new(
             leader.clone(),
             ctx.tables.clone(),
@@ -110,6 +110,23 @@ impl MergeHarness {
         .expect("insert distinct id");
     }
 
+    async fn insert_hash_key_override(&self, person_id: i64, flag: &str, hash_key: &str) {
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO {} (team_id, person_id, feature_flag_key, hash_key)
+            VALUES ($1, $2, $3, $4)
+            "#,
+            self.ctx.tables.ff_hash_key_override
+        ))
+        .bind(self.ctx.team_id as i32)
+        .bind(person_id)
+        .bind(flag)
+        .bind(hash_key)
+        .execute(&self.ctx.pool)
+        .await
+        .expect("insert hash key override");
+    }
+
     async fn set_person(&self, person_id: i64, properties: &str, version: i64, identified: bool) {
         sqlx::query(&format!(
             r#"
@@ -132,23 +149,25 @@ impl MergeHarness {
     /// A mark row held by a different (still-live) op.
     async fn foreign_mark(&self, person_id: i64) -> Uuid {
         let foreign_op = Uuid::now_v7();
-        sqlx::query(
+        sqlx::query(&format!(
             r#"
-            INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)
-            VALUES ($1, 'delete', $2, 'marked', '{}'::jsonb)
+            INSERT INTO {} (op_id, op_type, team_id, step, request)
+            VALUES ($1, 'delete', $2, 'marked', '{{}}'::jsonb)
             "#,
-        )
+            self.ctx.tables.lifecycle_op
+        ))
         .bind(foreign_op)
         .bind(self.ctx.team_id as i32)
         .execute(&self.ctx.pool)
         .await
         .expect("insert foreign op");
-        sqlx::query(
+        sqlx::query(&format!(
             r#"
-            INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status)
-            VALUES ($1, $2, $3, $4, 'victim', 'marked')
+            INSERT INTO {} (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+            VALUES ($1, $2, $3, $4, 'victim', 'marked', true)
             "#,
-        )
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(foreign_op)
         .bind(self.ctx.team_id as i32)
         .bind(person_id)
@@ -192,9 +211,10 @@ impl MergeHarness {
     }
 
     async fn op_person_status(&self, op_id: Uuid, person_id: i64) -> String {
-        sqlx::query_scalar(
-            "SELECT status FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
-        )
+        sqlx::query_scalar(&format!(
+            "SELECT status FROM {} WHERE op_id = $1 AND person_id = $2",
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(person_id)
         .fetch_one(&self.ctx.pool)
@@ -205,9 +225,10 @@ impl MergeHarness {
     /// The `sealed` payload of an op's per-person row (the fence snapshot
     /// for sources, the folded survivor for the target).
     async fn op_person_sealed(&self, op_id: Uuid, person_id: i64) -> Option<serde_json::Value> {
-        sqlx::query_scalar(
-            "SELECT sealed FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
-        )
+        sqlx::query_scalar(&format!(
+            "SELECT sealed FROM {} WHERE op_id = $1 AND person_id = $2",
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(person_id)
         .fetch_one(&self.ctx.pool)
@@ -218,9 +239,10 @@ impl MergeHarness {
     /// The `moved` payload of an op's per-person row (the repointed
     /// mappings for sources, the claim record for the target).
     async fn op_person_moved(&self, op_id: Uuid, person_id: i64) -> Option<serde_json::Value> {
-        sqlx::query_scalar(
-            "SELECT moved FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
-        )
+        sqlx::query_scalar(&format!(
+            "SELECT moved FROM {} WHERE op_id = $1 AND person_id = $2",
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(person_id)
         .fetch_one(&self.ctx.pool)
@@ -391,21 +413,10 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
         .execute(&h.ctx.pool)
         .await
         .unwrap();
-    for (person, hash) in [(target, "target-hash"), (source, "source-hash")] {
-        sqlx::query(
-            r#"
-            INSERT INTO posthog_featureflaghashkeyoverride
-                (feature_flag_key, hash_key, person_id, team_id)
-            VALUES ('flag', $2, $1, $3)
-            "#,
-        )
-        .bind(person)
-        .bind(hash)
-        .bind(h.ctx.team_id as i32)
-        .execute(&h.ctx.pool)
-        .await
-        .unwrap();
-    }
+    h.insert_hash_key_override(target, "flag", "target-hash")
+        .await;
+    h.insert_hash_key_override(source, "flag", "source-hash")
+        .await;
 
     // The source was seen after the target: the fold must carry the max.
     h.leader.set_last_seen(target, 1_000);
@@ -499,6 +510,68 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     // Marks settled: the target's cleared, the source's deleted.
     assert_eq!(h.op_person_status(op_id, target).await, "cleared");
     assert_eq!(h.op_person_status(op_id, source).await, "deleted");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_merge_keeps_a_real_hash_key_over_the_cookieless_sentinel() {
+    let h = MergeHarness::new().await;
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("sentinel-target")
+        .await;
+    let s1 = h.ctx.insert_person_with_distinct_id("sentinel-s1").await;
+    let s2 = h.ctx.insert_person_with_distinct_id("sentinel-s2").await;
+    for (person, flag, hash) in [
+        (target, "target-sentinel", COOKIELESS_SENTINEL_VALUE),
+        (s1, "target-sentinel", "s1-hash"),
+        (s1, "shared", COOKIELESS_SENTINEL_VALUE),
+        (s2, "shared", "s2-hash"),
+        (target, "both-real", COOKIELESS_SENTINEL_VALUE),
+        (s1, "both-real", "s1-both"),
+        (s2, "both-real", "s2-both"),
+        (s1, "source-sentinel", COOKIELESS_SENTINEL_VALUE),
+    ] {
+        h.insert_hash_key_override(person, flag, hash).await;
+    }
+
+    let outcome = h
+        .execute(
+            Uuid::now_v7(),
+            &merge_request("sentinel-target", &["sentinel-s1", "sentinel-s2"]),
+        )
+        .await
+        .expect("merge completes");
+    assert!(!outcome.aborted);
+
+    let overrides: Vec<(i64, String, String)> = sqlx::query_as(&format!(
+        r#"
+        SELECT person_id, feature_flag_key, hash_key FROM {}
+        WHERE team_id = $1
+        ORDER BY feature_flag_key
+        "#,
+        h.ctx.tables.ff_hash_key_override
+    ))
+    .bind(h.ctx.team_id as i32)
+    .fetch_all(&h.ctx.pool)
+    .await
+    .unwrap();
+    let flags: Vec<(i64, &str)> = overrides
+        .iter()
+        .map(|(person, flag, _)| (*person, flag.as_str()))
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            (target, "both-real"),
+            (target, "shared"),
+            (target, "target-sentinel"),
+        ]
+    );
+    assert!(["s1-both", "s2-both"].contains(&overrides[0].2.as_str()));
+    assert_eq!(overrides[1].2, "s2-hash");
+    assert_eq!(overrides[2].2, "s1-hash");
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -1024,7 +1097,7 @@ async fn a_stale_drivers_fold_refusal_defers_instead_of_unfencing_the_new_owners
     // could land and be destroyed. The stale drive defers to the row.
     let err = h
         .driver
-        .run_step(&h.ctx.pool, &stale_row)
+        .run_step(&h.ctx.pools, &stale_row)
         .await
         .expect_err("the stale drive defers rather than settling");
     assert!(matches!(err, SagaError::Busy));
@@ -1086,7 +1159,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     .expect("insert parked op");
 
     let sweep_engine = Engine::new(
-        h.ctx.pool.clone(),
+        h.ctx.pools.clone(),
         personhog_identity::lifecycle::engine::EngineConfig {
             lease: std::time::Duration::from_secs(3600),
             execute_timeout: std::time::Duration::from_secs(10),
@@ -1094,6 +1167,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
             attempt_alert_threshold: 5,
             gc_batch_limit: 10_000,
         },
+        h.ctx.tables.clone(),
     );
     let resumed = sweep_engine.sweep(&[&h.driver]).await.expect("sweep runs");
     assert!(resumed >= 1, "the abandoned merge was resumed");
@@ -1158,7 +1232,7 @@ async fn a_fold_without_a_live_target_mark_is_refused_and_the_op_aborts() {
     // bug). Unlike a scripted status, this refusal comes from the sim's
     // own verification, the same check the real leader runs.
     sqlx::query(
-        "UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1 AND role = 'target'",
+        "UPDATE lifecycle_op_person SET status = 'cleared', mark_active = false WHERE op_id = $1 AND role = 'target'",
     )
     .bind(op_id)
     .execute(&h.ctx.pool)
@@ -1762,7 +1836,7 @@ async fn a_conflict_is_not_recorded_and_a_plain_retry_merges_once_released() {
     .await
     .expect("insert rival op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked', true)",
     )
     .bind(rival)
     .bind(h.ctx.team_id as i32)
@@ -1792,11 +1866,13 @@ async fn a_conflict_is_not_recorded_and_a_plain_retry_merges_once_released() {
 
     // The rival releases; a retry under the SAME op id must re-run the
     // merge rather than replaying the recorded contention.
-    sqlx::query("UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1")
-        .bind(rival)
-        .execute(&h.ctx.pool)
-        .await
-        .expect("release rival mark");
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'cleared', mark_active = false WHERE op_id = $1",
+    )
+    .bind(rival)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("release rival mark");
 
     let retry = service
         .merge_persons(Request::new(rpc_request(
@@ -1835,7 +1911,7 @@ async fn a_completed_op_answers_its_embedded_conflict_settled() {
     .await
     .expect("insert rival op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked', true)",
     )
     .bind(rival)
     .bind(h.ctx.team_id as i32)
@@ -1869,11 +1945,13 @@ async fn a_completed_op_answers_its_embedded_conflict_settled() {
 
     // Even released, a retry replays the frozen answer rather than
     // re-running the held pair.
-    sqlx::query("UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1")
-        .bind(rival)
-        .execute(&h.ctx.pool)
-        .await
-        .expect("release rival mark");
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'cleared', mark_active = false WHERE op_id = $1",
+    )
+    .bind(rival)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("release rival mark");
     let retry = service
         .merge_persons(Request::new(rpc_request(
             h.ctx.team_id,
@@ -2278,10 +2356,10 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
 }
 
 #[tokio::test]
-async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
+async fn an_unresolved_target_with_a_personless_first_source_is_born_and_absorbs_the_rest() {
     let h = MergeHarness::new().await;
     let service = h.service();
-    let survivor = h.ctx.insert_person_with_distinct_id("flip-source").await;
+    let source = h.ctx.insert_person_with_distinct_id("flip-source").await;
 
     let response = service
         .merge_persons(Request::new(rpc_request(
@@ -2291,35 +2369,28 @@ async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
             Uuid::now_v7(),
         )))
         .await
-        .expect("target attach succeeds")
+        .expect("merge succeeds")
         .into_inner();
 
+    // As one-at-a-time identifies would: the first pair births the target,
+    // and the second merges its person into it.
+    let survivor = response.survivor.as_ref().expect("survivor present");
     assert_eq!(
-        response.survivor.as_ref().expect("survivor present").id,
-        survivor
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "flip-target").to_string()
     );
     assert_eq!(
         rpc_outcomes(&response),
         vec![
             ("flip-personless".to_string(), MergeSourceOutcome::Attached),
-            (
-                "flip-source".to_string(),
-                MergeSourceOutcome::NoopSamePerson
-            ),
+            ("flip-source".to_string(), MergeSourceOutcome::Merged),
         ]
     );
-    // The target distinct id and the personless source both attached to the
-    // surviving person, with version 1 (an override row is always written).
-    assert_eq!(h.pdi_state("flip-target").await, (survivor, false, 1));
-    assert_eq!(h.pdi_state("flip-personless").await, (survivor, false, 1));
-    // Pairs settled, so the survivor is identified via one leader push.
-    assert_eq!(
-        h.leader.calls(),
-        vec![LeaderCall::PropertyPush {
-            person_id: survivor,
-            is_identified: Some(true),
-        }]
-    );
+    assert_eq!(h.pdi_state("flip-target").await.0, survivor.id);
+    assert_eq!(h.pdi_state("flip-personless").await.0, survivor.id);
+    assert_eq!(h.pdi_state("flip-source").await.0, survivor.id);
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(source_deleted);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -3246,7 +3317,12 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         .merge_persons(Request::new(rpc_request(
             h.ctx.team_id,
             "resq-target",
-            &["resq-source", "anonymous", &oversized],
+            &[
+                "resq-source",
+                "anonymous",
+                "$posthog_cookieless",
+                &oversized,
+            ],
             Uuid::now_v7(),
         )))
         .await
@@ -3258,6 +3334,10 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         vec![
             ("resq-source".to_string(), MergeSourceOutcome::Merged),
             ("anonymous".to_string(), MergeSourceOutcome::SkippedIllegal),
+            (
+                "$posthog_cookieless".to_string(),
+                MergeSourceOutcome::SkippedIllegal
+            ),
             (oversized.clone(), MergeSourceOutcome::SkippedIllegal),
         ]
     );
@@ -3274,7 +3354,9 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         "the live pair still resolves"
     );
     assert!(
-        !resolved.contains(&"anonymous".to_string()) && !resolved.contains(&oversized),
+        !resolved.contains(&"anonymous".to_string())
+            && !resolved.contains(&"$posthog_cookieless".to_string())
+            && !resolved.contains(&oversized),
         "settled sources must not reach the resolution query: {resolved:?}"
     );
 

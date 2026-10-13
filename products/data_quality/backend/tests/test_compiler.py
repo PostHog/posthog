@@ -7,12 +7,31 @@ from products.data_quality.backend.facade.enums import CheckType, SubjectType
 from products.data_quality.backend.logic.compiler import compile_check
 from products.data_quality.backend.logic.contracts import Evaluation, SubjectRef
 from products.data_quality.backend.logic.errors import CheckConfigError, SubjectUnresolvableError
+from products.data_quality.backend.logic.posthog_tables import by_name
 from products.data_quality.backend.logic.registry import UnknownCheckTypeError, all_specs, get_spec, list_check_types
-from products.data_quality.backend.logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
+from products.data_quality.backend.logic.serialization import (
+    canonical_config,
+    compute_fingerprint,
+    from_config_entry,
+    to_config_entry,
+)
 from products.data_quality.backend.logic.spec import CheckTypeSpec, NoConfig
 from products.data_quality.backend.logic.types.custom_sql import CustomSqlConfig, CustomSqlSpec
 
+
+def _posthog_table(name: str) -> SubjectRef:
+    entry = by_name(name)
+    assert entry is not None
+    return SubjectRef(
+        SubjectType.POSTHOG_TABLE, str(entry.id), entry.name, entry.name, exists=True, time_column=entry.time_column
+    )
+
+
 ORDERS = SubjectRef(SubjectType.VIEW, "1cd4a1ef-0000-0000-0000-000000000001", "orders", "orders", exists=True)
+EVENTS = _posthog_table("events")
+PERSONS = _posthog_table("persons")
+GROUPS = _posthog_table("groups")
+EVENTS_WITHOUT_TIME = SubjectRef(SubjectType.POSTHOG_TABLE, EVENTS.subject_uuid, "events", "events", exists=True)
 CUSTOMERS = SubjectRef(SubjectType.TABLE, "1cd4a1ef-0000-0000-0000-000000000002", "customers", "customers", True)
 
 RELATIONSHIPS_CONFIG = {
@@ -24,7 +43,7 @@ RELATIONSHIPS_CONFIG = {
 
 def _normalized(check_type, column_name, config) -> dict:
     """What the fingerprint hashes: config put through its type's model first."""
-    return get_spec(check_type).validate(config, column_name).model_dump(mode="json")
+    return canonical_config(get_spec(check_type).validate(config, column_name))
 
 
 def _fingerprint_for(config: dict) -> str:
@@ -449,6 +468,14 @@ class TestCheckSerialization:
         normalized = _normalized(CheckType.ROW_COUNT, "", config)
         assert _fingerprint_for(normalized) == _fingerprint_for(expected)
 
+    def test_an_unset_relationship_window_preserves_an_existing_fingerprint(self) -> None:
+        # A check authored before the windows existed stored neither key. Canonicalizing an unset one
+        # as null would rehash it, so re-submitting it unchanged would duplicate it instead of upserting.
+        normalized = _normalized(CheckType.RELATIONSHIPS, "customer_id", RELATIONSHIPS_CONFIG)
+
+        assert normalized == RELATIONSHIPS_CONFIG
+        assert _fingerprint_for(normalized) == _fingerprint_for(RELATIONSHIPS_CONFIG)
+
     @parameterized.expand([(check_type,) for check_type in CheckType])
     def test_config_entry_round_trips(self, check_type) -> None:
         check = {
@@ -504,6 +531,7 @@ class TestCheckSerialization:
             ("string_column_reads_a_bool_as_text", "String", [True], ["true"]),
             ("low_cardinality_string_reads_a_number_as_text", "LowCardinality(String)", [200], ["200"]),
             ("unknown_column_type", None, ["1"], ["1"]),
+            ("values_that_coercion_makes_equal_collapse", "Int64", ["1", 1], [1.0]),
         ]
     )
     def test_accepted_values_are_read_as_the_column_reads_them(self, _name, column_type, given, expected) -> None:
@@ -515,6 +543,17 @@ class TestCheckSerialization:
         coerced = spec.coerce_to_column(parsed, column_type)
 
         assert coerced.model_dump(mode="json")["values"] == expected
+
+    def test_reading_accepted_values_as_the_column_reads_them_keeps_the_lookback_window(self) -> None:
+        # The window is only authorable on a subject that has a time column, which is exactly where
+        # an accepted-values check would otherwise lose it and read the subject's whole history.
+        spec = get_spec(CheckType.ACCEPTED_VALUES)
+        parsed = spec.validate({"values": ["1"], "lookback_hours": 24}, "status")
+
+        coerced = spec.coerce_to_column(parsed, "Int64")
+
+        assert coerced.lookback_hours == 24
+        assert coerced.model_dump(mode="json")["values"] == [1.0]
 
     @parameterized.expand(
         [
@@ -557,3 +596,105 @@ class TestCheckSerialization:
 
         assert as_int == as_string
         assert _fingerprint_for(as_int) == _fingerprint_for(as_string)
+
+
+class TestLookbackWindow:
+    GENERIC_TYPES = [
+        (CheckType.NOT_NULL, "distinct_id", {}),
+        (CheckType.UNIQUE, "distinct_id", {}),
+        (CheckType.ACCEPTED_VALUES, "event", {"values": ["$pageview"]}),
+        (CheckType.FRESHNESS, "timestamp", {"max_age_minutes": 60}),
+        (CheckType.ROW_COUNT, "", {"min": 1}),
+    ]
+
+    @staticmethod
+    def _window(column: str, hours: int) -> str:
+        return f"greaterOrEquals({column}, minus(now(), toIntervalHour({hours})))"
+
+    @pytest.mark.parametrize(("check_type", "column_name", "config"), GENERIC_TYPES)
+    def test_no_window_prints_what_it_printed_before_windows_existed(self, check_type, column_name, config) -> None:
+        windowed = compile_check(check_type=check_type, subject=EVENTS, column_name=column_name, config=config)
+        timeless = compile_check(
+            check_type=check_type, subject=EVENTS_WITHOUT_TIME, column_name=column_name, config=config
+        )
+
+        assert windowed.printed_query == timeless.printed_query
+        assert "toIntervalHour" not in windowed.printed_query
+
+    @pytest.mark.parametrize(("check_type", "column_name", "config"), GENERIC_TYPES)
+    def test_a_window_bounds_every_generic_type(self, check_type, column_name, config) -> None:
+        compiled = compile_check(
+            check_type=check_type, subject=EVENTS, column_name=column_name, config={**config, "lookback_hours": 24}
+        )
+
+        assert self._window("timestamp", 24) in compiled.printed_query
+        assert self._window("timestamp", 24) in compiled.printed_failing_rows_query
+
+    def test_a_window_narrows_unique_before_it_groups(self) -> None:
+        compiled = compile_check(
+            check_type=CheckType.UNIQUE, subject=EVENTS, column_name="distinct_id", config={"lookback_hours": 6}
+        )
+
+        assert compiled.printed_query.index(self._window("timestamp", 6)) < compiled.printed_query.index("GROUP BY")
+
+    @pytest.mark.parametrize("subject", [PERSONS, GROUPS])
+    def test_persons_and_groups_window_on_when_they_were_first_seen(self, subject) -> None:
+        compiled = compile_check(
+            check_type=CheckType.ROW_COUNT, subject=subject, column_name="", config={"min": 1, "lookback_hours": 12}
+        )
+
+        assert self._window("created_at", 12) in compiled.printed_query
+
+    def test_relationships_windows_each_side_on_its_own_column(self) -> None:
+        compiled = compile_check(
+            check_type=CheckType.RELATIONSHIPS,
+            subject=EVENTS,
+            column_name="distinct_id",
+            config={
+                "to_subject_type": SubjectType.POSTHOG_TABLE,
+                "to_subject_uuid": PERSONS.subject_uuid,
+                "to_column": "id",
+                "lookback_hours": 24,
+                "to_lookback_hours": 72,
+            },
+            related_subject=PERSONS,
+        )
+
+        assert self._window("timestamp", 24) in compiled.printed_query
+        assert self._window("created_at", 72) in compiled.printed_query
+
+    def test_relationships_can_bound_the_target_alone(self) -> None:
+        compiled = compile_check(
+            check_type=CheckType.RELATIONSHIPS,
+            subject=ORDERS,
+            column_name="customer_id",
+            config={
+                "to_subject_type": SubjectType.POSTHOG_TABLE,
+                "to_subject_uuid": PERSONS.subject_uuid,
+                "to_column": "id",
+                "to_lookback_hours": 48,
+            },
+            related_subject=PERSONS,
+        )
+
+        assert self._window("created_at", 48) in compiled.printed_query
+        assert compiled.printed_query.count("toIntervalHour") == 1
+
+    def test_a_target_window_is_refused_when_the_target_has_no_time_column(self) -> None:
+        with pytest.raises(CheckConfigError):
+            compile_check(
+                check_type=CheckType.RELATIONSHIPS,
+                subject=EVENTS,
+                column_name="distinct_id",
+                config={**RELATIONSHIPS_CONFIG, "to_lookback_hours": 24},
+                related_subject=CUSTOMERS,
+            )
+
+    def test_custom_sql_refuses_a_window_rather_than_rewriting_the_query(self) -> None:
+        with pytest.raises(CheckConfigError):
+            compile_check(
+                check_type=CheckType.CUSTOM_SQL,
+                subject=EVENTS,
+                column_name="",
+                config={"query": "SELECT 1 FROM events", "lookback_hours": 24},
+            )

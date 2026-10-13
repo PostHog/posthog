@@ -3,14 +3,17 @@
 An :class:`EgressClient` makes an outbound HTTP request that is *gated* (against the shared per-owner
 budget) and *recorded* (request volume + the API's rate-limit headers) by construction, so no caller
 can make a request that bypasses either. The gate→request→record algorithm and the priority-based
-denial semantics are domain-agnostic and live here; each third-party API subclasses and fills the
-domain hooks (standard headers, the limiter gate, the recorders, the endpoint normaliser, the
-budget-exhausted exception). GitHub is the first incarnation — see :mod:`posthog.egress.github.transport`.
+denial semantics are domain-agnostic and live here; each third-party API subclasses, points
+``observability`` at its metric set, and fills the gate hooks (the limiter draw and the
+budget-exhausted exception). See :mod:`posthog.egress.github.transport` for the reference domain.
 
-:class:`AsyncEgressClient` is the same algorithm for an aiohttp-based domain (Harmonic is the first —
-see :mod:`posthog.egress.harmonic.transport`): ``request``/``_consume`` are coroutines and the transport
-returns/catches aiohttp's types instead of ``requests``'. The two bases share the priority-based denial
-rule via :func:`_raise_if_denied` rather than each encoding it themselves.
+:class:`RecordedEgressClient` is the same transport without the gate, for an API PostHog observes but
+does not budget, because the API publishes no request limit that a rate budget can model.
+
+:class:`AsyncEgressClient` is the gated algorithm for an aiohttp-based domain (see
+:mod:`posthog.egress.harmonic.transport`): ``request``/``_consume`` are coroutines and the transport
+returns/catches aiohttp's types instead of ``requests``'. The sync and async bases share the
+priority-based denial rule via :func:`_raise_if_denied` rather than each encoding it themselves.
 """
 
 from __future__ import annotations
@@ -18,22 +21,41 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import requests
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 # aiohttp is only needed by AsyncEgressClient, and the sync domains import this module during
 # django.setup(). A module-level import would put aiohttp on the startup path of every process.
 if TYPE_CHECKING:
     import aiohttp
+    from yarl import URL
 
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.observability.observability import EgressObservability
+
+tracer = trace.get_tracer(__name__)
 
 
 class EgressBudgetExhausted(Exception):
     """A *sheddable* (non-CRITICAL) outbound call was denied by the egress limiter before it was sent.
     Callers that can defer should catch this and back off/retry — it means our own shared budget is
     spent, not that the third-party API returned an error. CRITICAL calls are never raised on; they
-    proceed and let the API's own rate limiting be the backstop."""
+    proceed and let the API's own rate limiting be the backstop.
+
+    ``scope`` is the budget key that was denied (a GitHub installation id, say). It rides on the
+    exception because this is *our* budget: unlike a third-party 429, the limiter can say how long
+    until it frees, and a caller that wants to wait for it needs the key to ask. Subclasses that
+    name the scope in their message should pass it here too rather than leaving callers to parse
+    it back out."""
+
+    def __init__(self, message: str = "", *, scope: str | None = None) -> None:
+        # Defaulted so this stays a pure addition: before ``scope`` existed this was a bare
+        # Exception, and callers that raise it as a marker construct it with no arguments.
+        super().__init__(message)
+        self.scope = scope
 
 
 def _raise_if_denied(granted: bool, priority: Priority, make_error: Callable[[], EgressBudgetExhausted]) -> None:
@@ -41,14 +63,133 @@ def _raise_if_denied(granted: bool, priority: Priority, make_error: Callable[[],
     # regardless, so a user-facing call is never shed by us — the API's own 429 is the backstop.
     # Sheddable lanes back off so their headroom is left for higher-priority traffic. Shared by both
     # the sync and async gate so the rule can't drift between the two.
+    trace.get_current_span().set_attribute("egress.admission.granted", granted)
     if not granted and priority is not Priority.CRITICAL:
         raise make_error()
 
 
-class EgressClient(ABC):
+class _EgressHooks:
+    """The hooks every transport shares, sync or async. Subclasses set ``observability``."""
+
+    observability: EgressObservability
+    egress_domain: str
+    span_name = "egress.http.request"
+
+    def _standard_headers(self) -> dict[str, str]:
+        """Default headers merged under the caller's (the caller's win) — e.g. Accept, API version."""
+        return {}
+
+    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
+        """Record a request that raised before returning a response (timeout, connection error)."""
+        self.observability.record_exception(source=source, scope=scope, method=method, endpoint=endpoint, url=url)
+
+    def _span_attributes(
+        self,
+        method: str,
+        url: str,
+        *,
+        source: str,
+        scope: str | None,
+        priority: Priority,
+        endpoint: str | None,
+    ) -> dict[str, str | bool]:
+        return {
+            "http.request.method": method.upper(),
+            "server.address": urlparse(url).hostname or "unknown",
+            "egress.domain": self.egress_domain,
+            "egress.source": source,
+            "egress.priority": priority.value,
+            "egress.endpoint": endpoint or self.observability.normalize_endpoint(url),
+            "egress.scoped": bool(scope),
+        }
+
+    @staticmethod
+    def _mark_span_exception(span: trace.Span, error: Exception) -> None:
+        span.set_attribute("error.type", type(error).__name__)
+        span.set_status(Status(StatusCode.ERROR))
+
+    @staticmethod
+    def _set_span_response_metadata(span: trace.Span, response_url: str | URL | None, status_code: int | None) -> None:
+        """Record response URL (after redirects) and status code to the span."""
+        if response_url is not None:
+            response_hostname = urlparse(str(response_url)).hostname
+            if response_hostname:
+                span.set_attribute("server.address", response_hostname)
+        if isinstance(status_code, int):
+            span.set_attribute("http.response.status_code", status_code)
+            if status_code >= 400:
+                span.set_status(Status(StatusCode.ERROR))
+
+
+class RecordedEgressClient(_EgressHooks):
+    """One outbound API's transport without a budget: request → record.
+
+    Subclasses set ``observability`` and may override the headers or the recorders. ``scope`` is the
+    metric identity in the API's own namespace; ``None`` records request volume without the gauges.
+    """
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        source: str,
+        headers: dict[str, str] | None = None,
+        scope: str | None = None,
+        endpoint: str | None = None,
+        priority: Priority = Priority.CRITICAL,
+        timeout: float | tuple[float, float] | None = None,
+        session: requests.Session | None = None,
+        **kwargs: Any,
+    ) -> requests.Response:
+        request_headers = {**self._standard_headers(), **(headers or {})}
+        sender = session or requests
+        with tracer.start_as_current_span(
+            self.span_name,
+            kind=trace.SpanKind.CLIENT,
+            attributes=self._span_attributes(
+                method, url, source=source, scope=scope, priority=priority, endpoint=endpoint
+            ),
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            try:
+                self._before_request(scope, source, priority, url)
+                response = sender.request(method, url, headers=request_headers, timeout=timeout, **kwargs)
+            except EgressBudgetExhausted:
+                # A shed call is the limiter working as designed, not a failed request.
+                raise
+            except requests.RequestException as error:
+                self._mark_span_exception(span, error)
+                # Best-effort telemetry must never mask the real transport error.
+                self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
+                raise
+            except Exception as error:
+                self._mark_span_exception(span, error)
+                raise
+
+            self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
+            self._set_span_response_metadata(
+                span, getattr(response, "url", None), getattr(response, "status_code", None)
+            )
+            return response
+
+    def _before_request(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
+        pass
+
+    def _record_response(
+        self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
+    ) -> None:
+        """Record a returned response (volume + the API's rate-limit headers)."""
+        self.observability.record_requests_response(
+            response, source=source, scope=scope, method=method, endpoint=endpoint
+        )
+
+
+class EgressClient(RecordedEgressClient, ABC):
     """One outbound API's transport: gate → request → record, with priority-based denial semantics.
 
-    The algorithm is fixed here; subclasses supply the domain hooks. ``scope`` is the shared budget
+    The algorithm is fixed here; subclasses supply the gate hooks. ``scope`` is the shared budget
     owner's id in the API's own namespace (e.g. a GitHub App installation id); ``None`` means the
     caller is identity-blind (a raw token with no shared budget), which skips the gate and records
     request volume only.
@@ -68,19 +209,21 @@ class EgressClient(ABC):
         session: requests.Session | None = None,
         **kwargs: Any,
     ) -> requests.Response:
+        return super().request(
+            method,
+            url,
+            source=source,
+            headers=headers,
+            scope=scope,
+            endpoint=endpoint,
+            priority=priority,
+            timeout=timeout,
+            session=session,
+            **kwargs,
+        )
+
+    def _before_request(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
         self._gate(scope, source, priority, url)
-
-        request_headers = {**self._standard_headers(), **(headers or {})}
-        sender = session or requests
-        try:
-            response = sender.request(method, url, headers=request_headers, timeout=timeout, **kwargs)
-        except requests.RequestException:
-            # Best-effort telemetry must never mask the real transport error — record and re-raise it.
-            self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
-            raise
-
-        self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
-        return response
 
     def _gate(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
         # Identity-blind callers have no shared budget to draw on — record volume only, never gate.
@@ -90,11 +233,7 @@ class EgressClient(ABC):
         granted = self._consume(scope, priority, source, url)
         _raise_if_denied(granted, priority, lambda: self._budget_exhausted_error(scope))
 
-    # --- domain hooks -------------------------------------------------------------------------------
-
-    @abstractmethod
-    def _standard_headers(self) -> dict[str, str]:
-        """Default headers merged under the caller's (the caller's win) — e.g. Accept, API version."""
+    # --- gate hooks ---------------------------------------------------------------------------------
 
     @abstractmethod
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
@@ -102,26 +241,16 @@ class EgressClient(ABC):
         ``url`` lets a domain route the draw to the resource-specific meter GitHub bills the URL to."""
 
     @abstractmethod
-    def _record_response(
-        self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
-    ) -> None:
-        """Record a returned response (volume + the API's rate-limit headers) via the domain's recorder."""
-
-    @abstractmethod
-    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
-        """Record a request that raised before returning a response (timeout, connection error)."""
-
-    @abstractmethod
     def _budget_exhausted_error(self, scope: str) -> EgressBudgetExhausted:
         """The domain-specific exception raised when a sheddable call is denied (a subclass of
         :class:`EgressBudgetExhausted`)."""
 
 
-class AsyncEgressClient(ABC):
-    """The aiohttp counterpart to :class:`EgressClient`, for a domain whose client is async (Harmonic
-    is the first — see :mod:`posthog.egress.harmonic.transport`). Same gate → request → record
-    algorithm, same domain hooks, and the same ``scope``/priority semantics; only the transport is
-    async and speaks aiohttp's types instead of ``requests``'.
+class AsyncEgressClient(_EgressHooks, ABC):
+    """The aiohttp counterpart to :class:`EgressClient`, for a domain whose client is async (see
+    :mod:`posthog.egress.harmonic.transport`). Same gate → request → record algorithm, same hooks,
+    and the same ``scope``/priority semantics; only the transport is async and speaks aiohttp's types
+    instead of ``requests``'.
     """
 
     async def request(
@@ -139,21 +268,37 @@ class AsyncEgressClient(ABC):
     ) -> aiohttp.ClientResponse:
         import aiohttp  # noqa: PLC0415
 
-        await self._gate(scope, source, priority, url)
-
         request_headers = {**self._standard_headers(), **(headers or {})}
-        try:
-            response = await session.request(method, url, headers=request_headers, **kwargs)
-        except (aiohttp.ClientError, TimeoutError):
-            # aiohttp raises a bare TimeoutError when ClientTimeout.total expires; only the connect
-            # phase gets wrapped into a ClientError. Catching just ClientError would drop the most
-            # likely outage from the metric.
-            # Best-effort telemetry must never mask the real transport error — record and re-raise it.
-            self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
-            raise
+        with tracer.start_as_current_span(
+            self.span_name,
+            kind=trace.SpanKind.CLIENT,
+            attributes=self._span_attributes(
+                method, url, source=source, scope=scope, priority=priority, endpoint=endpoint
+            ),
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            try:
+                await self._gate(scope, source, priority, url)
+                response = await session.request(method, url, headers=request_headers, **kwargs)
+            except EgressBudgetExhausted:
+                # A shed call is the limiter working as designed, not a failed request.
+                raise
+            except (aiohttp.ClientError, TimeoutError) as error:
+                self._mark_span_exception(span, error)
+                # aiohttp raises a bare TimeoutError when ClientTimeout.total expires; only the connect
+                # phase gets wrapped into a ClientError. Catching just ClientError would drop the most
+                # likely outage from the metric.
+                # Best-effort telemetry must never mask the real transport error.
+                self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
+                raise
+            except Exception as error:
+                self._mark_span_exception(span, error)
+                raise
 
-        self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
-        return response
+            self._set_span_response_metadata(span, response.url, response.status)
+            self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
+            return response
 
     async def _gate(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
         # Identity-blind callers have no shared budget to draw on — record volume only, never gate.
@@ -163,25 +308,19 @@ class AsyncEgressClient(ABC):
         granted = await self._consume(scope, priority, source, url)
         _raise_if_denied(granted, priority, lambda: self._budget_exhausted_error(scope))
 
-    # --- domain hooks -------------------------------------------------------------------------------
+    def _record_response(
+        self, response: aiohttp.ClientResponse, *, source: str, scope: str | None, method: str, endpoint: str | None
+    ) -> None:
+        """Record a returned response (volume + the API's rate-limit headers)."""
+        self.observability.record_response(
+            response.status, response.headers, source=source, scope=scope, method=method, endpoint=endpoint
+        )
 
-    @abstractmethod
-    def _standard_headers(self) -> dict[str, str]:
-        """Default headers merged under the caller's (the caller's win) — e.g. Content-Type."""
+    # --- gate hooks ---------------------------------------------------------------------------------
 
     @abstractmethod
     async def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
         """Draw ``1`` from the domain's shared budget for ``scope`` at ``priority``; True if granted."""
-
-    @abstractmethod
-    def _record_response(
-        self, response: aiohttp.ClientResponse, *, source: str, scope: str | None, method: str, endpoint: str | None
-    ) -> None:
-        """Record a returned response (volume + the API's rate-limit headers) via the domain's recorder."""
-
-    @abstractmethod
-    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
-        """Record a request that raised before returning a response (timeout, connection error)."""
 
     @abstractmethod
     def _budget_exhausted_error(self, scope: str) -> EgressBudgetExhausted:

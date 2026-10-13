@@ -10,7 +10,8 @@ import * as ort from 'onnxruntime-node'
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
-// Tiling bounds for extreme-aspect frames. A single letterboxed pass scales by 640/longSide, so on a
+import { rgbToChw } from './pixel-convert.ts'
+// Tiling bounds for extreme-aspect frames. A single pass scales by 640/longSide, so on a
 // very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
 // stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
 // (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
@@ -20,13 +21,13 @@ import { type Box } from './geometry.ts'
 // Kept in step with PlanLimits.faceTileAbove / faceTileAspect: the planner needs the same rule to
 // know how much of a long frame this stage really sees, and two copies of it is the drift the
 // planner exists to remove.
-import { FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong } from './scale-plan.ts'
+import { FACE_INPUT_SIDE, FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
-const YUNET_SIDE = 640 // this YuNet build has a FIXED 640x640 input (dynamic dims are rejected)
 const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
+const LARGEST_STRIDE = 32
 const PAD = 0.25 // expand each detected face box so hairline/chin/ears are covered
 
 export interface YunetModel {
@@ -48,6 +49,8 @@ export async function loadYunet(modelPath: string): Promise<YunetModel> {
     })
     return { session, inputName: session.inputNames[0] }
 }
+
+const upToStride = (n: number): number => Math.max(LARGEST_STRIDE, Math.ceil(n / LARGEST_STRIDE) * LARGEST_STRIDE)
 
 function iou(a: Box, b: Box): number {
     const x1 = Math.max(a.left, b.left)
@@ -117,34 +120,27 @@ async function detectInWindow(
     win: Window,
     scoreMin: number
 ): Promise<{ b: Box; s: number }[]> {
-    // The model input is a fixed square, so LETTERBOX: uniform downscale (aspect preserved) into the
-    // top-left of a black 640x640 canvas. A fit-to-square squash would smear faces on tall/wide
-    // frames past detectability (a 13:1 page compresses faces 13x on one axis); letterboxing keeps
-    // them undistorted, merely smaller.
-    const scale = YUNET_SIDE / Math.max(win.width, win.height)
+    // Padding rather than resizing to reach the stride, because resizing up enlarges real pixels (rule 1 in scale-plan.ts).
+    const scale = Math.min(1, FACE_INPUT_SIDE / Math.max(win.width, win.height))
     const dw = Math.max(1, Math.round(win.width * scale))
     const dh = Math.max(1, Math.round(win.height * scale))
+    const cw = upToStride(dw)
+    const ch = upToStride(dh)
     const isWholeFrame = win.width === W && win.height === H
     const pipeline = isWholeFrame ? srcSharp(src) : srcSharp(src).extract(win)
     const { data } = await pipeline
         .resize(dw, dh, { fit: 'fill' })
-        .extend({ top: 0, left: 0, right: YUNET_SIDE - dw, bottom: YUNET_SIDE - dh, background: '#000' })
+        .extend({ top: 0, left: 0, right: cw - dw, bottom: ch - dh, background: '#000' })
         .raw()
         .toBuffer({ resolveWithObject: true })
 
     // RGB(HWC, 0-255) -> BGR(CHW, float32, no normalization), as OpenCV's YuNet expects.
-    const side = YUNET_SIDE
-    const chw = new Float32Array(3 * side * side)
-    const plane = side * side
-    for (let i = 0, p = 0; i < data.length; i += 3, p++) {
-        chw[p] = data[i + 2] // B
-        chw[plane + p] = data[i + 1] // G
-        chw[2 * plane + p] = data[i] // R
-    }
-    const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, side, side]) })
+    const chw = new Float32Array(3 * cw * ch)
+    rgbToChw(data, chw, 'bgr')
+    const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, ch, cw]) })
 
     // Uniform inverse scale back to window coords, then offset to frame coords; boxes decoded in the
-    // letterbox padding scale past the window edge and get clamped away.
+    // padding scale past the window edge and get clamped away.
     const sx = win.width / dw
     const sy = win.height / dh
     const cand: { b: Box; s: number }[] = []
@@ -152,8 +148,8 @@ async function detectInWindow(
         const cls = out[`cls_${s}`].data as Float32Array
         const obj = out[`obj_${s}`].data as Float32Array
         const bbox = out[`bbox_${s}`].data as Float32Array
-        const fw = Math.floor(side / s)
-        const fh = Math.floor(side / s)
+        const fw = cw / s
+        const fh = ch / s
         for (let r = 0; r < fh; r++) {
             for (let c = 0; c < fw; c++) {
                 const i = r * fw + c

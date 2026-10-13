@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_sweep_abandoned' */ \n            SELECT op_id, op_type\n            FROM lifecycle_op_tmp\n            WHERE completed_at IS NULL\n              AND parked_at IS NULL\n              AND ((lease_expires_at IS NULL AND created_at < now() - make_interval(secs => $1))\n                   OR lease_expires_at < now())\n            ORDER BY created_at\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "op_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "op_type",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "bf19eecd29cbfb50fc0a303224da409cfae83b42fc45a8d70b3d0790c46b69a6"
+}

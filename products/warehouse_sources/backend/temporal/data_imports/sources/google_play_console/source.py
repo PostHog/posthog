@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -98,7 +96,7 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_PLAY_CONSOLE,
+            name=ExternalDataSourceType.GOOGLEPLAYCONSOLE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["android", "play store", "vitals", "crash"],
             label="Google Play Console",
@@ -109,7 +107,7 @@ To connect, create a Google Cloud service account and enable the **Play Develope
 Leave the package names blank to sync every app the service account can see.""",
             iconPath="/static/services/google_play_console.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-play-console",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

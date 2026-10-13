@@ -26,6 +26,14 @@ class BugsnagScope(Enum):
     # Fan out over every (project, pivot) pair, where the pivots are the ones the `pivots` endpoint
     # lists for that project.
     PER_PROJECT_PIVOT = "per_project_pivot"
+    # Fan out over every (project, error) pair. Error-grain endpoints cost one request per error and
+    # BugSnag offers no filter to narrow the error list, so the fan-out is capped.
+    PER_PROJECT_ERROR = "per_project_error"
+    # Fan out over every (project, error, pivot) triple, for the error-grain breakdown endpoints.
+    PER_PROJECT_ERROR_PIVOT = "per_project_error_pivot"
+    # Fan out over every (project, span group) pair, where the span groups are the ones the
+    # `span_groups` endpoint lists for that project.
+    PER_PROJECT_SPAN_GROUP = "per_project_span_group"
 
 
 @dataclass(frozen=True)
@@ -54,6 +62,10 @@ class BugsnagEndpointConfig:
     # Statuses meaning "this parent has no data here" rather than "the sync is broken". Fanning out
     # over every project reaches projects the endpoint has nothing for, so those are skipped.
     missing_data_statuses: tuple[int, ...] = ()
+    # Whether the endpoint pages by a numeric row `offset` instead of the Link header. The
+    # performance (span) endpoints send no Link header, so a short page is the only end-of-data
+    # signal there.
+    paginate_by_offset: bool = False
     # Hard page cap per fan-out parent. Guards endpoints whose result size follows the cardinality
     # of user-supplied data rather than anything the API bounds.
     max_pages: Optional[int] = None
@@ -61,6 +73,10 @@ class BugsnagEndpointConfig:
     # both derived from client-reported event data, so nothing in the API bounds how many a project
     # accumulates — a misconfigured reporter alone can add one per build.
     max_parents_per_project: Optional[int] = None
+    # Cap on how many of a project's errors an error-grain endpoint fans out over, taken from the
+    # most recently seen end of the error list. Separate from `max_parents_per_project` so an
+    # endpoint that crosses errors with a second dimension can bound each independently.
+    max_errors_per_project: Optional[int] = None
     # The menu of incremental cursor candidates advertised to the user. Empty = full refresh only.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Whether the table is selected for sync by default in the connection wizard.
@@ -145,6 +161,25 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         primary_keys=["display_id", "project_id"],
         should_sync_default=False,
     ),
+    # The same breakdown values as `pivot_values`, narrowed to one error, which answers "which
+    # users did this error affect". Every (error, pivot) pair is its own request, so both dimensions
+    # are capped and the table is off by default.
+    "error_pivot_values": BugsnagEndpointConfig(
+        name="error_pivot_values",
+        scope=BugsnagScope.PER_PROJECT_ERROR_PIVOT,
+        path="/projects/{project_id}/errors/{error_id}/pivots/{event_field_display_id}/values",
+        primary_keys=["project_id", "error_id", "event_field_display_id", "event_field_value"],
+        page_size=30,
+        # Sorted results are truncated with error code 60000 once there are too many of them, and
+        # the API documents `unsorted` as the way to read a pivot's values in full.
+        params={"sort": "unsorted"},
+        # An error deleted or merged away between listing and fan-out answers 404.
+        missing_data_statuses=(404,),
+        max_pages=100,
+        max_errors_per_project=10,
+        max_parents_per_project=100,
+        should_sync_default=False,
+    ),
     "saved_searches": BugsnagEndpointConfig(
         name="saved_searches",
         scope=BugsnagScope.PER_PROJECT,
@@ -175,6 +210,22 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         page_size=None,
         params={"resolution": "12h"},
     ),
+    # The same bucketed counts as `trend`, but per error rather than per project. Error grain costs
+    # one request per error and the endpoint takes no time filter, so the fan-out is capped at the
+    # project's most recently seen errors and the table is off by default.
+    "error_trend": BugsnagEndpointConfig(
+        name="error_trend",
+        scope=BugsnagScope.PER_PROJECT_ERROR,
+        path="/projects/{project_id}/errors/{error_id}/trend",
+        primary_keys=["project_id", "error_id", "from"],
+        partition_key="from",
+        page_size=None,
+        params={"resolution": "12h"},
+        # An error deleted or merged away between listing and fan-out answers 404.
+        missing_data_statuses=(404,),
+        max_errors_per_project=25,
+        should_sync_default=False,
+    ),
     "release_groups": BugsnagEndpointConfig(
         name="release_groups",
         scope=BugsnagScope.PER_PROJECT_RELEASE_STAGE,
@@ -198,6 +249,37 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         params={"sort": "unsorted"},
         max_pages=100,
         max_parents_per_project=25,
+        should_sync_default=False,
+    ),
+    # BugSnag Performance aggregates: one row per operation (app start, page load, network request,
+    # custom timing) with its duration percentiles and span counts. Sorted by name so the offset
+    # cursor stays put while a sync walks it, because the ranking sorts shift as spans arrive.
+    "span_groups": BugsnagEndpointConfig(
+        name="span_groups",
+        scope=BugsnagScope.PER_PROJECT,
+        path="/projects/{project_id}/span_groups",
+        primary_keys=["id", "project_id"],
+        params={"sort": "name", "direction": "asc"},
+        # Projects without BugSnag Performance have no span groups to list.
+        missing_data_statuses=(404,),
+        paginate_by_offset=True,
+        max_pages=100,
+    ),
+    # Individual spans under each span group, the event grain of BugSnag Performance. The endpoint
+    # takes no offset or cursor, so one request per span group returns the most recent page and
+    # nothing more. The table is a recent-spans sample rather than the full history, and is off by
+    # default because it still costs a request per group.
+    "span_group_spans": BugsnagEndpointConfig(
+        name="span_group_spans",
+        scope=BugsnagScope.PER_PROJECT_SPAN_GROUP,
+        path="/projects/{project_id}/span_groups/{span_group_id}/spans",
+        primary_keys=["project_id", "span_group_id", "id"],
+        partition_key="timestamp",
+        params={"sort": "timestamp", "direction": "desc"},
+        # Projects without BugSnag Performance have no spans to list.
+        missing_data_statuses=(404,),
+        max_pages=1,
+        max_parents_per_project=50,
         should_sync_default=False,
     ),
 }

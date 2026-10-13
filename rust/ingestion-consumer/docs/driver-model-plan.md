@@ -326,7 +326,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 **Metrics:**
 
-- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_queued_bytes`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), and `ingestion_consumer_parked_retries_total` (counter). Queued bytes needs an alert before the switch: every key with an outstanding request buffers all later arrivals in full, and key cardinality is customer-controlled.
+- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_queued_bytes`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), `ingestion_consumer_parked_retries_total` (counter), and `ingestion_consumer_key_table_queue_wait_seconds` (histogram, by send kind): the head-of-line wait, the latency cost the one-request-per-key rule accepts. Queued bytes needs an alert before the switch: every key with an outstanding request buffers all later arrivals in full, and key cardinality is customer-controlled.
 
 ### 10. Switch to the key-table scheduler (switchover)
 
@@ -350,7 +350,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Replace the flush driver rather than retarget it: `run_flush_driver` is per-batch (ticket loop, `has_unfinished_flush`, per-batch stall deadline), and parked keys have no batch identity. The key table needs a global periodic `Deadline::ParkedRetry` pump plus a global stall watchdog, so a wedged key table restarts loudly instead of growing lag silently.
 - Modify `apply_completion` in the consumer: credit each offset to the in-flight poll that contains it, instead of crediting the whole completion to the poll that contains its first offset. A merged run's completion spans polls in steady state; under first-offset crediting the first poll over-counts and the later poll never completes, and its wait loop reports healthy every second while stuck.
 - Bound runs by epoch in the key table: stamp the assignment epoch on messages at enqueue, and stop `take_run` at an epoch boundary, so a run never mixes epochs and its completion carries one valid stamp. A cross-epoch completion has no correct stamp and one side is discarded as stale.
-- Purge on rebalance: drop the key table's queued messages for revoked partitions (a routing key maps to one partition). The new partition owner replays them; sending the stale queue too duplicates delivery.
+- Purge on rebalance: drop the key table's queued messages for revoked topic-partitions, and remember revocations for outstanding sends so a later failure cannot requeue their revoked messages. Clear that revocation state at settlement; kept partitions and newly reassigned work remain retryable. The new partition owner replays revoked work; sending it from the old owner too duplicates delivery.
 
 ### 11. Delete the old scheduler (cleanup)
 

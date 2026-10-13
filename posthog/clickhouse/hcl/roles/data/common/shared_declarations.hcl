@@ -994,8 +994,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -1066,7 +1066,7 @@ SELECT
   uniqExactMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
   groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,
@@ -1077,107 +1077,6 @@ GROUP BY
   session_id_v7, session_timestamp, team_id
 SQL
 
-  }
-
-  table "session_replay_events" {
-    column "session_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "min_first_timestamp" {
-      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
-    }
-    column "max_last_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "first_url" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "keypress_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_activity_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "active_milliseconds" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_log_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_warn_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_error_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "size" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "message_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
-    }
-    column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "snapshot_library" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
-    }
-    column "is_deleted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
-    column "ai_tags_fixed" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "ai_tags_freeform" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "ai_highlighted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_session_replay_events"
-      sharding_key    = "sipHash64(distinct_id)"
-    }
   }
 
   view "sessions_v" {
@@ -1362,8 +1261,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -1382,6 +1281,11 @@ SQL
     }
     index "event_names_bloom_filter" {
       expr        = "event_names"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -1459,7 +1363,7 @@ SQL
       type = "SimpleAggregateFunction(max, DateTime)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "all_urls" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -1496,8 +1400,8 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     order_by     = ["toDate(min_first_timestamp)", "team_id", "session_id"]
     partition_by = "toYYYYMM(min_first_timestamp)"
@@ -2057,8 +1961,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"

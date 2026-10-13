@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feed
     ZONKA_FEEDBACK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
-    PAGE_SIZE,
     ZonkaFeedbackResumeConfig,
     base_url,
     check_access,
@@ -88,38 +87,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "responses", data_center: s
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_then_empty_page_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}, {"id": 2}]), _response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert params[0]["page"] == 1
-        assert params[0]["page_size"] == PAGE_SIZE
-        assert params[1]["page"] == 2
-        # State is saved after page 1 (pointing at page 2); the terminating empty page saves nothing.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}]), _response([{"id": 2}]), _response([{"id": 3}]), _response([])])
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_batch(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}]), _response([{"id": 2}]), _response([])])
-
-        manager = _make_manager()
-        _rows(_source(manager))
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         # Page 1 must never be fetched on resume — only pages from the saved bookmark onward.
@@ -130,16 +97,6 @@ class TestPagination:
 
         assert rows == [{"id": 2}]
         assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_page_empty_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-        assert rows == []
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_result_key_raises_loudly(self, MockSession) -> None:

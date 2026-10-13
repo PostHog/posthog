@@ -18,22 +18,6 @@ class TestCheckmarxSource:
     def setup_method(self) -> None:
         self.source = CheckmarxSource()
 
-    @pytest.mark.parametrize(
-        ("endpoint", "supports_incremental", "supports_append"),
-        [
-            ("projects", False, False),
-            ("applications", False, False),
-            ("scans", True, True),
-            ("scan_results", True, False),
-            ("scan_results_summary", True, False),
-        ],
-    )
-    def test_get_schemas_sync_modes(self, endpoint: str, supports_incremental: bool, supports_append: bool) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(_make_config(), team_id=1)}
-
-        assert schemas[endpoint].supports_incremental == supports_incremental
-        assert schemas[endpoint].supports_append == supports_append
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(_make_config(), team_id=1, names=["scans", "projects"])
         assert {schema.name for schema in schemas} == {"scans", "projects"}

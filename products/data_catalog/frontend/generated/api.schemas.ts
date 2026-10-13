@@ -167,8 +167,8 @@ export interface DataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
-     * @maxLength 1000
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 300
      */
     description: string
     /**
@@ -267,8 +267,8 @@ export interface PatchedDataCatalogMetricApi {
      */
     display_name?: string
     /**
-     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
-     * @maxLength 1000
+     * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 300
      */
     description?: string
     /**
@@ -417,6 +417,13 @@ export interface DataCatalogMetricRunApi {
     compiled_query: string | null
     /** Async query status, when the run is not blocking. */
     query_status: unknown
+    /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row cap was reported for that run. */
+    has_more: boolean
+    /**
+     * Row limit applied to this run. Null when no row cap was reported: a markdown metric, an insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field cannot verify the completeness of those runs.
+     * @nullable
+     */
+    row_limit: number | null
     /**
      * Deep link to open the query in the app (SQL editor or insight).
      * @nullable

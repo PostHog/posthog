@@ -7,25 +7,8 @@ from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
-from rest_framework import exceptions, status
-
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
-
-
-class LicenseError(exceptions.APIException):
-    """
-    Exception raised for licensing errors.
-    """
-
-    default_type = "license_error"
-    default_code = "license_error"
-    status_code = status.HTTP_400_BAD_REQUEST
-    default_detail = "There was a problem with your current license."
-
-    def __init__(self, code, detail):
-        self.code = code
-        self.detail = exceptions._get_error_details(detail, code)
 
 
 class LicenseManager(models.Manager["License"]):
@@ -76,6 +59,7 @@ class License(models.Model):
         *SCALE_FEATURES,
         AvailableFeature.ACCESS_CONTROL,
         AvailableFeature.SAML,
+        AvailableFeature.OIDC,
         AvailableFeature.SCIM,
         AvailableFeature.SSO_ENFORCEMENT,
         AvailableFeature.ROLE_BASED_ACCESS,

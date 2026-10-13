@@ -55,6 +55,11 @@ describe('phaiAiComposerSeedLogic', () => {
 
             router.actions.push(urls.ai(undefined, 'Explain this dashboard'))
             expect(seedLogic.values.seed).toEqual({ prompt: 'Explain this dashboard', autoSubmit })
+
+            seedLogic.actions.consumeSeed()
+            router.actions.push(urls.aiTask('task-1'), { ask: 'Explain this dashboard' })
+            expect(seedLogic.values.seed).toBeNull()
+            expect(router.values.searchParams).toEqual({ task: 'task-1', ask: 'Explain this dashboard' })
         }
     )
 })

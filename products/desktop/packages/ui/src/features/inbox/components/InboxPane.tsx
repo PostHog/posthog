@@ -65,6 +65,7 @@ export function InboxPane({ className }: { className?: string }): ReactElement {
         <InboxPaneRow
           key={report.id}
           report={report}
+          implementationState={inbox.implementationStates.get(report.id)}
           optionValue={report.id}
           isSelected={report.id === selectedReportId}
         />

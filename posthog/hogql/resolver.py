@@ -13,7 +13,7 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
+from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
@@ -23,6 +23,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     is_dangerous_table_function,
 )
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.log_entries import (
+    BatchExportLogEntriesTable,
+    LogEntriesTable,
+    ReplayConsoleLogsLogEntriesTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -33,6 +38,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
@@ -51,6 +57,7 @@ from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     lookup_field_by_name,
     lookup_table_by_name,
+    lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
 )
@@ -59,7 +66,9 @@ from posthog.hogql.transforms.trino.persons import (
     resolve_internal_trino_logical_table,
     resolve_trino_table_reference,
 )
+from posthog.hogql.transforms.trino.pivot import TrinoPivotLowerer
 from posthog.hogql.type_system import (
+    constant_type_from_runtime_type,
     infer_array_access_constant_type,
     infer_array_constant_type,
     infer_array_slice_constant_type,
@@ -68,6 +77,7 @@ from posthog.hogql.type_system import (
     infer_try_cast_constant_type,
     infer_tuple_access_constant_type,
     least_common_supertype,
+    parse_clickhouse_type,
 )
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -112,12 +122,24 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+# Tables whose IN-subqueries should be built once on the initiator (GLOBAL IN) rather than
+# re-executed per shard of a distributed outer scan: sharded tables, and tables on another
+# cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
+# of the outer query issue its own remote read against aux).
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (ReplayConsoleLogsLogEntriesTable, BatchExportLogEntriesTable)
+
+
 class _ShardedTableFinder(TraversingVisitor):
     def __init__(self) -> None:
         self.found = False
 
     def visit_table_type(self, node: ast.TableType) -> None:
-        if isinstance(node.table, EventsTable):
+        if isinstance(node.table, _GLOBAL_IN_TABLES):
+            self.found = True
+
+    def visit_lazy_table_type(self, node: ast.LazyTableType) -> None:
+        if isinstance(node.table, _GLOBAL_IN_LAZY_TABLES):
             self.found = True
 
 
@@ -244,6 +266,14 @@ ResolverFactory = Callable[
 ]
 
 
+def _mark_view_body(query: ast.SelectQuery | ast.SelectSetQuery, view_name: str) -> None:
+    if isinstance(query, ast.SelectQuery):
+        query.view_name = view_name
+        return
+    for branch in query.select_queries():
+        _mark_view_body(branch, view_name)
+
+
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
@@ -272,6 +302,7 @@ def _unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
+    select_queries: list[ast.SelectQuery | ast.SelectSetQuery] | None = None,
 ) -> dict[str, ast.Type]:
     if not select_types:
         return {}
@@ -280,8 +311,23 @@ def _unify_select_set_columns(
     first_columns = branch_columns_per_select[0]
     columns: dict[str, ast.Type] = {}
     for index, (column_name, _) in enumerate(first_columns):
+        projection_index = index
+        if dialect == "trino" and select_queries and isinstance(select_queries[0], ast.SelectQuery):
+            for candidate_index, projection in enumerate(select_queries[0].select):
+                if (isinstance(projection, ast.Alias) and projection.alias == column_name) or (
+                    isinstance(projection, ast.Field) and projection.chain[-1] == column_name
+                ):
+                    projection_index = candidate_index
+                    break
         branch_types: list[ast.ConstantType] = []
-        for branch_columns in branch_columns_per_select:
+        for branch_index, branch_columns in enumerate(branch_columns_per_select):
+            query = select_queries[branch_index] if select_queries else None
+            if dialect == "trino" and isinstance(query, ast.SelectQuery) and projection_index < len(query.select):
+                projection_type = query.select[projection_index].type
+                branch_types.append(
+                    projection_type.resolve_constant_type(context) if projection_type is not None else ast.UnknownType()
+                )
+                continue
             if index >= len(branch_columns):
                 branch_types.append(ast.UnknownType())
                 continue
@@ -307,7 +353,7 @@ def _by_name_column_mismatch_error(canonical: list[str], names: list[str]) -> Qu
     )
 
 
-def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int, int]) -> None:
+def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int, int], dialect: HogQLDialect) -> None:
     # ClickHouse resolves bare integer literals in these clauses positionally (enable_positional_arguments
     # defaults to on), so a reordered select list must carry the ordinals along or `ORDER BY 2` silently
     # comes to mean a different column.
@@ -316,19 +362,25 @@ def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int
     if leaf.limit_by:
         referencing.extend(leaf.limit_by.exprs)
     for expr in referencing:
-        if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
+        if dialect == "trino" and isinstance(expr, ast.PositionalRef):
+            new_index = new_index_by_old.get(expr.index - 1)
+            if new_index is not None:
+                expr.index = new_index + 1
+        elif isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
             new_index = new_index_by_old.get(expr.value - 1)
             if new_index is not None:
                 expr.value = new_index + 1
 
 
-def _permute_set_operand(branch: ast.SelectQuery | ast.SelectSetQuery, permutation: list[int]) -> None:
+def _permute_set_operand(
+    branch: ast.SelectQuery | ast.SelectSetQuery, permutation: list[int], dialect: HogQLDialect
+) -> None:
     """Apply one positional permutation (new position -> old position) to every SELECT leaf of a set
     operand. Each leaf is validated on the way down, so a nested branch whose select list does not line
     up with the operand's columns raises instead of being silently truncated."""
     if isinstance(branch, ast.SelectSetQuery):
         for sub in branch.select_queries():
-            _permute_set_operand(sub, permutation)
+            _permute_set_operand(sub, permutation, dialect)
         branch_type = branch.type
         if isinstance(branch_type, ast.SelectSetQueryType) and branch_type.columns:
             names = list(branch_type.columns.keys())
@@ -342,7 +394,7 @@ def _permute_set_operand(branch: ast.SelectQuery | ast.SelectSetQuery, permutati
     leaf_type = branch.type
     if not isinstance(leaf_type, ast.SelectQueryType) or len(leaf_type.columns) != len(branch.select):
         raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
-    _remap_positional_ordinals(branch, {old: new for new, old in enumerate(permutation)})
+    _remap_positional_ordinals(branch, {old: new for new, old in enumerate(permutation)}, dialect)
     branch.select = [branch.select[old] for old in permutation]
     names = list(leaf_type.columns.keys())
     leaf_type.columns = {names[old]: leaf_type.columns[names[old]] for old in permutation}
@@ -444,7 +496,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context),  # type: ignore[arg-type]
+            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -452,21 +504,26 @@ class Resolver(CloningVisitor):
         return result
 
     def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
-        """ClickHouse has no `UNION ... BY NAME` syntax, so the operator cannot be printed there. Lower
-        it instead: reorder each BY NAME operand's select lists to the first branch's column order and
-        emit the plain operator. Dialects with native support (DuckDB behind the postgres printer) keep
-        the operator untouched. Differing column sets raise here, where DuckDB's native BY NAME would
-        null-fill — the error tells the user how to close the gap.
+        """Align named set operands before positional type unification.
 
-        Only UNION variants are lowered. INTERSECT/EXCEPT BY NAME bind tighter than UNION, so their
-        real set partner is the preceding operand rather than the first branch; aligning to the first
-        branch would silently misalign them. No engine we target supports them either, so they are
-        refused rather than lowered."""
-        if self.dialect != "clickhouse":
+        ClickHouse accepts UNION rewrites. Trino also accepts chains from one
+        INTERSECT or EXCEPT family. Mixed-precedence chains keep an explicit error.
+        Other dialects retain their native syntax. Every input must have the same
+        unique column names; the compiler does not invent missing columns.
+        """
+        if self.dialect not in {"clickhouse", "trino"}:
             return
+        families = {sub.set_operator.split()[0] for sub in node.subsequent_select_queries}
+        if (
+            self.dialect == "trino"
+            and len(families) > 1
+            and any(sub.set_operator.endswith(_BY_NAME_SUFFIX) for sub in node.subsequent_select_queries)
+        ):
+            raise QueryError("Mixed set operators with BY NAME require explicit subqueries in the 'trino' dialect")
         for sub in node.subsequent_select_queries:
             if sub.set_operator.endswith(_BY_NAME_SUFFIX) and not sub.set_operator.startswith("UNION "):
-                raise QueryError(f"{sub.set_operator} is not supported in the '{self.dialect}' dialect")
+                if self.dialect != "trino" or len(families) != 1:
+                    raise QueryError(f"{sub.set_operator} is not supported in the '{self.dialect}' dialect")
         if not any(sub.set_operator.endswith(_BY_NAME_SUFFIX) for sub in node.subsequent_select_queries):
             return
         initial = node.initial_select_query
@@ -490,7 +547,7 @@ class Resolver(CloningVisitor):
             if set(names) != set(index_by_name):
                 raise _by_name_column_mismatch_error(canonical, names)
             branch_index_by_name = {name: index for index, name in enumerate(names)}
-            _permute_set_operand(branch, [branch_index_by_name[name] for name in canonical])
+            _permute_set_operand(branch, [branch_index_by_name[name] for name in canonical], self.dialect)
             sub.set_operator = cast(ast.SetOperator, sub.set_operator[: -len(_BY_NAME_SUFFIX)])
 
     def visit_values_query(self, node: ast.ValuesQuery):
@@ -519,7 +576,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect not in _PIVOT_DIALECTS:
+        if self.dialect not in _PIVOT_DIALECTS and self.dialect != "trino":
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -706,7 +763,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect not in _PIVOT_DIALECTS:
+        if self.dialect not in _PIVOT_DIALECTS and self.dialect != "trino":
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -774,6 +831,13 @@ class Resolver(CloningVisitor):
                 for expr in node.group_by:
                     ensure_pivot_column_valid(expr)
 
+            if self.dialect == "trino":
+                source_columns = (
+                    list(base_type.resolve_database_table(self.context).get_asterisk())
+                    if isinstance(base_type, ast.BaseTableType)
+                    else list(columns)
+                )
+                return self.visit(clone_expr(TrinoPivotLowerer().lower(node, source_columns), clear_types=True))
             node.type = ast.SelectQueryType(columns=columns)
             return node
         finally:
@@ -878,8 +942,12 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
+        with self.context.entering_select(node.view_name):
+            return self._resolve_select_query(node)
+
+    def _resolve_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
         # counts as root — a top-level `SELECT *` on a direct table is kept literal below.
         is_root_select = not self._entered_root_select
@@ -922,7 +990,7 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
-        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
+        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             if self.dialect == "clickhouse":
                 if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
@@ -1012,7 +1080,14 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr.type, ast.CallType):
                 from posthog.hogql.printer import print_prepared_ast
 
-                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
+                if self.dialect == "trino":
+                    from posthog.hogql.printer.trino_hogql import (  # noqa: PLC0415 -- breaks printer/resolver import cycle
+                        TrinoHogQLPrinter,
+                    )
+
+                    alias = safe_identifier(TrinoHogQLPrinter(context=self.context).visit(new_expr))
+                else:
+                    alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
             else:
                 alias = None
 
@@ -1381,6 +1456,8 @@ class Resolver(CloningVisitor):
                         raise
                     database_table = opaque_table
 
+            self._record_read(database_table)
+
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
 
@@ -1388,9 +1465,7 @@ class Resolver(CloningVisitor):
                 self.current_view_depth += 1
 
                 node.table = parse_select(str(database_table.query))
-
-                if isinstance(node.table, ast.SelectQuery):
-                    node.table.view_name = database_table.name
+                _mark_view_body(node.table, database_table.name)
 
                 node.alias = table_alias or database_table.name
                 node = self.visit(node)
@@ -1514,8 +1589,11 @@ class Resolver(CloningVisitor):
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
-            if node.alias is None and self._join_chain_has_using(node):
-                node.alias = self._synthesize_using_join_alias(scope)
+            if node.alias is None:
+                if self._join_chain_has_using(node):
+                    node.alias = self._synthesize_using_join_alias(scope)
+                elif node.join_type is not None:
+                    node.alias = self._synthesize_join_alias(scope, node)
 
             node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
@@ -1578,6 +1656,11 @@ class Resolver(CloningVisitor):
                 node.type = ast.SelectViewType(
                     alias=node.alias,
                     view_name=node.table.view_name,
+                    table=(
+                        self.database.get_table(node.table.view_name)
+                        if self.dialect == "trino" and self.database is not None
+                        else None
+                    ),
                     select_query_type=cast(ast.SelectQueryType, node.table.type),
                 )
                 scope.tables[node.alias] = node.type
@@ -1727,6 +1810,20 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases.add(alias)
         return alias
 
+    def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
+        """Alias a joined sub-select because ClickHouse requires a name for it."""
+        reserved_aliases = set(scope.tables)
+        next_join = node.next_join
+        while next_join is not None:
+            if next_join.alias is not None:
+                reserved_aliases.add(next_join.alias)
+            next_join = next_join.next_join
+
+        index = 1
+        while f"__join_{index}" in reserved_aliases:
+            index += 1
+        return f"__join_{index}"
+
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
         column_names: list[str] = []
@@ -1745,6 +1842,21 @@ class Resolver(CloningVisitor):
             return self._desugar_using_constraint(node, using_column_names)
         return self.visit_join_constraint(node.constraint)
 
+    def _qualify_using_field(self, expr: ast.Expr) -> None:
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if not isinstance(expr, ast.Field):
+            return
+        field_type = expr.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if not isinstance(field_type, ast.FieldType):
+            return
+        for alias, table_type in self._get_scope().tables.items():
+            if table_type is field_type.table_type:
+                expr.chain = [alias, expr.chain[-1]]
+                return
+
     def _desugar_using_constraint(
         self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
     ) -> ast.JoinConstraint:
@@ -1760,15 +1872,21 @@ class Resolver(CloningVisitor):
         left_exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
         if using_column_names is None or len(using_column_names) != len(left_exprs):
             raise ImpossibleASTError("USING constraint columns are out of sync with its resolved expressions")
-        compare_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=left_expr,
-                right=self._resolve_using_column_on_joined_table(node, column_name),
-                type=ast.BooleanType(nullable=False),
+        compare_exprs: list[ast.Expr] = []
+        for left_expr, column_name in zip(left_exprs, using_column_names):
+            right_expr = self._resolve_using_column_on_joined_table(node, column_name)
+            if self.dialect == "trino":
+                # Trino clears resolved types before a second pass, so both ON fields need source qualifiers.
+                self._qualify_using_field(left_expr)
+                self._qualify_using_field(right_expr)
+            compare_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=left_expr,
+                    right=right_expr,
+                    type=ast.BooleanType(nullable=False),
+                )
             )
-            for left_expr, column_name in zip(left_exprs, using_column_names)
-        ]
         expr: ast.Expr = (
             compare_exprs[0]
             if len(compare_exprs) == 1
@@ -1825,7 +1943,9 @@ class Resolver(CloningVisitor):
         left_type = node.left.type.resolve_constant_type(self.context)
         right_type = node.right.type.resolve_constant_type(self.context)
 
-        if isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
+        if self.dialect == "trino" and node.op == ast.ArithmeticOperationOp.Div:
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
             node.type = ast.IntegerType()
         elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.FloatType):
             node.type = ast.FloatType()
@@ -1891,6 +2011,21 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+
+        if is_decision_call(node.name):
+            spec = PromptJevCall.parse(node)
+            node = clone_expr(node, clear_types=True)
+            node.args[0] = self.visit(spec.input)
+            node.type = ast.CallType(
+                name=node.name.lower(),
+                arg_types=[],
+                return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
+            )
+            return node
+
+        if self.dialect == "trino" and node.name.lower() == "date":
+            node = clone_expr(node, clear_types=False)
+            node.name = "toDate"
 
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []
@@ -2038,10 +2173,13 @@ class Resolver(CloningVisitor):
         )
         return node
 
-    @staticmethod
-    def _is_higher_order_array_call(node: ast.Call) -> bool:
+    def _is_higher_order_array_call(self, node: ast.Call) -> bool:
         return (
-            node.name.lower() in _HIGHER_ORDER_ARRAY_FUNCTIONS
+            (
+                node.name.lower() in _HIGHER_ORDER_ARRAY_FUNCTIONS
+                or self.dialect == "trino"
+                and node.name.lower() in {"arraycumsum", "arraycumsumnonnegative"}
+            )
             and bool(node.args)
             and isinstance(node.args[0], ast.Lambda)
         )
@@ -2314,6 +2452,13 @@ class Resolver(CloningVisitor):
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
+        # The number of leading chain segments that name the table or field found above.
+        qualifier_length = 1
+        if not type:
+            nested_match = lookup_table_by_nested_name(scope, node)
+            if nested_match:
+                type, qualifier_length = nested_match
+
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
@@ -2395,9 +2540,9 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         field_name = str(node.chain[-1])
         loop_type = type
-        chain_to_parse = node.chain[1:]
+        chain_to_parse = node.chain[qualifier_length:]
         previous_types = []
-        resolved_chain: list[str] = [str(node.chain[0])]
+        resolved_chain: list[str] = [str(segment) for segment in node.chain[:qualifier_length]]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
@@ -2407,6 +2552,13 @@ class Resolver(CloningVisitor):
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if isinstance(loop_type, (ast.FieldType, ast.FieldAliasType)) and self.dialect in {"hogql", "clickhouse"}:
+                tuple_type = loop_type.resolve_constant_type(self.context)
+                if isinstance(tuple_type, ast.TupleType) and str(next_chain) in tuple_type.field_names:
+                    expression: ast.Expr = ast.Field(chain=list(resolved_chain))
+                    for member in [next_chain, *chain_to_parse]:
+                        expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
+                    return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
                 previous_types.pop()
                 previous_types.pop()
@@ -2805,6 +2957,24 @@ class Resolver(CloningVisitor):
             return isinstance(table.table, S3Table)
 
         return False
+
+    def _record_read(self, database_table: Table) -> None:
+        if isinstance(database_table, SavedQuery):
+            self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
+        elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
+            self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+        elif isinstance(database_table, S3Table) and database_table.table_id is not None:
+            self.context.referenced_warehouse_table_ids.add(database_table.table_id)
+            self._record_direct_read(database_table.table_id)
+
+    def _record_saved_query_read(self, saved_query_id: str, *, is_user_view: bool) -> None:
+        self.context.referenced_saved_query_ids.add(saved_query_id)
+        if is_user_view:
+            self._record_direct_read(saved_query_id)
+
+    def _record_direct_read(self, read_id: str) -> None:
+        if self.context.view_body_depth == 0:
+            self.context.directly_read_ids.add(read_id)
 
     def _record_warehouse_sync_warnings(self, table_id: str) -> None:
         if self.database is None:

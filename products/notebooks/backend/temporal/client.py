@@ -1,4 +1,8 @@
-"""Fire-and-forget starters for notebook Temporal workflows, callable from sync DRF views."""
+"""Fire-and-forget starters for notebook Temporal workflows, callable from sync DRF views.
+
+The whole-notebook run's starter lives beside its workflow instead, because this module
+sits under the dispatch code that workflow calls and importing it here would close a cycle.
+"""
 
 from datetime import timedelta
 
@@ -6,6 +10,7 @@ from django.conf import settings
 
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.client import sync_connect
@@ -22,6 +27,7 @@ async def _start_workflow(
     workflow_id: str,
     inputs: object,
     execution_timeout: timedelta | None = None,
+    reject_duplicate_id: bool = False,
 ) -> None:
     await temporal.start_workflow(
         name,
@@ -29,16 +35,31 @@ async def _start_workflow(
         id=workflow_id,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         execution_timeout=execution_timeout,
+        # Temporal's default lets a closed workflow's id be reused, so a caller that repeats a
+        # start to recover from a lost handoff would re-run work that already finished. Under
+        # REJECT_DUPLICATE the server answers every repeat — running or closed — the same way.
+        id_reuse_policy=(
+            WorkflowIDReusePolicy.REJECT_DUPLICATE if reject_duplicate_id else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        ),
     )
 
 
 def start_sql_v2_run_workflow(inputs: SQLV2RunInput) -> None:
-    _start_workflow(
-        sync_connect(),
-        "notebook-sandbox-cmd-run",
-        f"notebook-sandbox-cmd-run-{inputs.run_id}",
-        inputs,
-    )
+    """Start the sandbox run for a cell. A duplicate start is a no-op.
+
+    The workflow id is the run id, so a retry that cannot tell whether the first attempt
+    reached Temporal can simply call this again — as `resume_node_run` does.
+    """
+    try:
+        _start_workflow(
+            sync_connect(),
+            "notebook-sandbox-cmd-run",
+            f"notebook-sandbox-cmd-run-{inputs.run_id}",
+            inputs,
+            reject_duplicate_id=True,
+        )
+    except WorkflowAlreadyStartedError:
+        pass
 
 
 def start_frame_materialize_workflow(inputs: FrameMaterializeInputs) -> None:

@@ -206,7 +206,13 @@ fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<Declarati
             b';' if paren_depth == 0 && bracket_depth == 0 => {
                 segment_start = position + 1;
             }
-            b':' if paren_depth == 0 && bracket_depth == 0 => {
+            // A colon in a custom property value, as in `--link: https://…` or a nested block, is not a new declaration.
+            b':' if paren_depth == 0
+                && bracket_depth == 0
+                && ranges
+                    .last()
+                    .is_none_or(|previous: &DeclarationRange| position >= previous.end) =>
+            {
                 if let Some((property, collect_remote_urls)) =
                     css_property(css[segment_start..position].trim())
                 {
@@ -692,6 +698,27 @@ mod tests {
     }
 
     #[test]
+    fn colons_and_blocks_inside_a_custom_property_value_do_not_start_a_declaration() {
+        let allow = AllowLists::default();
+        let ctx = Ctx::new(&allow);
+        let original = png_data_uri(8, 8, [10, 20, 30, 255]);
+        for (css, kept) in [
+            (
+                format!(":root{{--link:https://example.com/a;--hero:url('{original}')}}"),
+                ":root{--link:https://example.com/a;--hero:",
+            ),
+            (
+                format!(":root{{--block:{{--nested:url('{original}')}}}}"),
+                ":root{--block:{--nested:",
+            ),
+        ] {
+            let rewritten = rewrite(&ctx, &css, CssContext::Stylesheet).expect("image changes");
+            assert!(rewritten.css.starts_with(kept), "{}", rewritten.css);
+            assert!(!rewritten.css.contains(&original));
+        }
+    }
+
+    #[test]
     fn repeated_unterminated_urls_do_not_rescan_the_suffix() {
         let allow = AllowLists::default();
         let ctx = Ctx::new(&allow);
@@ -705,7 +732,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                team_id: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         );
@@ -732,11 +759,12 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                team_id: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         )
         .collecting_urls(Some(UrlCollection {
+            reference_namespace: None,
             url_key: "0123456789abcdef0123456789abcdef".to_string(),
         }));
         let original = png_data_uri(8, 8, [10, 20, 30, 255]);
@@ -765,6 +793,7 @@ mod tests {
     fn collected_remote_images_record_the_css_property() {
         let allow = AllowLists::default();
         let ctx = Ctx::new(&allow).collecting_urls(Some(UrlCollection {
+            reference_namespace: None,
             url_key: "0123456789abcdef0123456789abcdef".to_string(),
         }));
         let css = "mask-image:url('https://cdn.example.com/mask.png')";
@@ -787,7 +816,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                team_id: "0123456789abcdef0123456789abcdef".to_string(),
                 content_key: "fedcba9876543210fedcba9876543210".to_string(),
             }),
         );

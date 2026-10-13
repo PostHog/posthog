@@ -6,27 +6,45 @@ type BlastRadius = { affected: number; total: number; limit: number; confirm_tok
 
 type WorkflowTrigger = { type?: string; filters?: unknown }
 
+type WorkflowAction = { type?: string; config?: { template_id?: string } }
+
 async function fetchWorkflow(
     context: Context,
     projectId: string,
     workflowId: string
-): Promise<{ status: string | undefined; trigger: WorkflowTrigger }> {
-    const workflow = await context.api.request<{ status?: string; trigger?: unknown }>({
+): Promise<{ status: string | undefined; trigger: WorkflowTrigger; sendsEmail: boolean }> {
+    const workflow = await context.api.request<{ status?: string; trigger?: unknown; actions?: WorkflowAction[] }>({
         method: 'GET',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(workflowId))}/`,
     })
-    return { status: workflow.status, trigger: (workflow.trigger ?? {}) as WorkflowTrigger }
+    return {
+        status: workflow.status,
+        trigger: (workflow.trigger ?? {}) as WorkflowTrigger,
+        sendsEmail: workflowSendsEmail(workflow.actions),
+    }
+}
+
+// Kept in sync with hog_flow_sends_email on the backend, which applies the email tier cap only to workflows with an email step.
+function workflowSendsEmail(actions: WorkflowAction[] | undefined): boolean {
+    return (actions ?? []).some(
+        (action) => action?.type === 'function_email' || action?.config?.template_id === 'template-email'
+    )
 }
 
 function triggerFilters(trigger: WorkflowTrigger): unknown {
     return trigger.filters ?? { properties: [] }
 }
 
-async function sizeAudience(context: Context, projectId: string, filters: unknown): Promise<BlastRadius> {
+async function sizeAudience(
+    context: Context,
+    projectId: string,
+    filters: unknown,
+    sendsEmail: boolean
+): Promise<BlastRadius> {
     return await context.api.request<BlastRadius>({
         method: 'POST',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/user_blast_radius/`,
-        body: { filters },
+        body: { filters, sends_email: sendsEmail },
     })
 }
 
@@ -60,8 +78,8 @@ export const workflowsBlastRadius = (): ToolBase<typeof BlastRadiusSchema, Blast
     schema: BlastRadiusSchema,
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
-        const { trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
-        return await sizeAudience(context, projectId, triggerFilters(trigger))
+        const { trigger, sendsEmail } = await fetchWorkflow(context, projectId, params.workflow_id)
+        return await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail)
     },
 })
 
@@ -93,7 +111,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
     schema: RunBatchSchema,
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
-        const { status, trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
+        const { status, trigger, sendsEmail } = await fetchWorkflow(context, projectId, params.workflow_id)
 
         if (trigger.type !== 'batch') {
             throw new Error(
@@ -110,7 +128,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
         }
 
         const filters = triggerFilters(trigger)
-        const { affected, limit } = await sizeAudience(context, projectId, filters)
+        const { affected, limit } = await sizeAudience(context, projectId, filters, sendsEmail)
         assertAcknowledged(affected, params.acknowledged_affected_count, limit)
 
         return await context.api.request({
@@ -162,7 +180,7 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
     schema: ScheduleCreateSchema,
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
-        const { status, trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
+        const { status, trigger, sendsEmail } = await fetchWorkflow(context, projectId, params.workflow_id)
 
         if (trigger.type !== 'batch' && trigger.type !== 'schedule') {
             throw new Error(
@@ -191,7 +209,7 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
                         'confirm the count with the user, then pass acknowledged_affected_count and confirm_token.'
                 )
             }
-            const { affected, limit } = await sizeAudience(context, projectId, triggerFilters(trigger))
+            const { affected, limit } = await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail)
             assertAcknowledged(affected, params.acknowledged_affected_count, limit)
             confirmToken = params.confirm_token
         }

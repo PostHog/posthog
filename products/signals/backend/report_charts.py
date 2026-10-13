@@ -14,7 +14,7 @@ import json
 from collections.abc import Collection, Sequence
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # The slug is the target of a `chart:` markdown link, so it has to survive being parsed as a URL.
 # Mirrors the routing-safe identifier shape used across the signals schemas, inlined to keep this
@@ -47,6 +47,14 @@ MAX_CHART_CAPTION_LENGTH = 500
 # (a single big number needs a fraction of what a retention grid does).
 ChartSize = Literal["small", "medium", "large"]
 CHART_SIZES: tuple[ChartSize, ...] = ("small", "medium", "large")
+
+# When to attach a chart, as both chart prompts state it: the scout channel's `_REPORT_CHARTS` and
+# the research pipeline's `_REPORT_CHARTS_GUIDANCE`. Shared rather than written twice because the
+# two drifted apart once already, and each talked its readers out of charting in its own words. The
+# prose is channel-agnostic on purpose — it names no tool — so each prompt appends its own mechanics.
+WHEN_TO_CHART = """**When the finding rests on data moving, attach the chart that shows it.** A metric that broke, a rate that slid, a distribution that shifted, a funnel step that collapsed: each of those is a shape, and a reader takes a shape in at a glance where a paragraph of figures makes them rebuild it in their head. The test is the result you got back, never the tool you got it from: a query that returned a series over time, a distribution across buckets, or a set of funnel steps has a shape to draw, and the same tool returning one aggregate row does not. Attaching is what keeps the prose short, because the summary can state the finding and leave the detail to the picture.
+
+Attach nothing when there is no shape to show. A finding that lives entirely in code, in a config, or in a single count has nothing to draw, and a chart restating one number the summary already gives is noise, so write the number instead. One or two charts is the usual answer for a data-shaped report, and none for the rest."""
 
 # Bounds the JSON a single chart can carry into the report and, from there, into the safety-judge
 # prompt. Generous next to a real query node; small enough that a malformed one can't blow up a call.
@@ -279,6 +287,33 @@ class ReportChart(BaseModel):
     @classmethod
     def query_must_be_a_renderable_node(cls, v: dict[str, Any]) -> dict[str, Any]:
         return validate_report_query(v)
+
+
+class ReportChartSnapshot(BaseModel):
+    """A stored report chart as a reader shows it.
+
+    Reading a chart this way skips the query checks `ReportChart` runs on write. The query was checked
+    when the chart was saved, and the reader's query endpoint checks it again when it runs.
+    """
+
+    model_config = {"frozen": True, "extra": "ignore"}
+
+    chart_id: str
+    title: str
+    query: dict[str, Any]
+
+
+def saved_charts(raw_charts: object) -> list[ReportChartSnapshot]:
+    """The charts in a report's stored `charts` list, in order. Malformed entries are skipped."""
+    if not isinstance(raw_charts, list):
+        return []
+    charts: list[ReportChartSnapshot] = []
+    for raw in raw_charts:
+        try:
+            charts.append(ReportChartSnapshot.model_validate(raw))
+        except ValidationError:
+            continue
+    return charts
 
 
 def chart_batch_query_chars(charts: Sequence[ReportChart]) -> int:

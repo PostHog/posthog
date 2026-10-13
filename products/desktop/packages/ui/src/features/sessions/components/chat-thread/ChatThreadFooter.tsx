@@ -15,14 +15,13 @@ interface ChatThreadFooterProps {
   task?: Task;
   taskId?: string;
   footerState: Omit<BuildResult, "items">;
+  hasCurrentSetupProgress: boolean;
   hasPendingPermission?: boolean;
   currentWork?: string;
 }
 
 /**
- * The session status footer (duration / queued / diff stats) for the new chat thread, rendered as
- * the last item in the thread. The legacy `ConversationView` renders the same `SessionFooter` the
- * same way. Context usage is not here — it sits in the composer's own toolbar.
+ * The session status footer appears as the last thread item. Context usage stays in the composer toolbar.
  */
 export function ChatThreadFooter({
   isPromptPending,
@@ -30,6 +29,7 @@ export function ChatThreadFooter({
   task,
   taskId,
   footerState,
+  hasCurrentSetupProgress,
   hasPendingPermission,
   currentWork,
 }: ChatThreadFooterProps) {
@@ -56,7 +56,11 @@ export function ChatThreadFooter({
     <div className="pt-1">
       {taskId && task && (
         <div className="-mx-2.5 pb-1">
-          <SessionStartupRow taskId={taskId} task={task} />
+          <SessionStartupRow
+            taskId={taskId}
+            task={task}
+            hasCurrentSetupProgress={hasCurrentSetupProgress}
+          />
         </div>
       )}
       <SessionFooter

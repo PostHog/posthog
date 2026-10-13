@@ -2,13 +2,19 @@
 
 from django.urls import path, re_path
 
-from .email_events import email_capture_handler, email_inbound_handler, email_outbound_handler
+from .email_events import (
+    email_capture_handler,
+    email_inbound_handler,
+    email_outbound_handler,
+    email_sender_status_handler,
+)
 from .email_settings import (
     EmailConfirmForwardingView,
     EmailConnectView,
     EmailDisconnectView,
     EmailSendTestView,
     EmailSetDefaultView,
+    EmailSetTrustedRelayView,
     EmailStatusView,
     EmailVerifyDomainView,
     EmailVerifyForwardingView,
@@ -59,6 +65,7 @@ urlpatterns = [
     re_path(r"^v1/email/capture/?$", email_capture_handler, name="email-capture"),
     re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
     re_path(r"^v1/email/outbound/?$", email_outbound_handler, name="email-outbound"),
+    re_path(r"^v1/email/sender-status/?$", email_sender_status_handler, name="email-sender-status"),
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
     re_path(
@@ -73,6 +80,7 @@ urlpatterns = [
     ),
     re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),
     re_path(r"^v1/email/set-default/?$", EmailSetDefaultView.as_view(), name="email-set-default"),
+    re_path(r"^v1/email/set-trusted-relay/?$", EmailSetTrustedRelayView.as_view(), name="email-set-trusted-relay"),
     re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),
     re_path(r"^v1/email/send-test/?$", EmailSendTestView.as_view(), name="email-send-test"),
     # GitHub Issues channel

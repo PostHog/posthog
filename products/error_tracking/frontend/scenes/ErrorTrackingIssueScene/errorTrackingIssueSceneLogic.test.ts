@@ -7,6 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import type { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
@@ -48,7 +49,10 @@ describe('errorTrackingIssueSceneLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
 
     // The catch-all `/error_tracking/:id` route can capture a legacy settings slug. Without the
     // guard the scene fired every loader against a non-UUID id, spraying "issue_id must be a valid
@@ -127,13 +131,35 @@ describe('errorTrackingIssueSceneLogic', () => {
     })
 
     it('restores the persisted severity when an update fails', async () => {
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setIssue({ ...ISSUE, severity: 'critical' })
+        const loadIssue = jest.spyOn(logic.actions, 'loadIssue')
+
+        logic.actions.mutationFailure('updateIssueSeverity', new Error('Update failed'), 'another-issue')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(loadIssue).not.toHaveBeenCalled()
 
         await expectLogic(logic, () => {
-            logic.actions.mutationFailure('updateIssueSeverity', new Error('Update failed'))
+            logic.actions.mutationFailure('updateIssueSeverity', new Error('Update failed'), VALID_ISSUE_ID)
         })
             .toDispatchActions(['loadIssueSuccess'])
             .toMatchValues({ issue: expect.objectContaining({ severity: 'low' }) })
+        expect(loadIssue).toHaveBeenCalledTimes(1)
+    })
+
+    it('reloads only the issue that was split and does not reload merged issues', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const loadIssue = jest.spyOn(logic.actions, 'loadIssue')
+
+        logic.actions.splitIssueSuccess('another-issue', [])
+        issueActionsLogic().actions.mutationSuccess('mergeIssues', VALID_ISSUE_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(loadIssue).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            logic.actions.splitIssueSuccess(VALID_ISSUE_ID, [])
+        }).toDispatchActions(['loadIssue'])
+        expect(loadIssue).toHaveBeenCalledTimes(1)
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

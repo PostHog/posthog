@@ -8,6 +8,7 @@ from posthog.schema import (
     Breakdown,
     BreakdownFilter,
     BreakdownType,
+    CompareFilter,
     DataWarehouseNode,
     DateRange,
     EventsNode,
@@ -24,6 +25,7 @@ from products.product_analytics.backend.hogql_queries.trends.trend_validation_ru
     DisallowUnsupportedPropertyMathForHistogramBreakdown,
     ValidateDataWarehouseBreakdown,
 )
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 class TestValidateDataWarehouseBreakdown(BaseTest):
@@ -370,3 +372,43 @@ class TestDisallowDaysOfWeekWithSmoothing(BaseTest):
             DisallowDaysOfWeekWithSmoothing().validate(self._context(query))
 
         self.assertEqual(context.exception.get_codes(), ["days_of_week_unsupported_with_smoothing"])
+
+
+class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
+    def test_runner_rejects_an_expansion_over_the_limit_before_it_expands_the_series(self) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event=f"event_{index}") for index in range(150)],
+            compareFilter=CompareFilter(compare=True),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            TrendsQueryRunner(query=query, team=self.team)
+
+        self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])
+
+    @parameterized.expand(
+        [
+            (
+                "conjoined_cohorts_do_not_expand",
+                150,
+                BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[1, 2]),
+            ),
+            (
+                "non_cohort_breakdown_does_not_expand",
+                150,
+                BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown=[f"prop_{index}" for index in range(10)]),
+            ),
+            ("all_cohort_expands", 50, BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=["all", 1, 2])),
+        ]
+    )
+    def test_accepted_query_expands_to_the_count_the_validator_used(
+        self, _name: str, series_count: int, breakdown_filter: BreakdownFilter
+    ) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event=f"event_{index}") for index in range(series_count)],
+            breakdownFilter=breakdown_filter,
+        )
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        self.assertEqual(len(runner.series), 150)

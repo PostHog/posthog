@@ -4,6 +4,12 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 AUTUMN_BASE_URL = "https://api.useautumn.com"
 
+AUTUMN_API_VERSION_2_3_0 = "2.3.0"
+AUTUMN_API_VERSION_2_4_0 = "2.4.0"
+
+# From 2.4.0 Autumn rejects list requests whose limit exceeds 200.
+AUTUMN_V2_4_MAX_PAGE_SIZE = 200
+
 # Autumn timestamps are epoch milliseconds, so "datetime" partition mode (which expects epoch
 # seconds for integer values) can't be used. Numerical bucketing on the raw value with a
 # one-week bucket size yields the same stable weekly partitions.

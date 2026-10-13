@@ -35,6 +35,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -57,6 +58,7 @@ from ee.partners.stripe.api.provisioning.constants import (
 from ee.partners.stripe.api.provisioning.core import (
     ProjectIdCollisionError,
     StripeOAuthAppMissingError,
+    base_team_id_from_scope,
     compute_partner_scoped_teams,
     get_available_teams_for_user,
     get_oauth_app_for_code,
@@ -240,7 +242,7 @@ class AccountRequestsView(StripeProvisioningAPIView):
             except (ValueError, TypeError):
                 raise SpecError("invalid_request", "configuration.team_id must be an integer", request_id=request_id)
 
-        existing_user = User.objects.filter(email=email).first()
+        existing_user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
         if existing_user:
             return Response(
@@ -476,16 +478,12 @@ class OAuthTokenView(StripeProvisioningAPIView):
                 raise SpecError("invalid_grant", "Refresh token was not issued for the Stripe Projects app")
             user = old_refresh.user
             old_scoped_teams = old_refresh.scoped_teams or []
-            # base_team_id at refresh: the first team in the prior scope. The consent team
-            # (authorized at grant time) has the lowest id and sorts first at issuance;
-            # partner-provisioned teams are always created later, so they take higher ids
-            # and are only ever appended after it. [0] is therefore the consent team. This
-            # ordering is load-bearing: compute_partner_scoped_teams re-adds the consent
-            # team only when it is base_team_id (it has no TeamProvisioningConfig for this
-            # app), so a lower-id provisioned team becoming [0] would silently drop the
-            # consent team from the refreshed scope. If the prior token was somehow empty-
-            # scoped, fall back to zero so the helper short-circuits without claiming a team.
-            base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+            # base_team_id at refresh must be the consent team. compute_partner_scoped_teams
+            # keeps base_team_id unconditionally but keeps other teams only when they have a
+            # TeamProvisioningConfig for this app, so any other base silently drops an
+            # unattributed consent team from the refreshed scope. An empty prior scope yields
+            # zero, so the helper short-circuits without claiming a team.
+            base_team_id = base_team_id_from_scope(oauth_app, old_scoped_teams)
 
             # Deactivation drops the user's login sessions but leaves their OAuth tokens
             # intact, and the team check below answers only about membership and roles, so a

@@ -45,26 +45,6 @@ def test_connection_host_fields_force_secret_reentry_on_workspace_change():
     assert BitbucketSource().connection_host_fields == ["workspace"]
 
 
-@pytest.mark.parametrize(
-    "endpoint,supports_incremental",
-    [
-        ("repositories", True),
-        ("pull_requests", True),
-        ("commits", True),
-        ("pipelines", True),
-        # No verified server filter or stable cursor for these — offering an
-        # incremental toggle would silently behave like a full refresh
-        ("deployments", False),
-        ("workspace_members", False),
-    ],
-)
-def test_get_schemas_incremental_support(endpoint, supports_incremental):
-    schemas = {s.name: s for s in BitbucketSource().get_schemas(_config(), team_id=1)}
-    assert schemas[endpoint].supports_incremental is supports_incremental
-    assert schemas[endpoint].supports_append is supports_incremental
-    assert bool(schemas[endpoint].incremental_fields) is supports_incremental
-
-
 def test_get_schemas_filters_by_names():
     schemas = BitbucketSource().get_schemas(_config(), team_id=1, names=["commits", "pipelines"])
     assert sorted(s.name for s in schemas) == ["commits", "pipelines"]

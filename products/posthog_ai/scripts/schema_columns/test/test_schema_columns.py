@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from products.posthog_ai.scripts.build_skills import SkillRenderer
+from products.posthog_ai.scripts.build_skills.rendering import SkillRenderer
 from products.posthog_ai.scripts.schema_columns import schema_columns
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -107,7 +107,6 @@ def test_renders_session_recording_nullability() -> None:
         "deleted",
         "created_at",
         "retention_period_days",
-        "storage_version",
     ):
         assert f"`{column}` | " in rendered
         assert (

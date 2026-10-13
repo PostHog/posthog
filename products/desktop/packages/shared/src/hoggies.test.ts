@@ -25,6 +25,11 @@ describe("hoggiePng", () => {
     expect(new Set(sources).size).toBe(sources.length);
   });
 
+  it("properly returns for hoggies with more than one variant", () => {
+    expect(hoggiePng("construction-1")).toContain(".png");
+    expect(hoggiePng("construction-2")).toContain(".png");
+  });
+
   it("returns undefined for a slug the release does not ship", () => {
     expect(hoggiePng("not-a-hoggie")).toBeUndefined();
   });

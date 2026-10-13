@@ -283,7 +283,7 @@ export function ReportTriageFocusView({
           </span>
         )}
         <span className="flex items-center gap-1">
-          <KeyHint>Enter</KeyHint>
+          <KeyHint>S</KeyHint>
           summary
         </span>
         <span className="flex items-center gap-1">

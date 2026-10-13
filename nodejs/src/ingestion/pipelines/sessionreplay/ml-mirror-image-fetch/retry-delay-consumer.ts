@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
 
@@ -36,7 +37,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
  */
 export class RetryDelayConsumer {
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly options: RetryDelayConsumerOptions
     ) {
         if (!Number.isFinite(options.delayMs) || options.delayMs <= 0) {
@@ -119,6 +120,7 @@ export class RetryDelayConsumer {
                 topic: this.options.frontierTopic,
                 key: message.key,
                 value: message.value,
+                headers: parseKafkaHeaders(message.headers),
             })
         } catch (error) {
             logger.warn('🌐', 'ml_image_fetch_retry_release_failed', {

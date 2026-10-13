@@ -128,23 +128,20 @@ def _site_key(url: str) -> str:
     return url.strip().rstrip("/").lower()
 
 
-def suggest_verified_site(filter_url: str, verified: list[str]) -> str | None:
-    """The verified site a bare-hostname filter entry most likely meant, else None.
+def verified_sites_for_host(filter_url: str, verified: list[str]) -> list[str]:
+    """The verified sites a bare-hostname filter entry could mean, in the order Bing lists them.
 
     Bing lists every site with a scheme (e.g. ``https://example.com/``), so an entry that omits the
     scheme (``example.com``) matches nothing on the scheme-sensitive site key even when that host is
-    verified. When the entry is a bare hostname, point at the verified site sharing that host so the
-    "not verified" error can name the exact value to paste instead of dead-ending."""
+    verified. Returns empty for an entry that already carries a scheme, since that one is matched
+    exactly."""
     stripped = filter_url.strip()
     if not stripped or "://" in stripped:
-        return None
+        return []
     host = stripped.strip("/").lower()
     if not host:
-        return None
-    for url in verified:
-        if urlparse(url).netloc.lower() == host:
-            return url
-    return None
+        return []
+    return [url for url in verified if urlparse(url).netloc.lower() == host]
 
 
 def parse_site_urls(raw: str | None) -> list[str]:
@@ -182,17 +179,26 @@ def select_site_urls(sites: list[dict[str, Any]], site_url_filters: list[str]) -
     for filter_url in site_url_filters:
         matched = by_key.get(_site_key(filter_url))
         if matched is None:
+            # A bare hostname misses the scheme-sensitive key even when Bing verified that exact
+            # host. Resolve it when the host names one verified site; leave it missing when it
+            # names several, rather than guessing which scheme the user meant.
+            candidates = verified_sites_for_host(filter_url, verified)
+            matched = candidates[0] if len(candidates) == 1 else None
+        if matched is None:
             missing.append(filter_url)
-        else:
+        elif matched not in selected:
+            # Two spellings of the same site (e.g. "example.com" and "https://example.com/")
+            # resolve to one registered URL; syncing it twice would seed duplicate primary keys.
             selected.append(matched)
     if missing:
-        suggestions = {
-            entry: match for entry in missing if (match := suggest_verified_site(entry, verified)) is not None
-        }
+        ambiguous = {entry: candidates for entry in missing if (candidates := verified_sites_for_host(entry, verified))}
         hint = ""
-        if suggestions:
-            pairs = "; ".join(f"'{entered}' is verified as '{match}'" for entered, match in suggestions.items())
-            hint = f"Bing lists sites with their full URL, so {pairs}. "
+        if ambiguous:
+            pairs = "; ".join(
+                f"'{entered}' matches {' and '.join(repr(url) for url in candidates)}"
+                for entered, candidates in ambiguous.items()
+            )
+            hint = f"Bing lists sites with their full URL, and {pairs}. "
         raise ValueError(
             f"These site URLs are not verified sites on the connected account: {', '.join(missing)}. "
             f"{hint}"

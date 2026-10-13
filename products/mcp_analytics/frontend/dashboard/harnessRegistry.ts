@@ -8,6 +8,7 @@ import claudeLogo from '../harness-logos/claude.svg'
 import coderabbitLogo from '../harness-logos/coderabbit.svg'
 import cursorLogo from '../harness-logos/cursor.svg'
 import grokLogo from '../harness-logos/grok.svg'
+import kimchiLogo from '../harness-logos/kimchi.svg'
 import librechatLogo from '../harness-logos/librechat.svg'
 import linearLogo from '../harness-logos/linear.svg'
 import lovableLogo from '../harness-logos/lovable.png'
@@ -30,6 +31,7 @@ const HARNESS_BRAND_COLORS = {
     openai: '#74aa9c',
     vscode: '#007acc',
     coderabbit: '#ff570a',
+    kimchi: '#ff521d',
 } as const
 
 interface HarnessDescriptor {
@@ -71,6 +73,7 @@ export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
     Linear: { logo: { src: linearLogo, alt: 'Linear logo' }, colorIndex: 9 },
     LibreChat: { logo: { src: librechatLogo, alt: 'LibreChat logo' }, colorIndex: 14 },
     Pi: { logo: { src: piLogo, alt: 'Pi logo' }, color: 'monochrome' },
+    Kimchi: { logo: { src: kimchiLogo, alt: 'Kimchi logo' }, color: 'kimchi' },
     Antigravity: { logo: { src: antigravityLogo, alt: 'Antigravity logo' }, colorIndex: 7 },
     Poke: {},
     opencode: { logo: { src: opencodeLogo, alt: 'opencode logo' }, color: 'monochrome' },

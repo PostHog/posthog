@@ -4,7 +4,10 @@ from rest_framework import status
 
 from posthog.models import OrganizationMembership
 
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import (
+    TeamFeatureFlagPolicyConfig,
+    team_requires_flag_tags,
+)
 
 
 class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
@@ -40,7 +43,7 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         response = self.client.patch(self.url, {"feature_flag_policy_config": {"require_tags": True}})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert TeamFeatureFlagPolicyConfig.objects.get(team=self.team).require_tags is False
+        assert team_requires_flag_tags(self.team.id) is False
 
     def test_patching_other_team_fields_leaves_require_tags_alone(self) -> None:
         self.client.patch(self.url, {"feature_flag_policy_config": {"require_tags": True}})

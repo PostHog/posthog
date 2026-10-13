@@ -1,3 +1,7 @@
+import asyncio
+from types import SimpleNamespace
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -10,18 +14,14 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.data_catalog.backend.facade.api import upsert_metric
-from products.data_quality.backend.facade.enums import SuiteRunTrigger
+from products.data_quality.backend.facade.enums import SubjectType, SuiteRunTrigger
 from products.data_quality.backend.logic.checks import upsert_check
-from products.data_quality.backend.logic.metric_schedules import MetricSchedules
-from products.data_quality.backend.logic.schedules import (
-    get_schedule,
-    provision_metric_schedule,
-    schedule_key,
-    set_schedule,
-)
+from products.data_quality.backend.logic.schedules import get_schedule, provision_schedule, schedule_key, set_schedule
+from products.data_quality.backend.logic.subject_schedules import SubjectScheduleKey, SubjectSchedules
 from products.data_quality.backend.models import DataQualityCheck
 from products.data_quality.backend.temporal.activities.prepare_check_suite import prepare_check_suite_activity
 from products.data_quality.backend.temporal.activities.reconcile_schedules import (
+    RECONCILE_CONCURRENCY_LIMIT,
     ScheduleReconcileCursor,
     _check_page,
     _dead_schedules,
@@ -68,7 +68,7 @@ class TestSchedules(BaseTest):
             callback()
         assert len(self.temporal.schedules) == 1
         set_schedule(self.team.id, "metric", self.metric.id, interval="6hour", enabled=False)
-        provision_metric_schedule(self.team.id, str(self.metric.id))
+        provision_schedule(self.team.id, "metric", str(self.metric.id))
         schedule = get_schedule(self.team.id, "metric", self.metric.id)
         assert schedule is not None
         assert schedule.interval == "6hour"
@@ -85,14 +85,14 @@ class TestSchedules(BaseTest):
         checks = _check_page(None)
         assert [check.metric_id for check in checks] == [self.metric.id]
         self.temporal.create_schedule.side_effect = original_create
-        async_to_sync(MetricSchedules(self.temporal).ensure)(self.key)
+        async_to_sync(SubjectSchedules(self.temporal).ensure)(self.key)
         assert get_schedule(self.team.id, "metric", self.metric.id) is not None
 
     def test_canonical_environment_uses_the_same_schedule(self) -> None:
         child = Team.objects.create(organization=self.organization, name="child", parent_team=self.team)
         assert schedule_key(child.id, "metric", self.metric.id) == self.key
-        provision_metric_schedule(self.team.id, str(self.metric.id))
-        provision_metric_schedule(child.id, str(self.metric.id))
+        provision_schedule(self.team.id, "metric", str(self.metric.id))
+        provision_schedule(child.id, "metric", str(self.metric.id))
         assert len(self.temporal.schedules) == 1
 
     def test_cleanup_preserves_live_subjects_and_does_not_trust_another_team(self) -> None:
@@ -118,6 +118,9 @@ class TestSchedules(BaseTest):
     async def _reconcile(self) -> ScheduleReconcileCursor:
         return await ActivityEnvironment().run(reconcile_metric_schedules_activity, ScheduleReconcileCursor())
 
+    async def _reconcile_checks(self) -> ScheduleReconcileCursor:
+        return await ActivityEnvironment().run(reconcile_metric_schedules_activity, ScheduleReconcileCursor())
+
     def test_reconciliation_recovers_missing_schedules_without_overwriting_pauses(self) -> None:
         self._create()
         with (
@@ -139,6 +142,168 @@ class TestSchedules(BaseTest):
         assert not schedule.enabled
         assert schedule.interval == "6hour"
 
+    def test_reconciliation_bounds_overlapping_repairs_and_deduplicates_metric_checks(self) -> None:
+        metric_ids = [self.metric.id, self.metric.id, *(uuid4() for _ in range(RECONCILE_CONCURRENCY_LIMIT + 1))]
+        checks = [
+            SimpleNamespace(id=uuid4(), team_id=self.team.id, subject_type=SubjectType.METRIC, subject_uuid=metric_id)
+            for metric_id in metric_ids
+        ]
+        started = asyncio.Event()
+        release = asyncio.Event()
+        active = 0
+        maximum_active = 0
+
+        async def ensure(_key: SubjectScheduleKey) -> None:
+            nonlocal active, maximum_active
+            active += 1
+            maximum_active = max(maximum_active, active)
+            if active == RECONCILE_CONCURRENCY_LIMIT:
+                started.set()
+            await release.wait()
+            active -= 1
+
+        async def page(_after_check_id: str | None) -> list[SimpleNamespace]:
+            return checks
+
+        async def run() -> ScheduleReconcileCursor:
+            task = asyncio.create_task(self._reconcile_checks())
+            await started.wait()
+            assert maximum_active == RECONCILE_CONCURRENCY_LIMIT
+            release.set()
+            return await task
+
+        with (
+            patch(
+                "products.data_quality.backend.temporal.activities.reconcile_schedules.async_connect",
+                AsyncMock(return_value=self.temporal),
+            ),
+            patch(
+                "products.data_quality.backend.temporal.activities.reconcile_schedules.database_sync_to_async_pool",
+                return_value=page,
+            ),
+            patch.object(SubjectSchedules, "ensure", AsyncMock(side_effect=ensure)) as mocked_ensure,
+        ):
+            cursor = async_to_sync(run)()
+
+        assert cursor.after_check_id == str(checks[-1].id)
+        assert mocked_ensure.await_count == len(set(metric_ids))
+        assert maximum_active == RECONCILE_CONCURRENCY_LIMIT
+
+    def test_reconciliation_bounds_overlapping_deletions(self) -> None:
+        schedule_ids = [f"data-quality-metric:{self.team.id}:{uuid4()}" for _ in range(RECONCILE_CONCURRENCY_LIMIT + 1)]
+        schedule_page = SimpleNamespace(
+            current_page=[SimpleNamespace(id=schedule_id) for schedule_id in schedule_ids],
+            next_page_token=None,
+            fetch_next_page=AsyncMock(),
+        )
+        self.temporal.list_schedules = AsyncMock(return_value=schedule_page)
+        started = asyncio.Event()
+        release = asyncio.Event()
+        active = 0
+        maximum_active = 0
+
+        async def delete(_client: object, _schedule_id: str) -> None:
+            nonlocal active, maximum_active
+            active += 1
+            maximum_active = max(maximum_active, active)
+            if active == RECONCILE_CONCURRENCY_LIMIT:
+                started.set()
+            await release.wait()
+            active -= 1
+
+        async def dead(_schedule_ids: list[str]) -> list[str]:
+            return schedule_ids
+
+        async def run() -> ScheduleReconcileCursor:
+            task = asyncio.create_task(
+                ActivityEnvironment().run(
+                    reconcile_metric_schedules_activity,
+                    ScheduleReconcileCursor(cleanup=True),
+                )
+            )
+            await started.wait()
+            assert maximum_active == RECONCILE_CONCURRENCY_LIMIT
+            release.set()
+            return await task
+
+        with (
+            patch(
+                "products.data_quality.backend.temporal.activities.reconcile_schedules.async_connect",
+                AsyncMock(return_value=self.temporal),
+            ),
+            patch(
+                "products.data_quality.backend.temporal.activities.reconcile_schedules.database_sync_to_async_pool",
+                return_value=dead,
+            ),
+            patch(
+                "products.data_quality.backend.temporal.activities.reconcile_schedules.a_delete_schedule",
+                AsyncMock(side_effect=delete),
+            ) as mocked_delete,
+        ):
+            cursor = async_to_sync(run)()
+
+        assert cursor.done
+        assert mocked_delete.await_count == len(schedule_ids)
+        assert maximum_active == RECONCILE_CONCURRENCY_LIMIT
+
+    def test_reconciliation_cancels_failed_page_tasks_and_retries_the_same_cursor(self) -> None:
+        metric_ids = [self.metric.id, uuid4(), uuid4()]
+        checks = [
+            SimpleNamespace(id=uuid4(), team_id=self.team.id, subject_type=SubjectType.METRIC, subject_uuid=metric_id)
+            for metric_id in metric_ids
+        ]
+        blocked_task_started = asyncio.Event()
+        blocked_task_canceled = asyncio.Event()
+        never_release = asyncio.Event()
+        completed: list[SubjectScheduleKey] = []
+
+        async def fail_after_partial_completion(key: SubjectScheduleKey) -> None:
+            if key.subject_uuid == metric_ids[0]:
+                completed.append(key)
+                return
+            if key.subject_uuid == metric_ids[1]:
+                await blocked_task_started.wait()
+                raise RuntimeError("Temporal is unavailable")
+            blocked_task_started.set()
+            try:
+                await never_release.wait()
+            except asyncio.CancelledError:
+                blocked_task_canceled.set()
+                raise
+
+        async def page(_after_check_id: str | None) -> list[SimpleNamespace]:
+            return checks
+
+        async def retry(key: SubjectScheduleKey) -> None:
+            completed.append(key)
+
+        with (
+            patch(
+                "products.data_quality.backend.temporal.activities.reconcile_schedules.async_connect",
+                AsyncMock(return_value=self.temporal),
+            ),
+            patch(
+                "products.data_quality.backend.temporal.activities.reconcile_schedules.database_sync_to_async_pool",
+                return_value=page,
+            ),
+            patch.object(
+                SubjectSchedules, "ensure", AsyncMock(side_effect=fail_after_partial_completion)
+            ) as mocked_ensure,
+        ):
+            with self.assertRaises(ExceptionGroup):
+                async_to_sync(self._reconcile_checks)()
+            assert blocked_task_canceled.is_set()
+            mocked_ensure.side_effect = retry
+            cursor = async_to_sync(self._reconcile_checks)()
+
+        assert cursor.after_check_id == str(checks[-1].id)
+        assert (
+            completed.count(
+                SubjectScheduleKey(team_id=self.team.id, subject_type=SubjectType.METRIC, subject_uuid=metric_ids[0])
+            )
+            == 2
+        )
+
     async def _prepare_scheduled(self) -> PreparedSuite:
         return await ActivityEnvironment().run(
             prepare_check_suite_activity,
@@ -154,7 +319,7 @@ class TestSchedules(BaseTest):
     def test_scheduled_preparation_checks_temporal_state(self, _name: str, enabled: bool, exists: bool) -> None:
         self._create()
         if exists:
-            provision_metric_schedule(self.team.id, str(self.metric.id))
+            provision_schedule(self.team.id, "metric", str(self.metric.id))
             set_schedule(self.team.id, "metric", self.metric.id, enabled=enabled)
         with (
             patch(

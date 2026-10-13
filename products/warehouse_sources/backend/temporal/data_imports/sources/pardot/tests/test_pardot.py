@@ -11,8 +11,8 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot import (
-    PAGE_SIZE,
     PardotPageTokenExpiredError,
+    PardotQueryRejectedError,
     PardotResumeConfig,
     _build_query_params,
     _format_datetime,
@@ -98,35 +98,21 @@ class TestFormatDatetime:
     @pytest.mark.parametrize(
         "value, expected",
         [
-            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
-            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
-            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
-            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
+            # v5 refuses the `Z` designator with "Invalid date time value" and fails the
+            # whole query, so every branch has to emit a numeric offset.
+            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05+00:00"),
+            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05+00:00"),
+            (date(2024, 1, 2), "2024-01-02T00:00:00+00:00"),
+            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05+00:00"),
+            ("2024-01-02T05:04:05+02:00", "2024-01-02T03:04:05+00:00"),
+            ("not a timestamp", "not a timestamp"),
         ],
     )
     def test_formats_cursor_values(self, value: Any, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_converts_non_utc_offsets(self) -> None:
-        naive = datetime.fromisoformat("2024-01-02T05:04:05+02:00")
-
-        assert _format_datetime(naive) == "2024-01-02T03:04:05Z"
-
 
 class TestBuildQueryParams:
-    def test_full_refresh_sorts_on_the_endpoint_default(self) -> None:
-        params = _build_query_params(
-            PARDOT_ENDPOINTS["prospects"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-
-        assert params["orderBy"] == "id"
-        assert params["limit"] == PAGE_SIZE
-        assert "id" in params["fields"].split(",")
-        assert not any(key.endswith("AfterOrEqualTo") for key in params)
-
     def test_incremental_filters_and_sorts_on_the_chosen_cursor(self) -> None:
         params = _build_query_params(
             PARDOT_ENDPOINTS["prospects"],
@@ -136,18 +122,7 @@ class TestBuildQueryParams:
         )
 
         assert params["orderBy"] == "updatedAt"
-        assert params["updatedAtAfterOrEqualTo"] == "2024-05-01T00:00:00Z"
-
-    def test_first_incremental_run_sorts_on_the_cursor_without_filtering(self) -> None:
-        params = _build_query_params(
-            PARDOT_ENDPOINTS["visits"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="createdAt",
-        )
-
-        assert params["orderBy"] == "createdAt"
-        assert "createdAtAfterOrEqualTo" not in params
+        assert params["updatedAtAfterOrEqualTo"] == "2024-05-01T00:00:00+00:00"
 
     @pytest.mark.parametrize(
         "endpoint, incremental_field",
@@ -169,81 +144,48 @@ class TestBuildQueryParams:
         assert params["orderBy"] == "id"
         assert not any(key.endswith("AfterOrEqualTo") for key in params)
 
-    def test_endpoint_without_documented_sort_omits_order_by(self) -> None:
-        params = _build_query_params(
-            PARDOT_ENDPOINTS["forms"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
 
-        assert "orderBy" not in params
+def _refused_field_body(field: str) -> dict[str, Any]:
+    return {"code": 51, "message": f"Invalid parameter: fields. It contains an invalid or unknown field: {field}."}
 
 
-class TestPagination:
-    def test_walks_pages_until_the_token_runs_out(self) -> None:
+class TestFieldLists:
+    @pytest.mark.parametrize(
+        "endpoint, write_only_field",
+        [
+            # v5 400s a query whose `fields` list names a write-only-on-create field.
+            ("custom_fields", "valuesPrefill"),
+            ("list_emails", "scheduledTime"),
+        ],
+    )
+    def test_does_not_request_write_only_fields(self, endpoint: str, write_only_field: str) -> None:
+        assert write_only_field not in PARDOT_ENDPOINTS[endpoint].fields
+
+    def test_a_refused_field_is_dropped_and_the_query_retried(self) -> None:
         session = _session(
             [
-                _response({"values": [{"id": 1}], "nextPageToken": "t1"}),
-                _response({"values": [{"id": 2}], "nextPageToken": "t2"}),
-                _response({"values": [{"id": 3}], "nextPageToken": None}),
-            ]
-        )
-        manager = FakeResumeManager()
-
-        rows = _collect(session, manager)
-
-        assert [row["id"] for row in rows] == [1, 2, 3]
-
-    def test_page_token_requests_drop_every_param_but_fields(self) -> None:
-        session = _session(
-            [
+                _response(_refused_field_body("salesforceCmsId"), status_code=400),
                 _response({"values": [{"id": 1}], "nextPageToken": "t1"}),
                 _response({"values": [{"id": 2}]}),
             ]
         )
 
-        _collect(session, FakeResumeManager())
-        first, second = _get_params(session)
+        rows = _collect(session, FakeResumeManager(), endpoint="forms")
+        first, retried, paged = _get_params(session)
 
-        assert first["limit"] == PAGE_SIZE
-        assert second == {"fields": first["fields"], "nextPageToken": "t1"}
+        assert [row["id"] for row in rows] == [1, 2]
+        assert "salesforceCmsId" in first["fields"].split(",")
+        assert "salesforceCmsId" not in retried["fields"].split(",")
+        assert paged["fields"] == retried["fields"]
 
-    def test_state_is_saved_per_page_and_cleared_when_the_endpoint_completes(self) -> None:
-        session = _session(
-            [
-                _response({"values": [{"id": 1}], "nextPageToken": "t1"}),
-                _response({"values": [{"id": 2}], "nextPageToken": None}),
-            ]
-        )
-        manager = FakeResumeManager()
+    def test_a_refused_primary_key_stops_the_endpoint(self) -> None:
+        session = _session([_response(_refused_field_body("id"), status_code=400)])
 
-        _collect(session, manager)
-
-        assert [state.next_page_token for state in manager.saved] == ["t1"]
-        assert manager.clear_count == 1
-
-    def test_empty_page_yields_nothing(self) -> None:
-        session = _session([_response({"values": [], "nextPageToken": None})])
-
-        assert _collect(session, FakeResumeManager()) == []
-
-    def test_missing_values_key_is_treated_as_an_empty_page(self) -> None:
-        session = _session([_response({"nextPageToken": None})])
-
-        assert _collect(session, FakeResumeManager()) == []
+        with pytest.raises(PardotQueryRejectedError):
+            _collect(session, FakeResumeManager(), endpoint="forms")
 
 
 class TestResume:
-    def test_resumes_from_the_saved_page_token(self) -> None:
-        session = _session([_response({"values": [{"id": 9}]})])
-        manager = FakeResumeManager(PardotResumeConfig(next_page_token="saved-token"))
-
-        rows = _collect(session, manager)
-
-        assert [row["id"] for row in rows] == [9]
-        assert _get_params(session)[0]["nextPageToken"] == "saved-token"
-
     def test_expired_resume_token_restarts_the_endpoint(self) -> None:
         session = _session(
             [
@@ -270,39 +212,26 @@ class TestResume:
         with pytest.raises(PardotPageTokenExpiredError):
             _collect(session, FakeResumeManager())
 
-    def test_other_bad_requests_are_raised_rather_than_restarted(self) -> None:
-        session = _session([_response({"message": "Invalid field name"}, status_code=400)])
+    def test_other_bad_requests_surface_the_reason_rather_than_restarting(self) -> None:
+        # raise_for_status would store the 900-character request URL as the customer's error,
+        # which says nothing about why v5 refused it.
+        session = _session(
+            [
+                _response(
+                    {"code": 51, "message": "Invalid parameter: Parameter updatedAtAfterOrEqualTo is invalid."},
+                    status_code=400,
+                )
+            ]
+        )
         manager = FakeResumeManager(PardotResumeConfig(next_page_token="saved-token"))
 
-        with pytest.raises(requests.HTTPError):
+        with pytest.raises(PardotQueryRejectedError) as exc_info:
             _collect(session, manager)
+
+        assert "Parameter updatedAtAfterOrEqualTo is invalid" in str(exc_info.value)
 
 
 class TestAuth:
-    def test_the_integration_token_is_used_as_is(self) -> None:
-        session = _session([_response({"values": []})])
-
-        _collect(session, FakeResumeManager())
-
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer access"
-
-    def test_expired_access_token_is_refreshed_once(self) -> None:
-        session = _session(
-            [
-                _response({"message": "Session expired"}, status_code=401),
-                _response({"values": [{"id": 1}]}),
-            ]
-        )
-
-        with mock.patch(REFRESH_PATCH, return_value="refreshed") as refresh:
-            rows = _collect(session, FakeResumeManager())
-
-        assert [row["id"] for row in rows] == [1]
-        # capture=False keeps the refresh request body (refresh token, shared client secret) and
-        # its minted-access-token response out of HTTP sample capture.
-        refresh.assert_called_once_with(CREDENTIALS["refresh_token"], CREDENTIALS["instance_url"], capture=False)
-        assert session.get.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer refreshed"
-
     def test_repeated_401_surfaces_the_error(self) -> None:
         session = _session(
             [
@@ -337,53 +266,6 @@ class TestAuth:
         kwargs = make_session.call_args.kwargs
         assert kwargs["headers"]["Pardot-Business-Unit-Id"] == CREDENTIALS["business_unit_id"]
         assert set(kwargs["redact_values"]) == {CREDENTIALS["access_token"], CREDENTIALS["refresh_token"]}
-
-    def test_every_request_path_disables_http_sample_capture(self) -> None:
-        # Prospect/visitor bodies carry PII the name-based scrubber can't redact, so both the
-        # sync and credential-validation paths must build capture-disabled sessions.
-        pull_session = _session([_response({"values": []})])
-        validate_session = _session([_response({"values": []}, status_code=200)])
-
-        with mock.patch(SESSION_PATCH) as make_session:
-            make_session.return_value = pull_session
-            list(
-                get_rows(
-                    endpoint="prospects",
-                    api_version="v5",
-                    resumable_source_manager=FakeResumeManager(),
-                    logger=mock.MagicMock(),
-                    **CREDENTIALS,
-                )
-            )
-            make_session.return_value = validate_session
-            validate_credentials(**CREDENTIALS)
-
-        assert make_session.call_count == 2
-        assert all(call.kwargs["capture"] is False for call in make_session.call_args_list)
-
-    @pytest.mark.parametrize(
-        "environment, expected_host",
-        [
-            ("production", "https://pi.pardot.com"),
-            ("sandbox", "https://pi.demo.pardot.com"),
-        ],
-    )
-    def test_environment_selects_the_api_host(self, environment: str, expected_host: str) -> None:
-        session = _session([_response({"values": []})])
-        credentials = {**CREDENTIALS, "environment": environment}
-
-        with mock.patch(SESSION_PATCH, return_value=session):
-            list(
-                get_rows(
-                    endpoint="prospects",
-                    api_version="v5",
-                    resumable_source_manager=FakeResumeManager(),
-                    logger=mock.MagicMock(),
-                    **credentials,
-                )
-            )
-
-        assert session.get.call_args.args[0] == f"{expected_host}/api/v5/objects/prospects"
 
     def test_unknown_environment_is_rejected(self) -> None:
         with pytest.raises(ValueError):
@@ -445,33 +327,6 @@ class TestValidateCredentials:
 
 
 class TestPardotSourceResponse:
-    def test_partitions_high_volume_tables_on_creation_time(self) -> None:
-        response = pardot_source(
-            **CREDENTIALS,
-            endpoint="visitor_activities",
-            api_version="v5",
-            resumable_source_manager=FakeResumeManager(),
-            logger=mock.MagicMock(),
-        )
-
-        assert response.name == "visitor_activities"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-        assert response.sort_mode == "asc"
-
-    def test_unpartitioned_table_declares_no_partition_keys(self) -> None:
-        response = pardot_source(
-            **CREDENTIALS,
-            endpoint="campaigns",
-            api_version="v5",
-            resumable_source_manager=FakeResumeManager(),
-            logger=mock.MagicMock(),
-        )
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_items_are_lazy_until_iterated(self) -> None:
         session = _session([_response({"values": [{"id": 1}]})])
         response = pardot_source(

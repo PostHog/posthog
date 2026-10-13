@@ -14,7 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { getRelativeNextPath } from 'lib/utils/url'
+import { getRelativeNextPath, isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import {
     clearPendingVerificationEmail,
@@ -40,6 +40,7 @@ export interface AuthenticateResponseType {
 export interface PrecheckResponseType {
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
+    oidc_available?: boolean
     status: 'pending' | 'completed'
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
     /**
@@ -208,6 +209,7 @@ export interface loginLogicValues {
     loginTouched: boolean
     loginTouches: Record<string, boolean>
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
+    passkeyPromptedForEmail: string | null
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
     resendResponse: {
@@ -233,6 +235,9 @@ export interface loginLogicActions {
     }
     exitCodeVerification: () => {
         value: true
+    }
+    markPasskeyPrompted: (email: string) => {
+        email: string
     }
     precheck: ({ email }: { autoAttempt?: boolean; email: string }) => {
         email: string
@@ -389,6 +394,8 @@ export interface loginLogicMeta {
 
 export type loginLogicType = MakeLogicType<loginLogicValues, loginLogicActions, Record<string, any>, loginLogicMeta>
 
+const PRECHECK_IDLE_DELAY_MS = 3000
+
 export const loginLogic = kea<loginLogicType>([
     path(['scenes', 'authentication', 'login', 'loginLogic']),
     connect(() => ({
@@ -408,6 +415,7 @@ export const loginLogic = kea<loginLogicType>([
         setCodeVerificationRequired: (email: string) => ({ email }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
+        markPasskeyPrompted: (email: string) => ({ email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -451,6 +459,12 @@ export const loginLogic = kea<loginLogicType>([
                 startAutoRedirectToProvider: (_, { email }) => email,
             },
         ],
+        passkeyPromptedForEmail: [
+            null as string | null,
+            {
+                markPasskeyPrompted: (_, { email }) => email,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         precheckResponse: [
@@ -483,6 +497,7 @@ export const loginLogic = kea<loginLogicType>([
 
                     breakpoint()
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create<any>('api/login/precheck', { email })
                         return { status: 'completed', ...response, email }
                     } catch {
@@ -498,6 +513,7 @@ export const loginLogic = kea<loginLogicType>([
                 resendCodeBasedVerification: async (_, breakpoint) => {
                     breakpoint()
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create<any>('api/login/code-based-verification/resend')
                         lemonToast.success('Verification email resent')
                         return response
@@ -540,6 +556,9 @@ export const loginLogic = kea<loginLogicType>([
                 }
                 if (precheckResponse.saml_available && !methods.includes('saml')) {
                     methods.push('saml')
+                }
+                if (precheckResponse.oidc_available && !methods.includes('oidc')) {
+                    methods.push('oidc')
                 }
                 if (precheckResponse.webauthn_credentials?.length) {
                     methods.push('passkey')
@@ -590,6 +609,7 @@ export const loginLogic = kea<loginLogicType>([
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login', { email, password })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
@@ -641,6 +661,7 @@ export const loginLogic = kea<loginLogicType>([
                 breakpoint()
                 actions.clearGeneralError()
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login/code-based-verification', {
                         code: normalizeVerificationCode(code),
                         email: values.login.email,
@@ -668,6 +689,18 @@ export const loginLogic = kea<loginLogicType>([
         exitCodeVerification: () => {
             actions.resetCodeVerification()
         },
+        // Precheck once typing pauses, so SSO options show without a blur. No `autoAttempt`: a pause
+        // is not an explicit gesture, so it must not bounce the user out to an identity provider.
+        setLoginValue: async ({ name }, breakpoint) => {
+            if (name !== 'email') {
+                return
+            }
+            await breakpoint(PRECHECK_IDLE_DELAY_MS)
+            const { email } = values.login
+            if (isEmail(email, { requireTLD: true })) {
+                actions.precheck({ email })
+            }
+        },
         // Manual errors persist until the next submit, so clear the invalid-code error as soon as
         // the user edits the code, like the signup verify screen does
         setCodeVerificationValue: () => {
@@ -685,10 +718,17 @@ export const loginLogic = kea<loginLogicType>([
                 !precheckResponse.sso_enforcement &&
                 !isWebKitBrowser()
             ) {
+                const promptEmail = precheckResponse.email ?? ''
+                if (values.passkeyPromptedForEmail === promptEmail) {
+                    return
+                }
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
+                // Mark only after the last breakpoint. A newer run that starts during the import cancels
+                // this one, so the email must still be unmarked when the newer run checks it.
+                actions.markPasskeyPrompted(promptEmail)
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
                 return
             }

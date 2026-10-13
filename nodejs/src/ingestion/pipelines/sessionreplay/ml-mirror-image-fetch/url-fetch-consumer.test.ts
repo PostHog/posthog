@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import { MlKafkaTransport } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
@@ -31,6 +33,17 @@ function candidate(name: string, overrides: Partial<FetchCandidate> = {}): Fetch
         ...overrides,
     }
 }
+
+const V3_REF = `imageurl:v3:42:2026-09:${'a'.padEnd(22, '0')}`
+
+function sessionCandidate(sessionId: string, overrides: Partial<FetchCandidate> = {}): FetchCandidate {
+    return candidate('a', { originalRef: V3_REF, sessionId, ...overrides })
+}
+
+const cleartextV2Transport = {
+    read: (messages: Message[]) =>
+        Promise.resolve(messages.map((message) => ({ message, original: message, version: 2 as const }))),
+} as unknown as MlKafkaTransport
 
 function message(candidates: FetchCandidate[], key = 'example.com', partition = 0): Message {
     const value = serializeFrontierRecord(candidates)
@@ -100,7 +113,7 @@ interface Harness {
     topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
-function build(dryRun = false, deadLettersEnabled = true): Harness {
+function build(dryRun = false, deadLettersEnabled = true, keyManager?: MlKafkaTransport): Harness {
     const history = new FakeCrawlHistory()
     const run = jest.fn((candidates: FetchCandidate[], _stored: Map<string, CrawlHistoryItem>) =>
         Promise.resolve(candidates.map((item) => terminal(item)))
@@ -116,13 +129,29 @@ function build(dryRun = false, deadLettersEnabled = true): Harness {
         { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun },
         dryRun ? undefined : ({ run } as FetchPass),
         deadLettersEnabled ? ({ park } as FrontierDeadLetterSink) : null,
-        topHogMetrics
+        topHogMetrics,
+        keyManager
     )
     return { consumer, history, run, republish, flush, park, topHogRecords: recordingTopHog.records }
 }
 
 describe('UrlFetchConsumer', () => {
     afterEach(() => jest.restoreAllMocks())
+
+    it('dead-letters an unsupported version while processing valid records in the same batch', async () => {
+        const harness = build()
+        const invalid = { ...message([candidate('a')]), headers: [{ [INGESTION_VERSION_HEADER]: Buffer.from('3') }] }
+        await harness.consumer.handleBatch([invalid, message([candidate('b')])], NOW_MS)
+        expect(harness.park).toHaveBeenCalledWith(invalid, 'malformed')
+        expect(harness.run.mock.calls[0][0].map((item) => item.originalRef)).toEqual([candidate('b').originalRef])
+    })
+
+    it('fails on v2 without key manager configuration instead of dead-lettering the record', async () => {
+        const harness = build()
+        const v2 = { ...message([candidate('a')]), headers: [{ [INGESTION_VERSION_HEADER]: Buffer.from('2') }] }
+        await expect(harness.consumer.handleBatch([v2], NOW_MS)).rejects.toThrow('requires key manager configuration')
+        expect(harness.park).not.toHaveBeenCalled()
+    })
 
     it.each([Number.NaN, 0, 3_599, 3_600.5])('refuses an invalid crawl-history TTL of %p', (seenTtlSeconds) => {
         expect(
@@ -280,12 +309,20 @@ describe('UrlFetchConsumer', () => {
         }
     })
 
-    it('deduplicates one global ref within the batch', async () => {
-        const harness = build()
+    it.each([
+        ['a v1 global ref', undefined, candidate('a'), candidate('a')],
+        [
+            'a v3 ref from two sessions',
+            cleartextV2Transport,
+            sessionCandidate('01a0c669-8800-7000-8000-000000000001'),
+            sessionCandidate('01a0c669-8800-7000-8000-000000000002'),
+        ],
+    ])('deduplicates %s within the batch', async (_name, keyManager, first, second) => {
+        const harness = build(false, true, keyManager)
 
-        await harness.consumer.handleBatch([message([candidate('a')]), message([candidate('a')])], NOW_MS)
+        await harness.consumer.handleBatch([message([first]), message([second])], NOW_MS)
 
-        expect(harness.run.mock.calls[0][0]).toEqual([candidate('a', { sourcePartitions: [0] })])
+        expect(harness.run.mock.calls[0][0]).toEqual([{ ...first, sourcePartitions: [0] }])
     })
 
     it('keeps the most conservative durable state from duplicate jobs', async () => {
@@ -326,19 +363,30 @@ describe('UrlFetchConsumer', () => {
         )
     })
 
-    it('skips a URL whose crawl-history interval has not ended', async () => {
-        const harness = build()
-        harness.history.items.set(candidate('a').originalRef, {
+    it.each([
+        ['a v1 global ref', undefined, candidate('a'), candidate('b')],
+        [
+            'a v3 ref fetched for another session',
+            cleartextV2Transport,
+            sessionCandidate('01a0c669-8800-7000-8000-000000000001'),
+            candidate('b', {
+                originalRef: `imageurl:v3:42:2026-09:${'b'.padEnd(22, '0')}`,
+                sessionId: '01a0c669-8800-7000-8000-000000000001',
+            }),
+        ],
+    ])('skips %s whose crawl-history interval has not ended', async (_name, keyManager, stored, fresh) => {
+        const harness = build(false, true, keyManager)
+        harness.history.items.set(stored.originalRef, {
             kind: 'url',
-            key: candidate('a').originalRef,
+            key: stored.originalRef,
             nextFetchAtMs: NOW_MS + 1,
             storageExpiresAtMs: NOW_MS + 1,
             outcome: 'ok',
         })
 
-        await harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)
+        await harness.consumer.handleBatch([message([stored, fresh])], NOW_MS)
 
-        expect(harness.run.mock.calls[0][0]).toEqual([candidate('b', { sourcePartitions: [0] })])
+        expect(harness.run.mock.calls[0][0]).toEqual([{ ...fresh, sourcePartitions: [0] }])
     })
 
     it('republishes a job that arrives before its durable not-before time', async () => {

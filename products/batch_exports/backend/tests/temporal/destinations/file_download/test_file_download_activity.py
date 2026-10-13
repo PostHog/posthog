@@ -6,8 +6,6 @@ from django.test import override_settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
-
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload, BatchExportRun
 from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
@@ -28,6 +26,7 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     assert_clickhouse_records_in_s3,
     has_valid_credentials,
 )
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 
 pytestmark = [
     pytest.mark.requires_vendor_credentials(check=has_valid_credentials),
@@ -156,6 +155,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
         file_format=file_format,
         backfill_details=None,
         sort_key=sort_key,
+        legacy_parquet_extension=False,
     )
 
 

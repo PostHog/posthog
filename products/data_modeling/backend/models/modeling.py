@@ -19,6 +19,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import Resolver, ResolverFactory
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -478,12 +479,54 @@ def _select_queries_with_scope(
     return result
 
 
+class _SubqueryCollector(TraversingVisitor):
+    """Collect the subqueries a FROM-chain walk never reaches.
+
+    Stops at every nested select rather than descending into it, so the caller can feed
+    each one back through its own loop with the CTE scope that query can see. Skips a
+    join's table and a CTE's body for the same reason: both already have an owner.
+    """
+
+    def __init__(self, root: ast.SelectQuery) -> None:
+        self._root = root
+        self.selects: list[ast.SelectQuery | ast.SelectSetQuery] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node is self._root:
+            super().visit_select_query(node)
+            return
+        self.selects.append(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.selects.append(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        # the FROM-chain walk already reaches node.table, but nothing else reaches an ON
+        # constraint or a table function's arguments
+        self.visit(node.constraint)
+        for arg in node.table_args or []:
+            self.visit(arg)
+        self.visit(node.next_join)
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        # a CTE body is expanded where it is referenced, so that an unreferenced one stays
+        # out of the parent set
+        pass
+
+
+def _subqueries_outside_from(query: ast.SelectQuery) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    collector = _SubqueryCollector(query)
+    collector.visit(query)
+    return collector.selects
+
+
 def get_parents_from_model_query(
     team: Team, model_name: str, model_query: str, database: Database | None = None
 ) -> set[str]:
     """Get parents from a given query.
 
-    The parents of a query are any names in the `FROM` clause of the query.
+    The parents of a query are every name it reads: the `FROM` clause, and any subquery
+    that sits elsewhere — a `WHERE`, a `HAVING`, the select list, a join's `ON`.
     Uses BoundedResolver to detect circular dependencies, cap nested view
     depth, and enforce a wall-clock deadline on view references. Resolver-level
     metrics (`DAG_RESOLUTION_*`) are emitted from the resolver itself, so this
@@ -534,11 +577,31 @@ def get_parents_from_model_query(
     # lifetime of this function, so the id() identity is stable.
     expanded_ctes: set[int] = set()
 
+    def record_or_queue(select: ast.SelectQuery | ast.SelectSetQuery, scope: CteScope) -> None:
+        """Record a view by name, or queue an anonymous query to be walked.
+
+        A saved-query view is itself the parent, so descending past it would report its
+        sources instead of it. A SelectQuery view carries its name; a union body doesn't,
+        so recover that one from the resolver's id map.
+        """
+        if isinstance(select, ast.SelectQuery):
+            view_name = select.view_name
+        else:
+            view_name = resolver.union_view_name_by_id.get(id(select))
+
+        if view_name is not None:
+            parents.add(view_name)
+        else:
+            queries.extend(_select_queries_with_scope(select, scope))
+
     while queries:
         query, scope = queries.pop()
 
         if query.ctes:
             scope = (query.ctes, *scope)
+
+        for subquery in _subqueries_outside_from(query):
+            record_or_queue(subquery, scope)
 
         # a FROM clause is a next_join chain; PIVOT/UNPIVOT over a join nests another chain,
         # so keep a stack of chains still to walk
@@ -563,17 +626,7 @@ def get_parents_from_model_query(
                     join = join.next_join
                     continue
                 elif isinstance(table, ast.SelectQuery | ast.SelectSetQuery):
-                    # a saved-query view is the parent, so record it rather than descending past
-                    # it into its own sources. A SelectQuery view carries its name; a union body
-                    # doesn't, so recover it from the resolver's id map
-                    if isinstance(table, ast.SelectQuery):
-                        view_name = table.view_name
-                    else:
-                        view_name = resolver.union_view_name_by_id.get(id(table))
-                    if view_name is not None:
-                        parents.add(view_name)
-                    else:
-                        queries.extend(_select_queries_with_scope(table, scope))
+                    record_or_queue(table, scope)
                     join = join.next_join
                     continue
                 elif isinstance(table, ast.ValuesQuery):

@@ -221,7 +221,12 @@ export function LemonInputSelect<T = string>({
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
     const [itemBeingEditedIndex, setItemBeingEditedIndex] = useState<number | null>(null)
+    // The key the current edit started from, so an edit that changes nothing commits it verbatim
+    const itemBeingEditedKey = useRef<string | null>(null)
     const popoverFocusRef = useRef<boolean>(false)
+    // Picking an option blurs the input synchronously, and the blur would otherwise commit the typed
+    // search text as a custom value before (or instead of) the option the user picked.
+    const blurringForSelectionRef = useRef<boolean>(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [frozenOptions, setFrozenOptions] = useState<LemonInputSelectOption<T>[] | null>(null)
@@ -357,7 +362,7 @@ export function LemonInputSelect<T = string>({
                 // We don't want to show the input-based option again. The check for __isInput covers the case the user types something that is already an option, but we want to keep the original option
                 continue
             }
-            if (mode === 'single' && values.length > 0 && option.key === getStringKey(values[0])) {
+            if (mode === 'single' && ret[0]?.key === option.key) {
                 // In single-select mode, we've already added the selected value to the top earlier
                 continue
             }
@@ -502,19 +507,23 @@ export function LemonInputSelect<T = string>({
                 }
                 setItemBeingEditedIndex(indexOfValue)
             }
+            itemBeingEditedKey.current = item
             _setInputValue(item)
             onInputChange?.(item)
             inputRef.current?.focus()
             return
         }
         setItemBeingEditedIndex(null)
+        itemBeingEditedKey.current = null
         if (mode === 'single') {
             setShowPopover(false)
             popoverFocusRef.current = false
             // Prevent propagating to Popover's onClickInside, which would set popoverFocusRef.current back to true
             popoverOptionClickEvent?.stopPropagation()
             // Remove focus from input after selecting an option, since in single mode that feels better UX-wise
+            blurringForSelectionRef.current = true
             inputRef.current?.blur()
+            blurringForSelectionRef.current = false
         }
 
         if (stringKeys.includes(item)) {
@@ -522,6 +531,8 @@ export function LemonInputSelect<T = string>({
             // (clicking an already selected item to toggle it off makes sense for multiple-select, not for single-select)
             if (mode !== 'single') {
                 _removeItem(item)
+            } else {
+                setInputValue('')
             }
         } else {
             _addItem(item, itemBeingEditedIndex)
@@ -542,8 +553,11 @@ export function LemonInputSelect<T = string>({
             // and then the click handler sees it already exists and removes it.
             return
         }
-        if (hasCustomValue) {
-            _onActionItem(inputValue.trim(), null)
+        if (hasCustomValue && !blurringForSelectionRef.current) {
+            // An edit the person did not change must commit the value as it was. Trimming here
+            // would drop whitespace they never typed, and a value can end in a space.
+            const editedKey = itemBeingEditedKey.current
+            _onActionItem(editedKey !== null && inputValue === editedKey ? editedKey : inputValue.trim(), null)
         } else {
             setInputValue('')
         }

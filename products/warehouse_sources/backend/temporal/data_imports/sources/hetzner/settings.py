@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class HetznerEndpointConfig:
     name: str
     path: str
@@ -20,6 +20,34 @@ class HetznerEndpointConfig:
     sort: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
+    # False for single-object endpoints (e.g. /pricing) that ignore `page` and carry no
+    # `meta.pagination`, so a page-number paginator would request page 2 forever.
+    paginated: bool = True
+
+
+@dataclass(frozen=True)
+class HetznerMetricsEndpointConfig:
+    name: str
+    # Key into HETZNER_ENDPOINTS for the list whose resources the metrics fan out over.
+    parent: str
+    # Column carrying the parent resource id on every metric row.
+    parent_id_column: str
+    # Comma-separated `type` values; one request returns every series of these types.
+    metric_types: str
+
+
+@dataclass(frozen=True)
+class HetznerChildEndpointConfig:
+    name: str
+    # Key into HETZNER_ENDPOINTS for the list whose resources the child list fans out over.
+    parent: str
+    # Column carrying the parent resource id on every child row.
+    parent_id_column: str
+    # Path under `{parent path}/{id}`, e.g. "/members".
+    path_suffix: str
+    response_key: str
+    primary_keys: list[str]
+    sort: str
 
 
 # The Hetzner Cloud API exposes no server-side timestamp filter on any list endpoint (no
@@ -140,10 +168,67 @@ HETZNER_ENDPOINTS: dict[str, HetznerEndpointConfig] = {
         path="/isos",
         response_key="isos",
     ),
+    "zones": HetznerEndpointConfig(
+        name="zones",
+        path="/zones",
+        response_key="zones",
+        partition_key="created",
+        sort="id:asc",
+    ),
+    # A single object (currency, VAT rate and per-location prices for every resource kind), so it
+    # lands as one row keyed by its currency.
+    "pricing": HetznerEndpointConfig(
+        name="pricing",
+        path="/pricing",
+        response_key="pricing",
+        primary_keys=["currency"],
+        paginated=False,
+    ),
 }
 
-ENDPOINTS = tuple(HETZNER_ENDPOINTS.keys())
+# Time series per resource. Unlike the list endpoints these take a required `start`/`end` window,
+# which is a real server-side filter, so they support incremental sync on `timestamp`.
+HETZNER_METRICS_ENDPOINTS: dict[str, HetznerMetricsEndpointConfig] = {
+    "server_metrics": HetznerMetricsEndpointConfig(
+        name="server_metrics",
+        parent="servers",
+        parent_id_column="server_id",
+        metric_types="cpu,disk,network",
+    ),
+    "load_balancer_metrics": HetznerMetricsEndpointConfig(
+        name="load_balancer_metrics",
+        parent="load_balancers",
+        parent_id_column="load_balancer_id",
+        metric_types="open_connections,connections_per_second,requests_per_second,bandwidth",
+    ),
+}
 
-# Hetzner has no server-side timestamp filter, so no endpoint advertises incremental fields. Kept
-# for parity with the other sources and so `get_schemas` can read a single source of truth.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in HETZNER_ENDPOINTS}
+# Per-parent lists with no timestamps and no server-side filter, so full refresh only.
+HETZNER_CHILD_ENDPOINTS: dict[str, HetznerChildEndpointConfig] = {
+    # Servers and load balancers attached to each network. Their ids come from separate id spaces,
+    # and one resource can join several networks, so the key needs the network id and the type.
+    "network_members": HetznerChildEndpointConfig(
+        name="network_members",
+        parent="networks",
+        parent_id_column="network_id",
+        path_suffix="/members",
+        response_key="members",
+        primary_keys=["network_id", "type", "id"],
+        sort="id:asc",
+    ),
+}
+
+ENDPOINTS = (*HETZNER_ENDPOINTS.keys(), *HETZNER_METRICS_ENDPOINTS.keys(), *HETZNER_CHILD_ENDPOINTS.keys())
+
+_TIMESTAMP_FIELD = IncrementalField(
+    label="timestamp",
+    type=IncrementalFieldType.DateTime,
+    field="timestamp",
+    field_type=IncrementalFieldType.DateTime,
+)
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    **{name: [] for name in HETZNER_ENDPOINTS},
+    **{name: [] for name in HETZNER_CHILD_ENDPOINTS},
+    **{name: [_TIMESTAMP_FIELD] for name in HETZNER_METRICS_ENDPOINTS},
+}

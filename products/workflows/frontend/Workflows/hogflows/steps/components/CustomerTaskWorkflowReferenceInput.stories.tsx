@@ -19,14 +19,21 @@ const meta: Meta<typeof CustomerTaskWorkflowReferenceInput> = {
                 },
             },
         },
+        // Wait for the editor itself: `.monaco-editor` also matches Monaco's shared overflow root on
+        // <body>, which exists before any editor mounts.
+        testOptions: {
+            waitForSelector: '.CodeEditor[data-editor-ready="true"]',
+        },
     },
 }
 export default meta
 
 const Template: StoryFn<typeof CustomerTaskWorkflowReferenceInput> = (args) => {
     const [input, setInput] = useState<CyclotronJobInputType>(args.input)
+    // A fixed width, not max-w: the snapshot root shrink-wraps its content, so Monaco would take
+    // whatever width the root had at the moment it mounted.
     return (
-        <div className="p-4 max-w-lg">
+        <div className="p-4 w-[32rem]">
             <CustomerTaskWorkflowReferenceInput {...args} input={input} onChange={setInput} />
         </div>
     )

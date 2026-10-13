@@ -2,9 +2,12 @@
 
 import pytest
 
+from django.db.models import F
+
 from parameterized import parameterized
 
-from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, SnapshotResult
+from products.visual_review.backend.db import WRITER_DB
+from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunType, SnapshotResult
 from products.visual_review.backend.logic import comment_markdown, comments, github_api
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -205,13 +208,28 @@ class TestApprovalComment:
         comments._post_approval_comment(run_with_snapshots, repo)
         spy.assert_not_called()
 
-    def test_post_approval_comment_skips_when_no_existing_comment_id(self, repo, run_with_snapshots, mocker):
+    def test_post_approval_comment_posts_when_no_existing_comment_id(self, repo, run_with_snapshots, mocker):
+        # No review prompt was posted for this run, but the approval still belongs on the PR
         run_with_snapshots.metadata = {}
         run_with_snapshots.save(update_fields=["metadata"])
 
-        spy = mocker.patch.object(github_api, "_github_api_request")
+        class PostResp:
+            status_code = 201
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"id": 7777}
+
+        spy = mocker.patch.object(github_api, "_github_api_request", return_value=PostResp())
         comments._post_approval_comment(run_with_snapshots, repo)
-        spy.assert_not_called()
+
+        spy.assert_called_once()
+        kwargs = spy.call_args.kwargs
+        assert kwargs["method"] == "POST"
+        assert kwargs["path"] == "issues/42/comments"
+        run_with_snapshots.refresh_from_db()
+        assert run_with_snapshots.metadata["github_comment_id"] == 7777
 
     def test_post_approval_comment_patches_existing_comment(self, repo, run_with_snapshots, mocker):
         class FakeResp:
@@ -510,3 +528,214 @@ class TestApprovalComment:
         assert url is not None
         assert "full_h" in url
         assert "thumb_h" not in url
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestReviewPromptComment:
+    """Tests for the PR comment that asks for a visual review."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return Repo.objects.create(
+            team_id=team.id,
+            repo_external_id=77777,
+            repo_full_name="test-org/prompt-repo",
+            enable_pr_comments=True,
+        )
+
+    @staticmethod
+    def _mk_run(repo, commit_sha, **kwargs):
+        """A run with one changed snapshot, self-superseded so the next run can be created.
+
+        Only the latest run per (repo, branch, run type) may be un-superseded, and
+        `create_run` supersedes the previous one before inserting the new one.
+        """
+        run_type = kwargs.get("run_type", RunType.OTHER)
+        Run.objects.filter(repo=repo, run_type=run_type, superseded_by__isnull=True).update(superseded_by=F("id"))
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha=commit_sha,
+            branch="feature",
+            pr_number=42,
+            **kwargs,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Login/Form",
+            current_hash="curr",
+            baseline_hash="base",
+            result=SnapshotResult.CHANGED,
+        )
+        return run
+
+    @staticmethod
+    def _post_response(comment_id):
+        class PostResp:
+            status_code = 201
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"id": comment_id}
+
+        return PostResp()
+
+    def test_posts_a_new_comment_when_the_pr_has_none(self, repo, mocker):
+        run = self._mk_run(repo, "aaa111")
+        spy = mocker.patch.object(github_api, "_github_api_request", return_value=self._post_response(5001))
+
+        comments._post_review_prompt_comment(run, repo)
+
+        spy.assert_called_once()
+        kwargs = spy.call_args.kwargs
+        assert kwargs["method"] == "POST"
+        assert kwargs["path"] == "issues/42/comments"
+        assert "Visual changes detected" in kwargs["json"]["body"]
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] == 5001
+
+    def test_rewrites_an_approval_comment_and_posts_a_new_one(self, repo, mocker):
+        # The reviewer already approved: rewriting that comment into a review prompt
+        # sends no notification, so the approval is kept and a new prompt is posted.
+        approved = self._mk_run(
+            repo,
+            "aaa111",
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+            metadata={"github_comment_id": 5001},
+        )
+        run = self._mk_run(repo, "bbb222")
+
+        class PatchResp:
+            status_code = 200
+            text = ""
+
+        spy = mocker.patch.object(
+            github_api, "_github_api_request", side_effect=[self._post_response(5002), PatchResp()]
+        )
+
+        comments._post_review_prompt_comment(run, repo)
+
+        post_call, patch_call = (call.kwargs for call in spy.call_args_list)
+        assert patch_call["method"] == "PATCH"
+        assert patch_call["path"] == "issues/comments/5001"
+        assert "✅ **Visual changes approved**" in patch_call["json"]["body"]
+        assert "covered an earlier revision" in patch_call["json"]["body"]
+        assert f"/visual_review/runs/{approved.id}" in patch_call["json"]["body"]
+        assert post_call["method"] == "POST"
+        assert f"/visual_review/runs/{run.id}" in post_call["json"]["body"]
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] == 5002
+
+    def test_deletes_an_unanswered_prompt_and_posts_a_new_one(self, repo, mocker):
+        self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+
+        class DeleteResp:
+            status_code = 204
+            text = ""
+
+        spy = mocker.patch.object(
+            github_api, "_github_api_request", side_effect=[self._post_response(5002), DeleteResp()]
+        )
+
+        comments._post_review_prompt_comment(run, repo)
+
+        post_call, delete_call = (call.kwargs for call in spy.call_args_list)
+        assert delete_call["method"] == "DELETE"
+        assert delete_call["path"] == "issues/comments/5001"
+        assert post_call["method"] == "POST"
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] == 5002
+
+    @pytest.mark.parametrize("status", [403, 404], ids=["delete_failed", "comment_gone"])
+    def test_posts_a_new_comment_even_when_the_old_one_cannot_be_retired(self, status, repo, mocker):
+        self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+
+        class DeleteResp:
+            status_code = status
+            text = "nope"
+
+        mocker.patch.object(github_api, "_github_api_request", side_effect=[self._post_response(5002), DeleteResp()])
+
+        comments._post_review_prompt_comment(run, repo)
+
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] == 5002
+
+    def test_keeps_the_prompt_of_another_run_type(self, repo, mocker):
+        # Each run type has its own gate and its own approval, so the other type's
+        # run is still waiting for a reviewer.
+        other_type = self._mk_run(repo, "aaa111", run_type=RunType.STORYBOOK, metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222", run_type=RunType.PLAYWRIGHT)
+
+        spy = mocker.patch.object(github_api, "_github_api_request", return_value=self._post_response(5002))
+
+        comments._post_review_prompt_comment(run, repo)
+
+        spy.assert_called_once()
+        assert spy.call_args.kwargs["method"] == "POST"
+        other_type.refresh_from_db()
+        assert other_type.metadata["github_comment_id"] == 5001
+        assert other_type.superseded_by_id is None
+
+    def test_keeps_the_previous_comment_when_the_new_prompt_cannot_be_posted(self, repo, mocker):
+        # Retiring first would take the PR down to no prompt at all.
+        previous = self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+
+        class PostResp:
+            status_code = 500
+            text = "boom"
+
+        spy = mocker.patch.object(github_api, "_github_api_request", return_value=PostResp())
+
+        comments._post_review_prompt_comment(run, repo)
+
+        spy.assert_called_once()
+        assert spy.call_args.kwargs["method"] == "POST"
+        previous.refresh_from_db()
+        assert previous.metadata["github_comment_id"] == 5001
+        run.refresh_from_db()
+        assert "github_comment_id" not in run.metadata
+
+    def test_keeps_the_new_prompt_when_retirement_raises(self, repo, mocker):
+        self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+
+        mocker.patch.object(
+            github_api, "_github_api_request", side_effect=[self._post_response(5002), RuntimeError("boom")]
+        )
+
+        comments._post_review_prompt_comment(run, repo)
+
+        run.refresh_from_db()
+        assert run.metadata["github_comment_id"] == 5002
+
+    def test_reads_the_previous_run_from_the_writer(self, repo, mocker):
+        # Both aliases share one database under test, so only the call records
+        # that a replica read cannot decide between rewriting and deleting.
+        self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        run = self._mk_run(repo, "bbb222")
+        using = mocker.spy(Run.objects, "using")
+
+        previous = comments._previous_comment(repo, 42, run.run_type, exclude_run_id=run.id)
+
+        using.assert_called_once_with(WRITER_DB)
+        assert previous is not None and previous[1] == 5001
+
+    def test_skips_a_run_that_already_commented(self, repo, mocker):
+        run = self._mk_run(repo, "aaa111", metadata={"github_comment_id": 5001})
+        spy = mocker.patch.object(github_api, "_github_api_request")
+
+        comments._post_review_prompt_comment(run, repo)
+
+        spy.assert_not_called()
+
+    def test_swallows_exceptions(self, repo, mocker):
+        run = self._mk_run(repo, "aaa111")
+        mocker.patch.object(github_api, "_github_api_request", side_effect=RuntimeError("boom"))
+
+        comments._post_review_prompt_comment(run, repo)

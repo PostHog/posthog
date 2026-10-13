@@ -11,6 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
+import { TrustedRelaySenderSettings } from '../../components/TrustedRelaySenderSettings/TrustedRelaySenderSettings'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
 
 interface DnsRecord {
@@ -18,6 +19,27 @@ interface DnsRecord {
     name: string
     value: string
     valid: string
+}
+
+function defaultEmailDisabledReason(
+    adminRestrictionReason: string | null | undefined,
+    config: EmailConfigStatus,
+    isSettingAnyDefault: boolean
+): string | undefined {
+    if (adminRestrictionReason) {
+        return adminRestrictionReason
+    }
+    if (config.is_default) {
+        return 'This is already the primary email address'
+    }
+    if (isSettingAnyDefault) {
+        return 'Updating the primary address…'
+    }
+    return undefined
+}
+
+function trustedRelaySenderValue(config: EmailConfigStatus, trustedRelaySenderDrafts: Record<string, string>): string {
+    return trustedRelaySenderDrafts[config.id] ?? config.trusted_relay_sender ?? ''
 }
 
 function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | null {
@@ -61,19 +83,32 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
 }
 
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
-    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId } =
-        useValues(supportSettingsLogic)
-    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail } = useActions(supportSettingsLogic)
+    const {
+        emailVerifyingConfigId,
+        emailTestingConfigId,
+        settingDefaultEmailConfigId,
+        trustedRelaySenderDrafts,
+        trustedRelaySavingConfigId,
+    } = useValues(supportSettingsLogic)
+    const {
+        disconnectEmail,
+        verifyEmailDomain,
+        sendTestEmail,
+        setDefaultEmail,
+        setTrustedRelaySenderDraft,
+        saveTrustedRelaySender,
+    } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
-    const sendingRecords = config.dns_records?.sending_dns_records as DnsRecord[] | undefined
+    const sendingRecords = (config.dns_records?.sending_dns_records as DnsRecord[] | undefined) ?? []
     const isVerifying = emailVerifyingConfigId === config.id
     const isTesting = emailTestingConfigId === config.id
     const isSettingDefault = settingDefaultEmailConfigId === config.id
     const isSettingAnyDefault = settingDefaultEmailConfigId !== null
+    const trustedRelaySender = trustedRelaySenderValue(config, trustedRelaySenderDrafts)
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -84,7 +119,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 <label className="font-medium text-sm">Domain verification</label>
                 <p className="text-xs text-muted-alt mb-1">Add DNS records to enable outbound sending (SPF/DKIM).</p>
 
-                {sendingRecords && sendingRecords.length > 0 && <DnsRecordsTable records={sendingRecords} />}
+                <DnsRecordsTable records={sendingRecords} />
 
                 {!config.domain_verified && (
                     <LemonBanner type="info" className="mt-2">
@@ -120,20 +155,25 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 </div>
             </div>
 
+            {config.trusted_relay_sender !== undefined && (
+                <TrustedRelaySenderSettings
+                    configId={config.id}
+                    value={trustedRelaySender}
+                    savedValue={config.trusted_relay_sender}
+                    restrictionReason={adminRestrictionReason}
+                    savingConfigId={trustedRelaySavingConfigId}
+                    onChange={(value) => setTrustedRelaySenderDraft(config.id, value)}
+                    onSave={() => saveTrustedRelaySender(config.id)}
+                />
+            )}
+
             {/* Default + disconnect */}
             <div className="flex justify-between items-center border-t pt-2">
                 <LemonButton
                     type="secondary"
                     size="small"
                     loading={isSettingDefault}
-                    disabledReason={
-                        adminRestrictionReason ??
-                        (config.is_default
-                            ? 'This is already the primary email address'
-                            : isSettingAnyDefault
-                              ? 'Updating the primary address…'
-                              : undefined)
-                    }
+                    disabledReason={defaultEmailDisabledReason(adminRestrictionReason, config, isSettingAnyDefault)}
                     tooltip="Tickets opened from the widget are sent from the primary address"
                     onClick={() => setDefaultEmail(config.id)}
                 >

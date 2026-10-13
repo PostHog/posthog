@@ -12,6 +12,9 @@ import {
 
 const routing = vi.hoisted(() => ({ href: "/inbox", channelsLayout: true }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => routing.channelsLayout,
 }));

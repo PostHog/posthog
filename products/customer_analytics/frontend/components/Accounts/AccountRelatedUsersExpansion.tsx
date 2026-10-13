@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
+import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -13,6 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 import { columnValueFilter } from '../columnValueFilter'
 import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
 const LEVEL_FILTER_OPTIONS = [
@@ -24,17 +28,21 @@ const LEVEL_FILTER_OPTIONS = [
     label: capitalizeFirstLetter(membershipLevelToName.get(level) ?? 'Unknown'),
 }))
 
+interface AccountRelatedUsersExpansionProps extends AccountViewTileLogicProps {
+    externalId: string
+    embedded?: boolean
+}
+
 export function AccountRelatedUsersExpansion({
     externalId,
     embedded = true,
-}: {
-    externalId: string
-    embedded?: boolean
-}): JSX.Element {
-    const logic = accountRelatedUsersLogic({ externalId })
+    ...tileProps
+}: AccountRelatedUsersExpansionProps): JSX.Element {
+    const logic = accountRelatedUsersLogic({ externalId, ...tileProps })
     const { membersResponse, membersResponseLoading, page, searchTerm, levels, sorting } = useValues(logic)
     const { user } = useValues(userLogic)
     const { setPage, setSearchTerm, setLevels, setSorting } = useActions(logic)
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
@@ -111,17 +119,24 @@ export function AccountRelatedUsersExpansion({
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonInput
-                type="search"
-                value={searchTerm}
-                onChange={setSearchTerm}
-                placeholder="Search users by name or email..."
-                maxLength={200}
-                size="small"
-                className="min-w-64"
-                data-attr="customer-analytics-account-users-search"
-            />
+            <div
+                className="flex flex-wrap items-center justify-between gap-2"
+                data-attr="customer-analytics-account-users-toolbar"
+            >
+                <LemonInput
+                    type="search"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    placeholder="Search users by name or email..."
+                    maxLength={200}
+                    size="small"
+                    className="min-w-64 max-w-80 grow"
+                    data-attr="customer-analytics-account-users-search"
+                />
+                <div ref={setBulkBarTarget} className="flex items-center empty:hidden" />
+            </div>
             <LemonTable<AccountOrganizationMember>
+                key={externalId}
                 size="small"
                 embedded={embedded}
                 dataSource={membersResponse?.results ?? []}
@@ -139,6 +154,38 @@ export function AccountRelatedUsersExpansion({
                     entryCount: membersResponse?.count ?? 0,
                     onForward: () => setPage(page + 1),
                     onBackward: () => setPage(page - 1),
+                }}
+                bulkSelection={{
+                    getKey: (member) => member.user.email,
+                    isRowSelectable: (member) =>
+                        member.user.email ? true : { disabledReason: 'This user has no email address' },
+                    noun: ['user', 'users'],
+                    rowAriaLabel: (member) =>
+                        `Select user ${fullName(member.user) || member.user.email || 'without an email address'}`,
+                    headerAriaLabel: 'Select all users on this page',
+                    barPortalTarget: bulkBarTarget,
+                    renderActions: (context) => (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            data-attr="customer-analytics-account-users-copy-emails"
+                            onClick={() => {
+                                void copyToClipboard(
+                                    context.selectedKeys.join('\n'),
+                                    context.selectedCount === 1 ? 'email address' : 'email addresses'
+                                ).then((copied) => {
+                                    if (copied) {
+                                        posthog.capture(AccountsEvents.RelatedUserEmailsCopied, {
+                                            user_count: context.selectedCount,
+                                        })
+                                    }
+                                })
+                            }}
+                        >
+                            Copy email addresses
+                        </LemonButton>
+                    ),
                 }}
                 emptyState={
                     !externalId

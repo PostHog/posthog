@@ -12,11 +12,13 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
+    LemonTagType,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -49,6 +51,7 @@ import {
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import {
+    IncrementalSyncBlockedMessageMap,
     SYNC_FREQUENCY_ORDER,
     StatusTagSetting,
     SyncFrequencyLabelMap,
@@ -57,7 +60,7 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
-import { sourceSettingsLogic } from './sourceSettingsLogic'
+import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -69,6 +72,44 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
         AccessControlLevel.Editor,
         schema.user_access_level
     )
+
+// Only data columns use this, so the sync toggle and row actions still look clickable on a schema that is not syncing.
+const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
+    schema.should_sync ? '' : 'opacity-60'
+
+interface SchemaStatusDisplay {
+    type: LemonTagType
+    label: string
+    tooltip: string | null
+}
+
+const schemaStatusDisplay = (
+    schema: ExternalDataSourceSchema,
+    status: ExternalDataSchemaStatus
+): SchemaStatusDisplay => {
+    // An empty table after a completed sync usually means a row filter that matches nothing, a missing
+    // permission, or an empty source. An incremental sync that finds no new rows still leaves rows in
+    // the table, so it doesn't trigger this.
+    const completedWithNoRows =
+        status === ExternalDataSchemaStatus.Completed &&
+        !!schema.last_synced_at &&
+        (schema.table ? schema.table.row_count === 0 : true)
+    if (completedWithNoRows) {
+        const filterHint = schema.row_filters?.length
+            ? ' Check that the row filters on this table match some rows.'
+            : ''
+        return {
+            type: 'warning',
+            label: 'Completed, no rows',
+            tooltip: `The sync finished but brought in no rows. Check that the source has data and that the account you connected can read it.${filterHint} Open the sync logs for details.`,
+        }
+    }
+    return {
+        type: StatusTagSetting[status] || 'default',
+        label: status,
+        tooltip: status === ExternalDataSchemaStatus.Failed ? (schema.latest_error ?? null) : null,
+    }
+}
 
 export interface SchemasTabProps {
     id: string
@@ -391,6 +432,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Schema',
                     key: 'name',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name),
                     render: function RenderName(_, schema) {
                         const fullName = schema.label ?? schema.name
@@ -398,6 +440,9 @@ function ManagedSchemaTable({
                         return (
                             <LemonTableLink
                                 to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id)}
+                                // Renders the description outside the anchor, so a click on the copy button
+                                // copies the table name and does not open the schema page.
+                                truncateDescription
                                 title={
                                     <div className="flex items-center gap-1">
                                         <span>{name}</span>
@@ -410,7 +455,17 @@ function ManagedSchemaTable({
                                 }
                                 description={((): JSX.Element | undefined => {
                                     const tableName = schema.table?.hogql_name ?? schema.table?.name
-                                    return tableName ? <code>{tableName}</code> : undefined
+                                    return tableName ? (
+                                        <CopyToClipboardInline
+                                            explicitValue={tableName}
+                                            description="table name"
+                                            selectable
+                                            iconSize="xsmall"
+                                            data-attr="source-schema-table-name-copy"
+                                        >
+                                            <code>{tableName}</code>
+                                        </CopyToClipboardInline>
+                                    ) : undefined
                                 })()}
                             />
                         )
@@ -419,6 +474,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Status',
                     key: 'status',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => (a.status ?? '').localeCompare(b.status ?? ''),
                     render: (_, schema) => {
                         if (!schema.status) {
@@ -432,17 +488,14 @@ function ManagedSchemaTable({
                                 }).url
                             )
                         }
+                        const { type, label, tooltip } = schemaStatusDisplay(schema, schema.status)
                         const tagContent = (
-                            <LemonTag
-                                type={StatusTagSetting[schema.status] || 'default'}
-                                forceClickable
-                                onClick={openSyncsForSchema}
-                            >
-                                {schema.status}
+                            <LemonTag type={type} forceClickable onClick={openSyncsForSchema}>
+                                {label}
                             </LemonTag>
                         )
-                        return schema.latest_error && schema.status === 'Failed' ? (
-                            <Tooltip title={schema.latest_error} interactive>
+                        return tooltip ? (
+                            <Tooltip title={tooltip} interactive>
                                 {tagContent}
                             </Tooltip>
                         ) : (
@@ -453,22 +506,33 @@ function ManagedSchemaTable({
                 {
                     title: 'Sync method',
                     key: 'sync_type',
-                    render: (_, schema) =>
-                        schema.sync_type ? (
-                            <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
-                        ) : (
-                            <span className="text-muted">Not set up</span>
-                        ),
+                    className: dimWhenNotSyncing,
+                    render: (_, schema) => {
+                        if (!schema.sync_type) {
+                            return <span className="text-muted">Not set up</span>
+                        }
+                        const blockedReason = schema.incremental_sync_blocked
+                        if (!blockedReason) {
+                            return <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        }
+                        return (
+                            <Tooltip title={IncrementalSyncBlockedMessageMap[blockedReason]} interactive>
+                                <LemonTag type="warning">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Frequency',
                     key: 'sync_frequency',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => frequencyRank(a.sync_frequency) - frequencyRank(b.sync_frequency),
                     render: (_, schema) => (schema.sync_frequency ? SyncFrequencyLabelMap[schema.sync_frequency] : '—'),
                 },
                 {
                     title: 'Last synced',
                     key: 'last_synced_at',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) =>
                         (a.last_synced_at ? dayjs(a.last_synced_at).valueOf() : 0) -
                         (b.last_synced_at ? dayjs(b.last_synced_at).valueOf() : 0),
@@ -482,6 +546,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Row count',
                     key: 'rows_synced',
+                    className: dimWhenNotSyncing,
                     align: 'right',
                     sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),
                     render: (_, schema) => {
@@ -509,6 +574,7 @@ function ManagedSchemaTable({
                           {
                               title: 'Rows synced (7d)',
                               key: 'rows_synced_sparkline',
+                              className: dimWhenNotSyncing,
                               render: function RenderSparkline(_: unknown, schema: ExternalDataSourceSchema) {
                                   const lastSyncedAt = schema.last_synced_at ? dayjs(schema.last_synced_at) : null
                                   const syncedWithin7Days =
@@ -549,9 +615,12 @@ function ManagedSchemaTable({
                                 <LemonSwitch
                                     checked={schema.should_sync}
                                     onChange={(active) => {
-                                        if (active && !schema.sync_type) {
+                                        if (active && (!schema.sync_type || schema.incremental_sync_blocked)) {
                                             // No sync method saved yet — send the user to set one up
-                                            // before the schema can be enabled.
+                                            // before the schema can be enabled. A schema whose sync
+                                            // method a run proved unusable goes to the same place,
+                                            // because the sync settings hold every resolution and
+                                            // re-enabling here would only repeat the failure.
                                             router.actions.push(
                                                 urls.dataWarehouseSourceSchema(
                                                     prefixedSourceId,
@@ -657,6 +726,7 @@ function SchemaBulkActions({
         bulkEnable,
         bulkDisable,
         bulkSetFrequency,
+        bulkSetSyncMethod,
         bulkSyncNow,
         bulkResync,
         bulkDeleteData,
@@ -698,6 +768,22 @@ function SchemaBulkActions({
         })
     }
 
+    const onSetSyncMethod = (syncType: BulkSyncMethod): void => {
+        LemonDialog.open({
+            title: `Set ${pluralize(count, 'table', 'tables')} to ${SyncTypeLabelMap[syncType]}?`,
+            description:
+                syncType === 'full_refresh'
+                    ? 'Every sync re-reads the whole table, and every row counts towards your bill. Best for tables that are small, or that have no unique primary key to sync incrementally on.'
+                    : 'New rows are added without matching them against what is already synced. Rows that change in the source arrive again as duplicates, so this suits tables that are only ever inserted into.',
+            primaryButton: {
+                children: 'Set sync method',
+                type: 'primary',
+                onClick: () => run(() => bulkSetSyncMethod(selected, syncType)),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
     const onDisable = (): void => {
         const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
         if (!hasDataLossType) {
@@ -733,6 +819,24 @@ function SchemaBulkActions({
             >
                 <LemonButton type="secondary" size="small">
                     Set frequency
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu
+                items={[
+                    {
+                        label: SyncTypeLabelMap.full_refresh,
+                        disabledReason: bulkSyncMethodDisabledReason(selected, 'full_refresh'),
+                        onClick: () => onSetSyncMethod('full_refresh'),
+                    },
+                    {
+                        label: SyncTypeLabelMap.append,
+                        disabledReason: bulkSyncMethodDisabledReason(selected, 'append'),
+                        onClick: () => onSetSyncMethod('append'),
+                    },
+                ]}
+            >
+                <LemonButton type="secondary" size="small">
+                    Set sync method
                 </LemonButton>
             </LemonMenu>
             <LemonButton type="secondary" size="small" onClick={() => run(() => bulkSyncNow(selected))}>

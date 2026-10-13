@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -55,13 +57,20 @@ def _build_fetcher_query(config: SignalSourceTableConfig, last_synced_at: str | 
         result.columns = []
         return result
 
+    # A source with a scope gets an allowlist, so its scope expression is parsed by this sweep too.
+    source_config = {config.scope_config_key: ["scope-1", "scope-2"]} if config.scope_config_key else {}
     with patch(
         "products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", side_effect=fake_execute
     ):
         data_warehouse_record_fetcher(
             team=MagicMock(),
             config=config,
-            context={"table_name": "source.table", "last_synced_at": last_synced_at, "extra": {}},
+            context={
+                "table_name": "source.table",
+                "last_synced_at": last_synced_at,
+                "extra": {},
+                "source_config": source_config,
+            },
         )
     return captured["query"]
 
@@ -209,6 +218,14 @@ class TestSignalSourceTableConfigValidation:
         assert config.summarization_prompt is None
         assert config.description_summarization_threshold_chars is None
 
+    @pytest.mark.parametrize(
+        "fields",
+        [{"scope_field": "JSONExtractString(team, 'id')"}, {"scope_config_key": "linear_team_ids"}],
+    )
+    def test_rejects_half_a_scope_pair(self, fields):
+        with pytest.raises(ValidationError, match="scope_field and scope_config_key must both be set or both be None"):
+            SignalSourceTableConfig(**{**_BASE_FIELDS, **fields})
+
 
 # Captured at import, before the _clean_registry fixture can touch it.
 _REGISTERED_IDENTITIES = sorted({(c.source_product, c.source_type) for c in _SIGNAL_TABLE_CONFIGS.values()})
@@ -270,3 +287,17 @@ class TestRegisteredConfigsBuildValidHogQL:
             key: _unknown_function_names(_build_fetcher_query(config, last_synced_at)) for key, config in configs
         }
         assert {key: names for key, names in unknown.items() if names} == {}
+
+    # The warehouse import renames every column to snake_case, so a camelCase name fails every sync.
+    def test_every_source_selects_snake_case_columns(self):
+        configs = self._hogql_configs()
+        assert len(configs) > 1, "the registry sweep matched no warehouse-backed source"
+        not_snake_case = {
+            key: [
+                name
+                for name in (*config.fields, config.partition_field)
+                if re.fullmatch(r"\w+", name) and not re.fullmatch(r"[a-z0-9_]+", name)
+            ]
+            for key, config in configs
+        }
+        assert {key: names for key, names in not_snake_case.items() if names} == {}

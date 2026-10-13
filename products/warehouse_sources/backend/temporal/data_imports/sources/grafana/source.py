@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -50,15 +48,15 @@ class GrafanaSource(ResumableSource[GrafanaSourceConfig, GrafanaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GRAFANA,
+            name=ExternalDataSourceType.GRAFANA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Grafana",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Grafana instance URL and credentials to pull your Grafana metadata (dashboards, folders, alert rules, annotations, and more) into the PostHog Data warehouse.
 
-Create a service account token under **Administration > Users and access > Service accounts** in your Grafana instance. A Viewer role covers most tables; users, teams, data sources, service accounts, and alert rules need extra read permissions (`users:read`, `teams:read`, `datasources:read`, `serviceaccounts:read`, `alert.provisioning:read`).
+Create a service account token under **Administration > Users and access > Service accounts** in your Grafana instance. A Viewer role covers most tables; users, teams, team members, data sources, service accounts, and alert rules need extra read permissions (`users:read`, `teams:read`, `teams.permissions:read`, `datasources:read`, `serviceaccounts:read`, `alert.provisioning:read`). Grafana only shows dashboard versions to accounts that can edit the dashboard (`dashboards:write`), such as the Editor role.
 
-Self-hosted Grafana OSS can alternatively authenticate with a username and password. Grafana Cloud only supports service account tokens.""",
+Self-hosted Grafana OSS can alternatively authenticate with a username and password. Grafana Cloud only supports service account tokens. The organizations table lists every organization on the instance, so it needs a Grafana server admin username and password.""",
             iconPath="/static/services/grafana.png",
             docsUrl="https://posthog.com/docs/cdp/sources/grafana",
             fields=cast(
@@ -181,6 +179,10 @@ Self-hosted Grafana OSS can alternatively authenticate with a username and passw
                 )
             if endpoint == "dashboards":
                 return "Dashboard metadata from the search API; does not include panel definitions"
+            if endpoint == "dashboard_versions":
+                return "Saved versions of every dashboard. Needs permission to edit dashboards"
+            if endpoint == "orgs":
+                return "Every organization on the instance. Needs a Grafana server admin username and password"
             return None
 
         # Only annotations expose a server-side time filter (from/to); every other endpoint is

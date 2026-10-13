@@ -181,6 +181,14 @@ scopes
 visible
 """
 
+# A PostReactionParticipant exposes only the reacting member; the post and reaction key that
+# complete the row come from the fan-out that reaches this connection.
+_POST_REACTION_PARTICIPANT_NODE_FIELDS = """
+participant {
+id
+}
+"""
+
 _MODERATION_NODE_FIELDS = """
 id
 status
@@ -222,6 +230,9 @@ class BettermodeEndpointConfig:
     fan_out_replies: bool = False
     # Fan out one connection per space, for root fields that require `spaceId: ID!`.
     fan_out_spaces: bool = False
+    # Fan out one `postReactionParticipants(postId, reaction)` connection per (post, reaction)
+    # pair, for the members who left each reaction on a post.
+    fan_out_post_reactions: bool = False
     # Root field returns a plain list instead of a Relay connection — no limit/after args.
     is_list: bool = False
 
@@ -295,6 +306,18 @@ BETTERMODE_ENDPOINTS: dict[str, BettermodeEndpointConfig] = {
         query_field="postTypes",
         node_fields=_POST_TYPE_NODE_FIELDS,
         page_size=100,
+    ),
+    "post_reaction_participants": BettermodeEndpointConfig(
+        query_field="postReactionParticipants",
+        node_fields=_POST_REACTION_PARTICIPANT_NODE_FIELDS,
+        extra_args={"postId": "ID!", "reaction": "ID!"},
+        page_size=100,
+        # A row is unique per post, reaction key, and member; `postId` and `reaction` are
+        # injected from the fan-out because the participant node carries only the member.
+        primary_keys=["postId", "reaction", "memberId"],
+        # PostReactionParticipant has no timestamp, so there is nothing stable to partition on.
+        partition_key=None,
+        fan_out_post_reactions=True,
     ),
     "collections": BettermodeEndpointConfig(
         query_field="collections",

@@ -5,6 +5,8 @@ from typing import Any, Optional
 import requests
 from requests import PreparedRequest, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import (
     CANNY_API_VERSION_V2,
     CANNY_ENDPOINTS,
@@ -150,10 +152,23 @@ class CannyCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def _use_v2_cursor(config: CannyEndpointConfig, api_version: str) -> bool:
+@frozen
+class CannyWire:
+    """How to request one endpoint's list under a resolved version pin."""
+
+    path: str
+    data_key: str
+    cursor_paginated: bool
+
+
+def _resolve_wire(config: CannyEndpointConfig, api_version: str) -> CannyWire:
     # v2 moves only the endpoints Canny reimplemented behind cursor pagination (those with a
-    # `v2_path`); every other endpoint stays on its v1 skip/limit wire even under a v2 pin.
-    return api_version == CANNY_API_VERSION_V2 and config.v2_path is not None
+    # `v2_path`); every other endpoint stays on its v1 path even under a v2 pin. A v1 path may
+    # still be cursor-paginated in its own right — Canny shipped the Ideas-era endpoints that way.
+    if api_version == CANNY_API_VERSION_V2 and config.v2_path is not None:
+        assert config.v2_data_key is not None
+        return CannyWire(path=config.v2_path, data_key=config.v2_data_key, cursor_paginated=True)
+    return CannyWire(path=config.path, data_key=config.data_key, cursor_paginated=config.cursor_paginated)
 
 
 def canny_source(
@@ -165,21 +180,17 @@ def canny_source(
     api_version: str,
 ) -> SourceResponse:
     config = CANNY_ENDPOINTS[endpoint]
-    use_cursor = _use_v2_cursor(config, api_version)
-    if use_cursor:
-        # _use_v2_cursor only returns True when both v2 fields are set.
-        assert config.v2_path is not None and config.v2_data_key is not None
-        path, data_key = config.v2_path, config.v2_data_key
-    else:
-        path, data_key = config.path, config.data_key
+    wire = _resolve_wire(config, api_version)
 
     def extract_records(body: dict[str, Any]) -> list[dict[str, Any]]:
         # Canny nests the record array under a per-endpoint key; anything else (missing key,
         # non-list value) is treated as an empty page, matching how the source always behaved.
-        records = body.get(data_key)
+        records = body.get(wire.data_key)
         return records if isinstance(records, list) else []
 
-    paginator: BasePaginator = CannyCursorPaginator() if use_cursor else CannyPaginator(paginated=config.paginated)
+    paginator: BasePaginator = (
+        CannyCursorPaginator() if wire.cursor_paginated else CannyPaginator(paginated=config.paginated)
+    )
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -190,7 +201,7 @@ def canny_source(
             {
                 "name": endpoint,
                 "endpoint": {
-                    "path": path,
+                    "path": wire.path,
                     "method": "post",
                     "paginator": paginator,
                 },
@@ -205,14 +216,14 @@ def canny_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = {"cursor": resume.cursor} if use_cursor else {"offset": resume.skip}
+            initial_paginator_state = {"cursor": resume.cursor} if wire.cursor_paginated else {"offset": resume.skip}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
         # the last page (the merge dedupes on the primary key) rather than skipping it.
         if not state:
             return
-        if use_cursor:
+        if wire.cursor_paginated:
             if state.get("cursor") is not None:
                 resumable_source_manager.save_state(CannyResumeConfig(cursor=str(state["cursor"])))
         elif state.get("offset") is not None:

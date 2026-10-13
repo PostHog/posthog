@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,15 +54,17 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MOLLIE,
+            name=ExternalDataSourceType.MOLLIE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Mollie",
             caption="""Enter your Mollie API key to pull your Mollie payments data into the PostHog Data warehouse.
 
-You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashboard/developers/api-keys) under Developers > API keys. Use a live key (`live_...`) for production data — test keys only return test-mode data.""",
+You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashboard/developers/api-keys) under Developers > API keys. Use a live key (`live_...`) for production data — test keys only return test-mode data.
+
+The balances, balance transactions, settlements and profiles tables are organization-level data that Mollie only shares with an [organization access token](https://docs.mollie.com/docs/authentication). To sync them, connect an access token (`access_...`) that is scoped to your payment profile and has read permissions for those resources.""",
             iconPath="/static/services/mollie.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mollie",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

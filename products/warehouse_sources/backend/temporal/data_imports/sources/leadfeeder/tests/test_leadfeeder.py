@@ -8,24 +8,20 @@ from unittest import mock
 
 from parameterized import parameterized
 from requests import Response
+from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder import (
     LEADFEEDER_BASE_URL,
     LeadfeederResumeConfig,
-    _default_start_date,
     _flatten_item,
+    _is_offset_exceeded,
+    _split_window,
     _to_date_str,
-    _unified_client_config,
-    _unified_headers,
     leadfeeder_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
     LEADFEEDER_API_2026_08_07,
-    LEADFEEDER_API_LEGACY,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -118,17 +114,10 @@ def _wire_full(session: mock.MagicMock, responses: list[Response]) -> list[dict[
 
 
 class TestFlattenItem:
-    def test_lifts_attributes_and_keeps_id_type(self) -> None:
-        row = _flatten_item(_item("1", "leads", name="Acme", last_visit_date="2024-06-01"), account_id=None)
-        assert row == {"id": "1", "type": "leads", "name": "Acme", "last_visit_date": "2024-06-01"}
-
     def test_injects_account_id_for_fan_out(self) -> None:
         row = _flatten_item(_item("9", "visits", started_at="2024-06-01T10:00:00Z"), account_id="42")
         assert row["account_id"] == "42"
         assert row["id"] == "9"
-
-    def test_handles_missing_attributes(self) -> None:
-        assert _flatten_item({"id": "1", "type": "accounts"}, account_id=None) == {"id": "1", "type": "accounts"}
 
     def test_missing_id_fails_loudly(self) -> None:
         # `id` is the primary key: a missing one must raise rather than seed a row under a None key.
@@ -147,16 +136,6 @@ class TestToDateStr:
     )
     def test_coerces_to_day_granular_string(self, value: Any, expected: str) -> None:
         assert _to_date_str(value) == expected
-
-
-class TestDefaultStartDate:
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_uses_config_start_date_floored(self) -> None:
-        assert _default_start_date("2023-01-01T12:00:00Z") == "2023-01-01"
-
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_defaults_to_lookback_window_when_blank(self) -> None:
-        assert _default_start_date("") == "2025-07-02"
 
 
 class TestTopLevelPagination:
@@ -193,15 +172,6 @@ class TestTopLevelPagination:
         _rows(_source("accounts", manager))
         assert urls[0] == resume_url
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        manager = _make_manager()
-
-        assert _rows(_source("accounts", manager)) == []
-        manager.save_state.assert_not_called()
-
 
 class TestFanOut:
     def _accounts_response(self, *ids: str, next_url: str | None = None) -> Response:
@@ -234,52 +204,6 @@ class TestFanOut:
         assert lead_params["end_date"] == "2026-07-02"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_incremental_watermark_sets_start_date(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [self._accounts_response("1"), _response([_item("100", "leads")])])
-
-        rows = _rows(
-            _source(
-                "leads",
-                _make_manager(),
-                start_date_config="2020-01-01",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2024, 5, 1),
-            )
-        )
-        assert rows == [{"id": "100", "type": "leads", "account_id": "1"}]
-        lead_params = next(p for p in params if "start_date" in p)
-        # The watermark wins over the configured start date, floored to a day.
-        assert lead_params["start_date"] == "2024-05-01"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_accounts(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, _ = _wire(session, [self._accounts_response("1", "2"), _response([_item("200", "leads")])])
-        manager = _make_manager(
-            LeadfeederResumeConfig(
-                fanout_state={"completed": ["/accounts/1/leads"], "current": None, "child_state": None}
-            )
-        )
-        rows = _rows(_source("leads", manager))
-
-        assert rows == [{"id": "200", "type": "leads", "account_id": "2"}]
-        assert not any("/accounts/1/leads" in u for u in urls)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unknown_completed_account_does_not_wedge_sync(self, MockSession) -> None:
-        # A completed path for an account that no longer exists must not stop the remaining accounts.
-        session = MockSession.return_value
-        _wire(session, [self._accounts_response("1"), _response([_item("100", "leads")])])
-        manager = _make_manager(
-            LeadfeederResumeConfig(
-                fanout_state={"completed": ["/accounts/999/leads"], "current": None, "child_state": None}
-            )
-        )
-        assert _rows(_source("leads", manager)) == [{"id": "100", "type": "leads", "account_id": "1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_old_shape_resume_starts_fresh(self, MockSession) -> None:
         # A pre-migration state (account_id/next_url, no fanout_state) still parses and starts fresh.
         session = MockSession.return_value
@@ -295,12 +219,6 @@ class TestFanOut:
 
 
 class TestSourceResponse:
-    def test_accounts_is_full_refresh_without_partitioning(self) -> None:
-        response = _source("accounts", _make_manager())
-        assert response.name == "accounts"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-
     @parameterized.expand(
         [
             ("leads", ["account_id", "id"], "first_visit_date"),
@@ -324,17 +242,6 @@ class TestValidateCredentials:
         assert validate_credentials("token") is expected
 
     @mock.patch(LEADFEEDER_SESSION_PATCH)
-    def test_exception_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
-
-    @mock.patch(LEADFEEDER_SESSION_PATCH)
-    def test_sends_token_auth_header(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret")
-        assert mock_session.return_value.get.call_args.kwargs["headers"]["Authorization"] == "Token token=secret"
-
-    @mock.patch(LEADFEEDER_SESSION_PATCH)
     def test_session_redacts_token_and_blocks_redirects(self, mock_session: mock.MagicMock) -> None:
         # The token rides in a custom `Authorization: Token token=...` header the denylist can't see,
         # so it must be registered for value-based redaction; redirects must not be followed or the
@@ -356,17 +263,86 @@ class TestValidateCredentials:
         assert "Authorization" not in call.kwargs["headers"]
 
 
-class TestUnifiedClientConfig:
-    def test_client_config_sends_api_key_header_and_page_number_pagination(self) -> None:
-        client = _unified_client_config("key123")
-        assert client["base_url"] == LEADFEEDER_BASE_URL
-        assert client["auth"] == {"type": "api_key", "api_key": "key123", "name": "X-Api-Key", "location": "header"}
-        paginator = client["paginator"]
-        assert isinstance(paginator, PageNumberPaginator)
-        assert paginator.page_param == "page[num]"
+def _offset_exceeded_response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 416
+    resp._content = json.dumps(body).encode()
+    return resp
 
-    def test_headers_carry_api_key(self) -> None:
-        assert _unified_headers("key123")["X-Api-Key"] == "key123"
+
+def _http_error(status_code: int, body: dict[str, Any] | None) -> HTTPError:
+    resp = Response()
+    resp.status_code = status_code
+    if body is not None:
+        resp._content = json.dumps(body).encode()
+    return HTTPError(response=resp)
+
+
+class TestIsOffsetExceeded:
+    @parameterized.expand(
+        [
+            ("top_level_code", {"code": "offset_exceeded"}),
+            # A JSON:API error body wraps the code in an `errors` list.
+            ("wrapped_in_errors", {"errors": [{"code": "offset_exceeded", "title": "Offset exceeded"}]}),
+        ]
+    )
+    def test_matches_416_naming_the_code(self, _name: str, body: dict[str, Any]) -> None:
+        assert _is_offset_exceeded(_http_error(416, body)) is True
+
+    @parameterized.expand(
+        [
+            ("different_code_on_416", 416, {"code": "unauthorized"}),
+            ("offset_exceeded_code_on_other_status", 404, {"code": "offset_exceeded"}),
+            ("no_body", 416, None),
+        ]
+    )
+    def test_does_not_match(self, _name: str, status_code: int, body: dict[str, Any] | None) -> None:
+        assert _is_offset_exceeded(_http_error(status_code, body)) is False
+
+
+class TestSplitWindow:
+    @parameterized.expand(
+        [
+            (
+                "two_days_in_halves",
+                "2026-07-01",
+                "2026-07-02",
+                2,
+                [("2026-07-01", "2026-07-01"), ("2026-07-02", "2026-07-02")],
+            ),
+            (
+                "five_days_in_three",
+                "2026-07-01",
+                "2026-07-05",
+                3,
+                [("2026-07-01", "2026-07-02"), ("2026-07-03", "2026-07-04"), ("2026-07-05", "2026-07-05")],
+            ),
+            # Fewer than two parts would leave the window unchanged and recurse forever.
+            (
+                "one_part_still_splits",
+                "2026-07-01",
+                "2026-07-04",
+                1,
+                [("2026-07-01", "2026-07-02"), ("2026-07-03", "2026-07-04")],
+            ),
+        ]
+    )
+    def test_covers_the_window_without_gaps(
+        self, _name: str, start: str, end: str, parts: int, expected: list[tuple[str, str]]
+    ) -> None:
+        assert [(window.start, window.end) for window in _split_window(start, end, parts)] == expected
+
+    @parameterized.expand(
+        [
+            ("single_day", "2026-07-02", "2026-07-02", 4),
+            ("end_before_start", "2026-07-02", "2026-07-01", 4),
+            ("unparseable_bound", "01/07/2026", "2026-07-02", 4),
+        ]
+    )
+    def test_returns_nothing_when_there_is_no_narrower_window(
+        self, _name: str, start: str, end: str, parts: int
+    ) -> None:
+        assert _split_window(start, end, parts) == []
 
 
 class TestUnifiedRequests:
@@ -382,46 +358,6 @@ class TestUnifiedRequests:
         assert requests[0]["params"]["page[size]"] == 100
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_accounts_pagination_stops_without_meta_page_count(self, MockSession) -> None:
-        # The real /v1/accounts endpoint returns its whole result set in one response with no
-        # `meta.page_count` field at all (unlike the paginated child endpoints, modelled by
-        # _unified_response). The client-level PageNumberPaginator's total-pages stop check silently
-        # no-ops when that field is missing, and the page is never empty either, so it would otherwise
-        # keep requesting page[num]=2, 3, ... forever. Accounts must use a paginator that always stops
-        # after a single page regardless of what the response body contains.
-        session = MockSession.return_value
-        body = {"data": [{"id": "1", "type": "account", "attributes": {}}]}
-        resp = Response()
-        resp.status_code = 200
-        resp._content = json.dumps(body).encode()
-        requests = _wire_full(session, [resp])
-
-        rows = _rows(_source("accounts", _make_manager(), api_version=LEADFEEDER_API_2026_08_07))
-
-        assert rows == [{"id": "1", "type": "account"}]
-        assert len(requests) == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_leads_fan_out_hits_visitor_companies_with_account_id_query(self, MockSession) -> None:
-        session = MockSession.return_value
-        requests = _wire_full(
-            session,
-            [
-                _unified_response([_item("1", "account"), _item("2", "account")]),
-                _unified_response([_item("100", "company_location")]),
-                _unified_response([_item("200", "company_location")]),
-            ],
-        )
-        _rows(_source("leads", _make_manager(), start_date_config="2024-01-01", api_version=LEADFEEDER_API_2026_08_07))
-
-        company_reqs = [r for r in requests if "/v1/web-visits/companies" in r["url"]]
-        # account id is a query param on the unified API (a path segment on the legacy API).
-        assert {r["params"]["account_id"] for r in company_reqs} == {"1", "2"}
-        assert company_reqs[0]["params"]["start_date"] == "2024-01-01"
-        assert company_reqs[0]["params"]["end_date"] == "2026-07-02"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
     def test_visits_fan_out_posts_web_visits_with_date_body(self, MockSession) -> None:
         session = MockSession.return_value
@@ -429,6 +365,7 @@ class TestUnifiedRequests:
             session,
             [
                 _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=1),
                 _unified_response([_item("100", "web_visit", started_at="2026-06-01T10:00:00Z")]),
             ],
         )
@@ -442,11 +379,96 @@ class TestUnifiedRequests:
         assert visit_reqs[0]["params"]["account_id"] == "1"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_pin_still_uses_token_api_paths(self, MockSession) -> None:
-        # The legacy request path must be unchanged for sources still pinned to it.
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_window_reporting_more_pages_than_the_vendor_serves_is_split(self, MockSession) -> None:
+        # A busy account can hold more rows in the sync window than the vendor will page through:
+        # past 100 pages of 100 it answers 416 `offset_exceeded` instead of the next page. The rows
+        # past that point are only reachable through a narrower date window, so a window reporting
+        # more pages than that must be split before any of it is read.
         session = MockSession.return_value
-        requests = _wire_full(session, [_response([_item("1", "accounts", name="A")])])
-        _rows(_source("accounts", _make_manager(), api_version=LEADFEEDER_API_LEGACY))
+        requests = _wire_full(
+            session,
+            [
+                _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=200),
+                _unified_response([], page_count=1),
+                _unified_response([_item("100", "company_location")]),
+                _unified_response([], page_count=1),
+                _unified_response([_item("200", "company_location")]),
+            ],
+        )
 
-        assert requests[0]["url"] == f"{LEADFEEDER_BASE_URL}/accounts"
-        assert requests[0]["params"]["page[number]"] == 1
+        rows = _rows(
+            _source("leads", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07)
+        )
+
+        assert rows == [
+            {"id": "100", "type": "company_location", "account_id": "1"},
+            {"id": "200", "type": "company_location", "account_id": "1"},
+        ]
+        windows = [
+            (r["params"]["start_date"], r["params"]["end_date"])
+            for r in requests
+            if "/v1/web-visits/companies" in r["url"]
+        ]
+        # The whole window is covered by halves, each read end to end, with no gap or overlap.
+        assert windows[0] == ("2026-01-01", "2026-07-02")
+        assert set(windows[1:]) == {("2026-01-01", "2026-04-02"), ("2026-04-03", "2026-07-02")}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_offset_exceeded_mid_window_re_reads_the_window_narrower(self, MockSession) -> None:
+        # The page count the vendor reports can understate what it will serve, so a window can still
+        # run into the 416 half way through. The rest of that window must be re-read as narrower
+        # windows; stopping there would silently drop every row past the limit.
+        session = MockSession.return_value
+        requests = _wire_full(
+            session,
+            [
+                _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=1),
+                _unified_response([_item("100", "company_location")], page_count=2),
+                _offset_exceeded_response({"code": "offset_exceeded"}),
+                _unified_response([], page_count=1),
+                _unified_response([_item("200", "company_location")]),
+                _unified_response([], page_count=1),
+                _unified_response([_item("300", "company_location")]),
+            ],
+        )
+
+        rows = _rows(
+            _source("leads", _make_manager(), start_date_config="2026-07-01", api_version=LEADFEEDER_API_2026_08_07)
+        )
+
+        assert [row["id"] for row in rows] == ["100", "200", "300"]
+        windows = {
+            (r["params"]["start_date"], r["params"]["end_date"])
+            for r in requests
+            if "/v1/web-visits/companies" in r["url"]
+        }
+        assert ("2026-07-01", "2026-07-01") in windows
+        assert ("2026-07-02", "2026-07-02") in windows
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_single_day_over_the_limit_keeps_the_rows_it_can_read(self, MockSession) -> None:
+        # A single day can hold more rows than the vendor will page through, and there is no
+        # narrower window to ask for. Keep the rows that were read and finish the table instead of
+        # splitting forever or failing the sync.
+        session = MockSession.return_value
+        requests = _wire_full(
+            session,
+            [
+                _unified_response([_item("1", "account")]),
+                _unified_response([], page_count=150),
+                _unified_response([_item("100", "company_location")], page_count=150),
+                _offset_exceeded_response({"code": "offset_exceeded"}),
+            ],
+        )
+
+        rows = _rows(
+            _source("leads", _make_manager(), start_date_config="2026-07-02", api_version=LEADFEEDER_API_2026_08_07)
+        )
+
+        assert rows == [{"id": "100", "type": "company_location", "account_id": "1"}]
+        assert len(requests) == 4

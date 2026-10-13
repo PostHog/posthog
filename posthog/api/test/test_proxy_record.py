@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.db import DatabaseError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -367,6 +367,84 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not ProxyRecord.objects.filter(organization=self.organization, domain=domain).exists()
         mock_sync_connect.assert_not_called()
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_allowlisted_org_can_create_reserved_posthog_domain(self, mock_capture, mock_sync_connect):
+        mock_sync_connect.return_value = AsyncMock()
+
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/",
+                {"domain": "internal-cf.posthog.com"},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert ProxyRecord.objects.filter(organization=self.organization, domain="internal-cf.posthog.com").exists()
+
+    @parameterized.expand(
+        [
+            # A different reserved apex (shared Cloudflare/legacy CNAME target) — never exempt.
+            ("shared_target", "cf-prod-eu-proxy.europehog.com"),
+            # The posthog.com apex itself — the exception covers proper subdomains only.
+            ("apex", "posthog.com"),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_allowlisted_org_cannot_create_non_subdomain_reserved(self, _name, domain, mock_sync_connect):
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/",
+                {"domain": domain},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ProxyRecord.objects.filter(domain=domain).exists()
+        mock_sync_connect.assert_not_called()
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_allowlisted_org_can_retry_reserved_posthog_domain(self, mock_capture, mock_sync_connect):
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="internal-cf.posthog.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.WAITING
+        mock_temporal.start_workflow.assert_called_once()
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_allowlisted_org_cannot_retry_reserved_apex(self, mock_sync_connect):
+        # Even allowlisted, the posthog.com apex is not a permitted subdomain, so retry refuses it.
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="posthog.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_sync_connect.assert_not_called()
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.ERRORING
 
     @patch("posthog.api.proxy_record.sync_connect")
     def test_create_cleans_up_on_temporal_failure(self, mock_sync_connect):

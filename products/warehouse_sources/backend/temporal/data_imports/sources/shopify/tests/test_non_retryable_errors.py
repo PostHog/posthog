@@ -34,6 +34,26 @@ def test_graphql_access_denied_is_non_retryable(error_message):
 @pytest.mark.parametrize(
     "error_message",
     [
+        "Shopify GraphQL error: This app is not approved to access the Customer object. Access to "
+        "personally identifiable information (PII) like customer names, addresses, emails, phone "
+        "numbers is only available on Shopify, Advanced, and Plus plans. Learn more: "
+        "https://admin.shopify.com/store/example-store/settings/apps/development/123456789/configuration",
+        "Shopify GraphQL error: This app is not approved to access the Order object. Access to "
+        "personally identifiable information (PII) like customer names, addresses, emails, phone "
+        "numbers is only available on Shopify, Advanced, and Plus plans. Learn more: "
+        "https://admin.shopify.com/store/example-store/settings/apps/development/123456789/configuration",
+    ],
+)
+def test_graphql_pii_plan_restricted_is_non_retryable(error_message):
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"GraphQL PII-plan-restricted error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
         "Shopify GraphQL error: Throttled",
         "Shopify: internal error from request 500 Internal Server Error",
         "Unexpected graphql response format in Shopify rows read. Keys: ['extensions']",

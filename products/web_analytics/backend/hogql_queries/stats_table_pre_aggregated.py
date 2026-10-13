@@ -248,6 +248,18 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
         )
 
+        if self.runner.query.includeTrafficMetrics:
+            query.select.insert(
+                2,
+                ast.Alias(
+                    alias="context.columns.sessions",
+                    expr=self._period_comparison_tuple(
+                        "sessions_uniq_state",
+                        "uniqMergeIf",
+                        period_filters=period_filters,
+                    ),
+                ),
+            )
         return query
 
     def _default_breakdown_query_with_conversions(self, *, period_filters: PeriodFilters) -> ast.SelectQuery:
@@ -292,6 +304,20 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
         )
 
+        if self.runner.query.includeTrafficMetrics:
+            for offset, metric in enumerate(["sessions", "views"]):
+                query.select.insert(
+                    2 + offset,
+                    ast.Alias(
+                        alias=f"context.columns.{metric}",
+                        expr=ast.Tuple(
+                            exprs=[
+                                ast.Field(chain=["stats", f"{metric}_current"]),
+                                ast.Field(chain=["stats", f"{metric}_previous"]),
+                            ]
+                        ),
+                    ),
+                )
         return query
 
     def _build_stats_subquery(
@@ -325,6 +351,23 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 ),
             ),
         ]
+
+        if self.runner.query.includeTrafficMetrics:
+            for metric, state, function in [
+                ("sessions", "sessions_uniq_state", "uniqMergeIf"),
+                ("views", "pageviews_count_state", "sumMergeIf"),
+            ]:
+                for period, period_filter in [("current", current_period_filter), ("previous", previous_period_filter)]:
+                    stats_select_columns.append(
+                        ast.Alias(
+                            alias=f"{metric}_{period}",
+                            expr=(
+                                ast.Call(name=function, args=[ast.Field(chain=[state]), period_filter])
+                                if period == "current" or self.runner.query_compare_to_date_range
+                                else ast.Constant(value=0)
+                            ),
+                        )
+                    )
 
         stats_query = ast.SelectQuery(
             select=cast(list[ast.Expr], stats_select_columns),
@@ -506,6 +549,26 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         else:
             query = self._default_breakdown_query()
 
+        if self.runner.query.includeTrafficMetrics and not self.runner.query.conversionGoal:
+            if self.runner.query.breakdownBy in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
+                table = (
+                    self.bounces_table
+                    if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE
+                    else self.stats_table
+                )
+                query.select.insert(
+                    2,
+                    ast.Alias(
+                        alias="context.columns.sessions",
+                        expr=self._period_comparison_tuple(
+                            "sessions_uniq_state",
+                            "uniqMergeIf",
+                            period_filters=self.get_date_ranges(table_name=table),
+                            table_prefix=table,
+                        ),
+                    ),
+                )
+
         query.order_by = [self._get_order_by()]
 
         fill_fraction_expr = self.runner._fill_fraction(query.order_by)
@@ -519,7 +582,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             column = None
             direction: Literal["ASC", "DESC"] = "DESC"
             field = cast(WebAnalyticsOrderByFields, self.runner.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.runner.query.orderBy[1]).value
+            if len(self.runner.query.orderBy) > 1:
+                direction = cast(WebAnalyticsOrderByDirection, self.runner.query.orderBy[1]).value
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"

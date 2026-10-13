@@ -31,6 +31,7 @@ export type Filters = {
     preset: FlakinessPreset
     typeKeys: string[]
     areas: string[]
+    teams: string[]
     search: string
     sort: FlakinessSort
 }
@@ -43,6 +44,7 @@ const EMPTY_FILTERS: Filters = {
     preset: 'needs_decision',
     typeKeys: [],
     areas: [],
+    teams: [],
     search: '',
     sort: 'failures',
 }
@@ -68,15 +70,23 @@ function typeLabelOf(key: string): string {
     return key
 }
 
+// Pinned to UNOWNED_TEAM in the engineering analytics facade, which the backend sends for a story
+// file that no ownership entry covers.
+const UNOWNED_TEAM = 'unowned'
+
+function teamLabelOf(team: string): string {
+    return team === UNOWNED_TEAM ? 'No owner' : team
+}
+
 function matchesPreset(entry: DecoratedEntry, preset: FlakinessPreset): boolean {
     switch (preset) {
         case 'broken':
         case 'unstable':
         case 'at_risk':
             return entry.flakiness_state === preset
-        // The catch-all. See `FlakinessStatRow` for why these two share a tile.
+        // The catch-all. See `FlakinessStatRow` for why it exists.
         case 'quiet':
-            return entry.flakiness_state === 'noisy' || entry.flakiness_state === 'clean'
+            return entry.flakiness_state === 'clean'
         case 'quarantined':
             return entry.is_quarantined
         case 'needs_decision':
@@ -120,6 +130,13 @@ function applyFilters(
             return false
         }
         if (exclude !== 'areas' && filters.areas.length && !filters.areas.includes(entry._area)) {
+            return false
+        }
+        if (
+            exclude !== 'teams' &&
+            filters.teams.length &&
+            !(entry.owner_team && filters.teams.includes(entry.owner_team))
+        ) {
             return false
         }
         if (exclude !== 'search' && search && !entry.identifier.toLowerCase().includes(search)) {
@@ -223,10 +240,12 @@ export interface visualReviewFlakinessSceneLogicActions {
         runType: string,
         reason: string,
         expiresAt: string | null,
-        sourceRunId: string | null
+        sourceRunId: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifier: string
+        notifyOwners: boolean
         reason: string
         runType: string
         sourceRunId: string | null
@@ -248,6 +267,9 @@ export interface visualReviewFlakinessSceneLogicActions {
         sort: FlakinessSort
     }
     toggleArea: (value: string) => {
+        value: string
+    }
+    toggleTeam: (value: string) => {
         value: string
     }
     toggleType: (value: string) => {
@@ -297,6 +319,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         landOnPreset: (preset: FlakinessPreset) => ({ preset }),
         toggleType: (value: string) => ({ value }),
         toggleArea: (value: string) => ({ value }),
+        toggleTeam: (value: string) => ({ value }),
         setSearch: (search: string) => ({ search }),
         setSort: (sort: FlakinessSort) => ({ sort }),
         clearAllFilters: true,
@@ -305,13 +328,15 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             runType: string,
             reason: string,
             expiresAt: string | null,
-            sourceRunId: string | null
+            sourceRunId: string | null,
+            notifyOwners: boolean = false
         ) => ({
             identifier,
             runType,
             reason,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineIdentifier: (identifier: string, runType: string) => ({ identifier, runType }),
         quarantineSettled: (identifier: string, runType: string) => ({ identifier, runType }),
@@ -367,6 +392,12 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                         ? state.areas.filter((area) => area !== value)
                         : [...state.areas, value],
                 }),
+                toggleTeam: (state, { value }) => ({
+                    ...state,
+                    teams: state.teams.includes(value)
+                        ? state.teams.filter((team) => team !== value)
+                        : [...state.teams, value],
+                }),
                 setSearch: (state, { search }) => ({ ...state, search }),
                 setSort: (state, { sort }) => ({ ...state, sort }),
                 clearAllFilters: (state) => ({ ...EMPTY_FILTERS, preset: state.preset }),
@@ -411,7 +442,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 broken: overview?.totals.broken ?? 0,
                 unstable: overview?.totals.unstable ?? 0,
                 at_risk: overview?.totals.at_risk ?? 0,
-                quiet: (overview?.totals.noisy ?? 0) + (overview?.totals.clean ?? 0),
+                quiet: overview?.totals.clean ?? 0,
                 quarantined: overview?.totals.quarantined ?? 0,
             }),
         ],
@@ -424,6 +455,12 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 ),
                 area: bucketize(applyFilters(entries, filters, 'areas').map((entry) => entry._area)),
                 stability: [],
+                team: bucketize(
+                    applyFilters(entries, filters, 'teams').flatMap((entry) =>
+                        entry.owner_team ? [entry.owner_team] : []
+                    ),
+                    teamLabelOf
+                ),
             }),
         ],
         facetSelection: [
@@ -432,6 +469,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 type: new Set(filters.typeKeys),
                 area: new Set(filters.areas),
                 stability: new Set<string>(),
+                team: new Set(filters.teams),
             }),
         ],
         thumbnailBasePath: [
@@ -465,7 +503,9 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             // the whole population while the entry list stops at the cap, so a
             // tile can read 12 with none of those twelve actually listed, and
             // landing on it would show a filled tile above an empty table.
-            const rows = values.decoratedEntries
+            // Every other filter applies, so a link that names a team lands on
+            // a preset that team has rows in.
+            const rows = applyFilters(values.decoratedEntries, values.filters, 'preset')
             const has = (preset: FlakinessPreset): boolean => rows.some((entry) => matchesPreset(entry, preset))
             if (has(values.filters.preset)) {
                 return
@@ -475,7 +515,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 actions.landOnPreset(populated)
             }
         },
-        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId }) => {
+        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId, notifyOwners }) => {
             try {
                 await visualReviewReposQuarantineCreate(String(values.currentProjectId), props.repoId, runType, {
                     identifier,
@@ -485,6 +525,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                     // old row and creates a replacement, so dropping this loses the link
                     // to the run that prompted the quarantine.
                     source_run_id: sourceRunId,
+                    notify_owners: notifyOwners,
                 })
                 lemonToast.success('Quarantined. Runs stop gating on this snapshot.')
             } catch (e: any) {
@@ -525,6 +566,9 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             if (filters.areas.length) {
                 hash.areas = filters.areas.join(',')
             }
+            if (filters.teams.length) {
+                hash.teams = filters.teams.join(',')
+            }
             if (filters.search) {
                 hash.q = filters.search
             }
@@ -539,6 +583,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             setPreset: toUrl,
             toggleType: toUrl,
             toggleArea: toUrl,
+            toggleTeam: toUrl,
             setSearch: toUrl,
             setSort: toUrl,
             // Not an empty hash: the preset survives a clear, and dropping it from
@@ -557,6 +602,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 preset: presetFromHash(hash.preset),
                 typeKeys: hash.types ? hash.types.split(',') : [],
                 areas: hash.areas ? hash.areas.split(',') : [],
+                teams: hash.teams ? hash.teams.split(',') : [],
                 search: hash.q ?? '',
                 sort: hash.sort === 'recent' ? 'recent' : 'failures',
             }
@@ -575,6 +621,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             }
             syncToggles(next.typeKeys, current.typeKeys, actions.toggleType)
             syncToggles(next.areas, current.areas, actions.toggleArea)
+            syncToggles(next.teams, current.teams, actions.toggleTeam)
         },
     })),
     afterMount(({ actions }) => {

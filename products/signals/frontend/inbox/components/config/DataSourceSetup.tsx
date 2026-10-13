@@ -3,12 +3,11 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
-
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 import SourceForm from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { WAREHOUSE_SOURCE_SETUP, WarehouseBackedSource } from '../../signalSourcesLogic'
 
@@ -27,7 +26,7 @@ export function DataSourceSetup({
         return <LemonSkeleton />
     }
 
-    const sourceConfig = Object.values(availableSources).find((s: SourceConfig) => s.name === dwSourceType)
+    const sourceConfig = Object.values(availableSources).find((s: SourceConfigResponseApi) => s.name === dwSourceType)
     if (!sourceConfig) {
         return <div>Source not found</div>
     }
@@ -46,7 +45,7 @@ export function DataSourceSetup({
     )
 }
 
-function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfig }): JSX.Element {
+function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfigResponseApi }): JSX.Element {
     const { isLoading, canGoNext } = useValues(sourceWizardLogic)
     const { setInitialConnector, onSubmit } = useActions(sourceWizardLogic)
 

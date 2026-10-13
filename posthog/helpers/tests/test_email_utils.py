@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
@@ -48,6 +49,34 @@ class TestEmailNormalizer(TestCase):
             with self.subTest(input_email=input_email):
                 result = EmailNormalizer.normalize(input_email)
                 self.assertEqual(result, expected)
+
+    @parameterized.expand(
+        [
+            ("dotted_capital_i", "owner@İstanbul.example"),
+            ("dotless_i", "ownerı@example.com"),
+            ("long_s", "owner@ſtrasse.example"),
+            ("kelvin_sign", "owner@Klvin.example"),
+            ("capital_sharp_s", "owner@ẞtrasse.example"),
+            ("accented_capital", "ÖWNER@example.com"),
+            ("plain_ascii", "OWNER@Example.com"),
+        ]
+    )
+    def test_normalizing_does_not_change_what_postgres_folds_the_address_to(self, _name: str, typed: str) -> None:
+        # Every lookup resolves through Postgres LOWER. An address a person types must therefore
+        # still fold onto the row that normalizing wrote, whatever characters it holds.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT LOWER(%s), LOWER(%s)", [EmailNormalizer.normalize(typed), typed])
+            folded_stored, folded_typed = cursor.fetchone()
+
+        self.assertEqual(folded_stored, folded_typed)
+
+    def test_account_created_with_a_dotted_capital_i_resolves_from_the_typed_address(self) -> None:
+        user = User.objects.create_user(email="Owner@İstanbul.example", password="testpass123", first_name="Owner")
+
+        self.assertEqual(user.email, "owner@İstanbul.example")
+        self.assertEqual(EmailLookupHandler.get_user_by_email("Owner@İstanbul.example"), user)
+        # Postgres folds `İ` onto a plain `i`, so the ASCII spelling reaches the same row.
+        self.assertEqual(EmailLookupHandler.get_user_by_email("owner@istanbul.example"), user)
 
 
 class TestEmailLookupHandler(TestCase):
@@ -252,6 +281,29 @@ class TestUserExistsWithStrippedAlias(TestCase):
         user = User.objects.create(email=stored_email, first_name="Base")
         try:
             self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias(looked_up_email))
+        finally:
+            user.delete()
+
+
+class TestUserExistsWithGmailCanonical(TestCase):
+    @parameterized.expand(
+        [
+            ("dotted_lookup_plain_stored", "someone@gmail.com", "some.one@gmail.com", True),
+            ("plain_lookup_dotted_stored", "s.o.m.e.one@gmail.com", "someone@gmail.com", True),
+            ("alias_and_dots_stored", "some.one+old@gmail.com", "someone@gmail.com", True),
+            ("alias_and_dots_looked_up", "someone@gmail.com", "s.o.m.e.one+new@gmail.com", True),
+            ("googlemail_is_gmail", "someone@googlemail.com", "some.one@gmail.com", True),
+            ("mixed_case_stored", "Some.One@Gmail.com", "someone@gmail.com", True),
+            ("other_domain_keeps_dots", "someone@example.com", "some.one@example.com", False),
+            ("different_mailbox", "someone@gmail.com", "someone2@gmail.com", False),
+        ]
+    )
+    def test_collapses_dots_and_alias_only_for_gmail(
+        self, _name: str, stored_email: str, looked_up_email: str, expected: bool
+    ) -> None:
+        user = User.objects.create(email=stored_email, first_name="Base")
+        try:
+            self.assertEqual(EmailValidationHelper.user_exists_with_gmail_canonical(looked_up_email), expected)
         finally:
             user.delete()
 

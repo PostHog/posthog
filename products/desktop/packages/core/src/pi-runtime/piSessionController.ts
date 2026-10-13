@@ -9,6 +9,11 @@ import type {
   RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
+  ROOT_LOGGER,
+  type RootLogger,
+  type ScopedLogger,
+} from "@posthog/di/logger";
+import {
   type AgentConversationEvent,
   classifyPromptFailure,
   type McpToolPermissionDecision,
@@ -126,6 +131,7 @@ type TextEvent = Extract<
 const STREAM_BATCH_MS = 16;
 
 type PiTurnState =
+  | { phase: "pending"; messageId: string; startedAt: number }
   | { phase: "active"; startedAt?: number; stopReason?: string }
   | { phase: "completed" };
 
@@ -194,9 +200,21 @@ function isResumableCloudSendError(error: unknown): boolean {
   );
 }
 
+function isExpectedPiInterruption(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return (
+    error.name === "AbortError" ||
+    error.message === "This operation was aborted"
+  );
+}
+
 @injectable()
 export class PiSessionController {
   readonly store: PiSessionStore = createPiSessionStore();
+
+  private readonly log: ScopedLogger;
 
   private readonly sessions = new Map<string, Promise<PiSession>>();
   private readonly subscriptions = new Map<string, () => void>();
@@ -238,6 +256,7 @@ export class PiSessionController {
   constructor(
     @inject(PI_SESSION_PROVIDER) private readonly provider: PiSessionProvider,
     @inject(TASK_SERVICE) private readonly taskService: TaskService,
+    @inject(ROOT_LOGGER) rootLogger: RootLogger,
     @inject(AUTH_SERVICE)
     @optional()
     private readonly authService?: AuthService,
@@ -245,6 +264,7 @@ export class PiSessionController {
     @optional()
     private readonly notifier?: AgentSessionNotifier,
   ) {
+    this.log = rootLogger.scope("pi-session-controller");
     this.authService?.on(AuthServiceEvent.StateChanged, (state) => {
       if (state.status === "anonymous") {
         this.disconnectAll();
@@ -590,7 +610,7 @@ export class PiSessionController {
         });
       }
       const previousTurnState = this.turnStates.get(taskId);
-      this.markTurnPending(taskId);
+      this.setTurnStreaming(taskId, true);
       if (currentSession.resumeRequired) {
         this.updateSession(taskId, { connectionState: "connecting" });
       }
@@ -598,7 +618,10 @@ export class PiSessionController {
       try {
         const session = await this.getWritablePiSession(taskId);
         await this.applyDeferredConfig(session, deferredConfig);
-        this.markTurnPending(taskId);
+        this.markTurnPending(
+          taskId,
+          currentSession.resumeRequired ? messageId : undefined,
+        );
         if (session.sendUserMessage && messageId) {
           const taskRunId = this.taskRunIds.get(taskId);
           const prepared = taskRunId
@@ -702,9 +725,25 @@ export class PiSessionController {
     try {
       const session = await this.getPiSession(taskId);
       await session.client.abort();
+      const currentTurn = this.turnStates.get(taskId);
+      if (currentTurn?.phase === "pending" || currentTurn?.phase === "active") {
+        this.turnStates.set(taskId, {
+          phase: "active",
+          startedAt: currentTurn.startedAt,
+          stopReason: "cancelled",
+        });
+      }
+      this.setTurnStreaming(taskId, false);
       await this.refreshStatus(taskId);
     } catch (error) {
-      throw this.recordOperationFailure(taskId, "cancel", error);
+      throw this.recordOperationFailure(
+        taskId,
+        "cancel",
+        error,
+        undefined,
+        undefined,
+        false,
+      );
     }
   }
 
@@ -1102,7 +1141,11 @@ export class PiSessionController {
     if (status && hasTurnActivity) {
       status = { ...status, isStreaming: true };
     }
-    if (status && event.type === "turn_completed") {
+    if (
+      status &&
+      event.type === "turn_completed" &&
+      this.turnStates.get(taskId)?.phase !== "pending"
+    ) {
       status = { ...status, isStreaming: false };
     }
 
@@ -1157,11 +1200,14 @@ export class PiSessionController {
     events: AgentConversationEvent[],
     isStreaming: boolean,
   ): void {
-    this.turnStates.delete(taskId);
+    if (this.turnStates.get(taskId)?.phase !== "pending") {
+      this.turnStates.delete(taskId);
+    }
     for (const event of events) {
       this.applyTurnEvent(taskId, event, false);
     }
-    if (isStreaming && this.turnStates.get(taskId)?.phase !== "active") {
+    const phase = this.turnStates.get(taskId)?.phase;
+    if (isStreaming && phase !== "active" && phase !== "pending") {
       this.turnStates.set(taskId, { phase: "active" });
     }
   }
@@ -1172,6 +1218,19 @@ export class PiSessionController {
     isLive: boolean,
   ): void {
     const current = this.turnStates.get(taskId);
+    if (current?.phase === "pending") {
+      if (
+        event.type === "user_message" &&
+        event.id === current.messageId &&
+        !event.sourceId?.startsWith("optimistic:")
+      ) {
+        this.turnStates.set(taskId, {
+          phase: "active",
+          startedAt: current.startedAt,
+        });
+      }
+      return;
+    }
     const activeTurn = current?.phase === "active" ? current : undefined;
     const isDirectBash =
       (event.type === "tool_call_started" ||
@@ -1191,6 +1250,13 @@ export class PiSessionController {
         startedAt:
           activeTurn?.startedAt ??
           (event.type === "user_message" ? event.timestamp : undefined),
+        // A cancel is final for its turn. Activity that was already in flight
+        // when the abort landed must keep the reason, because a completion that
+        // carries no reason of its own then reads as "end_turn" and notifies
+        // the user who just pressed stop. A failure still clears here, because
+        // a recovering turn continues.
+        stopReason:
+          activeTurn?.stopReason === "cancelled" ? "cancelled" : undefined,
       });
       return;
     }
@@ -1209,7 +1275,7 @@ export class PiSessionController {
     }
 
     this.turnStates.set(taskId, { phase: "completed" });
-    if (!isLive || current?.phase === "completed") {
+    if (!isLive || !activeTurn) {
       return;
     }
 
@@ -1359,6 +1425,7 @@ export class PiSessionController {
     error: unknown,
     errorType?: string,
     recoveryPrompt?: string,
+    storeFailure = true,
   ): PiOperationError {
     const details = (error as { data?: { details?: string } })?.data?.details;
     const classified = classifyPromptFailure(error, details, errorType);
@@ -1382,14 +1449,24 @@ export class PiSessionController {
       limitCause: classified.limitCause,
       recoveryPrompt,
     };
-    this.updateSession(taskId, {
-      error: failure,
-      ...(scope === "connection"
-        ? {
-            connectionState: retryable ? "disconnected" : "error",
-          }
-        : {}),
+    this.log.error("Pi operation failed", {
+      taskId,
+      operation,
+      scope,
+      kind: classified.kind,
+      retryable,
+      errorName: error instanceof Error ? error.name : typeof error,
     });
+    if (storeFailure) {
+      this.updateSession(taskId, {
+        error: failure,
+        ...(scope === "connection"
+          ? {
+              connectionState: retryable ? "disconnected" : "error",
+            }
+          : {}),
+      });
+    }
     return new PiOperationError(failure);
   }
 
@@ -1524,11 +1601,16 @@ export class PiSessionController {
     );
   }
 
-  private markTurnPending(taskId: string): void {
+  private markTurnPending(taskId: string, messageId?: string): void {
     const current = this.turnStates.get(taskId);
     const startedAt =
       current?.phase === "active" ? current.startedAt : Date.now();
-    this.turnStates.set(taskId, { phase: "active", startedAt });
+    this.turnStates.set(
+      taskId,
+      messageId
+        ? { phase: "pending", messageId, startedAt: startedAt ?? Date.now() }
+        : { phase: "active", startedAt },
+    );
     this.setTurnStreaming(taskId, true);
   }
 
@@ -1622,11 +1704,13 @@ export class PiSessionController {
         taskRunId,
       );
       this.resetTransport(taskId);
+      this.turnStates.delete(taskId);
       await this.ensureConnected(taskId, resumedRun.id);
       const resumedSession = await this.getPiSession(taskId);
       if (!resumedSession.sendUserMessage) {
         throw new Error("Resumed cloud Pi session cannot send messages");
       }
+      this.markTurnPending(taskId, messageId);
       await resumedSession.sendUserMessage(
         type,
         content,
@@ -1689,6 +1773,7 @@ export class PiSessionController {
       this.submissionsInFlight.has(taskId) ||
       session.isBashRunning ||
       session.authRestoring ||
+      turnState?.phase === "pending" ||
       // A turn that already recorded a failure receives no turn_completed, so it
       // is finished, not in flight. A recovering turn clears the failure on its
       // next activity event.
@@ -1800,6 +1885,19 @@ export class PiSessionController {
     this.flushText(taskId);
     const failure = normalizeSessionError(error);
     const classified = classifyPromptFailure(error);
+    const expectedInterruption = isExpectedPiInterruption(error);
+    const logDetails = {
+      taskId,
+      scope: "connection",
+      kind: classified.kind,
+      retryable: failure.retryable,
+      errorName: error instanceof Error ? error.name : typeof error,
+    };
+    if (expectedInterruption) {
+      this.log.info("Pi session interrupted", logDetails);
+      return;
+    }
+    this.log.error("Pi session transport failed", logDetails);
     this.updateSession(taskId, {
       connectionState: failure.retryable ? "disconnected" : "error",
       error: {

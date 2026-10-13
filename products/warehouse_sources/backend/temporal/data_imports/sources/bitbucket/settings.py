@@ -20,6 +20,33 @@ _UPDATED_ON_CREATED_ON: list[IncrementalField] = [
 
 
 @dataclass(frozen=True)
+class SecondLevelFanOut:
+    """Describes a child endpoint that is fetched once per row of a parent endpoint, which is
+    itself walked once per repository in the workspace."""
+
+    # Key in BITBUCKET_ENDPOINTS whose path is walked per repository to produce the parents.
+    parent: str
+    # Placeholder in the child's path, and the parent field whose value fills it.
+    path_param: str
+    id_field: str
+    # How the parent list is ordered, and the parent field carrying that ordering value.
+    # Resuming skips parents the previous attempt already walked past, and an incremental
+    # sync stops the walk once the ordering value crosses the watermark.
+    order: str  # "id_asc" or "datetime_desc"
+    order_field: str
+    # Parent walk request shaping: the `sort` value, and the BBQL field for a server-side
+    # bound (None when the parent endpoint ignores `q` and the bound is applied client-side).
+    parent_sort: Optional[str] = None
+    parent_filter_field: Optional[str] = None
+    # Parent fields copied onto every child row, as {child column: parent field}. Child rows
+    # usually carry no reference back to their parent, and the primary key needs one.
+    inject: dict[str, str] = field(default_factory=dict)
+    # One request per parent, so an unbounded first sync of a long-lived repository would
+    # outlast any rate budget. Later syncs are bounded by the watermark instead.
+    max_parents_per_repo: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class BitbucketEndpointConfig:
     name: str
     path: str  # Path template with {workspace} and, for fan-out endpoints, {repo_slug}
@@ -33,9 +60,9 @@ class BitbucketEndpointConfig:
     # Fan-out: fetched once per repository in the workspace, with {repo_slug}
     # substituted into the path and repository context injected into each row.
     fan_out_over_repos: bool = False
-    # Two-level fan-out: for every repository, walk its pull requests and fetch this
-    # path once per pull request, with {pull_request_id} substituted into the path.
-    fan_out_over_pull_requests: bool = False
+    # Two-level fan-out: for every repository, walk a parent endpoint and fetch this path
+    # once per parent row. None for top-level and single-level fan-out endpoints.
+    fan_out: Optional[SecondLevelFanOut] = None
     # BBQL field for a server-side incremental filter (`q=<field> > "<ts>"`), verified
     # to actually filter (a future-date probe returns 0 rows). None = the endpoint
     # silently ignores `q` (commits, pipelines); incremental sync instead scrolls
@@ -175,10 +202,99 @@ BITBUCKET_ENDPOINTS: dict[str, BitbucketEndpointConfig] = {
         default_incremental_field="updated_on",
         server_filter_field="updated_on",
         sort_param="updated_on",
-        fan_out_over_pull_requests=True,
+        fan_out=SecondLevelFanOut(
+            parent="pull_requests",
+            path_param="pull_request_id",
+            id_field="id",
+            # Sorted on the immutable created_on so ids arrive ascending, which is what lets
+            # the resume bookmark skip every pull request below it.
+            order="id_asc",
+            order_field="id",
+            parent_sort="created_on",
+            # Posting, editing or deleting a comment bumps its pull request's updated_on, so
+            # the server-side bound narrows the walk without missing a changed comment.
+            parent_filter_field="updated_on",
+        ),
         # Comment ids look globally sequential, but the docs only scope them to their
         # pull request, so the parents complete the key.
         primary_keys=["repository_uuid", "pull_request_id", "id"],
+    ),
+    "pipeline_steps": BitbucketEndpointConfig(
+        name="pipeline_steps",
+        path="/repositories/{workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/",
+        # A step carries started_on and completed_on, but both are unset until the step runs,
+        # so neither can act as a cursor. The parent pipeline's immutable created_on is
+        # injected instead, which is also what bounds the pipeline walk.
+        partition_key="pipeline_created_on",
+        incremental_fields=[
+            {
+                "label": "pipeline_created_on",
+                "type": IncrementalFieldType.DateTime,
+                "field": "pipeline_created_on",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="pipeline_created_on",
+        fan_out=SecondLevelFanOut(
+            parent="pipelines",
+            path_param="pipeline_uuid",
+            id_field="uuid",
+            order="datetime_desc",
+            order_field="created_on",
+            parent_sort="-created_on",
+            inject={"pipeline_uuid": "uuid", "pipeline_created_on": "created_on"},
+            max_parents_per_repo=2000,
+        ),
+        # Step uuids are real UUIDs, but the docs only scope them to their pipeline.
+        primary_keys=["repository_uuid", "pipeline_uuid", "uuid"],
+    ),
+    "commit_statuses": BitbucketEndpointConfig(
+        name="commit_statuses",
+        path="/repositories/{workspace}/{repo_slug}/commit/{commit}/statuses",
+        # A status has its own created_on, but nothing on the commit changes when one is
+        # posted, so the only bound available for the commit walk is the commit's own date.
+        # A status attached to a commit older than the watermark is therefore missed — the
+        # same trade-off the commits endpoint already makes.
+        partition_key="commit_date",
+        incremental_fields=[
+            {
+                "label": "commit_date",
+                "type": IncrementalFieldType.DateTime,
+                "field": "commit_date",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="commit_date",
+        fan_out=SecondLevelFanOut(
+            parent="commits",
+            path_param="commit",
+            id_field="hash",
+            order="datetime_desc",
+            order_field="date",
+            inject={"commit_hash": "hash", "commit_date": "date"},
+            max_parents_per_repo=2000,
+        ),
+        # One request per commit is far more than the other tables cost, so this one is
+        # opt-in rather than selected by default.
+        should_sync_default=False,
+        # Statuses carry no id. Bitbucket addresses one by commit and key
+        # (PUT .../commit/{hash}/statuses/build/{key}), so that pair identifies a status.
+        primary_keys=["repository_uuid", "commit_hash", "key"],
+    ),
+    "branches": BitbucketEndpointConfig(
+        name="branches",
+        path="/repositories/{workspace}/{repo_slug}/refs/branches",
+        # A branch has no timestamps of its own; target.date is the tip commit's date and
+        # moves on every push, so it is neither a cursor nor a partition key. Full refresh,
+        # over a list bounded by the branch count per repository.
+        incremental_fields=[],
+        # An explicit sort keeps pages from shifting under the paginator when a branch is
+        # created or deleted mid-walk.
+        sort_param="name",
+        fan_out_over_repos=True,
+        # Branch names are unique within a repository, and are what pull requests,
+        # pipelines and deployments reference.
+        primary_keys=["repository_uuid", "name"],
     ),
     "environments": BitbucketEndpointConfig(
         name="environments",

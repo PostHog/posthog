@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -96,7 +94,7 @@ class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DRIP,
+            name=ExternalDataSourceType.DRIP,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Drip",
             caption="""Enter your Drip API token and account ID to pull your Drip data into the PostHog Data warehouse.
@@ -104,7 +102,7 @@ class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
 You can find your API token under **Settings → User Settings → API** in Drip, and your account ID under **Settings → Account → General Info** (it's the numeric ID in your Drip dashboard URL).""",
             iconPath="/static/services/drip.png",
             docsUrl="https://posthog.com/docs/cdp/sources/drip",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

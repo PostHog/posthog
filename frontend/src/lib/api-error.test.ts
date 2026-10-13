@@ -1,12 +1,61 @@
 import {
     ApiError,
     NetworkError,
+    ResponseBodyReadError,
     isScopeNotFoundError,
     isTransientServerError,
     shouldReportApiFailure,
 } from './api-error'
 
 describe('api-error', () => {
+    describe('capacity retry deadlines', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([
+            { status: 503, seconds: 0, expected: 0 },
+            { status: 503, seconds: 5, expected: 5 },
+            { status: 503, seconds: 45, expected: 45 },
+            { status: 500, seconds: 45, expected: null },
+        ])(
+            'anchors a numeric capacity hint to receipt time only for 503 (status=$status, seconds=$seconds)',
+            ({ status, seconds, expected }) => {
+                jest.useFakeTimers()
+                const receivedAt = Date.now()
+                const error = new ApiError('', status, new Headers({ 'Retry-After': String(seconds) }))
+
+                jest.advanceTimersByTime(1000)
+
+                expect(error.retryAfterSeconds).toBe(expected)
+                expect(error.retryAfterTimestamp).toBe(expected === null ? null : receivedAt + expected * 1000)
+            }
+        )
+
+        it('ignores HTTP-date capacity hints even with a server Date header', () => {
+            const error = new ApiError(
+                '',
+                503,
+                new Headers({
+                    Date: 'Mon, 05 Oct 2026 12:00:00 GMT',
+                    'Retry-After': 'Mon, 05 Oct 2026 12:00:45 GMT',
+                })
+            )
+
+            expect(error.retryAfterTimestamp).toBeNull()
+            expect(error.retryAfterSeconds).toBeNull()
+        })
+
+        it.each([undefined, '', '-1', '1.5', '1e3', 'unknown', 'Infinity', '9'.repeat(400)])(
+            'ignores an invalid Retry-After header: %s',
+            (retryAfter) => {
+                const headers = new Headers(retryAfter === undefined ? {} : { 'Retry-After': retryAfter })
+                const error = new ApiError('', 503, headers)
+                expect(error.retryAfterTimestamp).toBeNull()
+                expect(error.retryAfterSeconds).toBeNull()
+            }
+        )
+    })
     describe('ApiError.fromResponse', () => {
         it.each([
             ['error', { error: 'error message' }, 'error message'],
@@ -97,12 +146,13 @@ describe('api-error', () => {
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
+            ['an optimistic-concurrency 409', { status: 409, data: { current_version: 5 } }, false],
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
-            ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
+            ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
             // A route the backend does not serve stays reportable here. Only a caller that already
@@ -133,6 +183,19 @@ describe('api-error', () => {
             // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
             // stays reportable rather than being folded into the suppression above.
             ['a classified NetworkError', new NetworkError('network'), true],
+            // The server answered 2xx and the body stream broke on the wire afterwards. Grouping is
+            // stack-based, so one flaky connection would otherwise open an issue per endpoint.
+            [
+                'a body-read failure on a 2xx',
+                new ResponseBodyReadError('Failed to read response body [GET /api/foo] (status 200)'),
+                false,
+            ],
+            // A body that arrived whole but would not parse can be a real backend bug, so it stays.
+            [
+                'a malformed JSON body on a 2xx',
+                new ApiError('Malformed JSON response [GET /api/foo] (status 200)'),
+                true,
+            ],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],

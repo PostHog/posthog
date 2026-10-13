@@ -8,9 +8,18 @@ import {
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
+  resolveInboxReportDetailCache,
+  updateInboxReportCaches,
+} from "@posthog/core/inbox/inboxQuery";
+import {
   canCreateImplementationPr,
   canResolveReport,
 } from "@posthog/core/inbox/reportActions";
+import {
+  deriveReportImplementationState,
+  needsImplementationDecision,
+  REPORT_IMPLEMENTATION_LABELS,
+} from "@posthog/core/inbox/reportImplementation";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import {
@@ -145,6 +154,18 @@ export function ReportVerdictBanner({
     isLoading: reportTasksLoading,
     isError: reportTasksFailed,
   } = useReportTasks(report.id, report.status);
+  const assignedTask = reportTasks?.find(
+    (entry) => entry.task.id === report.assignee?.task_id,
+  )?.task;
+  const implementationState = deriveReportImplementationState(
+    report,
+    assignedTask,
+    // A settled lookup that still has no assigned task means the task is gone:
+    // fetchReportTasks drops a row whose task returns 404. Treat that as a
+    // failed lookup, the same way the batch list does, so the banner shows the
+    // unavailable status instead of staying in "checking" forever.
+    reportTasksFailed || (!!reportTasks && !assignedTask),
+  );
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
@@ -213,17 +234,31 @@ export function ReportVerdictBanner({
     [queryClient, rememberStartedTask, report.id, setChatOpen, onEngaged],
   );
 
+  const handleImplementationStarted = useCallback(
+    (task: Task) => {
+      queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
+      rememberStartedTask(report.id, task.id);
+      updateInboxReportCaches(queryClient, [
+        {
+          ...(resolveInboxReportDetailCache(queryClient, report.id) ?? report),
+          work_state: "working",
+          assignee: { kind: "task", task_id: task.id },
+        },
+      ]);
+      void queryClient.invalidateQueries({
+        queryKey: ["inbox", "report-tasks", report.id],
+      });
+    },
+    [queryClient, rememberStartedTask, report],
+  );
+
   const { createPrReport, isCreatingPr } = useCreatePrReport({
     reportId: report.id,
     reportTitle: report.title ?? null,
     cloudRepository,
     surface,
     triageId,
-    // The dock binds to the new task the moment it exists — and only then does
-    // the view advance. A failed create (offline, missing repo/integration/
-    // model, API error) never reaches here, so the report and its actions stay
-    // put instead of opening an empty dock or, in triage, navigating away.
-    onTaskCreated: handleTaskCreated,
+    onTaskCreated: handleImplementationStarted,
   });
   const { discussReport, isDiscussing } = useDiscussReport({
     report,
@@ -258,8 +293,6 @@ export function ReportVerdictBanner({
     });
     setPrFeedback("");
     setPrOpen(false);
-    // The view advances from onTaskCreated once the task exists, not here — a
-    // failed create leaves the report and its actions in place.
     void createPrReport(trimmed || undefined);
   }, [createPrReport, fireAction, prFeedback]);
 
@@ -618,6 +651,13 @@ export function ReportVerdictBanner({
   if (variant === "triage-actions") {
     return (
       <>
+        {implementationState &&
+          needsImplementationDecision(implementationState) && (
+            <output className="w-full rounded border border-(--amber-6) bg-(--amber-2) px-3 py-2 text-[13px] text-amber-11">
+              {REPORT_IMPLEMENTATION_LABELS[implementationState]}. Open the
+              report to continue.
+            </output>
+          )}
         {actionsRow}
         {resolveDialog}
         {dismissDialog}

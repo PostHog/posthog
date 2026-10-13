@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, ReactNode, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
+import { IconChevronDown, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonDropdown,
@@ -22,6 +22,8 @@ import { cn } from 'lib/utils/css-classes'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
+import { DateMappingOption } from '~/types'
+
 import { scopeFromValue, withScope } from '../lib/scope'
 import {
     RUN_SCOPE_OPTIONS,
@@ -31,7 +33,7 @@ import {
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
 
-// The endpoints require a window start (no "all time") — relative windows + Custom only.
+// The endpoints require a window start (no "all time"), so offer relative windows and Custom only.
 export const SCOPE_DATE_OPTIONS = dateMapping.filter(({ key }) =>
     [
         'Custom',
@@ -43,6 +45,11 @@ export const SCOPE_DATE_OPTIONS = dateMapping.filter(({ key }) =>
         'Last 90 days',
         'Last 180 days',
     ].includes(key)
+)
+
+// The delivery reads cap a window at a year, so they offer only presets inside it and no custom range.
+export const DELIVERY_DATE_OPTIONS = dateMapping.filter(({ key }) =>
+    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
 )
 
 export interface ScopeCrumb {
@@ -85,7 +92,7 @@ export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }
             />
         )
     }
-    // No repo name yet — render nothing rather than a dead "Repository" pill.
+    // No repo name yet: render nothing rather than a dead "Repository" pill.
     if (pickerOnly || !repoLabel) {
         return null
     }
@@ -192,14 +199,15 @@ export function WorkflowScopeChip({
                 </div>
             }
         >
-            <span
-                className={cn(CHIP_CLASS, 'cursor-pointer')}
+            <LemonButton
+                size="small"
+                type="secondary"
+                sideIcon={<IconChevronDown />}
                 title="Switch to another workflow in this repository"
                 data-attr="engineering-analytics-workflow-switcher"
             >
-                <strong className="font-semibold text-primary">{workflowName}</strong>
-                <span className="text-[8px] text-tertiary">▼</span>
-            </span>
+                {workflowName}
+            </LemonButton>
         </LemonDropdown>
     )
 }
@@ -209,8 +217,6 @@ const RUN_SCOPE_SEGMENTS = RUN_SCOPE_OPTIONS.map((option) => ({
     'data-attr': `engineering-analytics-run-scope-${option.value}`,
 }))
 
-/** The shared run-scope control: four fixed groups that partition the repo's runs. Every workflow
- *  surface sends the picked group, so a drill-down reports the same population as the list it came from. */
 export function RunScopeControl(): JSX.Element {
     const { runScope } = useValues(engineeringAnalyticsFiltersLogic)
     const { setRunScope } = useActions(engineeringAnalyticsFiltersLogic)
@@ -231,21 +237,28 @@ export function RunScopeControl(): JSX.Element {
 
 /** The shared window picker, wired to the cross-page date scope. Standalone so pages can place it outside
  *  the scope bar (the hub docks it in the repo header). */
-export function ScopeDateFilter(): JSX.Element {
+export function ScopeDateFilter({
+    dateOptions = SCOPE_DATE_OPTIONS,
+}: {
+    /** Custom and rolling ranges show only when the options include Custom. */
+    dateOptions?: DateMappingOption[]
+}): JSX.Element {
     const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
     const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    const allowsCustomRange = dateOptions.some(({ key }) => key === 'Custom')
     return (
         <DateFilter
             dateFrom={dateFrom}
             dateTo={dateTo}
             onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-            dateOptions={SCOPE_DATE_OPTIONS}
+            dateOptions={dateOptions}
+            showCustomRangeOptions={allowsCustomRange}
+            showRollingRangePicker={allowsCustomRange}
             size="small"
         />
     )
 }
 
-/** The scope-panel rim both workflow pages share: run group on the left, window on the right. */
 export function WorkflowScopeControls(): JSX.Element {
     return (
         <>
@@ -266,7 +279,7 @@ export function ScopeBar({
     repoSlot: ReactNode
     /** Hierarchy below the repo (workflow › run); empty on the repo hub itself. */
     crumbs?: ScopeCrumb[]
-    /** The active cross-cutting lens (pr: #N) — dismissible, zooms out to `to`. */
+    /** The active cross-cutting lens (pr: #N). Dismissing it zooms out to `to`. */
     lensFilter?: LensChip
     showDate?: boolean
     extra?: ReactNode

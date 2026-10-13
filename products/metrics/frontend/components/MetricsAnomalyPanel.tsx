@@ -5,6 +5,7 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonTag } from '@posthog/lem
 
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { MetricTopMoverRow } from '../metricsAnomaly'
 import { type MetricsAnomalyBadge, metricsViewerLogic } from './metricsViewerLogic'
@@ -47,6 +48,7 @@ const MoverRow = ({ mover, onClick }: { mover: MetricTopMoverRow; onClick: () =>
 export function MetricsAnomalyPanel({ anomaly }: { anomaly: MetricsAnomalyBadge }): JSX.Element {
     const { anomalyTopMovers } = useValues(metricsViewerLogic)
     const { addAttributeFilter } = useActions(metricsViewerLogic)
+    const { timezone } = useValues(teamLogic)
     const [isOpen, setIsOpen] = useState(false)
 
     return (
@@ -59,7 +61,9 @@ export function MetricsAnomalyPanel({ anomaly }: { anomaly: MetricsAnomalyBadge 
                     <div className="px-2 py-1 text-xs text-secondary">
                         Baseline {humanFriendlyNumber(anomaly.baselineMean)} → recent{' '}
                         {humanFriendlyNumber(anomaly.anomalyMean)}
-                        {anomaly.onsetTime ? `, from ${dayjs(anomaly.onsetTime).format('D MMM HH:mm')}` : ''}
+                        {anomaly.onsetTime
+                            ? `, from ${dayjs(anomaly.onsetTime).tz(timezone).format('D MMM HH:mm')}`
+                            : ''}
                     </div>
                     <LemonDivider className="my-1" />
                     {anomalyTopMovers.length ? (

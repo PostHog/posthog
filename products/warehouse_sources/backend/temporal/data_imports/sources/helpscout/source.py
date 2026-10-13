@@ -1,15 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.models.integration import Integration, OauthIntegration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
-from posthog.models.integration import Integration, OauthIntegration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -32,6 +30,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import (
     ENDPOINTS,
+    HELP_SCOUT_API_VERSION_V2,
+    HELP_SCOUT_API_VERSION_V3,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -39,8 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpScoutResumeConfig]):
-    supported_versions = ("v2",)
-    default_version = "v2"
+    supported_versions = (HELP_SCOUT_API_VERSION_V2, HELP_SCOUT_API_VERSION_V3)
+    default_version = HELP_SCOUT_API_VERSION_V3
     api_docs_url = "https://developer.helpscout.com/mailbox-api/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -72,7 +72,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HELP_SCOUT,
+            name=ExternalDataSourceType.HELPSCOUT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             keywords=["helpscout", "helpdesk"],
             label="Help Scout",
@@ -129,7 +129,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
-            return validate_helpscout_credentials(access_token, schema_name)
+            return validate_helpscout_credentials(access_token, self.resolve_api_version(api_version), schema_name)
         except Exception as e:
             return False, str(e)
 
@@ -150,6 +150,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

@@ -209,6 +209,49 @@ query PaginatedInterviewSentences($limit: Int!, $offset: Int!, $where: interview
     }
 }"""
 
+INTERVIEW_TAGS_QUERY = """
+query PaginatedInterviewTags($limit: Int!, $offset: Int!, $where: interview_bool_exp) {
+    interview(limit: $limit, offset: $offset, order_by: {updated_at: asc}, where: $where) {
+        id
+        created_at
+        updated_at
+        tags {
+            tag {
+                id
+                name
+                color
+            }
+        }
+    }
+}"""
+
+INTERVIEW_TYPES_QUERY = """
+query PaginatedInterviewTypes($limit: Int!, $offset: Int!, $where: interview_bool_exp) {
+    interview(limit: $limit, offset: $offset, order_by: {updated_at: asc}, where: $where) {
+        id
+        created_at
+        updated_at
+        type {
+            id
+            name
+        }
+    }
+}"""
+
+EXTRACTION_TYPES_QUERY = """
+query PaginatedExtractionTypes($limit: Int!, $offset: Int!, $where: extraction_bool_exp) {
+    extraction(limit: $limit, offset: $offset, order_by: {created_at: asc}, where: $where) {
+        id
+        created_at
+        types {
+            type {
+                id
+                name
+            }
+        }
+    }
+}"""
+
 EXTRACTION_TOPICS_QUERY = """
 query PaginatedExtractionTopics($limit: Int!, $offset: Int!, $where: extraction_bool_exp) {
     extraction(limit: $limit, offset: $offset, order_by: {created_at: asc}, where: $where) {
@@ -281,8 +324,11 @@ QUERIES: dict[str, str] = {
     "interviews": INTERVIEWS_QUERY,
     "interview_attendees": INTERVIEW_ATTENDEES_QUERY,
     "interview_sentences": INTERVIEW_SENTENCES_QUERY,
+    "interview_tags": INTERVIEW_TAGS_QUERY,
+    "interview_types": INTERVIEW_TYPES_QUERY,
     "extractions": EXTRACTIONS_QUERY,
     "extraction_topics": EXTRACTION_TOPICS_QUERY,
+    "extraction_types": EXTRACTION_TYPES_QUERY,
     "documents": DOCUMENTS_QUERY,
     "persons": PERSONS_QUERY,
     "companies": COMPANIES_QUERY,

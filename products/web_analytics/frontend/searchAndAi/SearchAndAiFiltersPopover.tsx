@@ -18,7 +18,7 @@ import {
 
 export function SearchAndAiFiltersPopover(): JSX.Element {
     const [visible, setVisible] = useState(false)
-    const { rawWebAnalyticsFilters, deviceTypeFilter, preAggregatedEnabled, hasIncompatibleFilters } =
+    const { rawWebAnalyticsFilters, deviceTypeFilter, restrictedUiEnabled, hasIncompatibleFilters } =
         useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -35,9 +35,9 @@ export function SearchAndAiFiltersPopover(): JSX.Element {
                         disablePopover
                         propertyFilters={rawWebAnalyticsFilters}
                         onChange={(filters) => setWebAnalyticsFilters(filters.filter(isWebAnalyticsPropertyFilter))}
-                        propertyAllowList={preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined}
+                        propertyAllowList={restrictedUiEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined}
                         taxonomicGroupTypes={getWebAnalyticsTaxonomicGroupTypes(
-                            preAggregatedEnabled ?? false,
+                            restrictedUiEnabled ?? false,
                             !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
                         )}
                         pageKey="web-analytics"

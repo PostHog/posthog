@@ -27,7 +27,7 @@ from django.core.cache import cache
 import structlog
 
 from products.tasks.backend import model_catalog
-from products.tasks.backend.model_catalog import display_name_for_model  # noqa: F401 — re-exported
+from products.tasks.backend.model_catalog import COST_BASELINE_MODEL, display_name_for_model  # noqa: F401 — re-exported
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
@@ -43,22 +43,14 @@ _CACHE_TTL_SECONDS = 30 * 60
 _NEGATIVE_CACHE_TTL_SECONDS = 30
 _FETCH_TIMEOUT_SECONDS = 3.0
 
-# Runtime + effort labels are UI strings with no run-config equivalent. A model's display
-# name is resolved by `display_name_for_model`, so a new model names itself and the catalog
-# overrides that only for the ids the derivation gets wrong.
+# A runtime's name is a UI string with no run-config equivalent, so it is written here. A
+# model's comes from `display_name_for_model`, and an effort's from the catalog.
 RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude (Anthropic)",
     "codex": "Codex (OpenAI)",
 }
 
-REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = {
-    "low": "Low",
-    "medium": "Medium",
-    "high": "High",
-    "xhigh": "Extra high",
-    "max": "Max",
-    "ultracode": "Ultracode",
-}
+REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = model_catalog.REASONING_EFFORT_LABELS
 
 
 @dataclass(frozen=True)
@@ -75,12 +67,17 @@ class ModelChoice:
     `supported_efforts` is empty for a model with no effort control — that is a real
     answer, not missing metadata, so a picker should render the model with no effort
     dropdown rather than hiding it.
+
+    `cost_multiplier` is what this model costs per token against the catalog's baseline,
+    already rendered (`2.5×`, `≈0.55×`). `None` where the catalog quotes no rate, and a
+    picker then offers the model with no cost beside it.
     """
 
     runtime_adapter: str
     model: str
     label: str
     supported_efforts: tuple[str, ...]
+    cost_multiplier: str | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +188,7 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
                 model=model.id,
                 label=model_catalog.display_name_for_model(model.id),
                 supported_efforts=tuple(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model.id)),
+                cost_multiplier=model_catalog.cost_multiplier_label(model.id),
             )
         )
     return tuple(choices)
@@ -211,9 +209,21 @@ def catalog_model_choices() -> tuple[ModelChoice, ...]:
             model=entry.id,
             label=model_catalog.display_name_for_model(entry.id),
             supported_efforts=entry.reasoning_efforts,
+            cost_multiplier=model_catalog.cost_multiplier_label(entry.id),
         )
         for entry in model_catalog.MODELS
     )
+
+
+@lru_cache(maxsize=1)
+def offered_model_choices() -> tuple[ModelChoice, ...]:
+    """The models a picker may offer: every catalog model except the retired ones.
+
+    A caller that recognises a model a person named, rather than asking them to choose one,
+    wants ``catalog_model_choices`` instead. A retired model still runs and still reads its
+    name and cost from the catalog.
+    """
+    return tuple(choice for choice in catalog_model_choices() if model_catalog.is_offered_model(choice.model))
 
 
 def runtime_adapter_for(model: str | None) -> str | None:
@@ -283,6 +293,7 @@ __all__ = [
     "RuntimeGroup",
     "available_model_choices",
     "catalog_model_choices",
+    "offered_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
     "group_by_runtime",

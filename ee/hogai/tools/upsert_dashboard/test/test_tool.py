@@ -24,6 +24,10 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
@@ -198,6 +202,116 @@ class TestUpsertDashboardTool(BaseTest):
 
         soft_deleted_tiles = [t for t in all_tiles if t.deleted]
         self.assertEqual(len(soft_deleted_tiles), 2)
+
+    @parameterized.expand([("saved",), ("state",), ("artifact",)])
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_add_insights_preserves_existing_dashboard_tiles(self, source: str, mock_report: MagicMock) -> None:
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        existing_insight = await self._create_insight("Existing insight")
+        layouts = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        existing_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=existing_insight, layouts=layouts, color="blue"
+        )
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        if source == "saved":
+            new_insight = await self._create_insight("New insight")
+            insight_id = new_insight.short_id
+        elif source == "state":
+            insight_id = str(uuid4())
+            state.messages = [VisualizationMessage(id=insight_id, answer=DEFAULT_TRENDS_QUERY)]
+        else:
+            conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+            artifact = await AgentArtifact.objects.acreate(
+                team=self.team,
+                conversation=conversation,
+                name="New insight",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data={"query": DEFAULT_TRENDS_QUERY.model_dump(), "name": "New insight"},
+            )
+            insight_id = artifact.short_id
+
+        action = {
+            "action": {"action": "add_insights", "dashboard_id": str(dashboard.id), "insight_ids": [insight_id] * 2}
+        }
+        first_tile_ids = None
+        for _ in range(2):
+            tool = UpsertDashboardTool(team=self.team, user=self.user, state=state)
+            await tool.ainvoke(action)
+            tile_ids = [
+                tile_id
+                async for tile_id in DashboardTile.objects.filter(dashboard=dashboard)
+                .order_by("id")
+                .values_list("id", flat=True)
+            ]
+            self.assertEqual(len(tile_ids), 2)
+            if first_tile_ids is not None:
+                self.assertEqual(tile_ids, first_tile_ids)
+            first_tile_ids = tile_ids
+
+        await existing_tile.arefresh_from_db()
+        self.assertEqual(existing_tile.layouts, layouts)
+        self.assertEqual(existing_tile.color, "blue")
+        self.assertEqual(await Insight.objects.filter(team=self.team).acount(), 2)
+        insight_created_events = [call for call in mock_report.call_args_list if call.args[1] == "insight created"]
+        self.assertEqual(len(insight_created_events), 0 if source == "saved" else 1)
+
+    @parameterized.expand([("saved", True), ("restored", True), ("generated", True), ("saved", False)])
+    @patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted_table"])
+    async def test_add_insights_enforces_shared_dashboard_access(
+        self, source: str, shared: bool, _mock_blocked: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        await self.organization.asave()
+        await OrganizationMembership.objects.filter(user=self.user, organization=self.organization).aupdate(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        if shared:
+            await SharingConfiguration.objects.acreate(team=self.team, dashboard=dashboard, enabled=True)
+        existing = await self._create_insight("Existing")
+        existing_tile = await DashboardTile.objects.acreate(dashboard=dashboard, insight=existing)
+        allowed = await self._create_insight("Allowed addition")
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        deleted_tile = None
+        if source == "generated":
+            insight_id = str(uuid4())
+            state.messages = [VisualizationMessage(id=insight_id, answer=DEFAULT_TRENDS_QUERY)]
+        else:
+            restricted = await self._create_insight("Restricted")
+            insight_id = restricted.short_id
+            if source == "restored":
+                deleted_tile = await DashboardTile.objects.acreate(
+                    dashboard=dashboard, insight=restricted, deleted=True
+                )
+        count_before = await Insight.objects.filter(team=self.team).acount()
+        tool = UpsertDashboardTool(team=self.team, user=self.user, state=state)
+        action = {
+            "action": {
+                "action": "add_insights",
+                "dashboard_id": str(dashboard.id),
+                "insight_ids": [allowed.short_id, insight_id],
+            }
+        }
+        _mock_blocked.side_effect = [[], ["restricted_table"]]
+        if shared:
+            with self.assertRaisesRegex(MaxToolRetryableError, "publicly shared"):
+                await tool.ainvoke(action)
+            self.assertEqual(
+                [
+                    tile_id
+                    async for tile_id in DashboardTile.objects.filter(dashboard=dashboard).values_list("id", flat=True)
+                ],
+                [existing_tile.id],
+            )
+            self.assertEqual(await Insight.objects.filter(team=self.team).acount(), count_before)
+            if deleted_tile:
+                await deleted_tile.arefresh_from_db()
+                self.assertTrue(deleted_tile.deleted)
+        else:
+            await tool.ainvoke(action)
+            self.assertEqual(await DashboardTile.objects.filter(dashboard=dashboard).acount(), 3)
 
     @parameterized.expand(
         [

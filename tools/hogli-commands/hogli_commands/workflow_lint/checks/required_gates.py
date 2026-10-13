@@ -55,9 +55,9 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
+from ..markers import exempt_jobs
 from ..model import Job, Step, Workflow
 
 ALLOW_MARKER = "hogli-lint: not-a-required-gate"
@@ -140,33 +140,6 @@ def _result_sources(job: Job) -> Iterator[str]:
         if isinstance(condition, str):
             yield condition
         yield from _env(step.raw.get("env")).values()
-
-
-def _exempt_jobs(path: Path, job_names: frozenset[str]) -> frozenset[str]:
-    """Job ids carrying an allow marker, with a reason, in the comments above them."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    candidates: list[tuple[int, int, str]] = []
-    for index, line in enumerate(lines):
-        match = re.match(r"^(?P<indent>\s*)(?P<job>[A-Za-z0-9_\-]+):\s*$", line)
-        if match is not None and match.group("job") in job_names:
-            candidates.append((index, len(match.group("indent")), match.group("job")))
-    if not candidates:
-        return frozenset()
-
-    exempt: set[str] = set()
-    job_indent = min(indent for _, indent, _ in candidates)
-    for index, indent, job in candidates:
-        if indent != job_indent:
-            continue
-        for above in reversed(lines[:index]):
-            comment = re.match(r"^(?P<indent>\s*)#(?P<body>.*)$", above)
-            if comment is None or len(comment.group("indent")) != job_indent:
-                break
-            _, marker, reason = comment.group("body").partition(ALLOW_MARKER)
-            if marker and reason.strip(" -—:"):
-                exempt.add(job)
-                break
-    return frozenset(exempt)
 
 
 def _is_gate(job: Job) -> bool:
@@ -551,7 +524,7 @@ class RequiredGateCheck(WorkflowCheck):
             if not gates:
                 continue
             # Only worth re-reading the file once we know there's a gate to exempt.
-            exempt = _exempt_jobs(wf.path, frozenset(job.name for job in wf.jobs))
+            exempt = exempt_jobs(wf.path, frozenset(job.name for job in wf.jobs), ALLOW_MARKER)
             jobs = {job.name: job for job in wf.jobs}
             for job in gates:
                 if job.name in exempt:

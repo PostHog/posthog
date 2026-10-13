@@ -15,6 +15,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.dataclasses import frozen
 from posthog.temporal.common.client import connect
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import pinned_connect_host
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
@@ -191,7 +192,25 @@ class _ByteBudget:
             return self._in_flight
 
 
-def _async_iter_to_sync(async_iter, max_items: int = _QUEUE_MAX_ITEMS, max_bytes: int = _QUEUE_MAX_BYTES):
+@frozen
+class _ResumePoint:
+    """The state that reads again the rows that follow it in the stream.
+
+    The producer thread reads ahead of the pipeline, so it must not save resume state itself: the
+    pipeline would commit a state for rows that are still in the queue. The producer puts the state
+    in the stream, and the consumer saves it when it reaches that position.
+    """
+
+    state: TemporalIOResumeConfig
+
+
+def _async_iter_to_sync(
+    async_iter,
+    max_items: int = _QUEUE_MAX_ITEMS,
+    max_bytes: int = _QUEUE_MAX_BYTES,
+    *,
+    save_resume_state: Callable[[TemporalIOResumeConfig], None] | None = None,
+):
     q: Queue[tuple[Any, int]] = Queue(maxsize=max_items)
     budget = _ByteBudget(max_bytes)
     sentinel = object()
@@ -203,7 +222,7 @@ def _async_iter_to_sync(async_iter, max_items: int = _QUEUE_MAX_ITEMS, max_bytes
     async def runner():
         try:
             async for item in async_iter:
-                size = _estimate_size_bytes(item)
+                size = len(item.state.next_page_token) if isinstance(item, _ResumePoint) else _estimate_size_bytes(item)
                 budget.reserve(size)
                 q.put((item, size))
         # The runner lives on a daemon thread, so an uncaught exception would
@@ -227,6 +246,12 @@ def _async_iter_to_sync(async_iter, max_items: int = _QUEUE_MAX_ITEMS, max_bytes
         if isinstance(item, _Error):
             q.task_done()
             raise item.exc
+        if isinstance(item, _ResumePoint):
+            budget.release(size)
+            q.task_done()
+            if save_resume_state is not None:
+                save_resume_state(item.state)
+            continue
 
         try:
             yield item
@@ -263,15 +288,20 @@ class FakeSettings:
     DEBUG: bool = False
 
 
-async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
+async def _get_temporal_client(config: TemporalIOSourceConfig, team_id: int | None) -> Client:
+    # The Temporal core dials over gRPC from Rust and reads no proxy environment, so the egress
+    # proxy does not see this connection. The lookup blocks, so it runs off the event loop.
+    target = await asyncio.to_thread(pinned_connect_host, config.host, team_id)
+
     if config.fallback_decryption_keys:
         fallback_keys = [k.strip() for k in config.fallback_decryption_keys.split(",") if k.strip()]
     else:
         fallback_keys = []
 
     return await connect(
-        host=config.host,
+        host=target.host,
         port=config.port,
+        tls_domain=target.tls_server_name,
         namespace=config.namespace,
         client_cert=config.client_certificate,
         client_key=config.client_private_key,
@@ -298,6 +328,7 @@ async def _get_workflows(
     should_use_incremental_field: bool,
     resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
     logger: FilteringBoundLogger,
+    team_id: int,
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -314,14 +345,14 @@ async def _get_workflows(
         next_page_token = _decode_page_token(resume_config.next_page_token)
         logger.debug("TemporalIO: resuming from next_page_token")
 
-    client = await _get_temporal_client(config)
+    client = await _get_temporal_client(config, team_id)
     workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
     page_count = 0
     total_count = 0
     while True:
-        # Save the token that will be used to fetch this page *before* fetching.
-        # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
+        # Keep the token that fetches this page. It goes into the stream before the rows of the page,
+        # so a resume fetches this same page again. Duplicates are safe thanks to primary keys.
         pre_fetch_token = workflows.next_page_token
         await _with_transient_rpc_retry(workflows.fetch_next_page, logger)
         page = workflows.current_page
@@ -330,10 +361,8 @@ async def _get_workflows(
 
         page_count += 1
         if pre_fetch_token:
-            resumable_source_manager.save_state(
-                TemporalIOResumeConfig(next_page_token=_encode_page_token(pre_fetch_token))
-            )
-            logger.debug(f"TemporalIO: saved resume state at page {page_count} ({total_count} total workflows)")
+            yield _ResumePoint(state=TemporalIOResumeConfig(next_page_token=_encode_page_token(pre_fetch_token)))
+            logger.debug(f"TemporalIO: queued resume state at page {page_count} ({total_count} total workflows)")
 
         for item in page:
             yield _sanitize(item.__dict__)
@@ -349,6 +378,7 @@ async def _get_workflow_histories(
     should_use_incremental_field: bool,
     resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
     logger: FilteringBoundLogger,
+    team_id: int,
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -365,14 +395,14 @@ async def _get_workflow_histories(
         next_page_token = _decode_page_token(resume_config.next_page_token)
         logger.debug("TemporalIO: resuming workflow histories from next_page_token")
 
-    client = await _get_temporal_client(config)
+    client = await _get_temporal_client(config, team_id)
     workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
     page_count = 0
     workflow_count = 0
     while True:
-        # Save the token that will be used to fetch this page *before* fetching.
-        # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
+        # Keep the token that fetches this page. It goes into the stream before the rows of the page,
+        # so a resume fetches this same page again. Duplicates are safe thanks to primary keys.
         pre_fetch_token = workflows.next_page_token
         await _with_transient_rpc_retry(workflows.fetch_next_page, logger)
         page = workflows.current_page
@@ -381,11 +411,9 @@ async def _get_workflow_histories(
 
         page_count += 1
         if pre_fetch_token:
-            resumable_source_manager.save_state(
-                TemporalIOResumeConfig(next_page_token=_encode_page_token(pre_fetch_token))
-            )
+            yield _ResumePoint(state=TemporalIOResumeConfig(next_page_token=_encode_page_token(pre_fetch_token)))
             logger.debug(
-                f"TemporalIO: saved resume state at page {page_count} ({workflow_count} total workflow histories)"
+                f"TemporalIO: queued resume state at page {page_count} ({workflow_count} total workflow histories)"
             )
 
         for item in page:
@@ -421,16 +449,24 @@ def temporalio_source(
     db_incremental_field_last_value: Optional[Any],
     resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
     logger: FilteringBoundLogger,
+    team_id: int,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     if resource == TemporalIOResource.Workflows:
 
         async def get_workflows_iterator():
             return _get_workflows(
-                config, db_incremental_field_last_value, should_use_incremental_field, resumable_source_manager, logger
+                config,
+                db_incremental_field_last_value,
+                should_use_incremental_field,
+                resumable_source_manager,
+                logger,
+                team_id,
             )
 
-        workflows = _async_iter_to_sync(asyncio.run(get_workflows_iterator()))
+        workflows = _async_iter_to_sync(
+            asyncio.run(get_workflows_iterator()), save_resume_state=resumable_source_manager.save_state
+        )
 
         return SourceResponse(
             name=resource.value,
@@ -447,10 +483,17 @@ def temporalio_source(
 
         async def get_histories_iterator():
             return _get_workflow_histories(
-                config, db_incremental_field_last_value, should_use_incremental_field, resumable_source_manager, logger
+                config,
+                db_incremental_field_last_value,
+                should_use_incremental_field,
+                resumable_source_manager,
+                logger,
+                team_id,
             )
 
-        workflows = _async_iter_to_sync(asyncio.run(get_histories_iterator()))
+        workflows = _async_iter_to_sync(
+            asyncio.run(get_histories_iterator()), save_resume_state=resumable_source_manager.save_state
+        )
 
         return SourceResponse(
             name=resource.value,

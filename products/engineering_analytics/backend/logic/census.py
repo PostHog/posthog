@@ -12,7 +12,7 @@ import posixpath
 from contextlib import closing
 from pathlib import Path
 
-from posthog_owners import TeamTestCensus, census, runner_for_path
+from owners_yaml import TeamTestCensus, census, runner_for_path
 
 from posthog.api.capture import capture_batch_internal
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited

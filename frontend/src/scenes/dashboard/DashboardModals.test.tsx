@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
-import type { DashboardType, QueryBasedInsightModel } from '~/types'
+import type { DashboardType } from '~/types'
 
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardModals } from './DashboardModals'
@@ -108,7 +108,7 @@ describe('DashboardModals', () => {
     })
 
     it('returns to the dashboard when a tile route references a missing tile', () => {
-        const dashboard = { id: 5, tiles: [] } as unknown as DashboardType<QueryBasedInsightModel>
+        const dashboard = { id: 5, tiles: [] } as unknown as DashboardType
 
         render(<DashboardModals dashboard={dashboard} />)
 

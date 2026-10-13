@@ -1205,6 +1205,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -1213,6 +1216,12 @@ database "posthog" {
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "hosts" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+    }
+    column "emails" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
     }
     column "has_replay_events" {
       type = "SimpleAggregateFunction(max, Bool)"
@@ -1224,6 +1233,21 @@ database "posthog" {
     }
     index "flag_keys_bloom_filter" {
       expr        = "flag_keys"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "hosts_bloom_filter" {
+      expr        = "hosts"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "emails_bloom_filter" {
+      expr        = "emails"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -2079,60 +2103,6 @@ SQL
     }
   }
 
-  view "raw_sessions_v3_v" {
-    override = true
-    query = <<SQL
-SELECT
-  session_id_v7,
-  session_timestamp,
-  team_id,
-  argMaxMerge(distinct_id) AS distinct_id,
-  argMaxMerge(person_id) AS person_id,
-  groupUniqArrayMerge(distinct_ids) AS distinct_ids,
-  min(min_timestamp) AS min_timestamp,
-  max(max_timestamp) AS max_timestamp,
-  max(max_inserted_at) AS max_inserted_at,
-  arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
-  argMinMerge(entry_url) AS entry_url,
-  argMaxMerge(end_url) AS end_url,
-  argMaxMerge(last_external_click_url) AS last_external_click_url,
-  argMinMerge(browser) AS browser,
-  argMinMerge(browser_version) AS browser_version,
-  argMinMerge(os) AS os,
-  argMinMerge(os_version) AS os_version,
-  argMinMerge(device_type) AS device_type,
-  argMinMerge(viewport_width) AS viewport_width,
-  argMinMerge(viewport_height) AS viewport_height,
-  argMinMerge(geoip_country_code) AS geoip_country_code,
-  argMinMerge(geoip_subdivision_1_code) AS geoip_subdivision_1_code,
-  argMinMerge(geoip_subdivision_1_name) AS geoip_subdivision_1_name,
-  argMinMerge(geoip_subdivision_city_name) AS geoip_subdivision_city_name,
-  argMinMerge(geoip_time_zone) AS geoip_time_zone,
-  argMinMerge(entry_utm_source) AS entry_utm_source,
-  argMinMerge(entry_utm_campaign) AS entry_utm_campaign,
-  argMinMerge(entry_utm_medium) AS entry_utm_medium,
-  argMinMerge(entry_utm_term) AS entry_utm_term,
-  argMinMerge(entry_utm_content) AS entry_utm_content,
-  argMinMerge(entry_referring_domain) AS entry_referring_domain,
-  argMinMerge(entry_gclid) AS entry_gclid,
-  argMinMerge(entry_gad_source) AS entry_gad_source,
-  argMinMerge(entry_fbclid) AS entry_fbclid,
-  argMinMerge(entry_has_gclid) AS entry_has_gclid,
-  argMinMerge(entry_has_fbclid) AS entry_has_fbclid,
-  argMinMerge(entry_ad_ids_map) AS entry_ad_ids_map,
-  argMinMerge(entry_ad_ids_set) AS entry_ad_ids_set,
-  argMinMerge(entry_channel_type_properties) AS entry_channel_type_properties,
-  uniqExactMerge(pageview_uniq) AS pageview_uniq,
-  uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
-  uniqExactMerge(screen_uniq) AS screen_uniq,
-  uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) AS page_screen_autocapture_uniq_up_to,
-  groupUniqArrayMapMerge(flag_values) AS flag_values
-FROM posthog.raw_sessions_v3
-GROUP BY
-  session_id_v7, session_timestamp, team_id
-SQL
-
-  }
 
   view "sessions_v" {
     override = true

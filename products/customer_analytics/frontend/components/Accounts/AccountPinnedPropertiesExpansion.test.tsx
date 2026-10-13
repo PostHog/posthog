@@ -51,6 +51,7 @@ const relationshipDefinition: AccountRelationshipDefinitionApi = {
     id: 'relationship-1',
     name: 'CSM',
     is_single_holder: true,
+    is_controlled: false,
 }
 const members = [
     { id: 1, email: 'alex@example.com', first_name: '' },
@@ -86,6 +87,7 @@ function createAssignment(userId: number): AccountRelationshipApi {
         user: members.find(({ id }) => id === userId)!,
         started_at: '2026-01-01T00:00:00Z',
         ended_at: null,
+        source: null,
     }
 }
 

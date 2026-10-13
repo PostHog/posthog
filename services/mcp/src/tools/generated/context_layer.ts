@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/context_layer/api'
+import { WikiPageReadLimitSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ContextWikiChannelResolveSchema = () => {
@@ -28,7 +29,7 @@ const contextWikiChannelResolve = (): ToolBase<
 
 const ContextWikiPageRetrieveSchema = () => {
     const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
-    return ContextLayerAgentPagesRetrieveQueryParams
+    return ContextLayerAgentPagesRetrieveQueryParams.extend({ limit: WikiPageReadLimitSchema })
 }
 
 const contextWikiPageRetrieve = (): ToolBase<ReturnType<typeof ContextWikiPageRetrieveSchema>, Schemas.WikiPage> => ({
@@ -40,6 +41,9 @@ const contextWikiPageRetrieve = (): ToolBase<ReturnType<typeof ContextWikiPageRe
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             query: {
+                head_sha: params.head_sha,
+                limit: params.limit,
+                offset: params.offset,
                 path: params.path,
             },
         })
@@ -102,7 +106,7 @@ const loopContextWikiChannelResolve = (): ToolBase<
 
 const LoopContextWikiPageRetrieveSchema = () => {
     const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
-    return ContextLayerAgentPagesRetrieveQueryParams
+    return ContextLayerAgentPagesRetrieveQueryParams.extend({ limit: WikiPageReadLimitSchema })
 }
 
 const loopContextWikiPageRetrieve = (): ToolBase<
@@ -117,6 +121,9 @@ const loopContextWikiPageRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             query: {
+                head_sha: params.head_sha,
+                limit: params.limit,
+                offset: params.offset,
                 path: params.path,
             },
         })
@@ -211,7 +218,7 @@ const taskContextWikiPagePropose = (): ToolBase<
 
 const TaskContextWikiPageRetrieveSchema = () => {
     const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
-    return ContextLayerAgentPagesRetrieveQueryParams
+    return ContextLayerAgentPagesRetrieveQueryParams.extend({ limit: WikiPageReadLimitSchema })
 }
 
 const taskContextWikiPageRetrieve = (): ToolBase<
@@ -226,6 +233,9 @@ const taskContextWikiPageRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             query: {
+                head_sha: params.head_sha,
+                limit: params.limit,
+                offset: params.offset,
                 path: params.path,
             },
         })

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.coassemble import (
     CoassembleResumeConfig,
     coassemble_source,
@@ -48,12 +46,12 @@ class CoassembleSource(ResumableSource[CoassembleSourceConfig, CoassembleResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COASSEMBLE,
+            name=ExternalDataSourceType.COASSEMBLE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Coassemble",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["lms", "training", "courses"],
-            caption="""Enter your Coassemble workspace ID and API key to pull your courses, collections, learners, and learner progress into the PostHog Data warehouse.
+            caption="""Enter your Coassemble workspace ID and API key to pull your courses, collections, learners, learner progress, and client usage into the PostHog Data warehouse.
 
 You can generate an API key from your workspace API settings in [Coassemble](https://coassemble.com). API access must be enabled on your workspace plan.
 """,

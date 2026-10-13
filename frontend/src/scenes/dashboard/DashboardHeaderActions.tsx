@@ -7,9 +7,9 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -17,10 +17,11 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
 
+import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
@@ -239,54 +240,14 @@ export function DashboardEditSaveCancelButtons({
 
 export function EditModeActions(): JSX.Element {
     const { canEditDashboard, layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
-    const { setDashboardEditing, setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
+    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
 
     return (
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
-            {canEditDashboard && !layoutEditMode && tiles.length > 0 && (
-                <Shortcut
-                    name="EnterEditMode"
-                    scope={Scene.Dashboard}
-                    keybind={[keyBinds.edit]}
-                    intent="Enter edit mode"
-                    interaction="click"
-                >
-                    <LemonButton
-                        type="secondary"
-                        data-attr="dashboard-edit-mode-button"
-                        onClick={() =>
-                            setDashboardEditing(
-                                { filters: true, layout: true },
-                                DashboardEventSource.SceneCommonButtons
-                            )
-                        }
-                        size="small"
-                        icon={<IconGridMasonry fontSize="16" />}
-                        tooltip="Customize dashboard"
-                        tooltipPlacement="top"
-                        sideAction={
-                            dashboardCustomizationEnabled
-                                ? {
-                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
-                                      dropdown: {
-                                          closeOnClickInside: false,
-                                          placement: 'bottom-end',
-                                          overlay: (
-                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
-                                          ),
-                                      },
-                                  }
-                                : undefined
-                        }
-                    >
-                        Customize
-                    </LemonButton>
-                </Shortcut>
-            )}
-            {layoutEditMode && dashboardCustomizationEnabled && tiles.length > 0 && (
+            {canEditDashboard && !layoutEditMode && tiles.length > 0 && <DashboardCustomizeButton />}
+            {layoutEditMode && tiles.length > 0 && (
                 <LemonMenu
                     items={[{ label: () => <DashboardCustomizeMenu /> }]}
                     closeOnClickInside={false}
@@ -329,75 +290,60 @@ export function FullscreenModeActions(): JSX.Element {
     )
 }
 
-export function ViewModeActions(): JSX.Element {
-    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
-    const { setDashboardEditing } = useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
+export function DashboardShareButton({ dashboard }: { dashboard: DashboardType }): JSX.Element {
     const { push } = useActions(router)
-    if (!dashboard) {
-        return <></>
-    }
-
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
     )
 
     return (
+        <LemonButton
+            type="secondary"
+            data-attr="dashboard-share-button"
+            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+            size="small"
+            icon={dashboard.is_shared ? <LemonBadge content="On" size="small" /> : <IconShare fontSize="16" />}
+            active={dashboard.is_shared}
+            disabledReason={sharingDisabledReason ?? undefined}
+        >
+            {dashboard.is_shared ? 'Sharing' : 'Share'}
+        </LemonButton>
+    )
+}
+
+export function DashboardEmbeddedShareButton({
+    dashboard,
+    placement,
+}: {
+    dashboard: DashboardType | null
+    placement: DashboardPlacement
+}): JSX.Element | null {
+    if (
+        !dashboard?.is_shared ||
+        ![DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(placement)
+    ) {
+        return null
+    }
+
+    return (
+        <div className="flex justify-end mb-2">
+            <DashboardShareButton dashboard={dashboard} />
+        </div>
+    )
+}
+
+export function ViewModeActions(): JSX.Element {
+    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
+    if (!dashboard) {
+        return <></>
+    }
+
+    return (
         <>
             <DashboardSubscribeButton />
-            {tiles.length > 0 && (
-                <LemonButton
-                    type="secondary"
-                    data-attr="dashboard-share-button"
-                    onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                    size="small"
-                    icon={<IconShare fontSize="16" />}
-                    disabledReason={sharingDisabledReason ?? undefined}
-                >
-                    Share
-                </LemonButton>
-            )}
-            {canEditDashboard && tiles.length > 0 && (
-                <Shortcut
-                    name="EnterEditMode"
-                    scope={Scene.Dashboard}
-                    keybind={[keyBinds.edit]}
-                    intent="Enter edit mode"
-                    interaction="click"
-                >
-                    <LemonButton
-                        type="secondary"
-                        data-attr="dashboard-edit-mode-button"
-                        onClick={() =>
-                            setDashboardEditing(
-                                { filters: true, layout: true },
-                                DashboardEventSource.SceneCommonButtons
-                            )
-                        }
-                        size="small"
-                        icon={<IconGridMasonry fontSize="16" />}
-                        tooltip="Customize dashboard"
-                        tooltipPlacement="top"
-                        sideAction={
-                            dashboardCustomizationEnabled
-                                ? {
-                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
-                                      dropdown: {
-                                          closeOnClickInside: false,
-                                          placement: 'bottom-end',
-                                          overlay: (
-                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
-                                          ),
-                                      },
-                                  }
-                                : undefined
-                        }
-                    >
-                        Customize
-                    </LemonButton>
-                </Shortcut>
-            )}
+            {(tiles.length > 0 || dashboard.is_shared) && <DashboardShareButton dashboard={dashboard} />}
+            {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
             <DashboardAddTileButton />
         </>
     )

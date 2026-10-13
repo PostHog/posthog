@@ -14,10 +14,18 @@ class TestCortexSource:
         # A finished source must be visible: `unreleasedSource` hides it from every user.
         assert not self.source.get_source_config.unreleasedSource
 
-    def test_get_schemas_are_all_full_refresh(self) -> None:
-        # Cortex exposes no server-side updated-since cursor, so no stream is incremental.
+    def test_only_custom_events_syncs_incrementally(self) -> None:
+        # `startTime` on the custom event stream is the only server-side time filter Cortex
+        # documents; every other list endpoint has to be re-read in full.
+        incremental = {
+            schema.name for schema in self.source.get_schemas(self.config, self.team_id) if schema.supports_incremental
+        }
+        assert incremental == {"custom_events"}
+
+    def test_full_refresh_schemas_advertise_no_cursor(self) -> None:
         for schema in self.source.get_schemas(self.config, self.team_id):
-            assert schema.supports_incremental is False
+            if schema.name == "custom_events":
+                continue
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 

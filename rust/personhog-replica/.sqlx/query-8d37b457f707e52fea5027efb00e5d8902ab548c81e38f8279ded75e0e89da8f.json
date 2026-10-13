@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id::bigint AS \"id!\", is_deleted AS \"is_deleted!\"\n        FROM posthog_persondistinctid\n        WHERE team_id = $1 AND person_id = $2\n        LIMIT $3\n        FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8d37b457f707e52fea5027efb00e5d8902ab548c81e38f8279ded75e0e89da8f"
+}

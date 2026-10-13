@@ -8,11 +8,10 @@ import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
+import experimentGetByFlagKey from './experiments/getByFlagKey'
 import getExperimentResults from './experiments/getResults'
-import experimentListDeprecated from './experiments/listDeprecated'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
-import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -28,6 +27,8 @@ import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookRun from './notebooks/runNotebook'
+import notebookRunStatus from './notebooks/runNotebookStatus'
 import notebookSetVariables from './notebooks/setVariables'
 import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
@@ -52,7 +53,6 @@ import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
 import updatePropertyDefinition from './projects/updatePropertyDefinition'
-// Replay
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
@@ -89,14 +89,12 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
-    'update-feature-flag': updateFeatureFlagPreservingGroups,
 
     'path-cleaning-rules-update': updatePathCleaning,
 
-    // Experiments (results is hand-written; CRUD + lifecycle are codegen)
+    // Experiments (results and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    // Deprecated alias for experiment-list — forwards and annotates the response.
-    'experiment-get-all': experimentListDeprecated,
+    'experiment-get-by-flag-key': experimentGetByFlagKey,
 
     // Insights
     'insight-query': queryInsight,
@@ -114,6 +112,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-add-cell': notebookAddCell,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-run': notebookRun,
+    'notebooks-run-status': notebookRunStatus,
     'notebooks-set-variables': notebookSetVariables,
     'notebooks-update-cell': notebookUpdateCell,
 
@@ -132,8 +132,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
-
-    // Replay
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
@@ -198,7 +196,11 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
+    const candidates = tools.filter(
+        (tool) =>
+            hasScopes(scopes, tool.scopes) &&
+            (!scopes.includes('internal_run:read') || !['tasks-run-create', 'tasks-create-and-run'].includes(tool.name))
+    )
 
     return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
 }

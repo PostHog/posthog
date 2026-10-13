@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse, HogFlowListType } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
@@ -17,9 +18,13 @@ export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
 const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'draft', 'archived']
 
-export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation'
+export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation' | 'loop'
 
-const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation']
+// What this page covers. A surface that grows its own page drops out of this list, rather than every
+// other list learning to exclude it.
+const WORKFLOWS_PAGE_TYPES: HogFlowListType[] = ['messaging', 'automation', 'loop']
+
+const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation', 'loop']
 
 export type WorkflowTriggerTypeFilter = 'all' | (NonNullable<HogFlow['trigger']> extends { type: infer T } ? T : never)
 
@@ -65,8 +70,9 @@ interface WorkflowsListParams {
     search?: string
     status?: HogFlow['status']
     created_by?: string
-    type?: Exclude<WorkflowTypeFilter, 'all'>
+    type?: HogFlowListType[]
     trigger?: string
+    suggestions_first?: boolean
     limit: number
     offset: number
 }
@@ -194,6 +200,9 @@ export interface workflowsLogicActions {
     selectAllArchivedWorkflows: (ids: string[]) => {
         ids: string[]
     }
+    selectTypeTab: (type: WorkflowTypeFilter) => {
+        type: WorkflowTypeFilter
+    }
     setFilters: (
         filters: Partial<WorkflowsFilters>,
         replace?: boolean
@@ -257,6 +266,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         deleteSelectedWorkflows: true,
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>, replace?: boolean) => ({ filters, replace }),
+        selectTypeTab: (type: WorkflowTypeFilter) => ({ type }),
         toggleArchivedWorkflowSelection: (id: string) => ({ id }),
         selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
         clearArchivedWorkflowSelection: true,
@@ -417,9 +427,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 search: filters.search || undefined,
                 status: filters.status !== 'all' ? filters.status : undefined,
                 created_by: filters.createdBy || undefined,
-                type: filters.type !== 'all' ? filters.type : undefined,
+                // Name the types this page covers rather than the one it hides, so a surface that
+                // grows its own page drops out here instead of every list learning to exclude it.
+                // Server-side keeps `count` honest, which dropping rows from the page did not.
+                type: filters.type !== 'all' ? [filters.type] : WORKFLOWS_PAGE_TYPES,
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
+                // Only this page sorts a waiting suggestion above recency; every other reader of the
+                // list keeps recency, so one stale workflow cannot push fresh ones off their first page.
+                suggestions_first: true,
                 limit: WORKFLOWS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * WORKFLOWS_PER_PAGE : 0,
             }),
@@ -445,6 +461,11 @@ export const workflowsLogic = kea<workflowsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        selectTypeTab: ({ type }) => {
+            actions.setFilters({ type })
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('workflows type tab selected', { type })
+        },
         setFilters: async (_, breakpoint) => {
             // Debounce so typing in the search box doesn't fire a request per keystroke.
             await breakpoint(300)

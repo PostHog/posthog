@@ -1,15 +1,15 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
+    FORBIDDEN_KEY_MESSAGE,
+    INSTANCE_NOT_FOUND_MESSAGE,
     ClerkResumeConfig,
     clerk_source,
     validate_credentials as validate_clerk_credentials,
@@ -42,7 +42,7 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLERK,
+            name=ExternalDataSourceType.CLERK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Clerk",
             releaseStatus=ReleaseStatus.GA,
@@ -104,7 +104,14 @@ The secret key starts with `sk_live_`.
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your Clerk dashboard and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have permission to access this endpoint. Please check the key's permissions in your Clerk dashboard.",
+            # Listed before the host-wide 403 below, since the first matching key supplies the message.
+            "403 Client Error: Forbidden for url: https://api.clerk.com/v1/users": FORBIDDEN_KEY_MESSAGE,
+            # Clerk secret keys carry no per-key permissions, so a 403 on any other table usually means
+            # the table's feature is off for the instance. Pointing the customer at key permissions dead-ends.
+            "403 Client Error: Forbidden for url: https://api.clerk.com": (
+                "Clerk denied access to this table. Check that the feature it needs is turned on for "
+                "your Clerk instance, or turn off syncing for this table."
+            ),
             # Clerk answers 410 for endpoints it has removed. Schema discovery retires the table
             # within a few hours, so this only covers runs that start in between.
             "410 Client Error: Gone for url: https://api.clerk.com": "Clerk removed this endpoint from its API, so this table can't sync any more. Turn off syncing for this table.",
@@ -131,6 +138,19 @@ The secret key starts with `sk_live_`.
             # to this path, not all of api.clerk.com, since a 404 elsewhere can be a genuinely missing
             # record worth investigating rather than an account limitation.
             "404 Client Error: Not Found for url: https://api.clerk.com/v1/redirect_urls": "The redirect URLs table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
+            # Clerk answers the same 404 resource_not_found for jwt_templates on instances/plans
+            # that don't serve the resource. An instance that does serve it returns 200 with an
+            # empty array when no template exists, so the 404 can't mean "none configured". The
+            # unfiltered list request is identical every run, so it re-fails on every schedule.
+            # Scoped to this path for the same reason as redirect_urls above.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/jwt_templates": "The JWT templates table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
+            # The users list exists on every Clerk instance, and an instance with no users answers
+            # 200 with an empty array, so a 404 resource_not_found here can't mean a missing record
+            # — Clerk won't resolve the instance the key belongs to at all. The request is identical
+            # every run, so it re-fails on every schedule. Scoped to this path, like the two
+            # entries above; `users` is also the parent of the sessions fan-out, so the copy names
+            # the key rather than one table.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/users": INSTANCE_NOT_FOUND_MESSAGE,
             **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 

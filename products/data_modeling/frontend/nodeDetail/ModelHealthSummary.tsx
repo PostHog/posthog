@@ -1,8 +1,12 @@
-import { LemonButton, LemonCard, LemonTag, LemonTagType, Link, Tooltip, LemonSkeleton } from '@posthog/lemon-ui'
+import type { ReactNode } from 'react'
+
+import { LemonButton, LemonTag, LemonTagType, Tooltip, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { STATUS_TOOLTIPS } from '../lineage/nodeStyles'
+import { ModelDownstreamSummary } from './ModelDownstreamSummary'
+import { ModelSummaryCard } from './ModelSummaryCard'
 
 export interface ModelHealthSummaryProps {
     status: string | null
@@ -16,6 +20,7 @@ export interface ModelHealthSummaryProps {
     schedule: string | null
     lineageUrl: string
     downstreamCount: number
+    metadata?: ReactNode
 }
 
 const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
@@ -40,6 +45,7 @@ export function ModelHealthSummary({
     schedule,
     lineageUrl,
     downstreamCount,
+    metadata,
 }: ModelHealthSummaryProps): JSX.Element {
     const failed = status === 'Failed'
     const statusLabel = suspended ? 'Suspended' : status === 'Cancelled' ? 'Canceled' : status
@@ -53,7 +59,7 @@ export function ModelHealthSummary({
     // A suspended model explains itself in the paragraph below, so it needs no second explanation.
     const statusExplanation = suspended ? undefined : STATUS_TOOLTIPS[status ?? '']
     return (
-        <LemonCard hoverEffect={false} className="!p-4 w-fit max-w-full self-start" data-attr="node-detail-health">
+        <ModelSummaryCard metadata={metadata} dataAttr="node-detail-health">
             <div className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold">{title}</span>
@@ -120,26 +126,13 @@ export function ModelHealthSummary({
                         </dt>
                         <dd className="mb-0">{schedule ?? <LemonSkeleton className="h-4 w-32" />}</dd>
                     </div>
-                    <div>
-                        <dt className="text-secondary mb-1">
-                            <Tooltip title="Models that depend on this model's results. Open lineage to see how they are connected.">
-                                <span className="border-b border-dashed border-secondary cursor-help">Downstream</span>
-                            </Tooltip>
-                        </dt>
-                        <dd className="mb-0">
-                            {schedule === null || (!historyLoaded && !historyError) ? (
-                                <LemonSkeleton className="h-4 w-32" />
-                            ) : downstreamCount ? (
-                                <Link to={lineageUrl}>
-                                    {downstreamCount} {downstreamCount === 1 ? 'model' : 'models'}
-                                </Link>
-                            ) : (
-                                'No dependent models'
-                            )}
-                        </dd>
-                    </div>
+                    <ModelDownstreamSummary
+                        downstreamCount={downstreamCount}
+                        lineageUrl={lineageUrl}
+                        loading={schedule === null || (!historyLoaded && !historyError)}
+                    />
                 </dl>
             </div>
-        </LemonCard>
+        </ModelSummaryCard>
     )
 }

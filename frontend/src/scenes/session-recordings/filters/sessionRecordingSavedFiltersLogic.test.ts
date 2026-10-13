@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
+import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -11,6 +12,7 @@ import { ReplayTabs } from '~/types'
 
 describe('sessionRecordingSavedFiltersLogic', () => {
     let logic: ReturnType<typeof sessionRecordingSavedFiltersLogic.build>
+    let savedFiltersRequestCount: number
     const savedFilter = {
         id: 'abc',
         short_id: 'short_abc',
@@ -20,14 +22,60 @@ describe('sessionRecordingSavedFiltersLogic', () => {
     }
 
     beforeEach(() => {
+        savedFiltersRequestCount = 0
         useMocks({
             get: {
-                '/api/projects/:team/session_recording_playlists': { results: [], count: 0 },
+                '/api/projects/:team/session_recording_playlists': () => {
+                    savedFiltersRequestCount += 1
+                    return { results: [], count: 0 }
+                },
                 '/api/projects/:team/session_recording_playlists/:id': savedFilter,
             },
         })
         initKeaTests()
         logic = sessionRecordingSavedFiltersLogic()
+    })
+
+    it('does not load saved filters when the logic mounts', async () => {
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(savedFiltersRequestCount).toBe(0)
+    })
+
+    it('loads saved filters once when the filters panel opens', async () => {
+        logic.mount()
+
+        playlistFiltersLogic.actions.setIsFiltersExpanded(true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(savedFiltersRequestCount).toBe(1)
+
+        playlistFiltersLogic.actions.setIsFiltersExpanded(false)
+        playlistFiltersLogic.actions.setIsFiltersExpanded(true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(savedFiltersRequestCount).toBe(1)
+    })
+
+    it('loads saved filters once when a navigation menu opens', async () => {
+        logic.mount()
+
+        logic.actions.loadSavedFiltersIfNeeded()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(savedFiltersRequestCount).toBe(1)
+
+        logic.actions.loadSavedFiltersIfNeeded()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(savedFiltersRequestCount).toBe(1)
+    })
+
+    it('loads saved filters when the filters panel was expanded before the logic mounted', async () => {
+        playlistFiltersLogic.mount()
+        playlistFiltersLogic.actions.setIsFiltersExpanded(true)
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(savedFiltersRequestCount).toBe(1)
     })
 
     it('redirects to the replay home URL when the saved filter loads on the replay scene', async () => {

@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from .constants import LearningProvider, LearningRunResult, LearningRunStatus, learning_provider_choices
+from .constants import LearningProvider, LearningRunStatus, learning_provider_choices, learning_run_result_choices
 
 LEARNING_ERROR_MAX_LENGTH = 1024
 LEARNING_PROVIDER_MAX_LENGTH = 64
@@ -45,7 +45,7 @@ class KnowledgeLearningRun(TeamScopedRootMixin, UUIDModel):
     )
     result = models.CharField(
         max_length=32,
-        choices=LearningRunResult.choices,
+        choices=learning_run_result_choices,
         blank=True,
         default="",
     )

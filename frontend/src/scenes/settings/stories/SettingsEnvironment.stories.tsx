@@ -1,10 +1,15 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -36,6 +41,19 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/billing/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: [],
+                    has_secret: false,
+                    cookie_delivery_enabled: true,
+                },
+                '/api/projects/:id/heatmap_capture/settings/': {
+                    capture_mode: 'url_allowlist',
+                    url_allowlist: ['https://example.com/pricing'],
+                    enforcement_enabled: false,
+                    can_capture_all_urls: true,
+                    capture_url_limit: null,
+                },
+                '/api/projects/:id/heatmap_capture/pages/': { pages: [] },
                 // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],
@@ -43,6 +61,7 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
                 '/api/projects/:id/core_memory': { results: [] },
+                '/api/projects/:id/data_warehouse/data_quality_gate/': { gate_materialization_on_checks: true },
                 '/api/projects/:id/hog_functions': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },
                 '/api/organizations/:id/pipeline_destinations': { results: [] },
@@ -83,6 +102,31 @@ export const SettingsEnvironmentAutocapture: Story = { args: { sectionId: 'envir
 
 export const SettingsEnvironmentHeatmaps: Story = { args: { sectionId: 'environment-heatmaps' } }
 
+export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
+    args: { sectionId: 'environment-heatmaps' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: ['example.com'],
+                    has_secret: true,
+                    cookie_delivery_enabled: true,
+                },
+            },
+        }),
+    ],
+    render: ({ sectionId }: StoryProps) => {
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
+        const [initializedSection, setInitializedSection] = useState<SettingSectionId | null>(null)
+        useEffect(() => {
+            loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, heatmaps_screenshot_secret: 'phh_example1234abcd' })
+            router.actions.push(urls.settings(sectionId))
+            setInitializedSection(sectionId)
+        }, [loadCurrentTeamSuccess, sectionId])
+        return <>{initializedSection === sectionId && <App />}</>
+    },
+}
+
 export const SettingsEnvironmentProductAnalytics: Story = { args: { sectionId: 'environment-product-analytics' } }
 
 export const SettingsEnvironmentRevenueAnalytics: Story = { args: { sectionId: 'environment-revenue-analytics' } }
@@ -95,6 +139,48 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
 }
 
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
+
+const EXPERIMENTS_CONFIG_MOCK = {
+    experiment_recalculation_times: ['02:00:00'],
+    default_experiment_confidence_level: null,
+    default_experiment_stats_method: null,
+    default_only_count_matured_users: false,
+    default_cuped_enabled: false,
+    default_cuped_lookback_days: null,
+    default_minimum_detectable_effect: 5,
+    default_sequential_testing_enabled: false,
+    default_sequential_tuning_parameter: null,
+    flag_cleanup_repository: null,
+}
+
+export const SettingsEnvironmentExperiments: Story = {
+    args: { sectionId: 'environment-experiments' },
+    parameters: {
+        // STORYBOOK_FEATURE_FLAGS enables every flag, so the flag-off picker needs the exclusion
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter(
+            (f) => f !== FEATURE_FLAGS.EXPERIMENT_MULTIPLE_RECALCULATION_TIMES
+        ),
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:id/experiments_config/': EXPERIMENTS_CONFIG_MOCK },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
+    args: { sectionId: 'environment-experiments' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/experiments_config/': {
+                    ...EXPERIMENTS_CONFIG_MOCK,
+                    experiment_recalculation_times: ['02:00:00', '14:00:00'],
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsEnvironmentReplay: Story = { args: { sectionId: 'environment-replay' } }
 
@@ -109,6 +195,8 @@ export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
 }
 
 export const SettingsEnvironmentCSPReporting: Story = { args: { sectionId: 'environment-csp-reporting' } }
+
+export const SettingsEnvironmentDataQuality: Story = { args: { sectionId: 'environment-data-quality' } }
 
 export const SettingsEnvironmentPrivacy: Story = { args: { sectionId: 'environment-privacy' } }
 
@@ -136,6 +224,12 @@ export const SettingsEnvironmentBusinessKnowledge: Story = {
                     learn_from_support_enabled: false,
                     support_enabled: true,
                 },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
             },
         }),
     ],
@@ -150,6 +244,12 @@ export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
                     learn_from_support_enabled: false,
                     support_enabled: false,
                 },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
             },
         }),
     ],
@@ -163,6 +263,83 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
                 '/api/projects/:id/business_knowledge/settings/': {
                     learn_from_support_enabled: true,
                     support_enabled: false,
+                },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
+            },
+        }),
+    ],
+}
+
+const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, Record<string, unknown>> => ({
+    get: {
+        '/api/users/@me/integrations/codex/': codex,
+    },
+})
+
+export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'connected',
+                plan_type: 'pro',
+                email: 'jane@example.com',
+                connected_at: '2023-05-20T10:00:00Z',
+            }),
+        },
+    },
+}
+
+export const SettingsEnvironmentAiSubscriptionsCodexReauthRequired: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'reauth_required',
+                plan_type: 'plus',
+                email: 'jane@example.com',
+                connected_at: '2023-05-20T10:00:00Z',
+            }),
+        },
+    },
+}
+
+export const SettingsEnvironmentAiSubscriptionsCodexConnectModal: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'not_connected',
+                plan_type: null,
+                email: null,
+                connected_at: null,
+            }),
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Connect Codex'))
+    },
+}
+
+export const SettingsEnvironmentAgentInstructions: Story = {
+    args: { sectionId: 'environment-task-agent-instructions' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/tasks/config/': {
+                    ai_run_preferences: null,
+                    agent_instructions: 'Use pnpm, not npm.\nOpen pull requests as drafts.',
+                },
+                '/api/projects/:id/tasks/@me/config/': {
+                    ai_run_preferences: null,
+                    resolved_ai_run_defaults: null,
+                    agent_instructions: '',
                 },
             },
         }),

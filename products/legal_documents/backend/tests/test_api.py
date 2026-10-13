@@ -1,7 +1,7 @@
 import hmac
 import json
 import hashlib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from typing import Any
 
@@ -575,7 +575,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
         self.assertTrue(self.document.signed_pdf_stored)
@@ -589,8 +589,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
     def test_archive_failure_leaves_row_signed_but_unarchived(self) -> None:
         # The whole point of the decoupling: a PDF download failure no longer
-        # blocks the signature. The row is signed and the webhook returns 200;
-        # only signed_pdf_stored stays False for the reconciliation sweep to fix.
+        # blocks the signature. The row is signed and the webhook still accepts the
+        # delivery; only signed_pdf_stored stays False for the reconciliation sweep to fix.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 
         body = json.dumps(self._completed_payload()).encode("utf-8")
@@ -607,7 +607,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             with self.assertRaises(Retry), self.captureOnCommitCallbacks(execute=True):
                 response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         stream_mock.assert_called_once_with(document_id="doc_123")
         write_mock.assert_not_called()
         self.document.refresh_from_db()
@@ -619,16 +619,17 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override():
             response = self._post_raw(body, "not-the-right-signature")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.content, b"")
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
-    def test_unknown_document_id_returns_204(self) -> None:
+    def test_unknown_document_id_is_accepted(self) -> None:
         # Sibling cloud instance scenario: signature is valid but the document
         # belongs to a different instance. 2xx so PandaDoc doesn't retry.
         body = json.dumps(self._completed_payload(pandadoc_document_id="unknown")).encode("utf-8")
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
     @parameterized.expand([("document.sent",), ("document.viewed",), ("document.error",)])
     def test_uninteresting_state_event_is_noop(self, event_status: str) -> None:
@@ -638,10 +639,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         body = json.dumps(payload).encode("utf-8")
         with (
             self._override(),
-            patch("products.legal_documents.backend.presentation.webhook.logger") as logger_mock,
+            patch("products.legal_documents.backend.logic.webhooks.logger") as logger_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
         logger_mock.info.assert_any_call(
@@ -655,7 +656,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
 
@@ -671,8 +672,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             ),
         ):
             response = self._post_raw(body, self._sign(body))
-        # Endpoint still 2xx — we don't want PandaDoc to retry.
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Endpoint still 2xx, because we don't want PandaDoc to retry.
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"
@@ -684,7 +685,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         send_mock.assert_not_called()
 
     def test_template_mismatch_does_not_flip_row(self) -> None:
@@ -693,7 +694,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
@@ -703,7 +704,28 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_replayed_completed_event_skips_side_effects(self) -> None:
+    @contextmanager
+    def _read_the_row_before_the_other_delivery_committed(self):
+        # Only the first read is stale, so the handler's re-read after a lost claim sees the row.
+        stale = LegalDocument.objects.get(id=self.document.id)
+        stale.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
+        original = logic.get_by_pandadoc_document_id
+        pending_reads = [stale]
+
+        def lookup(pandadoc_document_id: str) -> LegalDocument | None:
+            return pending_reads.pop(0) if pending_reads else original(pandadoc_document_id)
+
+        with patch("products.legal_documents.backend.logic.get_by_pandadoc_document_id", side_effect=lookup):
+            yield
+
+    @parameterized.expand(
+        [
+            ("a_later_replay", False),
+            # PandaDoc sends no delivery id, so nothing upstream collapses the two.
+            ("a_concurrent_delivery_that_read_the_row_as_pending", True),
+        ]
+    )
+    def test_a_second_completed_event_skips_side_effects(self, _name: str, stale_read: bool) -> None:
         @contextmanager
         def fake_stream_cm(*, document_id):  # noqa: ARG001
             yield object()
@@ -719,26 +741,29 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.object_storage.write_stream"),
         ):
             first = self._post_raw(body, self._sign(body))
-        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.status_code, status.HTTP_202_ACCEPTED)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
 
-        # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
-        # PandaDoc retries / cross-instance fan-out both land here.
+        # Second delivery: must not re-stream the PDF, re-upload, re-fire analytics, or re-apply
+        # the BAA side effects. PandaDoc retries / cross-instance fan-out both land here.
         replay_body = json.dumps(self._completed_payload()).encode("utf-8")
         with (
             self._override(),
+            self._read_the_row_before_the_other_delivery_committed() if stale_read else nullcontext(),
             patch(
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
             ) as stream_spy,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
+            patch("products.legal_documents.backend.logic.apply_baa_signed_side_effects") as baa_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         stream_spy.assert_not_called()
         write_spy.assert_not_called()
         event_spy.assert_not_called()
+        baa_spy.assert_not_called()
 
     def _swap_to_baa_document(self) -> None:
         """The default fixture is a DPA. For BAA-side-effect tests, retarget it."""
@@ -775,7 +800,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override(), self._fake_pdf_pipeline():
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.organization.refresh_from_db()
         self.assertFalse(getattr(self.organization, flag))
 
@@ -789,7 +814,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override(), self._fake_pdf_pipeline():
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.organization.refresh_from_db()
         self.assertTrue(getattr(self.organization, flag))
 
@@ -809,7 +834,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         email_cls.assert_called_once()
         kwargs = email_cls.call_args.kwargs
         self.assertEqual(kwargs["template_name"], "baa_signed_ai_disabled")
@@ -833,7 +858,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         email_cls.assert_not_called()
         self.organization.refresh_from_db()
         # Opt-out still happens even when there are no owners to notify.

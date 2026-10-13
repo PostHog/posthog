@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import http from 'node:http'
 import http2 from 'node:http2'
 import https from 'node:https'
@@ -10,6 +11,8 @@ import { TestTlsIdentity, createTestTlsIdentity } from '~/tests/helpers/tls'
 
 type RequestModule = typeof import('./request')
 type Client = import('undici').Client
+type FetchResponseLike = Awaited<ReturnType<RequestModule['fetch']>>
+type LegacyResponseLike = Awaited<ReturnType<RequestModule['legacyFetch']>>
 
 const proxyEnvironmentNames = ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy'] as const
 
@@ -264,6 +267,104 @@ describe('secure HTTP/2 requests', () => {
         expect(await response.text()).toBe('/plain')
         expect(proxyAuthorities).toEqual([plainAuthority])
     }, 10000)
+
+    describe('egress proxy rollout', () => {
+        // resetModules gives `request` a fresh copy of the attribution store, so the test has to reach the caller
+        // side through that same copy rather than through a top-level import.
+        let attribution: AsyncLocalStorage<Record<string, unknown>>
+
+        // The plain origin is reached by IP so the direct route needs no DNS.
+        const loadWithProxyTeams = (proxyTeams: string): void => {
+            process.env.EXTERNAL_REQUEST_PROXY_TEAMS = proxyTeams
+            jest.resetModules()
+            requestModule = require('./request') as RequestModule
+            attribution = (require('./fetch-attribution') as typeof import('./fetch-attribution')).fetchAttribution
+        }
+
+        // A caller that sets no attribution at all, such as the session replay image lane. A team of undefined is a
+        // caller that has attribution but no invocation. Both reach the matcher as team 0 once a rollout is set.
+        const NO_ATTRIBUTION = 'no-attribution'
+        type Caller = number | undefined | typeof NO_ATTRIBUTION
+
+        const fetchAs = (caller: Caller, url: string, options = {}): Promise<FetchResponseLike> => {
+            const run = (): Promise<FetchResponseLike> => requestModule.fetch(url, { timeoutMs: 2000, ...options })
+            return caller === NO_ATTRIBUTION ? run() : attribution.run({ teamId: caller }, run)
+        }
+
+        afterEach(() => {
+            delete process.env.EXTERNAL_REQUEST_PROXY_TEAMS
+        })
+
+        it.each<[string, Caller, boolean]>([
+            // An unset value means the deployment is not in the rollout, so every caller keeps the proxy.
+            ['', 2, true],
+            ['', NO_ATTRIBUTION, true],
+            ['2', 2, true],
+            ['2', 3, false],
+            ['2', undefined, false],
+            ['2', NO_ATTRIBUTION, false],
+            ['2,*:1', 3, true],
+            ['*', 3, true],
+            ['*:1', undefined, true],
+        ])(
+            'with EXTERNAL_REQUEST_PROXY_TEAMS=%j and caller %s, proxied: %s',
+            async (proxyTeams, caller, expectProxied) => {
+                loadWithProxyTeams(proxyTeams)
+                const authority = `127.0.0.1:${serverPort(plainOrigin)}`
+
+                const response = await fetchAs(caller, `http://${authority}/routing`)
+
+                expect(await response.text()).toBe('/routing')
+                expect(proxyAuthorities).toEqual(expectProxied ? [authority] : [])
+            },
+            10000
+        )
+
+        it.each([['*:10'], ['*:bad'], ['2,*:'], ['*:0.1,*:10']])(
+            'refuses to start with EXTERNAL_REQUEST_PROXY_TEAMS=%j',
+            (proxyTeams) => {
+                // A fraction read as a percentage would proxy every team at once, which is what the staged rollout exists
+                // to prevent.
+                expect(() => loadWithProxyTeams(proxyTeams)).toThrow(/takes a fraction between 0 and 1/)
+            }
+        )
+
+        // legacyFetch picks its own dispatcher instead of taking one from `fetch`, so it needs its own coverage.
+        // A shared agent assigned there directly would pin the helper to one route whatever the rollout says.
+        it.each<[Caller, boolean]>([
+            [2, true],
+            [3, false],
+            [NO_ATTRIBUTION, false],
+        ])(
+            'routes legacyFetch for caller %s through the proxy: %s',
+            async (caller, expectProxied) => {
+                loadWithProxyTeams('2')
+                const authority = `127.0.0.1:${serverPort(plainOrigin)}`
+                const run = (): Promise<LegacyResponseLike> => requestModule.legacyFetch(`http://${authority}/legacy`)
+
+                const response = await (caller === NO_ATTRIBUTION ? run() : attribution.run({ teamId: caller }, run))
+
+                expect(await response.text()).toBe('/legacy')
+                expect(proxyAuthorities).toEqual(expectProxied ? [authority] : [])
+            },
+            10000
+        )
+
+        it('keeps the two routes on separate HTTP/2 dispatchers for one idle timeout', async () => {
+            loadWithProxyTeams('2')
+            const authority = `127.0.0.1:${serverPort(plainOrigin)}`
+            const options = { allowH2: true, http2IdleTimeoutMs: 42_000 }
+
+            const proxied = await fetchAs(2, `http://${authority}/proxied`, options)
+            const direct = await fetchAs(3, `http://${authority}/direct`, options)
+
+            expect(await proxied.text()).toBe('/proxied')
+            expect(await direct.text()).toBe('/direct')
+            // A single dispatcher map keyed only by the idle timeout would hand the direct request the proxied
+            // dispatcher, and the second authority would show up here.
+            expect(proxyAuthorities).toEqual([authority])
+        }, 10000)
+    })
 
     it('carries a burst to a cold origin on one session', async () => {
         const http2Url = `https://origin.test:${serverPort(http2Origin)}`

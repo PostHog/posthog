@@ -22,16 +22,28 @@ METRIC_SERIES_DISTRIBUTED_TABLE_NAME = "metric_series_distributed"
 METRIC_ATTRIBUTES2_TABLE_NAME = "metric_attributes2"
 METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME = "metric_attributes_distributed"
 
-DEFAULT_RETENTION_DAYS = 90
+DEFAULT_RETENTION_DAYS = 30
 
 
 def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
 
-def KAFKA_METRICS_AVRO2_TABLE_SQL() -> str:
+def kafka_metrics_avro_table_sql(
+    table_name: str,
+    group: str,
+    flush_interval_ms: int | None = None,
+    max_block_size: int | None = None,
+) -> str:
+    # The aggregation views group one insert block at a time, so a longer flush interval
+    # packs more samples of a series into each row before the merge.
+    block_settings = ""
+    if flush_interval_ms is not None:
+        block_settings += f"\n    kafka_flush_interval_ms = {flush_interval_ms},"
+    if max_block_size is not None:
+        block_settings += f"\n    kafka_max_block_size = {max_block_size},"
     return f"""
-CREATE TABLE IF NOT EXISTS {_db()}.{KAFKA_TABLE_NAME}
+CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
     `uuid` String,
     `trace_id` String,
@@ -56,20 +68,24 @@ CREATE TABLE IF NOT EXISTS {_db()}.{KAFKA_TABLE_NAME}
     `has_labels` Nullable(UInt8),
     `retention_days` Nullable(Int32)
 )
-ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
+ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=group, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
     kafka_num_consumers = {kafka_num_consumers(8)},
     kafka_poll_timeout_ms = 3000,
-    kafka_poll_max_batch_size = 1000,
+    kafka_poll_max_batch_size = 1000,{block_settings}
     input_format_avro_allow_missing_fields = 1
 """
 
 
-def METRICS2_INPUT_TABLE_SQL() -> str:
+def KAFKA_METRICS_AVRO2_TABLE_SQL() -> str:
+    return kafka_metrics_avro_table_sql(KAFKA_TABLE_NAME, KAFKA_GROUP)
+
+
+def metrics_input_table_sql(table_name: str) -> str:
     return f"""
-CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_INPUT_TABLE_NAME}
+CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
     `uuid` String,
     `team_id` Int32,
@@ -101,6 +117,10 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_INPUT_TABLE_NAME}
 )
 ENGINE = Null
 """
+
+
+def METRICS2_INPUT_TABLE_SQL() -> str:
+    return metrics_input_table_sql(METRICS2_INPUT_TABLE_NAME)
 
 
 def METRICS2_TABLE_SQL() -> str:
@@ -138,6 +158,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+    INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
     PROJECTION projection_series_activity
     (
         SELECT
@@ -250,14 +271,15 @@ def METRIC_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL() -> str:
     return _distributed_sql(METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME, METRIC_ATTRIBUTES2_TABLE_NAME)
 
 
-def KAFKA_METRICS_AVRO2_MV() -> str:
+def kafka_metrics_avro_mv_select(table_name: str) -> str:
     db = _db()
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{METRICS2_INPUT_TABLE_NAME}
-AS SELECT
+    # Use the sample timestamp so a late sample expires with its series.
+    # Capture replaces a timestamp when it differs from the ingest time by more than 24 hours.
+    # Thus, this view does not need another clock check.
+    return f"""SELECT
     uuid,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
     ifNull(metric_name, '') AS metric_name,
@@ -265,7 +287,7 @@ AS SELECT
     cityHash64({sorted_resource_attributes}) AS resource_fingerprint,
     timestamp,
     observed_timestamp,
-    observed_timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32({DEFAULT_RETENTION_DAYS}))))) AS original_expiry_timestamp,
     ifNull(service_name, '') AS service_name,
     ifNull(metric_type, '') AS metric_type,
     ifNull(value, 0) AS value,
@@ -285,11 +307,22 @@ AS SELECT
     _partition,
     _topic,
     _offset
-FROM {db}.{KAFKA_TABLE_NAME}
-WHERE {KAFKA_TABLE_NAME}.series_fingerprint IS NOT NULL
+FROM {db}.{table_name}
+WHERE {table_name}.series_fingerprint IS NOT NULL
 SETTINGS
     min_insert_block_size_rows = 0,
-    min_insert_block_size_bytes = 0
+    min_insert_block_size_bytes = 0"""
+
+
+def KAFKA_METRICS_AVRO2_MV_SELECT() -> str:
+    return kafka_metrics_avro_mv_select(KAFKA_TABLE_NAME)
+
+
+def KAFKA_METRICS_AVRO2_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{METRICS2_INPUT_TABLE_NAME}
+AS {KAFKA_METRICS_AVRO2_MV_SELECT()}
 """
 
 
@@ -344,6 +377,13 @@ def METRICS2_DROP_SERIES_MINUTE_PROJECTION_SQL() -> str:
 
 def METRICS2_DROP_UUID_COLUMN_SQL() -> str:
     return f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} DROP COLUMN IF EXISTS uuid"
+
+
+def METRICS2_ADD_TIMESTAMP_INDEX_SQL() -> str:
+    return (
+        f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} "
+        "ADD INDEX IF NOT EXISTS idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1"
+    )
 
 
 def METRIC_SERIES2_ADD_LAST_SEEN_INDEX_SQL() -> str:

@@ -183,7 +183,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                         type,
                     }
                     // This reads the feature flags API, whose generated client belongs to another product.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/?${toParams(params)}`
                     )
@@ -199,7 +199,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 loadRelatedFeatureFlags: async () => {
                     actions.loadFeatureFlags()
                     // This reads the feature flags API, whose generated client belongs to another product.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. featureFlagsEvaluationReasonsRetrieve() from 'products/feature_flags/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/evaluation_reasons?${toParams({
                             ...(props.distinctId ? { distinct_id: props.distinctId } : {}),

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -47,7 +46,7 @@ class HubplannerSource(ResumableSource[HubplannerSourceConfig, HubPlannerResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HUBPLANNER,
+            name=ExternalDataSourceType.HUBPLANNER,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Hub Planner",
             caption="""Enter your Hub Planner API key to sync your resource-scheduling, project-planning and time-tracking data into the PostHog Data warehouse.
@@ -98,7 +97,7 @@ Generate a **Read Only** API key in Hub Planner under **Settings → API** (admi
         # Only bookings and time_entries carry a searchable `updatedDate`, so they're the only
         # endpoints with incremental fields — build_endpoint_schemas derives incremental/append
         # support from that (has_incremental == incremental_search_field is not None).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

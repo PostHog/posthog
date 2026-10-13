@@ -3,6 +3,7 @@ import {
     ActivityLogUserName,
     Describer,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -50,6 +51,7 @@ export const instanceSettingActivityDescriber: Describer = (
 
     if (transition) {
         return {
+            summary: activityLogSummary(logItem, `${transition} the instance setting`, <code>{key}</code>),
             description: (
                 <>
                     {actor} {transition} instance setting <code>{key}</code>
@@ -62,6 +64,7 @@ export const instanceSettingActivityDescriber: Describer = (
     // echo the raw sentinel into the audit log.
     if (isSentinel(change.before) || isSentinel(change.after)) {
         return {
+            summary: activityLogSummary(logItem, 'Updated the instance setting', <code>{key}</code>),
             description: (
                 <>
                     {actor} updated instance setting <code>{key}</code>
@@ -71,6 +74,12 @@ export const instanceSettingActivityDescriber: Describer = (
     }
 
     return {
+        summary: activityLogSummary(
+            logItem,
+            'Changed the instance setting',
+            <code>{key}</code>,
+            JSON.stringify(change.after)
+        ),
         description: (
             <>
                 {actor} changed instance setting <code>{key}</code> from <code>{JSON.stringify(change.before)}</code> to{' '}

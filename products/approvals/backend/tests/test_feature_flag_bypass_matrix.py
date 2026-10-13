@@ -263,22 +263,37 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
     def test_direct_patch_rollout_change_is_gated(self, _mock_enabled):
         _any_rollout_change_policy(self)
         flag = self._flag(active=True, rollout=20)
+        # The editor saves the whole flag it loaded, so the gate sees the server-owned timestamps
+        # come back too. last_called_at has to be set for the body to carry a real one.
+        last_called_at = timezone.now() - timedelta(days=3)
+        flag.last_called_at = last_called_at
+        flag.save(update_fields=["last_called_at"])
 
-        response = self._patch(flag, {"filters": {"groups": [{"properties": [], "rollout_percentage": 90}]}})
+        body = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/").json()
+        body["filters"] = {"groups": [{"properties": [], "rollout_percentage": 90}]}
+        response = self._patch(flag, body)
 
-        assert response.status_code == 409
+        assert response.status_code == 409, response.content
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["rollout_percentage"] == 20
+        assert flag.last_called_at == last_called_at
         self._assert_one_pending_zero_applied()
 
     def test_create_active_is_gated(self, _mock_enabled):
         _enable_policy_for(self, "feature_flag.enable")
 
+        # A client building a create from a flag it loaded sends the server-owned timestamps along.
         response = self._post(
-            {"key": "born-active", "active": True, "filters": {"groups": [{"rollout_percentage": 100}]}}
+            {
+                "key": "born-active",
+                "active": True,
+                "filters": {"groups": [{"rollout_percentage": 100}]},
+                "created_at": (timezone.now() - timedelta(days=30)).isoformat(),
+                "last_called_at": (timezone.now() - timedelta(days=3)).isoformat(),
+            }
         )
 
-        assert response.status_code == 409
+        assert response.status_code == 409, response.content
         assert response.json().get("code") == "approval_required"
         assert not FeatureFlag.objects.filter(team=self.team, key="born-active").exists()
         self._assert_one_pending_zero_applied()

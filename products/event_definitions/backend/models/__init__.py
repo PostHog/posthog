@@ -7,6 +7,7 @@ from .property_definition import (
     PropertyFormat,
     PropertyType,
     effective_project_id_expr,
+    group_type_index_key_expr,
 )
 from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty, SchemaPropertyType
 
@@ -24,4 +25,5 @@ __all__ = [
     "PROPERTY_DEFINITIONS_TABLE_SQL",
     "DROP_PROPERTY_DEFINITIONS_TABLE_SQL",
     "effective_project_id_expr",
+    "group_type_index_key_expr",
 ]

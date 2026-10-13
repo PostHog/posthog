@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -21,13 +23,33 @@ interface QueryPaneProps {
     originalValue?: string
     onRun?: () => void
     editorVimModeEnabled?: boolean
+    editorVimrc?: string
     constrainHeight?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton } = useValues(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton, insightLoading } = useValues(sqlEditorLogic)
+    const queryLoading = insightLoading && !props.queryInput
+    const editorOptions = useMemo<CodeEditorProps['options']>(
+        () => ({
+            minimap: {
+                enabled: false,
+            },
+            wordWrap: 'on',
+            scrollBeyondLastLine: !!props.originalValue,
+            automaticLayout: true,
+            fixedOverflowWidgets: true,
+            glyphMargin: true,
+            suggest: {
+                showInlineDetails: true,
+            },
+            quickSuggestionsDelay: 300,
+            readOnly: queryLoading,
+        }),
+        [props.originalValue, queryLoading]
+    )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
     const fillsColumn = props.constrainHeight === false
@@ -69,27 +91,24 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         width={width}
                                         originalValue={props.originalValue}
                                         enableVimMode={props.editorVimModeEnabled}
-                                        autoFocus={true}
+                                        vimrc={props.editorVimrc}
                                         {...props.codeEditorProps}
-                                        options={{
-                                            minimap: {
-                                                enabled: false,
-                                            },
-                                            wordWrap: 'on',
-                                            scrollBeyondLastLine: !!props.originalValue,
-                                            automaticLayout: true,
-                                            fixedOverflowWidgets: true,
-                                            glyphMargin: true,
-                                            suggest: {
-                                                showInlineDetails: true,
-                                            },
-                                            quickSuggestionsDelay: 300,
-                                        }}
+                                        autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
+                                        options={editorOptions}
                                     />
                                 ) : null
                             }
                         />
                     </div>
+                    {queryLoading && (
+                        <div
+                            className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-primary"
+                            role="status"
+                        >
+                            <Spinner />
+                            <span>Loading query…</span>
+                        </div>
+                    )}
                     {props.originalValue && (
                         <div
                             className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"

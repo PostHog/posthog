@@ -7,8 +7,8 @@ description: >
   "turn these failures into evals". Covers letting the explored data decide how many evals to create,
   proposing that set for the user to pick, choosing the target and eval type (hog / llm_judge /
   sentiment), configuring a provider and model for an llm_judge eval (a provider key gates enabling, not
-  creation), scoping which generations trigger it via conditions, creating disabled, verifying scope, and
-  enabling. Proposes a sentiment eval when no failure mode is worth catching. Finding and ranking the
+  creation), scoping which generations trigger it via conditions, creating disabled, verifying scope,
+  enabling, and backfilling past data. Proposes a sentiment eval when no failure mode is worth catching. Finding and ranking the
   failure modes worth evaluating is its own job — use exploring-ai-failures first. To debug or manage
   evaluations that already exist, use exploring-llm-evaluations.
 ---
@@ -37,19 +37,24 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 
 ## Tools
 
-| Tool                                       | Purpose                                                       |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| `posthog:llma-evaluation-config-get`       | Check the active provider key used by unpinned judges         |
-| `posthog:llma-provider-key-list`           | Find a usable (`ok` state) provider key to pin                |
-| `posthog:llma-evaluation-judge-models`     | List valid provider+model combos                              |
-| `posthog:llma-evaluation-directory-list`   | List directories available for organizing the evaluation      |
-| `posthog:llma-evaluation-directory-create` | Create a directory when the user asks for a new one           |
-| `posthog:llma-evaluation-test-hog`         | Dry-run Hog source against recent generations before creating |
-| `posthog:llma-evaluation-create`           | Create the evaluation (always `enabled: false` first)         |
-| `posthog:llma-evaluation-run`              | Spot-run a draft eval against one generation                  |
-| `posthog:llma-evaluation-update`           | Iterate config, then flip `enabled: true`                     |
-| `posthog:execute-sql`                      | Verify a condition matches the events and volume you expect   |
-| `posthog:generate-app-url`                 | Build a region- and project-qualified deep link to the eval   |
+| Tool                                        | Purpose                                                       |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| `posthog:llma-evaluation-config-get`        | Check the active provider key used by unpinned judges         |
+| `posthog:llma-provider-key-list`            | Find a usable (`ok` state) provider key to pin                |
+| `posthog:llma-evaluation-judge-models`      | List valid provider+model combos                              |
+| `posthog:llma-evaluation-directory-list`    | List directories available for organizing the evaluation      |
+| `posthog:llma-evaluation-directory-create`  | Create a directory when the user asks for a new one           |
+| `posthog:llma-evaluation-test-hog`          | Dry-run Hog source against recent generations before creating |
+| `posthog:llma-evaluation-create`            | Create the evaluation (always `enabled: false` first)         |
+| `posthog:llma-evaluation-run`               | Spot-run a draft eval against one generation                  |
+| `posthog:llma-evaluation-update`            | Iterate config, then flip `enabled: true`                     |
+| `posthog:llma-evaluation-backfill-estimate` | Count what a backfill over past data would evaluate           |
+| `posthog:llma-evaluation-backfill-create`   | Evaluate past data, only after the user confirms the estimate |
+| `posthog:llma-evaluation-backfill-get`      | Track a backfill's progress and coverage                      |
+| `posthog:llma-evaluation-backfill-list`     | Find an evaluation's backfills, including one already running |
+| `posthog:llma-evaluation-backfill-cancel`   | Stop a running backfill when the user asks                    |
+| `posthog:execute-sql`                       | Verify a condition matches the events and volume you expect   |
+| `posthog:generate-app-url`                  | Build a region- and project-qualified deep link to the eval   |
 
 The full create payload (every field, the config schemas, the exact `conditions` shape) is in
 [references/evaluation-payload.md](references/evaluation-payload.md).
@@ -312,6 +317,31 @@ is not the expected one. To wire results into a Slack feed, see `feature-usage-f
 Close the loop across the whole set at once — one short list of what's now live with a link each, not a
 play-by-play per eval. Mention any candidate you left disabled (no usable provider key, volume too high to
 enable yet) and what would unblock it.
+
+### 2.7 — Offer to evaluate past data
+
+An enabled eval only scores traffic from now on. If the user wants results on data they already have, offer
+a backfill over a recent window, at most the last 30 days.
+
+1. Call `posthog:llma-evaluation-backfill-estimate` with the window, `conditions`, and `rerun_existing` the
+   user wants. Tell the user `total_units`, the
+   returned window (it is clamped, so it can differ from the one you asked for), and what each unit costs:
+   one run of the eval, counted as an AI observability event, plus a model call for an `llm_judge`.
+   `already_evaluated_units` already have a result and are left out unless `rerun_existing` is true.
+2. Call `posthog:llma-evaluation-backfill-create` only after the user says yes. Pass the `window_start` and
+   `window_end` the estimate returned, not the ones you asked for, with the same `conditions` and
+   `rerun_existing`, so the run matches what they approved.
+3. Track it with `posthog:llma-evaluation-backfill-get`. Skipped units were already being evaluated by the
+   eval itself, so they are covered, not missed. Once it completes, a `remaining_count` above zero means
+   units were left without a result; offer another backfill over the same range. Offer it once. If the
+   second run leaves units behind again, the eval keeps failing on them, so tell the user instead of
+   offering a third.
+4. If `posthog:llma-evaluation-backfill-create` says it could not confirm the start, call
+   `posthog:llma-evaluation-backfill-list` before trying again, because the backfill may be running.
+5. To stop a backfill, call `posthog:llma-evaluation-backfill-cancel`. Evaluations it already started
+   still finish.
+
+One backfill runs per evaluation at a time.
 
 ## Scoping with conditions
 

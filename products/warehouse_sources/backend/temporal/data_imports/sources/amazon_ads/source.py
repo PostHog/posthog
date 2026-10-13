@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads import (
     AmazonAdsResumeConfig,
     amazon_ads_source,
@@ -55,7 +53,7 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AMAZON_ADS,
+            name=ExternalDataSourceType.AMAZONADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Amazon Ads",
             caption="""Connect your Amazon Ads account to pull your advertising entity data into the PostHog Data warehouse.
@@ -149,10 +147,9 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_amazon_ads_credentials(config.region, config.client_id, config.client_secret, config.refresh_token):
-            return True, None
-
-        return False, "Invalid Amazon Ads credentials"
+        return validate_amazon_ads_credentials(
+            config.region, config.client_id, config.client_secret, config.refresh_token
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AmazonAdsResumeConfig]:
         return ResumableSourceManager[AmazonAdsResumeConfig](inputs, AmazonAdsResumeConfig)

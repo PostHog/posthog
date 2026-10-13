@@ -3,8 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
@@ -29,15 +28,6 @@ class TestChargedeskSourceConfig:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog, so the public docs can render the table list.
         assert ChargedeskSource.lists_tables_without_credentials is True
-
-
-class TestGetSchemas:
-    def test_incremental_fields_use_resource_timestamp(self) -> None:
-        schemas = {s.name: s for s in ChargedeskSource().get_schemas(_config(), team_id=1)}
-        assert schemas["charges"].incremental_fields[0]["field"] == "occurred"
-        # Customers/subscriptions track the creation timestamp column that the row actually carries.
-        assert schemas["customers"].incremental_fields[0]["field"] == "first_seen"
-        assert schemas["subscriptions"].incremental_fields[0]["field"] == "first_seen"
 
 
 class TestValidateCredentials:

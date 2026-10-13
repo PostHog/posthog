@@ -274,6 +274,8 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
                 "organization_id": inputs.organization_id,
                 "matched": matched,
                 "icp_fit_status": status,
+                "icp_fit_evaluated_at": outcome.fit_evaluated_at and outcome.fit_evaluated_at.isoformat(),
+                "icp_fit_evaluation_kind": ctx.phase.fit_evaluation_kind if outcome.fit else None,
                 "harmonic_enrichment_status": outcome.enrichment_status,
                 **observed,
             },
@@ -359,13 +361,14 @@ class IcpReenrichmentSweepWorkflow(PostHogWorkflow):
                 failed += 1
 
         summary = SweepRunSummary(selected=len(candidates), attempted=attempted, matched=matched, failed=failed)
+        # Keep this call until no execution that recorded this patch through workflow.patched() can
+        # replay, including closed executions inside namespace retention. Their replays fail without it.
+        workflow.deprecate_patch("icp-sweep-run-summary-2026-08")
         # Keep analytics I/O in an activity so workflow replay remains deterministic.
-        # Patched so an execution recorded before this activity existed still replays.
-        if workflow.patched("icp-sweep-run-summary-2026-08"):
-            await workflow.execute_activity(
-                report_sweep_run_activity,
-                summary,
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+        await workflow.execute_activity(
+            report_sweep_run_activity,
+            summary,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
         return dataclasses.asdict(summary)

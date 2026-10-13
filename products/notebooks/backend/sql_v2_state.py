@@ -11,6 +11,7 @@ run row records which input runs or variable values it used.
 """
 
 import re
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,7 +35,7 @@ from products.notebooks.backend.util import (
     iter_markdown_blocks,
 )
 
-_CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
+_CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight", "Insight": "saved_insight"}
 
 # Prose sits outside the runnable-cell ceiling below, so this is the only bound on how many
 # cells one save can turn into. The reader is an agent that pays context for every block it is
@@ -62,12 +63,44 @@ class NotebookCellState:
     cell_type: str
     dataframe_name: str = ""
     code: str = ""
+    # The data source a SQL cell targets, and whether its code reaches that engine verbatim.
+    # Both are cell attributes rather than run inputs, so anything that runs a cell on the
+    # cell's own terms — not just the editor, which passes them per request — needs them.
+    connection_id: str | None = None
+    send_raw_query: bool = False
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
     last_run: dict[str, Any] | None = None
     start: int = 0
     end: int = 0
+
+
+def _code_from_query_prop(value: Any) -> str:
+    """The SQL a SQL cell carries in `query` instead of `code`, or "" when it carries none.
+
+    Mirrors the editor's `getSqlV2PropsFromQueryProp`. A cell written before `code` existed,
+    or converted from a v1 node, holds its SQL three ways: raw in the string prop, as a bare
+    HogQLQuery, or wrapped in a data-table or visualization node. The editor renders all
+    three, so a whole-notebook run has to plan all three rather than silently skip them.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if not text.startswith("{"):
+            # Anything else a string prop can hold is the SQL itself.
+            return text
+        try:
+            value = json.loads(text)
+        except ValueError:
+            return ""
+    if not isinstance(value, dict):
+        return ""
+    source = value if value.get("kind") == "HogQLQuery" else value.get("source")
+    if isinstance(source, dict) and source.get("kind") == "HogQLQuery" and isinstance(source.get("query"), str):
+        return source["query"]
+    return ""
 
 
 def extract_cells(content: Any) -> list[NotebookCellState]:
@@ -83,16 +116,36 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         node_id = props.get("nodeId")
         if not isinstance(node_id, str) or not node_id:
             continue
-        code = props.get("code")
+        code = props.get("dataframeQuery") if cell_type == "saved_insight" else props.get("code")
+        if cell_type == "sql" and not (isinstance(code, str) and code.strip()):
+            code = _code_from_query_prop(props.get("query"))
         dataframe_name = props.get("returnVariable")
+        if not isinstance(dataframe_name, str):
+            dataframe_name = {"sql": "sql_df", "python": "df", "saved_insight": "insight_df"}[cell_type]
+        if cell_type == "saved_insight" and not (isinstance(code, str) and code.strip()):
+            dataframe_name = ""
+        connection_id = props.get("connectionId")
         cells.append(
             NotebookCellState(
                 node_id=node_id,
                 cell_type=cell_type,
                 dataframe_name=dataframe_name.strip() if isinstance(dataframe_name, str) else "",
                 code=code if isinstance(code, str) else "",
+                connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
+                send_raw_query=props.get("sendRawQuery") is True,
             )
         )
+    used_names: set[str] = set()
+    for cell_type in ("sql", "saved_insight"):
+        for cell in cells:
+            if cell.cell_type != cell_type or not _DATAFRAME_NAME.fullmatch(cell.dataframe_name):
+                continue
+            base_name = cell.dataframe_name
+            suffix = 2
+            while cell.dataframe_name.lower() in used_names:
+                cell.dataframe_name = f"{base_name}_{suffix}"
+                suffix += 1
+            used_names.add(cell.dataframe_name.lower())
     return cells
 
 
@@ -103,8 +156,13 @@ def validate_cell_count(previous_content: Any, next_content: Any) -> None:
     or by a path that predates it — stays editable, so its owner can delete cells down instead
     of finding every save rejected. A save that leaves the count unchanged always passes.
     """
-    next_count = len(extract_cells(next_content))
-    if next_count <= MAX_NOTEBOOK_CELLS or next_count <= len(extract_cells(previous_content)):
+    next_count = sum(
+        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(next_content)
+    )
+    previous_count = sum(
+        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(previous_content)
+    )
+    if next_count <= MAX_NOTEBOOK_CELLS or next_count <= previous_count:
         return
     raise NotebookCellLimitExceeded(
         f"This notebook is at its limit of {MAX_NOTEBOOK_CELLS} cells. "
@@ -131,16 +189,24 @@ def _referenced_names(cell: NotebookCellState, candidates: set[str]) -> set[str]
     return set()
 
 
+def get_dataframe_owners(cells: list[NotebookCellState]) -> dict[str, str]:
+    eligible_cells = [cell for cell in cells if _DATAFRAME_NAME.fullmatch(cell.dataframe_name)]
+    preferred_owners: dict[str, str] = {}
+    for cell_type in ("sql", "saved_insight", "python"):
+        for cell in eligible_cells:
+            if cell.cell_type == cell_type:
+                preferred_owners.setdefault(cell.dataframe_name.lower(), cell.node_id)
+    owners: dict[str, str] = {}
+    for cell in eligible_cells:
+        if preferred_owners.get(cell.dataframe_name.lower()) == cell.node_id:
+            owners.setdefault(cell.dataframe_name, cell.node_id)
+    return owners
+
+
 def build_dependency_edges(cells: list[NotebookCellState]) -> None:
     """Populate depends_on/dependents in place. Names follow the run-ref convention:
     SQL cells win dataframe-name collisions, unnamed cells export nothing."""
-    owner_by_name: dict[str, str] = {}
-    for cell in cells:
-        if cell.cell_type == "sql" and _DATAFRAME_NAME.match(cell.dataframe_name):
-            owner_by_name.setdefault(cell.dataframe_name, cell.node_id)
-    for cell in cells:
-        if cell.cell_type == "python" and _DATAFRAME_NAME.match(cell.dataframe_name):
-            owner_by_name.setdefault(cell.dataframe_name, cell.node_id)
+    owner_by_name = get_dataframe_owners(cells)
 
     by_node: dict[str, NotebookCellState] = {cell.node_id: cell for cell in cells}
     for cell in cells:
@@ -164,7 +230,9 @@ def _is_stale(
             upstream = cells_by_node[upstream_id]
             upstream_run = latest_done_by_node.get(upstream_id)
             refs[upstream.dataframe_name] = (
-                upstream_run.code if upstream_run is not None and upstream.cell_type == "sql" else None
+                upstream_run.code
+                if upstream_run is not None and upstream.cell_type in ("sql", "saved_insight")
+                else None
             )
         try:
             # Same order as dispatch (resolve_sql_node_run): variables bind before the CTE
@@ -196,26 +264,23 @@ def _is_stale(
 
 
 def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: Any) -> None:
-    runnable_ids = [cell.node_id for cell in cells if cell.cell_type in ("sql", "python")]
+    runnable_ids = [cell.node_id for cell in cells if cell.cell_type in ("sql", "python", "saved_insight")]
     if not runnable_ids:
         return
-    latest_by_node: dict[str, NotebookNodeRun] = {}
-    latest_done_by_node: dict[str, NotebookNodeRun] = {}
     runs = (
         NotebookNodeRun.objects.for_team(team_id)
         .filter(notebook=notebook, node_id__in=runnable_ids)
         .order_by("node_id", "-created_at")
     )
-    for run in runs:
-        if run.node_id not in latest_by_node:
-            latest_by_node[run.node_id] = run
-        if run.status == NotebookNodeRun.Status.DONE and run.node_id not in latest_done_by_node:
-            latest_done_by_node[run.node_id] = run
+    latest_by_node = {run.node_id: run for run in runs.distinct("node_id")}
+    latest_done_by_node = {
+        run.node_id: run for run in runs.filter(status=NotebookNodeRun.Status.DONE).distinct("node_id")
+    }
 
     cells_by_node = {cell.node_id: cell for cell in cells}
     variables = build_notebook_variables(notebook.variables or [])
     for cell in cells:
-        if cell.cell_type not in ("sql", "python"):
+        if cell.cell_type not in ("sql", "python", "saved_insight"):
             continue
         latest = latest_by_node.get(cell.node_id)
         if latest is None:

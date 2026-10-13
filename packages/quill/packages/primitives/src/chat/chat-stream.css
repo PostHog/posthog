@@ -54,7 +54,7 @@
     }
 
     .quill-chat-stream__line {
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         line-height: 1.625;
         color: var(--muted-foreground);
         text-wrap: pretty;

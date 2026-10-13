@@ -235,6 +235,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     )
     # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
     _is_active_changed: bool = False
+    _has_active_subscription_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -291,6 +292,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.",
     )
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    member_notice = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Notice shown in a banner to every member of the organization, with an optional link button.",
+    )
     read_only_mcp_access = models.BooleanField(
         default=False,
         null=True,
@@ -312,14 +318,6 @@ class Organization(ModelActivityMixin, UUIDTModel):
         choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
-    default_experiment_stats_method = models.CharField(
-        max_length=20,
-        choices=DefaultExperimentStatsMethod,
-        default=DefaultExperimentStatsMethod.BAYESIAN,
-        help_text="Default statistical method for new experiments in this organization.",
-        null=True,
-        blank=True,
-    )
     default_anonymize_ips = models.BooleanField(
         default=False,
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
@@ -525,6 +523,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
             if resource == QuotaResource.RECORDINGS:
                 dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+            self._project_llm_gateway_quota_if_ai(resource)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
 
@@ -555,6 +554,13 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
         if resource == QuotaResource.RECORDINGS:
             dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+        self._project_llm_gateway_quota_if_ai(resource)
+
+    def _project_llm_gateway_quota_if_ai(self, resource: "QuotaResource") -> None:
+        from ee.billing.quota_limiting import QuotaResource, _project_llm_gateway_quota_for_org
+
+        if resource in (QuotaResource.AI_CREDITS, QuotaResource.POSTHOG_CODE_CREDITS):
+            _project_llm_gateway_quota_for_org(self)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:
         """
@@ -673,17 +679,28 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 
 
 @receiver(models.signals.pre_save, sender=Organization)
-def remember_organization_is_active_change(sender, instance: Organization, **kwargs):
+def remember_organization_field_changes(sender, instance: Organization, **kwargs):
     instance._is_active_changed = False
+    instance._has_active_subscription_changed = False
     if instance._state.adding:
         return
 
+    tracked_fields = {"is_active", "has_active_subscription"}
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "is_active" not in update_fields:
-        return
+    if update_fields is not None:
+        tracked_fields &= set(update_fields)
+        if not tracked_fields:
+            return
 
-    previous_is_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
-    instance._is_active_changed = previous_is_active != instance.is_active
+    previous = sender.objects.filter(pk=instance.pk).values("is_active", "has_active_subscription").first()
+    if previous is None:
+        return
+    if "is_active" in tracked_fields:
+        instance._is_active_changed = previous["is_active"] != instance.is_active
+    if "has_active_subscription" in tracked_fields:
+        instance._has_active_subscription_changed = (
+            previous["has_active_subscription"] != instance.has_active_subscription
+        )
 
 
 @receiver(post_save, sender=Organization)
@@ -701,7 +718,18 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
         team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
         invalidate_llm_gateway_quota_cache(team_ids)
 
+    def _project_gateway_quota():
+        from posthog.tasks.team_llm_gateway_quota import project_org_llm_gateway_quota_task
+
+        try:
+            project_org_llm_gateway_quota_task.delay(str(organization_id))
+        except Exception:
+            # The reconcile re-derives a deactivated org's blobs; never fail the org save.
+            logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
+
     transaction.on_commit(_invalidate_cache)
+    if settings.AI_GATEWAY_REDIS_URL:
+        transaction.on_commit(_project_gateway_quota)
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):

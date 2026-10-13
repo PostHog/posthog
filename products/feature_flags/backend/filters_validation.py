@@ -14,6 +14,7 @@ reports or raises depending on the enforcement switch.
 """
 
 import re
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -35,13 +36,27 @@ STRING_VALUE_OPERATORS: frozenset[str] = frozenset(
         "not_regex",
         "icontains",
         "not_icontains",
-        "gt",
-        "gte",
-        "lt",
-        "lte",
     }
     | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
+# Every evaluator parses either form to the same number, so both are accepted.
+NUMERIC_COMPARISON_OPERATORS: frozenset[str] = frozenset({"gt", "gte", "lt", "lte"})
+
+
+def _is_comparable_number(value: Any) -> bool:
+    """Whether a number is one the Rust evaluator can read.
+
+    It decodes filters with serde_json, which rejects a value outside f64 range with
+    "number out of range" and fails the whole payload, not the one condition.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
 LIST_VALUE_OPERATORS: frozenset[str] = frozenset({"icontains_multi", "not_icontains_multi"})
 SEMVER_OPERATORS: frozenset[str] = frozenset(
     {
@@ -246,6 +261,16 @@ def check_operator_value_compatibility(filters: Mapping[str, Any]) -> list[Viola
                         rule_id="cross_field.operator_requires_string_value",
                         path=path,
                         message=f"Operator {operator} requires a string value.",
+                    )
+                )
+            if operator in NUMERIC_COMPARISON_OPERATORS and not (
+                isinstance(value, str) or _is_comparable_number(value)
+            ):
+                violations.append(
+                    Violation(
+                        rule_id="cross_field.operator_requires_string_value",
+                        path=path,
+                        message=f"Operator {operator} requires a string or number value.",
                     )
                 )
             if operator in LIST_VALUE_OPERATORS and not isinstance(value, list):

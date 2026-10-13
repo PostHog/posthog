@@ -4,7 +4,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
-import { IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -13,11 +13,15 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
+import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
@@ -26,8 +30,14 @@ export function MessageTemplatesTable(): JSX.Element {
     const { filteredTemplates, templates, templatesLoading, search, createdByFilter } = useValues(messageTemplatesLogic)
     const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter } =
         useActions(messageTemplatesLogic)
+    const { startNewTemplate } = useActions(newTemplateAgentLogic)
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
+    // Same check as the "New template" button in the header: the template API needs Editor access.
+    const newTemplateDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Workflow,
+        AccessControlLevel.Editor
+    )
 
     return (
         <div className="templates-section" data-attr="message-templates-table">
@@ -36,9 +46,7 @@ export function MessageTemplatesTable(): JSX.Element {
                     thingName="message template"
                     description="Create and manage reusable message templates for your workflows."
                     docsURL="https://posthog.com/docs/workflows"
-                    action={() => {
-                        router.actions.push(urls.workflowsLibraryTemplateNew())
-                    }}
+                    action={startNewTemplate}
                     customHog={HedgehogReadingIsMagic}
                     isEmpty
                 />
@@ -69,6 +77,28 @@ export function MessageTemplatesTable(): JSX.Element {
                 <Spinner className="text-6xl" />
             ) : (
                 <div className="MessageTemplatesGrid">
+                    {!showProductIntroduction && (
+                        <button
+                            type="button"
+                            className={
+                                newTemplateDisabledReason
+                                    ? 'MessageTemplateItem cursor-not-allowed'
+                                    : 'MessageTemplateItem cursor-pointer'
+                            }
+                            onClick={startNewTemplate}
+                            disabled={!!newTemplateDisabledReason}
+                            title={newTemplateDisabledReason ?? undefined}
+                            data-attr="message-templates-new-card"
+                        >
+                            <div className="MessageTemplateItemInner flex flex-col items-center justify-center gap-2 rounded border border-dashed bg-surface-primary px-4 text-center text-secondary hover:text-primary">
+                                <IconPlus className="text-3xl" />
+                                <span className="font-semibold">New template</span>
+                                {newTemplateDisabledReason && (
+                                    <span className="text-xs">{newTemplateDisabledReason}</span>
+                                )}
+                            </div>
+                        </button>
+                    )}
                     {filteredTemplates.map((template, index) => (
                         <MessageTemplateCard
                             key={template.id}

@@ -33,6 +33,8 @@ import {
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
+import { retryOnFastFailure } from 'products/logs/frontend/retryOnFastFailure'
+
 import type { DateRange } from '../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import { TRACING_DATE_FORMAT } from './dateFormats'
@@ -48,10 +50,12 @@ import {
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
 import { traceLookupDateRange } from './traceLinks'
+import { traceRows } from './traceRows'
 import {
     type TracingFilters,
     type TracingOrderBy,
     TRACING_SCENE_VIEWER_ID,
+    dataScopeKey,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { OverlayWindow, TimeComparison, TracingOrderDirection, TracingViewMode } from './tracingFiltersLogic'
@@ -85,21 +89,12 @@ const DEFAULT_PAGE_SIZE = 100
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
 
-// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace instead of the
-// scene's current date range — the table is time-keyed, so this is what keeps an id lookup from
-// scanning the whole window. Guard validity: a hand-edited/corrupted ts would otherwise make dayjs
-// throw on toISOString().
-function resolveTraceLookupRange(
-    ts: string | null | undefined,
-    utcDateRange: { date_from?: string | null; date_to?: string | null }
-): { date_from?: string | null; date_to?: string | null } {
-    if (ts && dayjs(ts).isValid()) {
-        return traceLookupDateRange(ts)
-    }
-    return {
-        date_from: utcDateRange.date_from ?? '-24h',
-        date_to: utcDateRange.date_to ?? undefined,
-    }
+// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace. Without one, the
+// lookup sends no date range, so the backend finds the trace by id in all retained spans instead of
+// only in the scene's current window. Guard validity: a hand-edited/corrupted ts would otherwise make
+// dayjs throw on toISOString().
+function resolveTraceLookupRange(ts: string | null | undefined): { date_from: string; date_to: string } | undefined {
+    return ts && dayjs(ts).isValid() ? traceLookupDateRange(ts) : undefined
 }
 
 function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
@@ -131,7 +126,7 @@ export interface tracingDataLogicValues {
     timeComparison: TimeComparison | null // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     aggregation: {
         current: AggregatedSpanRow[]
@@ -179,9 +174,11 @@ export interface tracingDataLogicValues {
     spanTreeLoading: boolean
     spans: Span[]
     spansAbortController: AbortController | null
+    spansError: string | null
     spansLoading: boolean
     sparklineAbortController: AbortController | null
     sparklineData: TracingSparklineData
+    sparklineError: string | null
     sparklineLoading: boolean
     totalMatchingFilters: number
     traceLoadContext: {
@@ -219,8 +216,12 @@ export interface tracingDataLogicActions {
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
+    ) => {
         dateRange: DateRange
+        source: import('./sparklineSelection').TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -800,6 +801,22 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             },
         ],
         aggregationLoading: [false as boolean, abortResilientLoading('fetchAggregation')],
+        spansError: [
+            null as string | null,
+            {
+                fetchSpans: () => null,
+                fetchSpansSuccess: () => null,
+                fetchSpansFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
+            },
+        ],
+        sparklineError: [
+            null as string | null,
+            {
+                fetchSparkline: () => null,
+                fetchSparklineSuccess: () => null,
+                fetchSparklineFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
+            },
+        ],
         spanTreeLoading: [
             false as boolean,
             {
@@ -880,20 +897,21 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    const response = await api.tracing.listSpans(
-                        {
-                            dateRange: values.utcDateRange,
-                            orderBy: values.filters.orderBy,
-                            orderDirection: values.filters.orderDirection,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            prefetchSpans: PREFETCH_SPANS,
-                            flatSpans: values.filters.viewMode === 'spans',
-                            limit: DEFAULT_PAGE_SIZE,
-                        },
-                        controller.signal
-                    )
+                    const query: Parameters<typeof api.tracing.listSpans>[0] = {
+                        dateRange: values.utcDateRange,
+                        orderBy: values.filters.orderBy,
+                        orderDirection: values.filters.orderDirection,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                        prefetchSpans: PREFETCH_SPANS,
+                        flatSpans: values.filters.viewMode === 'spans',
+                        // The API defaults to root-only trace selection, which drops traces whose root never arrived.
+                        rootSpans: false,
+                        limit: DEFAULT_PAGE_SIZE,
+                    }
+                    const response = await retryOnFastFailure(() => api.tracing.listSpans(query, controller.signal), {
+                        signal: controller.signal,
+                    })
 
                     actions.setSpansAbortController(null)
                     actions.setHasMoreToLoad(!!response.hasMore)
@@ -925,6 +943,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
                             flatSpans: values.filters.viewMode === 'spans',
+                            rootSpans: false,
                             limit: DEFAULT_PAGE_SIZE,
                             ...pagination,
                         },
@@ -943,7 +962,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             {
                 loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
                     const response = await api.tracing.getTrace(traceId, {
-                        dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
+                        dateRange: resolveTraceLookupRange(ts),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                     })
@@ -958,7 +977,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     }
                     const { traceId, ts } = values.traceLoadContext
                     const response = await api.tracing.getTrace(traceId, {
-                        dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
+                        dateRange: resolveTraceLookupRange(ts),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         offset: values.traceSpansNextOffset,
@@ -1082,6 +1101,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // The Operations table sorts/filters the full result set client-side, so
                             // request the endpoint's hard cap rather than its small default page.
                             limit: OPERATIONS_AGGREGATION_LIMIT,
+                            // Only the Operations table renders the Sessions and Users columns, and
+                            // the aggregates read attribute maps the rest of the query never touches.
+                            includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
                         },
                         controller.signal
                     )
@@ -1103,12 +1125,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // filters) AND the view mode — but not on sort or compare. Skip the re-fetch (and
                     // its spinner overlay) only when a sort/compare toggle re-runs the query without
                     // changing scope or view mode.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                        values.filters.viewMode,
-                    ])
+                    const scopeKey = JSON.stringify([dataScopeKey(values), values.filters.viewMode])
                     if (scopeKey === cache.sparklineScope) {
                         return values.rawSparklineData
                     }
@@ -1116,16 +1133,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    const response = await api.tracing.sparkline(
-                        {
-                            dateRange: values.utcDateRange,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            rootSpans: values.filters.viewMode === 'traces',
-                        },
-                        controller.signal
-                    )
+                    const query: Parameters<typeof api.tracing.sparkline>[0] = {
+                        dateRange: values.utcDateRange,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                        rootSpans: values.filters.viewMode === 'traces',
+                    }
+                    const response = await retryOnFastFailure(() => api.tracing.sparkline(query, controller.signal), {
+                        signal: controller.signal,
+                    })
 
                     actions.setSparklineAbortController(null)
                     // Record the scope only after a successful fetch, so a failed/aborted request retries.
@@ -1142,11 +1158,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // response, and the label selects which to show. So a Traces/Spans (or sort/compare)
                     // toggle that re-runs the query must not re-hit the endpoint; only the data scope
                     // (date range, services, filters) changes the result. Skip the fetch when unchanged.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                    ])
+                    const scopeKey = dataScopeKey(values)
                     if (scopeKey === cache.matchingCountsScope) {
                         return values.matchingCounts
                     }
@@ -1178,12 +1190,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // Same scope semantics as the sparkline: the heatmap depends on the data scope
                     // and the view mode (root spans vs every span), but not on sort or compare.
                     // Skip the re-fetch when a sort toggle re-runs the query without changing scope.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                        values.filters.viewMode,
-                    ])
+                    const scopeKey = JSON.stringify([dataScopeKey(values), values.filters.viewMode])
                     if (scopeKey === cache.latencyHeatmapScope) {
                         return values.rawLatencyHeatmap
                     }
@@ -1317,13 +1324,13 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 filters.chartType === 'heatmap' &&
                 !compareActive,
         ],
-        // The rows the list renders. 'traces' mode shows root spans only (one row per trace);
+        // The rows the list renders. 'traces' mode shows one row per trace (see traceRows);
         // 'spans' mode shows every matching span (root and child) flat. The fetch passes flatSpans
         // to match, so in 'spans' mode the loaded spans are already the flat set.
         listRows: [
             (s) => [s.spans, s.filters],
             (spans: Span[], filters: TracingFilters): Span[] => {
-                return filters.viewMode === 'spans' ? spans : spans.filter((s) => s.is_root_span)
+                return filters.viewMode === 'spans' ? spans : traceRows(spans, filters.orderBy, filters.orderDirection)
             },
         ],
         // Memoized separately so visibleRowDurationRange (recomputed on every scroll tick) doesn't
@@ -1398,7 +1405,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.runQuery()
         },
-        setDateRange: () => actions.handleFilterChange('date_range'),
+        setDateRange: ({ source }) => actions.handleFilterChange('date_range', source ? { source } : undefined),
         setServiceNames: () => actions.handleFilterChange('service_names'),
         // skipQuery: the trace drawer's attribute buttons update the filter chips immediately but
         // queue the actual re-query for when the drawer closes — see refreshDeferredFilters.
@@ -1541,8 +1548,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
-                lemonToast.error(`Failed to load traces: ${error}`)
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
+            }
+        },
+        fetchSparklineFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                posthog.capture('tracing query failed', { query_type: 'sparkline', error_message: String(error) })
             }
         },
         fetchMatchingCountsFailure: ({ error }) => {

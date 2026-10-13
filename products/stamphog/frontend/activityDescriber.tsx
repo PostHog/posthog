@@ -4,6 +4,7 @@ import {
     ActivityLogUserName,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -64,6 +65,7 @@ export function stamphogRepoConfigActivityDescriber(
         // A row created through the API has no installation until a sync binds it.
         const verb = logItem.detail.type === 'connected' ? 'connected' : 'added'
         return {
+            summary: activityLogSummary(logItem, `${verb} the repository`, repository),
             description: (
                 <>
                     {actor} {verb} {repository}
@@ -80,6 +82,7 @@ export function stamphogRepoConfigActivityDescriber(
     const webhookAction = logItem.detail.trigger?.payload?.action
     const reason = typeof webhookAction === 'string' ? WEBHOOK_REASON[webhookAction] : undefined
     return {
+        summary: activityLogSummary(logItem, <SentenceList listParts={parts} />, repository, reason),
         description: (
             <SentenceList
                 listParts={parts}

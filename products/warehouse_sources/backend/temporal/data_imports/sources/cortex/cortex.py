@@ -1,8 +1,13 @@
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
+from urllib.parse import quote
 
 from requests.exceptions import RequestException
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
+    coerce_datetime_to_utc,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -20,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     ClientConfig,
     Endpoint,
     EndpointResource,
+    IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.settings import (
@@ -43,6 +49,36 @@ def _list_paginator(config: CortexEndpointConfig) -> BasePaginator:
     if not config.paginated:
         return SinglePagePaginator()
     return PageNumberPaginator(page_param="page", total_path=config.total_path)
+
+
+def _format_cortex_datetime(value: Any) -> str:
+    """Format a cursor value as the zone-less ISO-8601 instant Cortex's `startTime` documents."""
+    normalized = coerce_datetime_to_utc(value)
+    if normalized is None:
+        return str(value)
+    return min(normalized, datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _incremental_window(cursor_path: str) -> IncrementalConfig:
+    return {
+        "cursor_path": cursor_path,
+        "start_param": "startTime",
+        "initial_value": "1970-01-01T00:00:00",
+        "convert": _format_cortex_datetime,
+    }
+
+
+def _encode_entity_tag(row: dict[str, Any]) -> dict[str, Any]:
+    """Derive the path-safe form of an entity tag for per-entity child paths.
+
+    Cortex matches a tag exactly as encoded, so a tag containing forward slashes only addresses
+    its entity once each `/` is percent-encoded.
+    """
+    row["tag_encoded"] = quote(str(row.get("tag") or ""), safe="")
+    return row
+
+
+_PARENT_DATA_MAPS = {"entities": _encode_entity_tag}
 
 
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
@@ -93,16 +129,31 @@ def _flatten_relationship(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _normalize_dependency(item: dict[str, Any]) -> dict[str, Any]:
+    """Guarantee the key columns exist on every dependency row.
+
+    `method` and `path` are absent when an entity depends on the callee as a whole rather than on
+    one of its endpoints, and they are part of what identifies the edge. A missing or null key
+    column never matches on merge, so absent values normalize to an empty string.
+    """
+    for key in ("method", "path"):
+        item[key] = item.get(key) or ""
+    return item
+
+
 _FANOUT_FLATTENERS = {
     "scorecard_scores": _flatten_scorecard_score,
     "relationships": _flatten_relationship,
+    "dependencies": _normalize_dependency,
 }
 
 
 def get_resource(config: CortexEndpointConfig) -> EndpointResource:
+    params: dict[str, Any] = {"pageSize": config.page_size} if config.paginated else {}
+    params.update(config.extra_params)
     endpoint_config: Endpoint = {
         "path": config.path,
-        "params": {"pageSize": config.page_size} if config.paginated else {},
+        "params": params,
         "data_selector": config.data_selector,
         "paginator": _list_paginator(config),
     }
@@ -120,8 +171,7 @@ def _make_source_response(config: CortexEndpointConfig, items_fn: Any) -> Source
         name=config.name,
         items=items_fn,
         primary_keys=config.primary_key,
-        # Full refresh only — Cortex's list endpoints expose no stable updated-since cursor.
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         partition_count=1 if config.partition_key else None,
         partition_size=1 if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
@@ -130,7 +180,15 @@ def _make_source_response(config: CortexEndpointConfig, items_fn: Any) -> Source
     )
 
 
-def cortex_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+def cortex_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
+) -> SourceResponse:
     config = CORTEX_ENDPOINTS[endpoint]
     client_config = _client_config(api_key)
 
@@ -146,8 +204,11 @@ def cortex_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> Sou
                 path_format_values={},
                 team_id=team_id,
                 job_id=job_id,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=False,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field=incremental_field,
+                incremental_config_factory=_incremental_window,
+                parent_data_map=_PARENT_DATA_MAPS.get(config.fanout.parent_name),
                 page_size_param="pageSize",
                 parent_endpoint_extra={
                     "paginator": _list_paginator(parent_config),

@@ -6,6 +6,7 @@ import { BindLogic, Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { getEvaluationResultDisplay } from '../../components/EvaluationResultTag'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
 import { EvaluationRunsTable } from './EvaluationRunsTable'
@@ -35,11 +36,29 @@ const passingRun: EvaluationRun = {
 }
 
 describe('EvaluationRunsTable', () => {
+    it.each([
+        [0, undefined, undefined, false, '0', 'none'],
+        [7, 'gte', 7, false, '7', 'success'],
+        [7, 'lte', 7, false, '7', 'success'],
+        [6, 'gte', 7, false, '6', 'danger'],
+        [8, 'lte', 7, false, '8', 'danger'],
+        [null, undefined, undefined, false, 'N/A', 'muted'],
+        [null, undefined, undefined, true, 'Skipped', 'muted'],
+    ] as const)('displays score %p with %p rule', (score, operator, threshold, skipped, label, type) => {
+        expect(
+            getEvaluationResultDisplay(
+                { ...passingRun, result: null, result_type: 'numeric', score, applicable: score != null, skipped },
+                { passingRule: operator ? { operator, threshold: threshold! } : null }
+            )
+        ).toMatchObject({ label, type })
+    })
+
     let logic: ReturnType<typeof llmEvaluationLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -65,7 +84,7 @@ describe('EvaluationRunsTable', () => {
 
         expect(screen.getByText('Could not load evaluation runs')).toBeInTheDocument()
         expect(screen.getByText('Retry')).toBeInTheDocument()
-        expect(screen.queryByText('No evaluation runs yet')).not.toBeInTheDocument()
+        expect(screen.queryByText('No evaluation runs found')).not.toBeInTheDocument()
     })
 
     it('warns that rows are stale when a refresh fails with runs already on screen', () => {
@@ -86,13 +105,13 @@ describe('EvaluationRunsTable', () => {
         renderTable()
 
         expect(screen.getByText('No runs match this filter')).toBeInTheDocument()
-        expect(screen.queryByText('No evaluation runs yet')).not.toBeInTheDocument()
+        expect(screen.queryByText('No evaluation runs found')).not.toBeInTheDocument()
     })
 
-    it('shows the never-ran empty state when the evaluation truly has no runs', () => {
+    it('shows the empty state when no runs are found in the selected date range', () => {
         logic.actions.loadEvaluationRunsSuccess([])
         renderTable()
 
-        expect(screen.getByText('No evaluation runs yet')).toBeInTheDocument()
+        expect(screen.getByText('No evaluation runs found')).toBeInTheDocument()
     })
 })

@@ -7,10 +7,11 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.event_usage import EventSource
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription, attribute_subscription_saves
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -84,6 +85,25 @@ class TestSubscriptionActivityLog(BaseTest):
         assert prompt_change["action"] == "changed"
         assert prompt_change["before"] == "Summarize last week's signups"
         assert prompt_change["after"] == "Summarize last week's churn instead"
+
+    def test_updating_subscription_records_context_changes(self):
+        subscription = self._create_subscription()
+
+        with attribute_subscription_saves(
+            {"source": EventSource.WEB}, context_change=(["dashboard:1"], ["dashboard:2", "insight:3"])
+        ):
+            subscription.save()
+
+        context_change = next(
+            change for change in self._subscription_logs()[1].detail["changes"] if change["field"] == "contexts"
+        )
+        assert context_change == {
+            "type": "Subscription",
+            "field": "contexts",
+            "action": "changed",
+            "before": ["dashboard:1"],
+            "after": ["dashboard:2", "insight:3"],
+        }
 
     @parameterized.expand(
         [

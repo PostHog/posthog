@@ -1,4 +1,3 @@
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
@@ -11,17 +10,23 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 export function InboxTriagePane(): ReactElement {
-  // Beside the rail the sidebar list owns paging; without it, nothing else is
-  // reading this list, so triage walks the pages itself.
-  const spacesLayout = useChannelsLayout();
-  const inbox = useInboxSectionedReports({ autoPage: !spacesLayout });
+  const inbox = useInboxSectionedReports({ autoPage: true });
   const triageOrigin = useInboxTriageOrigin();
   const hasActiveFilters = useInboxSignalsFilterStore(
     hasActiveReportsListFilters,
   );
   const navigate = useNavigate();
 
-  if (inbox.isLoading) {
+  // The queue is filtered by task state, so a loaded page can hold no decision
+  // while a later page still does. Handing that page to triage would end the
+  // session and record a triage that was never done. Task state is waited on
+  // the same way, because Create PR reloads it: blanking a queue that is on
+  // screen unmounts triage and loses the place the reader had in it.
+  if (
+    inbox.isLoading ||
+    (inbox.triageReports.length === 0 &&
+      (inbox.triageLoading || inbox.triagePagePending))
+  ) {
     return <LoadingState className="h-full" />;
   }
 

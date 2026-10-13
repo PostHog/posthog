@@ -34,10 +34,6 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     deleted = models.BooleanField(blank=True, null=True)
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope, null=True, blank=True)
-    # URL length for browsers can be as much as 64Kb
-    # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
-    # but GitHub apparently is more likely 8kb https://stackoverflow.com/a/64565317
-    github_url = models.CharField(max_length=8201, null=True, blank=True)
     # where this template is available, e.g. "general" and/or "onboarding"
     availability_contexts = ArrayField(models.CharField(max_length=255), blank=True, null=True)
     is_featured = models.BooleanField(
@@ -96,10 +92,9 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "transparent_background": True,
                     "body": (
                         "# 👋 Start here\n\n"
-                        "Everything below is captured automatically (pageviews, clicks, sessions, and location), "
-                        "so this dashboard fills in from day one with no extra setup. The headline numbers will "
-                        "feel familiar; the retention and funnel tiles are where you point PostHog at your own "
-                        "events. Edit any tile, or duplicate the dashboard to make it your own."
+                        "The charts below use pageviews, clicks, sessions, and location, which PostHog captures "
+                        "automatically. Set the retention and funnel tiles to use your own events. You can edit "
+                        "any tile or duplicate the dashboard."
                     ),
                     "layouts": {
                         "sm": {"h": 2, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 3},
@@ -495,7 +490,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "type": "BUTTON",
                     "color": None,
                     "transparent_background": True,
-                    "url": "/activity/explore",
+                    "url": "/activity/events",
                     "text": "Browse activity",
                     "placement": "left",
                     "style": "secondary",

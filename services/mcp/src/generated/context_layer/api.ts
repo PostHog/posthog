@@ -40,8 +40,32 @@ export const ContextLayerAgentPagesRetrieveParams = () => zod.object({
         ),
 })
 
+export const contextLayerAgentPagesRetrieveQueryHeadShaMax = 64
+
+export const contextLayerAgentPagesRetrieveQueryLimitMax = 12000
+
+export const contextLayerAgentPagesRetrieveQueryOffsetDefault = 0
+export const contextLayerAgentPagesRetrieveQueryOffsetMin = 0
+
 export const ContextLayerAgentPagesRetrieveQueryParams = () => zod.object({
-    path: zod.string().describe('Repo-relative Markdown path of the page to read.'),
+    head_sha: zod
+        .string()
+        .min(1)
+        .max(contextLayerAgentPagesRetrieveQueryHeadShaMax)
+        .optional()
+        .describe('Head from the first chunk. Required for continuation. A changed head returns 409.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(contextLayerAgentPagesRetrieveQueryLimitMax)
+        .optional()
+        .describe('Maximum characters to read. Omit for the full page.'),
+    offset: zod
+        .number()
+        .min(contextLayerAgentPagesRetrieveQueryOffsetMin)
+        .default(contextLayerAgentPagesRetrieveQueryOffsetDefault)
+        .describe('Character offset from next_offset.'),
+    path: zod.string().min(1).describe('Repo-relative Markdown path of the page to read.'),
 })
 
 /**

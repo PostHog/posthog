@@ -13,8 +13,11 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
+import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 
+import { maxContextLogic } from './maxContextLogic'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import {
     PENDING_MAX_CONTEXT_KEY,
     QUESTION_SUGGESTIONS_DATA,
@@ -30,15 +33,21 @@ describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
     let threadLogic: ReturnType<typeof maxThreadLogic.build> | null = null
     let actionsRequestCount: number
+    let conversationRequestCount: number
 
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
         actionsRequestCount = 0
+        conversationRequestCount = 0
         useMocks({
             ...maxMocks,
             get: {
                 ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': () => {
+                    conversationRequestCount++
+                    return [200, { results: [] }]
+                },
                 '/api/projects/:team/actions/': () => {
                     actionsRequestCount++
                     return [200, { results: [], count: 0 }]
@@ -48,7 +57,58 @@ describe('maxLogic', () => {
         initKeaTests()
     })
 
-    afterEach(() => {
+    it.each(['scene', SIDE_PANEL_PANEL_ID])(
+        'moves files and the draft to the new composer from %s',
+        async (panelId) => {
+            logic = maxLogic({ panelId })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+            maxGlobalLogic.actions.setPhaiViewMode('legacy')
+            const files = [new File(['demo'], 'notes.txt', { type: 'text/plain' })]
+            const seed = composerSeedLogic({ panelId: panelId === SIDE_PANEL_PANEL_ID ? 'max-side-panel' : undefined })
+
+            const panel = runnerPanelLogic({ panelId: panelId === SIDE_PANEL_PANEL_ID ? 'max-side-panel' : undefined })
+            const unmountPanel = panel.mount()
+            panel.actions.setActiveCreation({
+                streamKey: 'previous-task',
+                taskId: 'previous-task',
+                runId: 'previous-run',
+            })
+            panel.actions.setHistoryExpanded(true)
+            maxContextLogic.actions.addOrUpdateContextNotebook({ short_id: 'example-notebook', title: 'Demo notebook' })
+
+            logic.actions.attachFilesToNewChat(files, 'Read these notes')
+
+            expect(seed.values.seed).toMatchObject({ prompt: 'Read these notes', files, autoSubmit: false })
+            expect(maxGlobalLogic.values.effectivePhaiView).toBe('new')
+            expect(panel.values.activeCreation).toBeNull()
+            expect(panel.values.historyExpanded).toBe(false)
+            expect(JSON.parse(seed.values.seed!.contextItems![0].value!).notebooks).toEqual([
+                expect.objectContaining({ id: 'example-notebook', name: 'Demo notebook' }),
+            ])
+            unmountPanel()
+        }
+    )
+
+    it('keeps the legacy view when file selection is canceled or the new runtime is unavailable', () => {
+        logic = maxLogic({ panelId: 'scene' })
+        logic.mount()
+        maxGlobalLogic.actions.setPhaiViewMode('legacy')
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+        logic.actions.attachFilesToNewChat([], 'Keep this draft')
+        expect(maxGlobalLogic.values.effectivePhaiView).toBe('legacy')
+        expect(composerSeedLogic().values.seed).toBeNull()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
+        logic.actions.attachFilesToNewChat([new File(['demo'], 'notes.txt')], 'Keep this draft')
+        expect(maxGlobalLogic.values.phaiViewMode).toBe('legacy')
+        expect(composerSeedLogic().values.seed).toBeNull()
+    })
+
+    afterEach(async () => {
+        if (logic?.isMounted()) {
+            await expectLogic(logic).toFinishAllListeners()
+        }
         threadLogic?.unmount()
         threadLogic = null
         sidePanelStateLogic.unmount()
@@ -69,13 +129,14 @@ describe('maxLogic', () => {
         })
     })
 
-    it('does not load actions when Max mounts', async () => {
+    it('shares the initial history request and does not load actions when Max mounts', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
 
         expect(actionsRequestCount).toBe(0)
+        expect(conversationRequestCount).toBe(1)
     })
 
     it.each([
@@ -134,6 +195,40 @@ describe('maxLogic', () => {
         })
 
         featureFlagLogic.unmount()
+    })
+
+    it('keeps the selected task URL when navigating from a legacy chat', async () => {
+        logic = maxLogic({ panelId: 'scene' })
+        logic.mount()
+        logic.actions.openConversation(MOCK_CONVERSATION_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        router.actions.push(urls.aiTask('task-1'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(urls.currentProject(urls.ai()))
+        expect(router.values.searchParams).toEqual({ task: 'task-1' })
+    })
+
+    // Regression coverage: the `/ai` handler deliberately leaves the previous chat in this logic
+    // while a task is open, and `maxGlobalLogic` clears that chat from every mounted logic when it
+    // is deleted. Mapping `startNewConversation` to a bare `/ai` then dropped `?task=` and closed
+    // the task the user was reading, without the user navigating at all.
+    it('keeps the selected task URL when the retained chat is deleted', async () => {
+        useMocks({ ...maxMocks, delete: { '/api/environments/:team_id/conversations/:id': [200, {}] } })
+        logic = maxLogic({ panelId: 'scene' })
+        logic.mount()
+        logic.actions.openConversation(MOCK_CONVERSATION_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        router.actions.push(urls.aiTask('task-1'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        maxGlobalLogic.actions.deleteConversation(MOCK_CONVERSATION_ID)
+        await expectLogic(maxGlobalLogic).toFinishAllListeners()
+
+        // The stale chat is still released, it just must not take the route with it.
+        expect(logic.values.conversationId).toBeNull()
+        expect(router.values.location.pathname).toBe(urls.currentProject(urls.ai()))
+        expect(router.values.searchParams).toEqual({ task: 'task-1' })
     })
 
     // The /ai?ask= deep link (e.g. "Start with AI") must not silently vanish when the org hasn't

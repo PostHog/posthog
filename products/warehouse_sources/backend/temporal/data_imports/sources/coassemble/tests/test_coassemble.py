@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import (
     COASSEMBLE_ENDPOINTS,
     ENDPOINTS,
+    USAGE_PAGE_SIZE,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -80,35 +81,6 @@ def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
 
 class TestListEndpointPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page("c", 0, 2))])
-
-        manager = _make_manager()
-        rows = _rows("courses", manager)
-
-        # A short page marks the end of the collection — no extra empty-page request is paid.
-        assert rows == _page("c", 0, 2)
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"] == f"{COASSEMBLE_BASE_URL}/courses"
-        assert snapshots[0]["params"] == {"page": 0, "length": PAGE_SIZE}
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_advances_until_short_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page("c", 0, PAGE_SIZE)), _response(_page("c", PAGE_SIZE, 3))])
-
-        manager = _make_manager()
-        rows = _rows("courses", manager)
-
-        assert len(rows) == PAGE_SIZE + 3
-        assert [s["params"]["page"] for s in snapshots] == [0, 1]
-        # Checkpoint saved after the first full page (points at the next page); the short page ends it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == CoassembleResumeConfig(next_page=1)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response(_page("c", 0, 1))])
@@ -119,18 +91,6 @@ class TestListEndpointPagination:
         assert rows == _page("c", 0, 1)
         assert session.send.call_count == 1
         assert snapshots[0]["params"]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows("courses", manager)
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @parameterized.expand([("string", "nope"), ("object_without_list", {"count": 1})])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -151,22 +111,6 @@ class TestListEndpointPagination:
 
         with pytest.raises(requests.HTTPError):
             _rows("courses", _make_manager())
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_credential_travels_via_framework_auth(self, MockSession: mock.MagicMock) -> None:
-        # Coassemble rejects standard schemes (Bearer etc.) with "Invalid Authorization header"; the
-        # documented format is COASSEMBLE:<workspace_id>:<api_key>, sent via framework api_key auth
-        # (not a hand-built header) so the secret is value-redacted from logs.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_page("c", 0, 1))])
-
-        _rows("courses", _make_manager())
-
-        auth = snapshots[0]["auth"]
-        assert auth.api_key == "COASSEMBLE:ws-1:sk-key"
-        assert auth.name == "Authorization"
-        assert auth.location == "header"
-        assert session.headers.get("Accept") == "application/json"
 
 
 class TestTrackingFanOut:
@@ -200,35 +144,6 @@ class TestTrackingFanOut:
         # Each course lands in `completed` once its pages are exhausted.
         assert manager.save_state.call_args_list[-1].args[0] == CoassembleResumeConfig(
             fanout_state={"completed": ["/trackings?id=11", "/trackings?id=22"], "current": None, "child_state": None}
-        )
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_within_a_course_and_checkpoints(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response([{"id": 11}]),
-                _response([{"id": i} for i in range(PAGE_SIZE)]),
-                _response([{"id": PAGE_SIZE}]),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows("course_trackings", manager)
-
-        assert len(rows) == PAGE_SIZE + 1
-        tracking_snapshots = [s for s in snapshots if "/trackings" in s["url"]]
-        assert [s["params"]["page"] for s in tracking_snapshots] == [0, 1]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        # Mid-course: the in-progress course path and its next page are checkpointed so a crash
-        # resumes into the same course at the saved page.
-        assert saved[0] == CoassembleResumeConfig(
-            fanout_state={"completed": [], "current": "/trackings?id=11", "child_state": {"page": 1}}
-        )
-        # Course finished: it lands in `completed` so a restart skips it.
-        assert saved[-1] == CoassembleResumeConfig(
-            fanout_state={"completed": ["/trackings?id=11"], "current": None, "child_state": None}
         )
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -276,7 +191,7 @@ class TestTrackingFanOut:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_page_cap_stops_runaway_course(self, MockSession: mock.MagicMock) -> None:
-        with mock.patch.object(coassemble, "MAX_TRACKING_PAGES_PER_COURSE", 2):
+        with mock.patch.object(coassemble, "MAX_FAN_OUT_PAGES_PER_PARENT", 2):
             session = MockSession.return_value
             # Every trackings page is full, so without the cap this would page forever.
             _wire(
@@ -292,6 +207,87 @@ class TestTrackingFanOut:
 
         assert len(rows) == 2 * PAGE_SIZE
         assert session.send.call_count == 3  # 1 courses page + 2 capped trackings pages
+
+
+class TestFanOutEndpointShapes:
+    @parameterized.expand(
+        [
+            (
+                "screen_trackings",
+                "/courses",
+                {"id": 11},
+                "/screen/trackings?id=11",
+                {"id": 1},
+                {"id": 1, "course_id": 11},
+            ),
+            (
+                "collection_trackings",
+                "/collections",
+                {"id": 7},
+                "/collection/trackings?id=7",
+                {"id": 1},
+                {"id": 1, "collection_id": 7},
+            ),
+            (
+                "client_allowances",
+                "/clients",
+                {"clientIdentifier": "acme"},
+                "/usage/client/acme",
+                {"metric": "ir", "limit": 10},
+                {"metric": "ir", "limit": 10, "clientIdentifier": "acme"},
+            ),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_parent_and_stamps_parent_reference(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_row: dict[str, Any],
+        child_path: str,
+        child_row: dict[str, Any],
+        expected_row: dict[str, Any],
+        MockSession: mock.MagicMock,
+    ) -> None:
+        # Child rows name no parent, so a wrong resolve field or path template would either 404 or
+        # land rows whose primary key is half null.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([parent_row]), _response([child_row])])
+
+        rows = _rows(endpoint, _make_manager())
+
+        assert rows == [expected_row]
+        assert [s["url"] for s in snapshots] == [
+            f"{COASSEMBLE_BASE_URL}{parent_path}",
+            f"{COASSEMBLE_BASE_URL}{child_path}",
+        ]
+
+
+class TestClientUsagePagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_page_advances_until_short_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        full = [{"clientIdentifier": f"c-{i}", "metric": "ir"} for i in range(USAGE_PAGE_SIZE)]
+        snapshots = _wire(
+            session,
+            [
+                _response({"page": 0, "length": USAGE_PAGE_SIZE, "data": full}),
+                _response({"page": 1, "length": USAGE_PAGE_SIZE, "data": [{"clientIdentifier": "z", "metric": "ir"}]}),
+            ],
+        )
+
+        rows = _rows("client_usage", _make_manager())
+
+        assert len(rows) == USAGE_PAGE_SIZE + 1
+        assert [s["params"]["page"] for s in snapshots] == [0, 1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_envelope_key_fails_loudly(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"page": 0, "length": USAGE_PAGE_SIZE})])
+
+        with pytest.raises(ValueError, match="Required data_selector"):
+            _rows("client_usage", _make_manager())
 
 
 class TestValidateCredentials:
@@ -320,15 +316,6 @@ class TestValidateCredentials:
             ok, message = validate_credentials("ws-1", "sk-key")
         assert ok is False
         assert message is not None and "Could not connect to Coassemble" in message
-
-    def test_probe_sends_vendor_authorization_scheme(self) -> None:
-        with mock.patch(COASSEMBLE_SESSION_PATCH) as make_session:
-            session = mock.MagicMock()
-            session.get.return_value = mock.MagicMock(status_code=200)
-            make_session.return_value = session
-            validate_credentials("ws-1", "sk-key")
-            headers = session.get.call_args.kwargs["headers"]
-            assert headers["Authorization"] == "COASSEMBLE:ws-1:sk-key"
 
 
 class TestResumeStateCompatibility:

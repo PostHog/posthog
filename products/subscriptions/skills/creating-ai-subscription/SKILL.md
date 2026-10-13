@@ -2,8 +2,8 @@
 name: creating-ai-subscription
 description: >
   Create a recurring AI-generated PostHog report — schedule a free-text prompt to
-  run on a cron, with the LLM-synthesized markdown delivered to email or Slack on
-  each tick. Use when the user wants a recurring AI summary of X on any cadence
+  run on a cron, with the LLM-synthesized markdown delivered to email, Slack, or Microsoft Teams
+  on each tick. Use when the user wants a recurring AI summary of X on any cadence
   (daily, weekly, monthly, yearly) rather than a one-off report. (To attach an AI
   summary to an existing insight/dashboard
   subscription instead of a free-text prompt, see `managing-subscriptions` and its
@@ -14,8 +14,8 @@ description: >
 
 ## When to use this
 
-A **subscription** delivers a PostHog report to email or Slack on a recurring
-schedule. There are three kinds, distinguished by which field you set — the kind is
+A **subscription** delivers a PostHog report to email, Slack, or Microsoft Teams on a
+recurring schedule. There are three kinds, distinguished by which field you set — the kind is
 derived and returned as the read-only `resource_type`:
 
 - **`insight`** — periodic snapshots of one existing insight (`resource_type: "insight"`)
@@ -84,12 +84,13 @@ or delete one. A `subscription:write`-only token is rejected with a 403.
 
 ```yaml
 prompt: "..."                         # ≤4000 chars; setting this (with no insight/dashboard) makes it a prompt sub → resource_type "ai_prompt"
-target_type: "email" | "slack"        # webhook is rejected for prompt subs
-target_value: "..."                   # comma-separated emails, or "<channel_id>|<channel_name>"
+target_type: "email" | "slack" | "teams"  # the only delivery channels the API accepts
+target_value: "..."                   # comma-separated emails, "<channel_id>|<channel_name>", or a Microsoft Teams webhook URL
 frequency: "daily" | "weekly" | "monthly" | "yearly"
 interval: 1                            # 1 = every tick; 2 = every other tick; etc.
 start_date: "2026-09-15T09:30:00Z"   # anchors the recurrence + time-of-day; hour and half-hour slots are supported; need not be in the future
 title: "..."                          # display name in the subscriptions list
+send_test_now: false                   # set true only after the user approves an immediate delivery
 ```
 
 There is no `resource_type` argument to send — the kind is **derived**
@@ -100,7 +101,7 @@ from which field you set (`prompt` ⇒ AI report) and returned as the read-only 
 ```yaml
 byweekday: ['monday', 'wednesday'] # weekly only — days the rrule fires
 bysetpos: 1 # most useful with monthly; requires byweekday — e.g. byweekday:['monday']+bysetpos:-1 = last Monday
-count: 10 # cap total deliveries
+count: 10 # limit scheduled recurrence occurrences; manual and immediate deliveries do not count
 until_date: '2026-12-31T00:00:00Z' # stop on/before this date
 integration_id: 42 # Slack only — required; from integrations-list (see "Slack target")
 ```
@@ -119,6 +120,32 @@ returns). Build it in three steps:
    to one specific Slack integration so reconnections elsewhere don't accidentally
    re-route deliveries.
 
+## Teams target
+
+`target_value` must be the full webhook URL of the channel you want reports in. The user adds the
+Workflows app to that channel, picks the template for posting to a channel when a webhook request
+is received, then pastes the URL back to you. A URL from a different template saves without an
+error, but the report never reaches the channel. There is no Teams integration to look up, so
+leave `integration_id` out.
+
+The URL must be `https`. If `subscriptions-create` rejects `target_value`, the URL is not a Teams
+webhook — ask the user to create it again with the same template and paste the whole URL. On a
+later update, omit `target_value` to keep the saved URL, because the API reads it back as its host
+only and rejects that masked value.
+
+## Before creation
+
+List matching subscriptions before you create one.
+Compare the prompt, title, destination, schedule, and enabled state.
+Prompt text and titles both match `search`.
+
+Creation is not idempotent.
+If the create request times out or returns an uncertain result, list matching subscriptions before you retry.
+Do not use a masked Teams webhook host to identify a duplicate.
+
+Ask whether the user approves an immediate delivery.
+Set `send_test_now: false` unless the user approves it.
+
 ## Examples
 
 ### Weekly Monday-morning AI summary by email
@@ -132,6 +159,7 @@ interval: 1
 byweekday: ['monday']
 start_date: '2026-09-14T08:00:00Z'
 title: 'Weekly product pulse'
+send_test_now: false
 ```
 
 ### Daily Slack report at 9am
@@ -145,10 +173,14 @@ frequency: daily
 interval: 1
 start_date: '2026-09-15T09:00:00Z'
 title: 'Daily onboarding watch'
+send_test_now: false
 ```
 
 ## Pitfalls
 
+- **A Teams webhook URL is a credential.** Anyone who has it can post in the channel, which is
+  why the API only ever returns its host. Pass it only as `target_value`. Do not echo it back to
+  the user, and do not copy it into a confirmation message, a summary, or an error report.
 - **The kind is immutable.** It's derived from which relation is set, so you can't flip an
   insight or dashboard sub into a prompt sub after the fact (or vice versa) — a PATCH that adds a
   `prompt` to an insight sub is rejected. Pick the right kind at create time.
@@ -180,7 +212,7 @@ title: 'Daily onboarding watch'
 `subscriptions-list` will return the new row. Confirm `resource_type: "ai_prompt"`,
 `enabled: true`, `next_delivery_date` is in the future, and `prompt` matches what
 you sent. The first scheduled tick will run the planner → HogQL → synthesis
-pipeline and email/Slack the rendered markdown.
+pipeline and deliver the rendered markdown to the channel you chose.
 
 ## Related skills
 

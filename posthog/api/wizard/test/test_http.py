@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, Throttled
@@ -22,6 +23,8 @@ from posthog.llm.wizard_gateway_token import _TIER_FLOORS, WizardGatewayMintErro
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizard_mint, reserve_wizard_mint
+
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 # Derived, not written out: these cases assert the ceiling binds, not its value.
 # Every floor populates every field; the Optional is there for partial overrides.
@@ -73,6 +76,31 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["user_id"] == self.user.id
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
+
+    @parameterized.expand([("allowed", False, status.HTTP_200_OK), ("refused", True, status.HTTP_403_FORBIDDEN)])
+    @patch("posthog.api.wizard.http.security_access_refused")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_cloud_run_asks_the_access_rules(
+        self, _name: str, refused: bool, expected_status: int, mock_create, check: MagicMock
+    ) -> None:
+        check.return_value = refused
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app", "branch": ""},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.content
+        check.assert_called_once()
+        subject, surface = check.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(self.team.organization_id),)
+        assert check.call_args.kwargs == {"call_site": "wizard_cloud_run"}
+        assert mock_create.called is not refused
+        if refused:
+            assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):
@@ -279,7 +307,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert body["gateway_url"] == "https://ai-gateway.us.posthog.com"
         assert body["team_id"] == self.team.id
         assert mock_mint.call_args.kwargs == {
-            "obo": str(self.team.organization_id),
+            "obo": str(self.team.id),
             "user": str(self.user.distinct_id),
             "product": "wizard:integration",
             "cap_usd": None,
@@ -287,6 +315,40 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             # The fixture organization is minutes old, unpaid, and has ingested nothing.
             "posture": "new",
         }
+
+    @parameterized.expand([("allowed", False, status.HTTP_201_CREATED), ("refused", True, status.HTTP_403_FORBIDDEN)])
+    @patch("posthog.api.wizard.http.security_access_refused")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_gateway_token_asks_the_access_rules(
+        self,
+        _name: str,
+        refused: bool,
+        expected_status: int,
+        mock_authentication,
+        mock_flag,
+        mock_mint,
+        mock_authorized,
+        check: MagicMock,
+    ) -> None:
+        check.return_value = refused
+        self._mock_oauth(mock_authentication)
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == expected_status, response.content
+        check.assert_called_once()
+        subject, surface = check.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(self.team.organization_id),)
+        assert check.call_args.kwargs == {"call_site": "wizard_gateway_token"}
+        assert mock_mint.called is not refused
+        if refused:
+            assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
 
     @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
@@ -305,6 +367,35 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             assert ok.status_code == status.HTTP_201_CREATED, ok.content
         refused = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert refused.json()["code"] == "throttled"
+        assert mock_mint.call_count == 2
+
+    @override_settings(
+        DEBUG=False,
+        WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}},
+        WIZARD_GATEWAY_PROGRAM_IDS=["integration", "ai-observability", "events-audit"],
+    )
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_the_mint_bucket_is_shared_across_programs(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized
+    ):
+        """The ceiling is per account, not per program: a second program does not
+        get a fresh quota, or the per-account bound would scale with the program count."""
+        self._mock_oauth(mock_authentication)
+
+        for program in ("integration", "ai-observability"):
+            ok = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": program}, headers={"authorization": "Bearer pha_test"}
+            )
+            assert ok.status_code == status.HTTP_201_CREATED, ok.content
+        refused = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "events-audit"}, headers={"authorization": "Bearer pha_test"}
         )
 
         assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS

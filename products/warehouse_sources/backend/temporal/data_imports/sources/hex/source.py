@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -50,13 +48,13 @@ class HexSource(ResumableSource[HexSourceConfig, HexResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HEX,
+            name=ExternalDataSourceType.HEX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Hex",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Hex API token to pull your Hex projects, run history, users, groups, and collections into the PostHog Data warehouse.
+            caption="""Enter your Hex API token to pull your Hex projects, run history, cells, queried tables, data connections, agent threads, users, groups, and collections into the PostHog Data warehouse.
 
-You can create an API token in Hex under **Workspace settings > API keys**. A personal token inherits your permissions; workspace tokens are available on some plans and can read across the workspace.
+You can create an API token in Hex under **Workspace settings > API keys**. A personal token inherits your permissions; workspace tokens are available on some plans and can read across the workspace. The threads table needs a token from a user with the Manager role or higher.
 
 If your workspace runs on a single-tenant or self-hosted Hex deployment, enter its URL (for example `https://acme.hex.tech`). Leave it empty to use Hex's multi-tenant cloud at `app.hex.tech`.
 """,

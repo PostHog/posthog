@@ -5,6 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { AccessControlTerraformExport } from 'scenes/settings/environment/AccessControlTerraformExport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -15,12 +16,13 @@ import { AvailableFeature } from '~/types'
 export function TeamAccessControl(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
+    const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     return (
         <div className="space-y-6">
             {featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_RESOLUTION_PREVIEW] &&
+                !currentOrganization?.uses_most_specific_access_resolution &&
                 isAdminOrOwner &&
                 hasAvailableFeature(AvailableFeature.ACCESS_CONTROL) && (
                     <LemonBanner
@@ -35,7 +37,12 @@ export function TeamAccessControl(): JSX.Element {
                             'Access control will start using the most specific rule. Review the changes before they take effect.'}
                     </LemonBanner>
                 )}
-            {currentTeam?.id ? <ResourcesAccessControlsV2 projectId={`${currentTeam.id}`} /> : null}
+            {currentTeam?.id ? (
+                <ResourcesAccessControlsV2
+                    projectId={`${currentTeam.id}`}
+                    tabsRightSlot={<AccessControlTerraformExport />}
+                />
+            ) : null}
         </div>
     )
 }

@@ -9,7 +9,10 @@ use crate::{
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{
+        endpoints::EndpointCommand, logs::command::LogsCommand, query::command::QueryCommand,
+        tasks::TaskCommand,
+    },
     invocation_context::{
         capture_command_run_without_context, context, init_context, set_telemetry_command_name,
         set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
@@ -130,6 +133,9 @@ pub enum Commands {
     /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
+    /// Update posthog-cli to the latest version
+    Update,
+
     /// Experimental commands, not quite ready for prime time
     Exp {
         #[command(subcommand)]
@@ -226,6 +232,12 @@ pub enum ExpCommand {
         cmd: EndpointCommand,
     },
 
+    /// Import historical logs into PostHog from another log store
+    Logs {
+        #[command(subcommand)]
+        cmd: LogsCommand,
+    },
+
     // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
     #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
     Hermes {
@@ -268,6 +280,7 @@ impl Commands {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
             Commands::Login => "login",
+            Commands::Update => "update",
             Commands::Exp { cmd } => cmd.telemetry_command_name(),
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(_) => "sourcemap_inject",
@@ -301,6 +314,9 @@ impl Commands {
 impl ExpCommand {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
+            ExpCommand::Logs { cmd } => match cmd {
+                LogsCommand::Import { .. } => "logs_import",
+            },
             ExpCommand::Task { cmd, .. } => match cmd {
                 TaskCommand::List { .. } => "task_list",
                 TaskCommand::Progress { .. } => "task_progress",
@@ -385,6 +401,9 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                // Updating talks to the release bucket, never to PostHog, so
+                // requiring credentials would lock out anyone without a token.
+                | Commands::Update
                 | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
@@ -404,6 +423,9 @@ impl Cli {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login(self.host)?;
+            }
+            Commands::Update => {
+                crate::update::update()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
@@ -515,6 +537,9 @@ impl Cli {
                     crate::experimental::query::command::query_command(&cmd)?
                 }
                 ExpCommand::Endpoints { cmd } => {
+                    cmd.run()?;
+                }
+                ExpCommand::Logs { cmd } => {
                     cmd.run()?;
                 }
                 // TODO(sept 2026): remove these backward-compat aliases

@@ -10,12 +10,11 @@ from temporalio.testing._activity import ActivityEnvironment
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
-    S3InsertInputs,
-    s3_default_fields,
 )
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3InsertInputs, s3_default_fields
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
     SPLIT_FILE_FORMAT_COMPRESSIONS,
     SUPPORTED_FILE_FORMAT_COMPRESSIONS,

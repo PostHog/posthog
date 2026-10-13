@@ -381,7 +381,12 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         if preview is None:
             raise ValueError("preview must be provided for dangerous operations")
 
-        proposal_id = str(uuid.uuid4())
+        # Other parallel approvals can resume while this tool stays interrupted.
+        proposal_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"{self._get_conversation_id()}:{self._original_tool_call_id}")
+            if self._original_tool_call_id
+            else uuid.uuid4()
+        )
         serialized_payload = self._serialize_kwargs_for_storage(kwargs)
 
         approval_request = ApprovalRequest(

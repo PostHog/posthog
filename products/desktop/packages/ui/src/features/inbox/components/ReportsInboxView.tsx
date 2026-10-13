@@ -69,7 +69,11 @@ export function ReportsInboxView(): React.JSX.Element {
       filterControl={<InboxReportFilters />}
       scopeControl={<InboxScopeSelect />}
       renderReport={(report) => (
-        <InboxReportRow key={report.id} report={report} />
+        <InboxReportRow
+          key={report.id}
+          report={report}
+          implementationState={inbox.implementationStates.get(report.id)}
+        />
       )}
       onConfigureAgents={() => navigateToSettings("agents")}
       onEnterTriage={() => void navigate({ to: INBOX_TRIAGE_ROUTE })}

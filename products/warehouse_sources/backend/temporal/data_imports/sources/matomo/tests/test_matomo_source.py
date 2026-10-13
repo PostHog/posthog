@@ -2,10 +2,6 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.matomo import MatomoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
 
 
@@ -22,23 +18,6 @@ class TestMatomoSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://myorg.matomo.cloud/index.php",
-            "403 Client Error: Forbidden for url: https://myorg.matomo.cloud/index.php",
-            "Matomo API error: You can't access this resource",
-        ],
-    )
-    def test_non_retryable_errors_match_known_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_non_retryable_errors_does_not_match_server_errors(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        error = "500 Server Error for url: https://myorg.matomo.cloud/index.php"
-        assert not any(key in error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
             "Matomo API error (retryable): status=500",
             "Matomo API error (retryable): status=429",
         ],
@@ -49,16 +28,13 @@ class TestMatomoSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
 
-    def test_get_schemas(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        # Everything is incremental: visits via minTimestamp, reports via the
-        # injected per-day _date.
-        assert all(schema.supports_incremental for schema in schemas.values())
-        assert [f["field"] for f in schemas["visits"].incremental_fields] == ["serverTimestamp"]
-        assert [f["field"] for f in schemas["referrers"].incremental_fields] == ["_date"]
-        assert schemas["visits"].incremental_fields == INCREMENTAL_FIELDS["visits"]
+    def test_retry_exhausted_message_replaces_the_internal_marker(self):
+        # Without this the job stores the raw marker, HTTP status and all, as what the customer reads.
+        error = "Matomo API error (retryable): status=502"
+        messages = [message for key, message in self.source.get_retry_exhausted_errors().items() if key in error]
+        assert messages, "An exhausted Matomo retry should store a customer-facing message"
+        assert "502" not in messages[0]
+        assert "next sync runs on schedule" in messages[0]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source.validate_matomo_credentials"

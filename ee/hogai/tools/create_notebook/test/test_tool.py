@@ -5,6 +5,8 @@ from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.schema import HumanMessage, MaxNotebookContext, MaxUIContext
+
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -163,6 +165,36 @@ class TestCreateNotebookTool(BaseTest):
         assert notebook.title == "Saved Notebook"
         assert notebook.content is not None
         assert notebook.content["type"] == "doc"
+
+    @parameterized.expand([(False,), (True,)])
+    def test_inline_artifact_does_not_save_a_second_notebook(self, save_to_notebook: bool) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="Chart notes")
+        self.tool._state = AssistantState(
+            messages=[
+                HumanMessage(
+                    content="Add a chart section",
+                    ui_context=MaxUIContext(
+                        notebooks=[
+                            MaxNotebookContext(
+                                id=notebook.short_id,
+                                insertion_placeholder_block_id="inline-request",
+                                insertion_placeholder_marker="Thinking...",
+                            )
+                        ]
+                    ),
+                )
+            ]
+        )
+        _, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Chart notes",
+            content='# Chart notes\n\n<SQLV2 code="SELECT 1" />',
+            artifact_id=notebook.short_id,
+            save_to_notebook=save_to_notebook,
+        )
+        assert artifact is not None
+        assert Notebook.objects.filter(team=self.team).count() == 1
+        assert notebook.short_id in artifact.messages[1].content
+        assert "No separate notebook was saved" in artifact.messages[1].content
 
     def test_save_to_notebook_uses_artifact_short_id(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(

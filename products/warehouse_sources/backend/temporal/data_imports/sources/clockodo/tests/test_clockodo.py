@@ -21,11 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.s
     CLOCKODO_API_VERSION_V2,
     CLOCKODO_API_VERSION_V3,
     CLOCKODO_ENDPOINTS_V2,
-    CLOCKODO_SUPPORTED_VERSIONS,
-    ENDPOINTS,
+    USER_REPORTS_FIRST_YEAR,
     endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -110,14 +108,6 @@ class TestFormatZ:
 
 
 class TestEndpointParams:
-    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
-    def test_entries_requires_time_window(self) -> None:
-        params = _endpoint_params("entries", CLOCKODO_ENDPOINTS_V2["entries"])
-        # Listing entries without a time range is rejected by the API.
-        assert params["time_since"] == "2000-01-01T00:00:00Z"
-        # time_until is pushed a year past now to also capture planned (future) entries.
-        assert params["time_until"] == "2027-06-29T12:00:00Z"
-
     @parameterized.expand([("customers",), ("projects",), ("services",), ("users",)])
     def test_non_entries_have_no_time_window(self, endpoint: str) -> None:
         params = _endpoint_params(endpoint, CLOCKODO_ENDPOINTS_V2[endpoint])
@@ -125,60 +115,7 @@ class TestEndpointParams:
         assert "time_until" not in params
 
 
-class TestHeadersAndAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_identification_headers_and_api_key_auth(self, MockSession) -> None:
-        session = MockSession.return_value
-        _params, auths, _urls = _wire(session, [_response([{"id": 1}], count_pages=1)])
-
-        _rows(_source("customers", _make_manager()))
-
-        # The API rejects every request without the identification headers.
-        assert session.headers["X-ClockodoApiUser"] == "me@example.com"
-        assert session.headers["X-Clockodo-External-Application"] == f"{EXTERNAL_APPLICATION_NAME};me@example.com"
-        # The API key travels via the framework auth config so its value is redacted from logs.
-        auth = auths[0]
-        assert isinstance(auth, APIKeyAuth)
-        assert auth.name == "X-ClockodoApiKey"
-        assert auth.api_key == "key123"
-        assert auth.location == "header"
-
-
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginated_walks_all_pages_and_saves_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _auths, _urls = _wire(
-            session,
-            [
-                _response([{"id": 1}, {"id": 2}], count_pages=2),
-                _response([{"id": 3}], count_pages=2),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("customers", manager))
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        # Checkpoint saved after the first page (points at the next page to fetch); the paging
-        # block says page 2 is the last, so no further checkpoint is written.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == ClockodoResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_after_count_pages_without_extra_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], count_pages=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source("customers", manager))
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_page_terminates_before_count_pages(self, MockSession) -> None:
         session = MockSession.return_value
@@ -207,49 +144,6 @@ class TestPagination:
         # Picks up at the saved page rather than restarting at page 1.
         assert params[0]["page"] == 2
         assert [r["id"] for r in rows] == [3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_single_fetch(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _auths, _urls = _wire(session, [_response([{"id": 1}, {"id": 2}], data_key="services")])
-
-        manager = _make_manager()
-        rows = _rows(_source("services", manager))
-
-        assert session.send.call_count == 1
-        # Non-paginated endpoints never send a page param.
-        assert "page" not in params[0]
-        assert [r["id"] for r in rows] == [1, 2]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
-    def test_entries_sends_time_window(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _auths, _urls = _wire(session, [_response([{"id": 1}], data_key="entries", count_pages=1)])
-
-        _rows(_source("entries", _make_manager()))
-
-        assert params[0]["time_since"] == "2000-01-01T00:00:00Z"
-        assert params[0]["time_until"] == "2027-06-29T12:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], count_pages=1)])
-
-        rows = _rows(_source("customers", _make_manager()))
-
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, count_pages=1, drop_data=True)])
-
-        rows = _rows(_source("customers", _make_manager()))
-
-        assert rows == []
 
 
 class TestClockodoSourceResponse:
@@ -287,34 +181,84 @@ class TestVersionDispatch:
         assert [r["id"] for r in rows] == [1]
         assert expected_path in urls[0]
 
-    def test_every_supported_version_covers_all_tables(self) -> None:
-        # clockodo_source indexes the version map by table name, so a table missing from any
-        # version map would KeyError mid-sync instead of routing to a path.
-        for version in CLOCKODO_SUPPORTED_VERSIONS:
-            assert set(endpoints_for_version(version)) == set(ENDPOINTS)
-
     def test_unknown_version_raises(self) -> None:
         with pytest.raises(ValueError):
             endpoints_for_version("v99")
 
+
+class TestWorkTimesSweep:
+    @parameterized.expand(
+        [
+            (CLOCKODO_API_VERSION_V2, "users", "/api/v2/users"),
+            (CLOCKODO_API_VERSION_V3, "data", "/api/v3/users"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_v3_paginates_a_resource_v2_served_in_one_page(self, MockSession) -> None:
-        # v2/users returns the whole collection in one response; v3/users paginates, so a
-        # single-page fetch would silently drop every user past the first page.
+    @time_machine.travel("2024-06-29T12:00:00Z", tick=False)
+    def test_co_worker_list_follows_the_pinned_version(
+        self, api_version: str, users_data_key: str, expected_users_path: str, MockSession
+    ) -> None:
         session = MockSession.return_value
-        params, _auths, _urls = _wire(
+        _params, _auths, urls = _wire(
             session,
             [
-                _response([{"id": 1}], data_key="data", count_pages=2),
-                _response([{"id": 2}], data_key="data", count_pages=2),
+                _response([{"id": 7}], data_key=users_data_key, count_pages=1),
+                _response([{"users_id": 7, "date": "2024-06-03"}], data_key="work_time_days"),
             ],
         )
 
-        rows = _rows(_source("users", _make_manager(), api_version=CLOCKODO_API_VERSION_V3))
+        rows = _rows(_source("work_times", _make_manager(), api_version=api_version))
 
+        # A v2 path or envelope under a v3 pin reaches a decommissioned endpoint or yields no
+        # co-workers, which would sweep no work times at all.
+        assert expected_users_path in urls[0]
+        assert "/api/v2/workTimes" in urls[1]
+        assert [r["users_id"] for r in rows] == [7]
+
+
+class TestUserReportsSweep:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
+    def test_walks_every_year_and_stamps_it_on_each_row(self, MockSession) -> None:
+        session = MockSession.return_value
+        years = list(range(USER_REPORTS_FIRST_YEAR, 2027))
+        params, _auths, _urls = _wire(
+            session,
+            [_response([{"users_id": 3}], data_key="userreports") for _ in years],
+        )
+
+        rows = _rows(_source("user_reports", _make_manager()))
+
+        # The API requires an explicit year and returns it on no row, so without the stamp
+        # every year would merge onto the same primary key.
+        assert [p["year"] for p in params] == years
+        assert [r["year"] for r in rows] == years
+        assert {r["users_id"] for r in rows} == {3}
+        # Year level only — the deeper report types nest month, week and day arrays per row.
+        assert {p["type"] for p in params} == {0}
+
+
+class TestSinglePageEndpoints:
+    @parameterized.expand(
+        [
+            ("absences", "data", "/api/v4/absences"),
+            ("target_hours", "targethours", "/api/targethours"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_the_whole_collection_in_one_request(
+        self, endpoint: str, data_key: str, expected_path: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params, _auths, urls = _wire(session, [_response([{"id": 1}, {"id": 2}], data_key=data_key)])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert expected_path in urls[0]
+        assert session.send.call_count == 1
+        # Neither endpoint documents a page param, and neither returns a paging block.
+        assert "page" not in params[0]
         assert [r["id"] for r in rows] == [1, 2]
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
 
 
 class TestValidateCredentials:
@@ -323,11 +267,6 @@ class TestValidateCredentials:
     def test_validate_credentials_status_mapping(self, _name: str, status: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("u", "k", CLOCKODO_API_VERSION_V3) is expected
-
-    @mock.patch(CLOCKODO_SESSION_PATCH)
-    def test_validate_credentials_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("u", "k", CLOCKODO_API_VERSION_V3) is False
 
     @parameterized.expand(
         [

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -49,8 +47,11 @@ class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "403 Client Error: Forbidden for url": "Kickscale rejected the API key and client ID. "
-            "Check both values under Settings > Integrations > API & Webhooks and reconnect.",
+            # Kickscale can refuse one endpoint while the same key reads another, so a 403 does not
+            # always mean the credentials are wrong.
+            "403 Client Error: Forbidden for url": "Kickscale denied access to this table. Check that "
+            "the API key and client ID under Settings > Integrations > API & Webhooks are correct and "
+            "that your Kickscale workspace has access to this data, then reconnect.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -111,7 +112,7 @@ class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.KICKSCALE,
+            name=ExternalDataSourceType.KICKSCALE,
             category=DataWarehouseSourceCategory.SALES,
             label="Kickscale",
             caption="Sync analyzed meetings and calls from Kickscale. Find your API key and "

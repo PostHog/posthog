@@ -74,10 +74,12 @@ export const connectedAppsLogic = kea<connectedAppsLogicType>([
             [] as ConnectedApp[],
             {
                 loadConnectedApps: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get('api/oauth/connected-apps/')
                 },
                 revokeApp: async ({ id }, breakpoint) => {
                     const remainingApps = values.connectedApps.filter((app) => app.id !== id)
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/oauth/connected-apps/${id}/revoke/`)
                     breakpoint()
                     lemonToast.success('App access revoked')

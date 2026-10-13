@@ -10,12 +10,12 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 
+import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
+
+import { notebookJupyterLogic } from '../../Notebook/notebookJupyterLogic'
 import { notebookLogic } from '../../Notebook/notebookLogic'
-import {
-    type NotebookNodeSQLV2LogicProps,
-    type RunNodeOverrides,
-    notebookNodeSQLV2Logic,
-} from '../notebookNodeSQLV2Logic'
+import type { NotebookNodeSQLV2Result } from '../NotebookNodeSQLV2'
+import { type NotebookNodeSQLV2LogicProps, type RunNodeOverrides } from '../notebookNodeSQLV2Logic'
 import { getNotebookSqlEditorTabId } from './NotebookSQLEditor'
 
 /**
@@ -28,7 +28,7 @@ import { getNotebookSqlEditorTabId } from './NotebookSQLEditor'
  */
 export function NotebookCodeCellRunButton({ node, updateProps }: NotebookComponentToolbarProps): JSX.Element | null {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isShared, canEditNotebook } = useValues(mountedNotebookLogic)
+    const { isShared, canEditNotebook, shortId } = useValues(mountedNotebookLogic)
     // Cells persist their own id; a parsed markdown block id is a content fingerprint that drifts
     // as soon as a run writes runId/result, so it is only the fallback for a never-run cell.
     const nodeId = typeof node.props.nodeId === 'string' && node.props.nodeId ? node.props.nodeId : node.id
@@ -37,16 +37,27 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         [updateProps]
     )
 
-    const dataLogic = notebookNodeSQLV2Logic({
+    const dataLogic = notebookCodeCellLogic(
         nodeId,
-        notebookShortId: mountedNotebookLogic.props.shortId,
-        updateAttributes,
-        runId: typeof node.props.runId === 'string' ? node.props.runId : null,
-        hasResult: !!node.props.result,
-        getContent: () => mountedNotebookLogic.values.content ?? null,
-    })
-    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+        mountedNotebookLogic,
+        {
+            runId: typeof node.props.runId === 'string' ? node.props.runId : null,
+            result: node.props.result as NotebookNodeSQLV2Result | undefined,
+        },
+        updateAttributes
+    )
+    const {
+        isRunning: isRunningNow,
+        isQueued,
+        isInterrupting,
+        operationBlockReason,
+        isJupyterModeActive,
+    } = useValues(dataLogic)
+    // A queued cell shows as running, like Jupyter's In [*] for a cell waiting on the kernel.
+    const isRunning = isRunningNow || isQueued
     const { runNode, interruptRun } = useActions(dataLogic)
+    const { executionCounts } = useValues(notebookJupyterLogic({ shortId }))
+    const executionCount = executionCounts[nodeId] ?? null
 
     // The run endpoint requires editor access on the notebook, so it is offered only to a reader it
     // will answer for. That excludes a public share, a viewer-level reader, and a history preview,
@@ -76,9 +87,28 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
 
     // A run in flight blocks the shortcuts, because the button turns into Cancel there and a run
     // shortcut must never become a stop.
+    const interrupt = useCallback((): void => {
+        // Guard against double submission: one interrupt request at a time.
+        if ((dataLogic.values.isRunning || dataLogic.values.isQueued) && !dataLogic.values.isInterrupting) {
+            interruptRun()
+        }
+    }, [dataLogic, interruptRun])
+
     usePublishNotebookComponentRunHandler(
         canRun
-            ? { run, disabledReason: isRunning ? 'This cell is already running' : (operationBlockReason ?? null) }
+            ? {
+                  run,
+                  // In Jupyter mode a busy notebook queues the run, so only this cell's own run blocks the shortcut.
+                  disabledReason: isRunning
+                      ? 'This cell is already running'
+                      : isJupyterModeActive
+                        ? null
+                        : (operationBlockReason ?? null),
+                  isRunning,
+                  isQueued,
+                  executionCount,
+                  interrupt,
+              }
             : null
     )
 
@@ -95,14 +125,15 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
             onClick={() => {
                 if (!isRunning) {
                     run()
-                } else if (!isInterrupting) {
-                    // Guard against double submission: one interrupt request at a time.
-                    interruptRun()
+                } else {
+                    interrupt()
                 }
             }}
             loading={isInterrupting}
-            disabledReason={operationBlockReason ?? undefined}
-            tooltip={isRunning ? 'Stop the running cell' : 'Run cell (⌘⏎)'}
+            disabledReason={isJupyterModeActive ? undefined : (operationBlockReason ?? undefined)}
+            tooltip={
+                isQueued ? 'Remove the cell from the queue' : isRunning ? 'Stop the running cell' : 'Run cell (⌘⏎)'
+            }
         >
             {isRunning ? 'Cancel' : 'Run'}
         </LemonButton>

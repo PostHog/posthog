@@ -3,7 +3,7 @@
 
 **[Download the latest version](https://github.com/PostHog/posthog/releases?q=desktop-v)**
 
-Found a bug or want to share feedback? [Open an issue](https://github.com/PostHog/posthog/issues/new) on GitHub.
+Found a bug or want to share feedback? Open the account menu in PostHog Desktop and select **Send feedback…**, or [open an issue](https://github.com/PostHog/posthog/issues/new) on GitHub.
 
 # PostHog Desktop
 

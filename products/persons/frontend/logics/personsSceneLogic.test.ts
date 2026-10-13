@@ -5,10 +5,11 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { PEOPLE_LIST_DEFAULT_QUERY, personsSceneLogic } from './personsSceneLogic'
+import { PEOPLE_LIST_DEFAULT_QUERY, isPeopleListDefaultQuery, personsSceneLogic } from './personsSceneLogic'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.Persons]: blankScene }
@@ -114,6 +115,20 @@ describe('personsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(spy).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('isPeopleListDefaultQuery', () => {
+        const defaultSelect = [...defaultDataTableColumns(NodeKind.ActorsQuery, false), 'person.$delete']
+        const lastSeenAtSelect = [...defaultDataTableColumns(NodeKind.ActorsQuery, true), 'person.$delete']
+
+        it.each<[string, string[], boolean]>([
+            ['the default columns', defaultSelect, true],
+            ['the default columns for a team that tracks last seen at', lastSeenAtSelect, true],
+            ['an extra column the user added', [...defaultSelect, 'pdi.distinct_id'], false],
+            ['a narrower set of columns', ['id'], false],
+        ])('%s', (_label, select, expected) => {
+            expect(isPeopleListDefaultQuery({ ...PEOPLE_LIST_DEFAULT_QUERY.source, select })).toBe(expected)
         })
     })
 })

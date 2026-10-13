@@ -4,32 +4,35 @@ import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
+import { nextTaskTitle } from '../../../lib/task-title'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { QuillTaskHeaderActions } from './QuillTaskHeaderActions'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
+import { TaskRunTabs } from './TaskRunArtifacts'
 import { TaskRunLog } from './TaskRunLog'
 import { TaskRunSceneShell } from './TaskRunSceneShell'
 
 export interface TaskDetailPageProps {
     taskId: string
-    /** Mobile shows the single-column layout, where a back button is needed to return to the list. */
     isMobile: boolean
+    titleActions?: JSX.Element
 }
 
-export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
+export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
-    const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
-    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const isActiveCreation = activeCreation?.taskId === taskId
+    const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const skin = useThreadSkin()
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -44,13 +47,28 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const runButtonText = latestRun ? 'Retry task' : 'Run task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
-    const titleActions =
+    const renameTask = (title: string): void => {
+        const nextTitle = nextTaskTitle(title, task?.title)
+        if (nextTitle) {
+            updateTask({ data: { title: nextTitle } })
+        }
+    }
+    const canRun = !!task && !isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted
+    const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
+        ) : skin === 'quill' ? (
+            <QuillTaskHeaderActions
+                desktopUrl={hasDesktopAccess ? urls.codeTaskLink(task.id) : null}
+                prUrl={prUrl}
+                runLabel={canRun && latestRun ? runButtonText : null}
+                onRun={runTask}
+                running={runTaskInFlight}
+            />
         ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 {hasDesktopAccess && (
                     <LemonButton
                         type="secondary"
@@ -73,7 +91,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                         View PR
                     </LemonButton>
                 )}
-                {!isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted && (
+                {canRun && (
                     <LemonButton
                         type="primary"
                         size="small"
@@ -94,25 +112,35 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const optimisticStreamKey = isActiveCreation ? activeCreation?.streamKey : undefined
     const optimisticRunId = isActiveCreation ? activeCreation?.runId : undefined
 
+    const runLog = (
+        <TaskRunLog
+            taskId={taskId}
+            optimisticStreamKey={optimisticStreamKey}
+            optimisticRunId={optimisticRunId}
+            interactionKey={isActiveCreation ? activeCreation?.interactionKey : undefined}
+            autoFocus={isActiveCreation && activeCreation?.composerWasFocused}
+        />
+    )
+
     return (
         <TaskRunSceneShell
             task={task}
             selectedRun={selectedRun}
             isHeaderLoading={isHeaderLoading && !isActiveCreation}
-            titleActions={titleActions}
-            sceneMenuBarEnabled={sceneMenuBarEnabled}
+            headerDivider={!artifactsTabEnabled}
+            titleActions={
+                <div className="flex flex-wrap items-center gap-2">
+                    {taskActions}
+                    {titleActions}
+                </div>
+            }
+            onRename={task ? renameTask : undefined}
             onArchive={deleteTask}
             taskError={taskError}
             onRetry={loadTask}
             isMobile={isMobile}
         >
-            <TaskRunLog
-                taskId={taskId}
-                optimisticStreamKey={optimisticStreamKey}
-                optimisticRunId={optimisticRunId}
-                interactionKey={isActiveCreation ? activeCreation?.interactionKey : undefined}
-                autoFocus={isActiveCreation && activeCreation?.composerWasFocused}
-            />
+            {artifactsTabEnabled ? <TaskRunTabs taskId={taskId} conversation={runLog} /> : runLog}
         </TaskRunSceneShell>
     )
 }

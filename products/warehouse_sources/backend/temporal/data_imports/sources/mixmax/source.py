@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # endpoint carries incremental fields.
 MIXMAX_INCREMENTAL_FIELDS: dict[str, list] = {}
 MIXMAX_DESCRIPTIONS = {name: config.description for name, config in MIXMAX_ENDPOINTS.items() if config.description}
+MIXMAX_SHOULD_SYNC_DEFAULT = {name: config.should_sync_default for name, config in MIXMAX_ENDPOINTS.items()}
 
 
 @SourceRegistry.register
@@ -47,7 +46,7 @@ class MixMaxSource(ResumableSource[MixMaxSourceConfig, MixmaxResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MIX_MAX,
+            name=ExternalDataSourceType.MIXMAX,
             category=DataWarehouseSourceCategory.SALES,
             label="Mixmax",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -107,6 +106,7 @@ API access requires a Growth+ or Enterprise plan with the API feature enabled on
             MIXMAX_INCREMENTAL_FIELDS,
             names,
             descriptions=MIXMAX_DESCRIPTIONS,
+            should_sync_default=MIXMAX_SHOULD_SYNC_DEFAULT,
         )
 
     def validate_credentials(

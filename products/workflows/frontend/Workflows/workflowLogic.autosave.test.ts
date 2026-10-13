@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
+import { saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
@@ -34,7 +36,7 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
         },
     ],
     edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
-    conversion: { window_minutes: null, filters: [] },
+    conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',
@@ -255,7 +257,8 @@ describe('workflowLogic auto-save', () => {
                     const body = (await request.json()) as Record<string, any>
                     patchBodies.push(body)
                     // Server-faithful echo: a staged save keeps the live content and returns the
-                    // new draft blob; a live save applies the payload.
+                    // new draft blob; a live save applies the payload, and clears the draft only
+                    // when the save says it carries it.
                     return [
                         200,
                         body.stage_draft
@@ -265,7 +268,9 @@ describe('workflowLogic auto-save', () => {
                                   draft: { actions: body.actions, edges: body.edges },
                                   draft_updated_at: '2026-05-02T00:00:00.000Z',
                               }
-                            : { ...getResponse, ...body },
+                            : body.includes_staged_draft
+                              ? { ...getResponse, ...body, draft: null, draft_updated_at: null }
+                              : { ...getResponse, ...body },
                     ]
                 },
             },
@@ -376,6 +381,28 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.hasStagedDraft).toBe(false)
         })
 
+        it('reports enabling a workflow once, with the product surface it was opened from', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            saveEntrySource(WORKFLOW_ID, 'survey')
+            useMocks(activeMocks({ ...activeWorkflow, status: 'draft' }))
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+            }).toDispatchActions(['saveWorkflowSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.setWorkflowValue('name', 'Renamed while live')
+                logic.actions.saveWorkflowPartial({ name: 'Renamed while live' })
+            }).toDispatchActions(['saveWorkflowSuccess'])
+
+            const enabledCalls = captureSpy.mock.calls.filter(([event]) => event === 'workflow enabled')
+            expect(enabledCalls).toEqual([['workflow enabled', { workflow_id: WORKFLOW_ID, entry_source: 'survey' }]])
+            captureSpy.mockRestore()
+        })
+
         it('a status transition sends lifecycle and metadata only, never stage_draft', async () => {
             useMocks(
                 activeMocks({
@@ -400,6 +427,39 @@ describe('workflowLogic auto-save', () => {
             expect(patchBodies[0].stage_draft).toBeUndefined()
             expect(patchBodies[0].actions).toBeUndefined()
             expect(patchBodies[0].status).toBe('draft')
+        })
+
+        it('an edit to a disabled workflow with a leftover draft clears the draft and keeps the edit', async () => {
+            useMocks(
+                activeMocks({
+                    ...activeWorkflow,
+                    status: 'draft',
+                    draft: {
+                        actions: renameExit(activeWorkflow.actions, 'Staged exit'),
+                        edges: activeWorkflow.edges,
+                    },
+                    draft_updated_at: '2026-05-02T00:00:00.000Z',
+                })
+            )
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue(
+                'actions',
+                renameExit(logic.values.workflow.actions, 'Edited while disabled')
+            )
+            await jest.advanceTimersByTimeAsync(3100)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(patchBodies[0].stage_draft).toBeUndefined()
+            expect(patchBodies[0].includes_staged_draft).toBe(true)
+            expect(patchBodies[0].base_updated_at).toBe('2026-05-02T00:00:00.000Z')
+            expect(logic.values.workflow.actions.find((a) => a.id === 'exit_node')?.name).toBe('Edited while disabled')
+            expect(logic.values.hasStagedDraft).toBe(false)
         })
     })
 

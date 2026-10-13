@@ -10,6 +10,7 @@ const {
   mockProcessTracking,
   mockWorkspaceService,
   mockCleanupAllCodexHomes,
+  mockCleanupAllPinnedSettings,
   mockTrackAppEvent,
   mockShutdownPostHog,
   mockShutdownOtelTransport,
@@ -33,6 +34,7 @@ const {
       waitForPendingCreations: vi.fn(() => Promise.resolve()),
     },
     mockCleanupAllCodexHomes: vi.fn(() => Promise.resolve()),
+    mockCleanupAllPinnedSettings: vi.fn(() => Promise.resolve()),
     mockProcessTracking: {
       getSnapshot: vi.fn(() =>
         Promise.resolve({
@@ -101,6 +103,10 @@ vi.mock("@posthog/shared/analytics-events", () => ({
 
 vi.mock("@posthog/workspace-server/services/agent/codex-home", () => ({
   cleanupAllCodexHomes: mockCleanupAllCodexHomes,
+}));
+
+vi.mock("@posthog/agent/adapters/claude/session/pinned-settings", () => ({
+  cleanupAllPinnedSettings: mockCleanupAllPinnedSettings,
 }));
 
 describe("AppLifecycleService", () => {
@@ -188,6 +194,14 @@ describe("AppLifecycleService", () => {
       await promise;
 
       expect(mockCleanupAllCodexHomes).toHaveBeenCalledWith("/app-data");
+    });
+
+    it("removes pinned Claude settings files", async () => {
+      const promise = service.shutdown();
+      await vi.runAllTimersAsync();
+      await promise;
+
+      expect(mockCleanupAllPinnedSettings).toHaveBeenCalledOnce();
     });
 
     it("tracks app quit event", async () => {

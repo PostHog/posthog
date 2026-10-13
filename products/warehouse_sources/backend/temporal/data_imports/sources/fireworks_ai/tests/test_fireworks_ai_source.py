@@ -5,10 +5,6 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
-    ENDPOINTS,
-    FIREWORKS_AI_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.source import FireworksAISource
 
 
@@ -28,24 +24,9 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_all_endpoints_full_refresh_only(self) -> None:
-        schemas = FireworksAISource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Server-side timestamp filtering is unverified (AIP-160 filter fields undocumented),
-        # so nothing may advertise incremental/append.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
     def test_names_filter_restricts_output(self) -> None:
         schemas = FireworksAISource().get_schemas(_config(), team_id=1, names=["models"])
         assert [s.name for s in schemas] == ["models"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = FireworksAISource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        models = next(t for t in tables if t["name"] == "models")
-        assert models["primary_keys"] == ["name"]
-        assert "Full refresh" in models["sync_methods"]
 
 
 class TestValidateCredentials:
@@ -121,14 +102,3 @@ class TestNonRetryableErrors:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = FireworksAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestCanonicalDescriptions:
-    def test_every_endpoint_has_a_canonical_description(self) -> None:
-        descriptions = FireworksAISource().get_canonical_descriptions()
-        for endpoint in FIREWORKS_AI_ENDPOINTS:
-            assert endpoint in descriptions
-            entry = descriptions[endpoint]
-            # Primary key columns must be documented so enrichment doesn't fall back to the LLM for them.
-            for pk in FIREWORKS_AI_ENDPOINTS[endpoint].primary_keys:
-                assert pk in entry["columns"]

@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField
 
 # DigitalOcean caps `per_page` at 200; use the max to minimize round trips against the
@@ -8,13 +11,18 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 200
 
 
-@dataclass
+# Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
+# `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's
+# fields as read-only, which is incompatible with that Protocol's plain (read-write) attributes.
+@dataclass(frozen=False)
 class DigitalOceanEndpointConfig:
     name: str
-    # Path relative to the API root (https://api.digitalocean.com).
+    # Path relative to the API root (https://api.digitalocean.com). A fan-out child's path
+    # carries the `{...}` placeholder its `fanout.resolve_param` binds.
     path: str
     # Key the list of records is nested under in the JSON response body
-    # (e.g. `{"droplets": [...]}` → "droplets").
+    # (e.g. `{"droplets": [...]}` → "droplets"). `"$"` for an endpoint that returns the record
+    # as the response body itself rather than wrapped in a list.
     data_selector: str
     # Columns that uniquely identify a record table-wide. DigitalOcean resource ids are
     # globally unique; keyless resources (domains, tags) use their natural name/ip key.
@@ -29,6 +37,24 @@ class DigitalOceanEndpointConfig:
     # since some live nested inside spec/deployment objects — and their presence also disables
     # HTTP sample capture for the endpoint so the raw response can't leak into HTTP samples.
     sensitive_fields: frozenset[str] = frozenset()
+    # `False` keeps the endpoint's raw response out of HTTP sample capture, which records the
+    # response before the resource maps run. Set it for a response that carries data belonging in
+    # the warehouse table but not in a diagnostic sample bucket, such as billing identity. A
+    # `sensitive_fields` entry implies it, because a secret must never reach a sample either.
+    captures_http_samples: bool = True
+    # Set for endpoints that hang off a parent list endpoint (invoice line items and summaries
+    # are only reachable per invoice uuid). `None` for top-level endpoints.
+    fanout: Optional[DependentEndpointConfig] = None
+    # `False` for an endpoint that returns a single record as the response body instead of a
+    # paginated list. Declared rather than inferred because the REST framework assumes a path
+    # ending in its resolved id is a single entity, and `/v2/customers/my/invoices/{invoice_uuid}`
+    # returns a page of invoice line items instead.
+    paginated: bool = True
+    # Read by the fan-out helper's `FanoutEndpointLike` protocol. No DigitalOcean endpoint takes
+    # a server-side time filter, so the incremental members stay empty for every endpoint.
+    page_size: int = PAGE_SIZE
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: Optional[str] = None
 
 
 # DigitalOcean's list endpoints all share the same page-based pagination
@@ -51,6 +77,16 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         data_selector="apps",
         partition_key="created_at",
         sensitive_fields=frozenset({"envs", "log_destinations"}),
+    ),
+    # Account-wide state-transition log (creates, resizes, power cycles). `/v2/droplets/{id}/actions`
+    # returns the same action objects filtered to one droplet, so it adds no columns, because these
+    # rows already carry `resource_id` and `resource_type`. Fanning out per droplet would also
+    # multiply requests against the account rate limit.
+    "actions": DigitalOceanEndpointConfig(
+        name="actions",
+        path="/v2/actions",
+        data_selector="actions",
+        partition_key="started_at",
     ),
     "kubernetes_clusters": DigitalOceanEndpointConfig(
         name="kubernetes_clusters",
@@ -138,6 +174,20 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         data_selector="tags",
         primary_keys=["name"],
     ),
+    # Lookups that resolve the `size_slug` and `region` slugs carried by droplets, databases,
+    # load balancers and volumes. Both are account-independent catalogs keyed by slug.
+    "sizes": DigitalOceanEndpointConfig(
+        name="sizes",
+        path="/v2/sizes",
+        data_selector="sizes",
+        primary_keys=["slug"],
+    ),
+    "regions": DigitalOceanEndpointConfig(
+        name="regions",
+        path="/v2/regions",
+        data_selector="regions",
+        primary_keys=["slug"],
+    ),
     "invoices": DigitalOceanEndpointConfig(
         name="invoices",
         path="/v2/customers/my/invoices",
@@ -151,6 +201,148 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         path="/v2/customers/my/billing_history",
         data_selector="billing_history",
         primary_keys=["date", "type", "amount", "description"],
+    ),
+    # Per-resource line items behind each invoice, so spend can be attributed to the droplet,
+    # database or cluster that incurred it. Line items carry no invoice reference of their own,
+    # so the parent's `invoice_uuid` is projected onto every row.
+    "invoice_items": DigitalOceanEndpointConfig(
+        name="invoice_items",
+        path="/v2/customers/my/invoices/{invoice_uuid}",
+        data_selector="invoice_items",
+        captures_http_samples=False,
+        # Line items have no id. Like `billing_history`, this composite is a best-effort dedup
+        # guard rather than a true key, because the endpoint is full-refresh and each sync
+        # rewrites the whole table.
+        primary_keys=[
+            "invoice_uuid",
+            "product",
+            "resource_uuid",
+            "group_description",
+            "description",
+            "start_time",
+            "end_time",
+        ],
+        partition_key="start_time",
+        fanout=DependentEndpointConfig(
+            parent_name="invoices",
+            resolve_param="invoice_uuid",
+            resolve_field="invoice_uuid",
+            include_from_parent=["invoice_uuid"],
+            parent_field_renames={"invoice_uuid": "invoice_uuid"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # Invoice totals split into product charges, overages, taxes and credits, one row per
+    # invoice. The endpoint returns a single object rather than a paginated list. The parent's
+    # `invoice_uuid` is projected over the body's own, because the spec does not require the
+    # summary body to carry it and it is this table's primary key.
+    "invoice_summaries": DigitalOceanEndpointConfig(
+        name="invoice_summaries",
+        path="/v2/customers/my/invoices/{invoice_uuid}/summary",
+        data_selector="$",
+        primary_keys=["invoice_uuid"],
+        paginated=False,
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="invoices",
+            resolve_param="invoice_uuid",
+            resolve_field="invoice_uuid",
+            include_from_parent=["invoice_uuid"],
+            parent_field_renames={"invoice_uuid": "invoice_uuid"},
+            parent_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # The join table between projects and everything in them: `/v2/projects` syncs the project
+    # headers, but membership only exists behind this per-project endpoint. Resources are
+    # identified by URN (`do:droplet:13457723`), which resolves against the id columns already
+    # synced on droplets, databases, volumes and the rest.
+    # `/v2/projects/default/resources` is an alias for whichever project carries `is_default`,
+    # and that project is in the `/v2/projects` listing, so fanning out over every project
+    # already covers it.
+    "project_resources": DigitalOceanEndpointConfig(
+        name="project_resources",
+        path="/v2/projects/{project_id}/resources",
+        data_selector="resources",
+        # A resource sits in one project at a time, but the API does not document the URN as
+        # unique across the whole fan-out, so the parent id is part of the key.
+        primary_keys=["project_id", "urn"],
+        partition_key="assigned_at",
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # DNS records under each synced domain. The domain itself is only a name, so the records
+    # are where the zone's actual contents live.
+    "domain_records": DigitalOceanEndpointConfig(
+        name="domain_records",
+        path="/v2/domains/{domain_name}/records",
+        data_selector="domain_records",
+        # The record id is documented as unique per domain, not across the account.
+        primary_keys=["domain_name", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="domains",
+            resolve_param="domain_name",
+            resolve_field="name",
+            include_from_parent=["name"],
+            # Renamed off the parent prefix, and away from the record's own `name` column,
+            # which holds the host part of the record rather than the zone.
+            parent_field_renames={"name": "domain_name"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # Backup inventory per managed database cluster, so retention and backup size can be read
+    # alongside the cluster metadata. The endpoint takes no page params and returns the whole
+    # list in one response.
+    "database_backups": DigitalOceanEndpointConfig(
+        name="database_backups",
+        path="/v2/databases/{database_cluster_uuid}/backups",
+        data_selector="backups",
+        # A backup record has no id of its own; it is identified by when it was taken.
+        primary_keys=["database_cluster_uuid", "created_at"],
+        partition_key="created_at",
+        # Both legs of the fan-out share one session, and the parent leg is `/v2/databases`,
+        # whose response embeds live connection URIs and passwords.
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="databases",
+            resolve_param="database_cluster_uuid",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "database_cluster_uuid"},
+            parent_params={"per_page": PAGE_SIZE},
+            # Caching and Valkey clusters do not support backups, and the fan-out visits every
+            # cluster the account has. Treating the endpoint's documented not-found response as
+            # an empty page keeps one such cluster from failing the whole table.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Cluster event history (create, update, maintenance, failover, power cycles) — the
+    # state-transition log for managed databases, which `/v2/actions` does not cover.
+    "database_events": DigitalOceanEndpointConfig(
+        name="database_events",
+        path="/v2/databases/{database_cluster_uuid}/events",
+        data_selector="events",
+        # The event id is only documented as identifying the event within its cluster.
+        primary_keys=["database_cluster_uuid", "id"],
+        partition_key="create_time",
+        # Same shared-session reason as `database_backups`: the parent leg is `/v2/databases`.
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="databases",
+            resolve_param="database_cluster_uuid",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "database_cluster_uuid"},
+            parent_params={"per_page": PAGE_SIZE},
+        ),
     ),
 }
 

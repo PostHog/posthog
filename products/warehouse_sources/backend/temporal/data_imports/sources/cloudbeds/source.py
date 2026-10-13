@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.cloudbeds import (
     CLOUDBEDS_API_VERSION_V1_2,
     CLOUDBEDS_API_VERSION_V1_3,
@@ -60,11 +58,11 @@ class CloudbedsSource(ResumableSource[CloudbedsSourceConfig, CloudbedsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLOUDBEDS,
+            name=ExternalDataSourceType.CLOUDBEDS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Cloudbeds",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Cloudbeds API key to pull your properties, reservations, guests, rooms, room types, and transactions into the PostHog Data warehouse.
+            caption="""Enter your Cloudbeds API key to pull your properties, reservations and their rate details, guests, rooms, room types, transactions, rate plans, and staff users into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API credentials** in [Cloudbeds](https://hotels.cloudbeds.com). Note that Cloudbeds API keys expire after 30 days of inactivity, so a key that has not been used recently may need to be regenerated.
 

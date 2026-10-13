@@ -3,8 +3,10 @@ import json
 import math
 import hashlib
 import datetime
+from email.message import Message
 from types import SimpleNamespace
 from typing import Any, cast
+from urllib.request import Request as UrllibRequest
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -18,9 +20,12 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+
+from products.logs.backend.models import LogsRetentionRule
 
 from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
@@ -33,6 +38,7 @@ from ee.billing.billing_manager import (
     _get_user_organization_role,
     _parse_funding_status,
     build_billing_token,
+    http_session,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
@@ -573,6 +579,12 @@ class TestBillingManager(BaseTest):
         organization.save()
         self.team.logs_settings = {"retention_days": 30}
         self.team.save()
+        rule = LogsRetentionRule.objects.create(
+            team=self.team,
+            name="keep api logs",
+            enabled=True,
+            config={"retention_days": 90, "filter_group": {"type": "AND", "values": []}},
+        )
 
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
@@ -592,6 +604,10 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
         assert self.team.logs_settings == {"retention_days": 14}
+        rule.refresh_from_db()
+        assert rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
+        assert rule.enabled is True
+        assert rule.version == 2
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_update_available_product_features_reconciles_events_retention(self, mock_get: MagicMock):
@@ -948,10 +964,27 @@ class TestBillingManager(BaseTest):
         assert organization.has_active_subscription is expected
 
 
+class TestBillingSession(SimpleTestCase):
+    def test_the_session_keeps_no_cookies(self):
+        # Every call to billing is server-to-server and carries a bearer token for one
+        # organization. A cookie set on one response must not ride along on the next request,
+        # which would be another organization's.
+        self.addCleanup(http_session.cookies.clear)
+        headers = Message()
+        headers["Set-Cookie"] = "sessionid=abc123; Path=/"
+        response = SimpleNamespace(info=lambda: headers)
+        http_session.cookies.extract_cookies(
+            cast(Any, response), UrllibRequest("https://billing.example/api/v2/billing/subscription/")
+        )
+
+        self.assertEqual(len(http_session.cookies), 0)
+
+
 class TestBillingProviderWebhookSigning(SimpleTestCase):
     def setUp(self):
         self.license = SimpleNamespace(key="license_id::license_secret")
         self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))
+        self.enterContext(patch("ee.billing.billing_manager.get_billing_lock_partner", return_value=None))
 
     @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
     @patch("ee.billing.billing_manager.time.time", return_value=1700000000)
@@ -1066,6 +1099,36 @@ class TestBuildBillingToken(BaseTest):
         assert "distinct_id" not in decoded
         assert "email" not in decoded
         assert "organization_role" not in decoded
+
+    @parameterized.expand([("paying_partner", True), ("no_partner", False)])
+    @patch("ee.billing.billing_manager.get_billing_lock_partner")
+    def test_build_billing_token_payer_partner_claim(
+        self, _name: str, has_partner: bool, mock_partner: MagicMock
+    ) -> None:
+        application = (
+            OAuthApplication.objects.create(
+                client_id="example-partner",
+                name="Example Partner",
+                client_secret="",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://partner.example.com/callback",
+                algorithm="RS256",
+                is_provisioning_partner=True,
+            )
+            if has_partner
+            else None
+        )
+        mock_partner.return_value = application
+
+        token = build_billing_token(self.license, self.organization)
+
+        mock_partner.assert_called_once_with(self.organization)
+        decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+        if application is not None:
+            assert decoded["payer_partner_id"] == str(application.id)
+        else:
+            assert "payer_partner_id" not in decoded
 
     def test_build_billing_token_with_user_who_is_member(self):
         """Token with user should include distinct_id and organization_role as level display string"""

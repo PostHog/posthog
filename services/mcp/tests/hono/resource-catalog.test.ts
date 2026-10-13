@@ -143,22 +143,6 @@ describe('ResourceCatalog', () => {
             expect(mockManifestEntriesSet).toHaveBeenCalledWith(2)
         })
 
-        it('lists UI app resources with the same CSP _meta the read entry carries', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
-
-            const catalog = new ResourceCatalog(mockEnv, redis)
-            await catalog.warmup()
-
-            const uri = 'ui://posthog/query-results.html'
-            const listed = catalog.getResourcesList().resources.find((r) => r.uri === uri)
-            const read = await catalog.readResource({ uri })
-
-            const readMeta = read.contents[0]?._meta as { 'openai/widgetCSP': { resource_domains: string[] } }
-            expect(listed?._meta).toEqual(readMeta)
-            expect(readMeta['openai/widgetCSP'].resource_domains).toEqual(['https://apps.test'])
-        })
-
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('a')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
@@ -169,6 +153,23 @@ describe('ResourceCatalog', () => {
             const list1 = catalog.getResourcesList().resources
             const list2 = catalog.getResourcesList().resources
             expect(list1).toBe(list2)
+        })
+
+        it('lists the Visual Review artifact source in its CSP metadata', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const listed = catalog
+                .getResourcesList()
+                .resources.find((r) => r.uri === 'ui://posthog/visual-review-snapshots.html')
+            const uiMeta = listed?._meta?.ui as { csp?: { resourceDomains?: string[] } } | undefined
+
+            expect(uiMeta?.csp?.resourceDomains).toContain(
+                'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'
+            )
         })
 
         it('revalidates context-mill resources on demand', async () => {
@@ -225,6 +226,21 @@ describe('ResourceCatalog', () => {
     })
 
     describe('readResource', () => {
+        it('includes the Visual Review artifact source in its CSP metadata', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const result = await catalog.readResource({ uri: 'ui://posthog/visual-review-snapshots.html' })
+            const uiMeta = result.contents[0]?._meta?.ui as { csp?: { resourceDomains?: string[] } } | undefined
+
+            expect(uiMeta?.csp?.resourceDomains).toContain(
+                'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'
+            )
+        })
+
         it('lazy-loads a context-mill body from Redis on first read', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('doc')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])

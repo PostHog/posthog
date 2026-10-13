@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor } from '../../frontend/src/types'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -67,7 +66,6 @@ export const manifest: ProductManifest = {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
-        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -79,12 +77,21 @@ export const manifest: ProductManifest = {
             visualOrder: 2,
             type: 'mcp_analytics',
             iconType: 'mcp_analytics' as FileSystemIconType,
-            iconColor: [
-                'var(--color-product-mcp-analytics-light)',
-                'var(--color-product-mcp-analytics-dark)',
-            ] as FileSystemIconColor,
+            iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
             href: urls.mcpAnalytics(),
-            flag: FEATURE_FLAGS.MCP_ANALYTICS,
+            searchKeywords: ['tool calls', 'model context protocol', 'plugins'],
+            searchTabs: [
+                { name: 'Activity', href: urls.mcpAnalyticsActivity() },
+                { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
+                { name: 'Tool quality', href: urls.mcpAnalyticsToolQuality() },
+                { name: 'Missing capabilities', href: urls.mcpAnalyticsMissingCapabilities() },
+                { name: 'Notifications', href: urls.mcpAnalyticsNotifications() },
+                {
+                    name: 'Intent clustering',
+                    href: urls.mcpAnalyticsIntentClustering(),
+                    flag: FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING,
+                },
+            ],
             tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },

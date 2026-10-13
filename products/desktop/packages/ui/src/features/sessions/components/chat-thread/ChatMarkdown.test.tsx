@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("mermaid", () => ({
   default: {
@@ -63,8 +63,32 @@ vi.mock("@posthog/ui/features/sidebar/useCwd", () => ({
   useCwd: () => "/repo",
 }));
 
+const { useWorkspaceFileAsBase64 } = vi.hoisted(() => ({
+  useWorkspaceFileAsBase64: vi.fn<
+    (
+      workspaceRoot: string,
+      filePath: string,
+      enabled: boolean,
+    ) => {
+      data: string | null;
+      isPending: boolean;
+    }
+  >(() => ({ data: null, isPending: false })),
+}));
+vi.mock("@posthog/ui/features/code-editor/hooks/useFileContent", () => ({
+  useWorkspaceFileAsBase64,
+}));
+
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
-import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
+import {
+  ChatMarkdown,
+  ChatStreamingMarkdown,
+  resolveLocalImage,
+} from "./ChatMarkdown";
 
 const MERMAID_FENCE = "```mermaid\ngraph TD; A-->B\n```";
 
@@ -103,6 +127,27 @@ Verdict: valid.
     expect(html).not.toContain("http://127.0.0.1/action");
   });
 
+  it("renders local workspace images from the filesystem", () => {
+    useWorkspaceFileAsBase64.mockReturnValue({
+      data: "aGVsbG8=",
+      isPending: false,
+    });
+
+    const html = renderStatic(
+      <SessionTaskIdProvider taskId="task-1">
+        <ChatMarkdown content="![Agent list](/repo/.qa/agent-list.png)" />
+      </SessionTaskIdProvider>,
+    );
+
+    expect(html).toContain('src="data:image/png;base64,aGVsbG8="');
+    expect(html).toContain('alt="Agent list"');
+    expect(useWorkspaceFileAsBase64).toHaveBeenCalledWith(
+      "/repo",
+      "/repo/.qa/agent-list.png",
+      true,
+    );
+  });
+
   it("renders a GitHub pull request with its live status chip", () => {
     const html = renderStatic(
       <ChatMarkdown content="Review https://github.com/PostHog/posthog/pull/23985" />,
@@ -127,7 +172,33 @@ Verdict: valid.
   });
 });
 
+describe("resolveLocalImage", () => {
+  it("resolves relative and absolute images inside the workspace", () => {
+    expect(resolveLocalImage("screenshots/result.webp", "/repo")).toEqual({
+      path: "/repo/screenshots/result.webp",
+      mimeType: "image/webp",
+    });
+    expect(resolveLocalImage("/repo/result.png", "/repo")).toEqual({
+      path: "/repo/result.png",
+      mimeType: "image/png",
+    });
+  });
+
+  it("rejects paths outside the workspace and unsupported image types", () => {
+    expect(resolveLocalImage("../secret.png", "/repo")).toBeNull();
+    expect(resolveLocalImage("/other/secret.png", "/repo")).toBeNull();
+    expect(resolveLocalImage("diagram.svg", "/repo")).toBeNull();
+    expect(
+      resolveLocalImage("https://example.com/image.png", "/repo"),
+    ).toBeNull();
+  });
+});
+
 describe("ChatMarkdown object tags", () => {
+  afterEach(() => {
+    useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  });
+
   // The chat thread has its own sanitized renderer, which silently dropped
   // object tags while the session view rendered them; these lock the thread
   // to the same tag support.
@@ -156,6 +227,36 @@ describe("ChatMarkdown object tags", () => {
     expect(html).toContain("report-chart");
     expect(html).toContain("DAU, last 7 days");
     expect(html).not.toContain("SELECT 1");
+  });
+
+  it.each([
+    [
+      "an inline link as a chip that opens the cited page",
+      "The [checkout funnel](https://us.posthog.com/project/2/replay/s1?t=30) dropped.",
+      'href="https://us.posthog.com/project/2/replay/s1?t=30"',
+    ],
+    [
+      "a SQL link alone in its paragraph as a chart card",
+      "[DAU, last 7 days](https://us.posthog.com/project/2/sql?open_query=SELECT%201)",
+      "report-chart",
+    ],
+  ])("renders %s", (_what, content, expected) => {
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        cloudRegion: "us",
+        currentProjectId: 2,
+      },
+    });
+    const { container, unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <ChatMarkdown content={content} renderObjectTags />
+      </QueryClientProvider>,
+    );
+    const html = container.innerHTML;
+    unmount();
+    expect(html).toContain(expected);
+    expect(html).not.toContain('target="_blank"');
   });
 
   it("does not run object tags in untrusted content by default", () => {

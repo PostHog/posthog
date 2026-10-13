@@ -609,6 +609,23 @@ _QUERY_LOG_ARCHIVE_PHYSICAL_COLUMNS = """
     log_comment                           {log_comment_type},
     ProfileEvents                         Map(String, UInt64)""".format(log_comment_type=LOG_COMMENT_JSON_TYPE)
 
+# HogQL cost planner tags (posthog/hogql/cost/). These keys have no type hint in LOG_COMMENT_JSON_TYPE, so the
+# JSON column keeps them as Dynamic paths that read as NULL when absent. dynamicElement extracts the typed value
+# and ifNull gives the same '' / 0 default the hinted lc_* columns have. It is the function form of the `.:Type`
+# subcolumn syntax, which the HCL introspection parser (hclexp) cannot read back from SHOW CREATE TABLE.
+_COST_PLANNER_ALIAS_COLUMNS = (
+    "lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), '')",
+    "lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0)",
+    "lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)",
+)
+
+
+def QUERY_LOG_ARCHIVE_ADD_COST_PLANNER_ALIASES_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"ALTER TABLE {table} " + ", ".join(
+        f"ADD COLUMN IF NOT EXISTS {column}" for column in _COST_PLANNER_ALIAS_COLUMNS
+    )
+
+
 # Read-time aliases. lc_* read the curated JSON subset; ProfileEvents_* read the
 # raw map; exception_name keeps its derived form. The lc_query* / lc_modifiers
 # aliases reproduce the previous MV logic (source preference + is_initial_query
@@ -685,7 +702,9 @@ _QUERY_LOG_ARCHIVE_ALIAS_COLUMNS = """
     lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
     lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
 
-    lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"""
+    lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+
+    {cost_planner_aliases}""".format(cost_planner_aliases=",\n    ".join(_COST_PLANNER_ALIAS_COLUMNS))
 
 _QUERY_LOG_ARCHIVE_OPS_TABLE_CLAUSES = """
 PARTITION BY toYYYYMM(event_date)

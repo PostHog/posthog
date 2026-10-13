@@ -1,19 +1,35 @@
 import { POSTHOG_OBJECT_KINDS } from "@posthog/core/message-editor/content";
+import { ServiceProvider } from "@posthog/di/react";
+import { BROWSER_TABS_CLIENT } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  openReport: vi.fn(),
+  getSignalReport: vi.fn(async (id: string) => ({ id })),
+}));
+
+vi.mock("@posthog/ui/router/navigationBridge", () => ({
+  navigateToReport: mocks.openReport,
+}));
 
 vi.mock("../../../shell/openExternal", () => ({
   openExternalUrl: vi.fn(),
 }));
 
-// The hover card resolves its preview through the app shell; without it the
-// loader renders the static card, which is all the chip tests need.
+vi.mock("../useEvidencePreviewPrefetch", () => ({
+  useEvidencePreviewPrefetch: () => {},
+}));
+
 vi.mock("../../auth/authClient", () => ({
-  useOptionalAuthenticatedClient: () => null,
+  useOptionalAuthenticatedClient: () => ({
+    getSignalReport: mocks.getSignalReport,
+  }),
 }));
 vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   useAuthenticatedQuery: () => ({
@@ -37,10 +53,18 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
 
-function renderInTheme(node: React.ReactNode) {
+function renderInTheme(node: React.ReactNode, withServices = true) {
+  const container = new Container();
+  container.bind(BROWSER_TABS_CLIENT).toConstantValue({});
   return render(
     <QueryClientProvider client={queryClient}>
-      <Theme>{node}</Theme>
+      <Theme>
+        {withServices ? (
+          <ServiceProvider container={container}>{node}</ServiceProvider>
+        ) : (
+          node
+        )}
+      </Theme>
     </QueryClientProvider>,
   );
 }
@@ -64,6 +88,8 @@ function bindTracker() {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
   useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
   queryClient.clear();
   const actions = useDraftStore.getState().actions;
@@ -83,19 +109,62 @@ describe("EvidenceRefChip", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
-  it("derives the PostHog url from the reference and opens it externally", () => {
-    signIn();
-    renderInTheme(
-      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
-        Checkout funnel
-      </EvidenceRefChip>,
-    );
-    const link = screen.getByRole("link", { name: "Checkout funnel" });
-    fireEvent.click(link);
-    expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://us.posthog.com/project/2/insights/9pQx3",
-    );
-  });
+  it.each([
+    { kind: "report", taskId: "task-1", destination: "report" },
+    { kind: "report", taskId: null, destination: "report" },
+    { kind: "insight", taskId: "task-1", destination: "tab" },
+    { kind: "insight", taskId: null, destination: "external" },
+  ] as const)(
+    "opens $kind in $destination with task context $taskId",
+    async ({ kind, taskId, destination }) => {
+      signIn();
+      const openObjectTab = vi
+        .spyOn(usePanelLayoutStore.getState(), "openPostHogObjectTab")
+        .mockImplementation(() => {});
+      const reference = (
+        <EvidenceRefChip target={{ kind, id: "reference-1" }}>
+          Linked reference
+        </EvidenceRefChip>
+      );
+      renderInTheme(
+        taskId ? (
+          <SessionTaskIdProvider taskId={taskId}>
+            {reference}
+          </SessionTaskIdProvider>
+        ) : (
+          reference
+        ),
+      );
+
+      fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
+
+      if (destination === "report") {
+        await waitFor(() =>
+          expect(mocks.openReport).toHaveBeenCalledWith(
+            "reference-1",
+            undefined,
+          ),
+        );
+        expect(mocks.getSignalReport).toHaveBeenCalledWith("reference-1");
+        expect(openObjectTab).not.toHaveBeenCalled();
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else if (destination === "tab") {
+        expect(openObjectTab).toHaveBeenCalledWith(taskId, {
+          kind,
+          id: "reference-1",
+          name: "Linked reference",
+        });
+        expect(mocks.openReport).not.toHaveBeenCalled();
+        expect(openExternalUrl).not.toHaveBeenCalled();
+      } else {
+        expect(openExternalUrl).toHaveBeenCalledWith(
+          "https://us.posthog.com/project/2/insights/reference-1",
+        );
+        expect(mocks.openReport).not.toHaveBeenCalled();
+        expect(openObjectTab).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("stays plain for a kind with no canonical page even when signed in", () => {
     signIn();

@@ -16,12 +16,14 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Response, Status};
 
 use crate::grpc::{code_as_str, CLIENT_NAME_HEADER};
+use crate::h2_window::Http2Windows;
 
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    ConsistencyLevel, FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest,
-    FoldPersonDocumentResponse, GetPersonRequest, Person, ReadOptions, ReleaseFenceRequest,
-    ReleaseFenceResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    ConsistencyLevel, FencePersonRequest, FencePersonResponse, FencePersonsRequest,
+    FencePersonsResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest,
+    Person, ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest,
+    ReleaseFencesResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Routing headers for leader-bound calls through the router.
@@ -75,12 +77,26 @@ impl RouterClient {
         request_timeout: Duration,
         channels: usize,
     ) -> Result<Self, tonic::transport::Error> {
+        Self::with_channels_and_windows(
+            router_url,
+            request_timeout,
+            channels,
+            Http2Windows::default(),
+        )
+    }
+
+    pub fn with_channels_and_windows(
+        router_url: &str,
+        request_timeout: Duration,
+        channels: usize,
+        http2_windows: Http2Windows,
+    ) -> Result<Self, tonic::transport::Error> {
         let clients = (0..channels.max(1))
             .map(|_| {
-                let channel = Endpoint::from_shared(router_url.to_string())?
+                let endpoint = Endpoint::from_shared(router_url.to_string())?
                     .connect_timeout(CONNECT_TIMEOUT)
-                    .tcp_nodelay(true)
-                    .connect_lazy();
+                    .tcp_nodelay(true);
+                let channel = http2_windows.apply_to_endpoint(endpoint).connect_lazy();
                 Ok(PersonHogServiceClient::new(channel))
             })
             .collect::<Result<Vec<_>, tonic::transport::Error>>()?;
@@ -177,6 +193,24 @@ impl RouterClient {
         Self::timed("FencePerson", self.client().fence_person(request)).await
     }
 
+    /// Leader-routed batch fence (saga runner only) for persons that share
+    /// one partition: the routing headers name the first person, and the
+    /// leader refuses the batch if any person hashes elsewhere.
+    pub async fn fence_persons(
+        &self,
+        request: FencePersonsRequest,
+    ) -> Result<FencePersonsResponse, Status> {
+        let Some(first) = request.person_ids.first() else {
+            return Err(Status::invalid_argument(
+                "FencePersons needs at least one person",
+            ));
+        };
+        let (team_id, person_id) = (request.team_id, *first);
+        let mut request = self.request(request);
+        stamp_person_routing_headers(&mut request, team_id, person_id);
+        Self::timed("FencePersons", self.client().fence_persons(request)).await
+    }
+
     /// Leader-routed fence release (saga runner only): committed produces
     /// the death document, aborted resumes the person's normal life.
     pub async fn release_fence(
@@ -187,6 +221,24 @@ impl RouterClient {
         let mut request = self.request(request);
         stamp_person_routing_headers(&mut request, team_id, person_id);
         Self::timed("ReleaseFence", self.client().release_fence(request)).await
+    }
+
+    /// Leader-routed batch release (saga runner only) for persons that
+    /// share one partition: the routing headers name the first person,
+    /// and the leader refuses the batch if any person hashes elsewhere.
+    pub async fn release_fences(
+        &self,
+        request: ReleaseFencesRequest,
+    ) -> Result<ReleaseFencesResponse, Status> {
+        let Some(first) = request.persons.first() else {
+            return Err(Status::invalid_argument(
+                "ReleaseFences needs at least one person",
+            ));
+        };
+        let (team_id, person_id) = (request.team_id, first.person_id);
+        let mut request = self.request(request);
+        stamp_person_routing_headers(&mut request, team_id, person_id);
+        Self::timed("ReleaseFences", self.client().release_fences(request)).await
     }
 
     /// Leader-routed merge fold (saga runner only): fold sealed source

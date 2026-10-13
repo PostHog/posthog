@@ -3,6 +3,7 @@ import { IntegrationType, SubscriptionType } from '~/types'
 
 import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { getNextDeliveryDate } from './nextDeliveryDate'
 import {
     canNudgeToSubscribe,
     coerceDeliveryConfigForScope,
@@ -10,7 +11,6 @@ import {
     getAiSubscriptionDisplayOptionState,
     getAiSubscriptionDisplaySummary,
     getAiSubscriptionGate,
-    getNextDeliveryDate,
     getSubscriptionAdvancedSettings,
     integrationHasFilesWrite,
     selectedDaysToDayPickerLabel,
@@ -293,6 +293,12 @@ describe('Slack gallery delivery config', () => {
         [
             'removes the flag for a non-Slack target',
             subscription({ target_type: 'email' }),
+            [slackIntegration(7, 'files:write')],
+            false,
+        ],
+        [
+            'removes the flag for a prompt subscription',
+            subscription({ resource_type: 'ai_prompt' }),
             [slackIntegration(7, 'files:write')],
             false,
         ],

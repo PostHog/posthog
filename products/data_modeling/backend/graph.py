@@ -7,6 +7,8 @@ instead of running recursive DB queries per node.
 from collections import defaultdict
 from uuid import UUID
 
+from django.db.models import Q
+
 from products.data_modeling.backend.logic.graph_traversal import reachable
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import NodeType
@@ -25,6 +27,7 @@ class Graph:
         dag_id: UUID | str | None = None,
         exclude_table_sources: bool = True,
         exclude_table_targets: bool = True,
+        hidden_types: frozenset[str] = frozenset(),
     ):
         """Load edges and build adjacency maps.
 
@@ -33,8 +36,12 @@ class Graph:
             dag_id: if set, filter to a single DAG; otherwise load all DAGs
             exclude_table_sources: skip edges whose source is a TABLE node (for upstream counts)
             exclude_table_targets: skip edges whose target is a TABLE node (for downstream counts)
+            hidden_types: node types the reader may not see, dropped from both sides so a count
+                never reports a node the same reader's node list omits
         """
-        qs = Edge.objects.filter(team_id=team_id)
+        qs = Edge.objects.filter(team_id=team_id).exclude(
+            Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True)
+        )
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
 
@@ -49,6 +56,8 @@ class Graph:
         self._downstream_adj: dict[str, set[str]] = defaultdict(set)  # source -> targets
 
         for source_id, target_id, source_type, target_type in edge_rows:
+            if source_type in hidden_types or target_type in hidden_types:
+                continue
             s = str(source_id)
             t = str(target_id)
             if not exclude_table_sources or source_type != NodeType.TABLE:

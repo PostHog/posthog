@@ -54,6 +54,23 @@ describe('tracingFiltersLogic', () => {
         })
     })
 
+    describe('utcDateRange', () => {
+        it('passes absolute bounds through as ISO strings', () => {
+            logic.actions.setDateRange(ABSOLUTE_RANGE)
+            expect(logic.values.utcDateRange).toEqual({
+                date_from: '2024-01-08T00:00:00.000Z',
+                date_to: '2024-01-08T04:00:00.000Z',
+            })
+        })
+
+        it('resolves an open relative window to the anchored end instead of null', () => {
+            jest.useFakeTimers().setSystemTime(Date.parse('2024-01-08T12:00:00Z'))
+            logic.actions.setDateRange({ date_from: '-1h', date_to: null })
+            expect(logic.values.utcDateRange.date_to).toBe('2024-01-08T12:00:00.000Z')
+            jest.useRealTimers()
+        })
+    })
+
     describe('comparison windows', () => {
         beforeEach(() => {
             logic.actions.setDateRange(ABSOLUTE_RANGE)

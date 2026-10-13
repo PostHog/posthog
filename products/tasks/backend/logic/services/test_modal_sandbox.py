@@ -1,8 +1,13 @@
+import re
 import shutil
 from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.conf import settings
+
+from modal.exception import TimeoutError as ModalTimeoutError
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -13,6 +18,7 @@ from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
+    LOCAL_MODAL_DOCKERFILES,
     LOCAL_MODAL_HOGLI_SHIM_SCRIPT,
     LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
     LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
@@ -23,6 +29,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _prepare_local_modal_build_context,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    FULL_HISTORY_ORIGIN_PRODUCTS,
     SELF_DRIVING_ORIGIN_PRODUCTS,
     ExecutionResult,
     SandboxConfig,
@@ -30,6 +37,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     SandboxWorkload,
     get_sandbox_class_for_backend,
+    needs_full_history,
     workload_for_origin_product,
 )
 from products.tasks.backend.models import Task
@@ -218,6 +226,7 @@ class TestModalSandboxDirectorySnapshotMount:
         snapshot_image = MagicMock()
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         fake_sandbox = patched_modal.return_value
+        # The post-mount probe runs a command in the mounted sandbox; let it pass.
         fake_sandbox.exec.return_value.poll.return_value = 0
 
         sandbox = ModalSandbox.create(
@@ -243,7 +252,7 @@ class TestModalSandboxDirectorySnapshotMount:
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         wedged = MagicMock()
         wedged.object_id = "sb-wedged"
-        wedged.exec.return_value.poll.return_value = 137
+        wedged.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
         fresh = MagicMock()
         fresh.object_id = "sb-fresh"
         patched_modal.side_effect = [wedged, fresh]
@@ -356,6 +365,27 @@ class TestSelfDrivingWorkloadMapping:
         assert SELF_DRIVING_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
 
 
+class TestFullHistoryOriginProducts:
+    @pytest.mark.parametrize(
+        "origin_product, expected",
+        [
+            (Task.OriginProduct.SIGNAL_REPORT, True),
+            (Task.OriginProduct.SIGNALS_SCOUT, True),
+            (Task.OriginProduct.REVIEW_HOG, False),
+            (Task.OriginProduct.ERROR_TRACKING, False),
+            (Task.OriginProduct.USER_CREATED, False),
+            (None, False),
+        ],
+    )
+    def test_needs_full_history(self, origin_product, expected):
+        value = origin_product.value if origin_product is not None else None
+
+        assert needs_full_history(value) is expected
+
+    def test_every_full_history_origin_is_a_real_origin_product(self):
+        assert FULL_HISTORY_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
+
+
 class TestLocalModalBuildContext:
     def test_base_context_carries_the_sources_its_dockerfile_copies(self):
         # The base Dockerfile's first stage COPYs and builds the agent-shadow observer, and it
@@ -375,6 +405,15 @@ class TestLocalModalBuildContext:
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()
+
+    @pytest.mark.parametrize("dockerfile", sorted(LOCAL_MODAL_DOCKERFILES.values()), ids=lambda path: path.name)
+    def test_dockerfile_has_no_empty_unquoted_arg_default(self, dockerfile: Path):
+        lines = (Path(settings.BASE_DIR) / dockerfile).read_text().splitlines()
+        bare = [line for line in lines if re.fullmatch(r"ARG\s+\w+=\s*", line)]
+        assert bare == [], (
+            f"{dockerfile} declares an ARG with an empty unquoted default. Modal's Dockerfile parser rejects it "
+            'in DEBUG builds, although BuildKit accepts it. Write ARG NAME="" instead.'
+        )
 
     def test_notebook_context_carries_the_baked_kernel_package(self):
         # DEBUG builds the notebook image from this trimmed context, not the repo root, so a

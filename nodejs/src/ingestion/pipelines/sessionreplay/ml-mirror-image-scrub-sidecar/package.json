@@ -12,6 +12,7 @@
         "format": "oxfmt -c .oxfmtrc.json",
         "format:check": "oxfmt -c .oxfmtrc.json --check",
         "setup": "tsx dev/setup.ts",
+        "build:native": "tsx dev/build-native.ts",
         "corpus": "tsx dev/make-corpus.ts",
         "bench": "tsx dev/bench.ts",
         "scale": "tsx dev/scale.ts",

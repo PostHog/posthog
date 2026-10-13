@@ -1,15 +1,13 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -59,7 +57,7 @@ class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.KLAVIYO,
+            name=ExternalDataSourceType.KLAVIYO,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Klaviyo",
             releaseStatus=ReleaseStatus.GA,
@@ -192,10 +190,7 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_klaviyo_credentials(config.api_key, self.resolve_api_version(api_version)):
-            return True, None
-
-        return False, "Invalid Klaviyo API key"
+        return validate_klaviyo_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KlaviyoResumeConfig]:
         return ResumableSourceManager[KlaviyoResumeConfig](inputs, KlaviyoResumeConfig)

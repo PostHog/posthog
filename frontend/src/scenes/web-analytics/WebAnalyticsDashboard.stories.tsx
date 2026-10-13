@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta } from '@storybook/react'
-import { useActions } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -80,6 +83,84 @@ export function WebAnalyticsDashboard(): JSX.Element {
         // Set the device tab to browsers
         setDeviceTab(DeviceTab.BROWSER)
     }, [setDeviceTab, setSourceTab])
+
+    return <App />
+}
+
+WebAnalyticsDashboardTileHeaderV2Medium.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewport: { width: 900, height: 2000 },
+    },
+}
+export function WebAnalyticsDashboardTileHeaderV2Medium(): JSX.Element {
+    return <WebAnalyticsDashboard />
+}
+
+WebAnalyticsDashboardTileHeaderV2Wide.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewport: { width: 1600, height: 2000 },
+    },
+}
+export function WebAnalyticsDashboardTileHeaderV2Wide(): JSX.Element {
+    return <WebAnalyticsDashboard />
+}
+
+const NARROW_FEATURE_FLAGS = {
+    [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+    [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
+    [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
+}
+
+WebAnalyticsDashboardNarrow.parameters = {
+    featureFlags: NARROW_FEATURE_FLAGS,
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewport: { width: 400, height: 2400 },
+    },
+}
+export function WebAnalyticsDashboardNarrow(): JSX.Element {
+    return <WebAnalyticsDashboard />
+}
+
+WebAnalyticsEmptyOnboardingNarrow.parameters = {
+    featureFlags: { ...NARROW_FEATURE_FLAGS, [FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]: true },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForSelector: '[data-attr=web-analytics-onboarding]',
+        viewport: { width: 400, height: 900 },
+    },
+}
+WebAnalyticsEmptyOnboardingNarrow.decorators = [
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, ingested_event: false },
+        },
+        patch: {
+            '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, ingested_event: false },
+        },
+    }),
+]
+export function WebAnalyticsEmptyOnboardingNarrow(): JSX.Element {
+    useMountedLogic(teamLogic)
+    useEffect(() => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
+    }, [])
 
     return <App />
 }

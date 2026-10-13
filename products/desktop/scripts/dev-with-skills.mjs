@@ -45,7 +45,7 @@ async function buildSkills(signal) {
   console.log("[skills] Building skills from this checkout...");
   await run(
     "uv",
-    ["run", "python", "products/posthog_ai/scripts/build_skills.py"],
+    ["run", "python", "-m", "products.posthog_ai.scripts.build_skills"],
     {
       cwd: REPOSITORY_DIR,
       signal,

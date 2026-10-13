@@ -13,7 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
-from ..facade.api import MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
+from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
@@ -50,6 +50,19 @@ class MetricRunResponseSerializer(serializers.Serializer):
     )
     compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
     query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
+    has_more = serializers.BooleanField(
+        help_text="True when the query hit its row limit and more rows exist. Narrow the window or the "
+        "interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those "
+        "overrides, so report the window the definition itself covers, or ask for a parameterized metric. "
+        "Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row "
+        "cap was reported for that run."
+    )
+    row_limit = serializers.IntegerField(
+        allow_null=True,
+        help_text="Row limit applied to this run. Null when no row cap was reported: a markdown metric, an "
+        "insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field "
+        "cannot verify the completeness of those runs.",
+    )
     posthog_url = serializers.CharField(
         allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
     )
@@ -170,10 +183,12 @@ class MetricSerializer(serializers.ModelSerializer):
             },
             "display_name": {"help_text": "Human-friendly label. Mutable, unlike name."},
             "description": {
-                "help_text": "What the metric means and what it serves, in 1-3 short sentences: the business "
-                "meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the "
-                "query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+                "help_text": "What the number is, in 1-2 short sentences under 300 characters: its meaning and "
+                "grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, "
+                "column lists, and comparisons with other metrics. Never narrate the query - the definition carries "
+                "the mechanics; put rationale for query choices in 'reasoning'.",
                 "max_length": MAX_DESCRIPTION_LENGTH,
+                "error_messages": {"max_length": DESCRIPTION_TOO_LONG_MESSAGE},
             },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},

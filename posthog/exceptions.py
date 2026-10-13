@@ -1,3 +1,4 @@
+import random
 from typing import Any, Optional, Protocol, TypedDict
 
 from django.http.request import HttpRequest
@@ -83,10 +84,25 @@ class DatabaseSchemaUnavailable(APIException):
 
 
 class ClickHouseAtCapacity(APIException):
+    wait: int
     status_code = 503
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
+
+    def __init__(self, detail: Optional[str] = None, code: Optional[str] = None) -> None:
+        super().__init__(detail=detail, code=code)
+        # Spread retries across requests while keeping a minimum recovery window.
+        self.wait = random.randint(5, 20)
+
+
+class QueryRanConcurrently(APIException):
+    """Raised by a query single flight follower whose leader left nothing to serve or rebuild: the
+    leader failed in a way that cannot be shared, died, or held its lock past the limit."""
+
+    status_code = 503
+    default_code = "query_ran_concurrently"
+    default_detail = "This query was already running and its result couldn't be reused. Try again in a moment."
 
 
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
@@ -149,6 +165,13 @@ def as_drf_validation_error(error: FieldedValidationError) -> ValidationError:
     if error.field:
         return ValidationError({error.field: [error.message]})
     return ValidationError(error.message)
+
+
+def first_error_message(detail: Any) -> str:
+    """The first message in a DRF error detail, which nests messages in dicts and lists."""
+    while isinstance(detail, (dict, list)) and detail:
+        detail = next(iter(detail.values())) if isinstance(detail, dict) else detail[0]
+    return str(detail)
 
 
 class ExceptionContext(TypedDict):

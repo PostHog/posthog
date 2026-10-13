@@ -1,9 +1,8 @@
-import * as robotPng from '@posthog/brand/hoggies/png/robot'
+import * as puzzlePng from '@posthog/brand/hoggies/png/puzzle'
 import { IconMCP } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -12,19 +11,17 @@ import { MCP_ANALYTICS_DOCS_URL, MCPListeningIndicator } from '../onboarding/MCP
 import { MCPAnalyticsSetupActions } from './MCPAnalyticsSetupActions'
 import { MCPToolCallPreview } from './MCPToolCallPreview'
 
-const HedgehogRobot = pngHoggie(robotPng)
+const HedgehogPuzzle = pngHoggie(puzzlePng)
 
 export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
     statusLogic: mcpAnalyticsOnboardingLogic,
-    // The whole product is behind this flag; its scene-level preview gate handles the flag-off case.
-    featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     config: {
         productKey: ProductKey.MCP_ANALYTICS,
         productName: 'MCP analytics',
         icon: <IconMCP />,
         accentColor: 'var(--color-product-mcp-analytics-light)',
         accentColorDark: 'var(--color-product-mcp-analytics-dark)',
-        hedgehog: HedgehogRobot,
+        hedgehog: HedgehogPuzzle,
         text: {
             'needs-setup': {
                 headline: 'Know how agents actually use your tools',

@@ -38,9 +38,8 @@ import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
 import { systemTimezone } from "@posthog/ui/primitives/timezone";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
-  canGoBackInHistory,
-  goBackInHistory,
   navigateToLoops,
+  navigateToSpaceLoops,
 } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
@@ -49,7 +48,6 @@ import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Flex, Text } from "@radix-ui/themes";
 import type { ParsedHistoryState } from "@tanstack/history";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
 import { useLoop, useLoopHogFlow } from "../hooks/useLoop";
@@ -59,6 +57,7 @@ import {
   useUpdateLoop,
 } from "../hooks/useLoopMutations";
 import { RECENT_RUNS_LIMIT, useLoopRuns } from "../hooks/useLoopRuns";
+import { useLoopScope } from "../hooks/useLoopScope";
 import { useSyncLoopSkillBundles } from "../hooks/useLoopSkillBundles";
 import {
   buildLoopEnabledToggledProps,
@@ -98,10 +97,10 @@ export function LoopDetailView({
   loopId: string;
   startEditing?: boolean;
 }) {
-  const hasLoopListOrigin = useLocation({
-    select: (location) => location.state.loopListOrigin === true,
-  });
   const { data: loop, isLoading, isError } = useLoop(loopId);
+  const scope = useLoopScope(loop);
+  const spaceChannelId =
+    scope?.kind === "space" && scope.available ? scope.channelId : null;
   const workflowBacked = useLoopsHogFlowsEnabled();
   const { data: hogFlow } = useLoopHogFlow(workflowBacked ? loopId : undefined);
   // A loop-tagged workflow someone reshaped in the workflow editor: the form
@@ -157,7 +156,7 @@ export function LoopDetailView({
       () =>
         spacesLayout && contextTarget ? (
           <LoopSpaceBreadcrumb
-            folderId={contextTarget.folder_id}
+            folderId={contextTarget.channel_id}
             spaceName={contextTarget.name}
             leafLabel={loopName}
           />
@@ -252,7 +251,7 @@ export function LoopDetailView({
           consecutive_failures: loop.consecutive_failures,
         });
         toast.success("Loop deleted");
-        navigateToLoops();
+        leavePage();
       },
       onError: (error) =>
         toast.error("Failed to delete loop", { description: error.message }),
@@ -271,13 +270,13 @@ export function LoopDetailView({
     setEditDirty(false);
   }, [readOnly]);
 
-  const leavePage = useCallback(() => {
-    if (hasLoopListOrigin && canGoBackInHistory()) {
-      goBackInHistory();
-      return;
-    }
-    navigateToLoops();
-  }, [hasLoopListOrigin]);
+  const leavePage = useCallback(
+    (options?: { ignoreBlocker?: boolean }) => {
+      if (spaceChannelId) navigateToSpaceLoops(spaceChannelId, options);
+      else navigateToLoops(options);
+    },
+    [spaceChannelId],
+  );
 
   const requestLeaveEdit = (action: "back" | "summary") => {
     if (isEditing && editDirty) {
@@ -335,11 +334,7 @@ export function LoopDetailView({
     setEditDirty(false);
     setIsEditing(false);
     if (action === "back") {
-      if (hasLoopListOrigin && canGoBackInHistory()) {
-        getRouterOrNull()?.history.back({ ignoreBlocker: true });
-        return;
-      }
-      navigateToLoops({ ignoreBlocker: true });
+      leavePage({ ignoreBlocker: true });
     } else if (action === "navigation") {
       continueBlockedNavigation();
     }
@@ -416,7 +411,9 @@ export function LoopDetailView({
             className="w-fit px-0"
           >
             <ArrowLeftIcon size={15} />
-            Back
+            {scope?.kind === "space" && scope.available
+              ? `Loops in ${scope.label}`
+              : "Loops"}
           </Button>
 
           <Flex align="center" justify="between" gap="3" wrap="wrap">

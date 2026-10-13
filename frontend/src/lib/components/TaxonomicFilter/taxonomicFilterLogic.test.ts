@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -17,11 +17,13 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -45,6 +47,15 @@ describe('taxonomicFilterLogic', () => {
         actionRequestCount = 0
         useMocks({
             get: {
+                '/api/environments/:team/dashboards/': () => [
+                    200,
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [{ id: 1, name: 'Workflows', pinned: false }],
+                    },
+                ],
                 '/api/projects/:team/actions/': () => {
                     actionRequestCount++
                     return [200, { results: [], count: 0 }]
@@ -128,6 +139,44 @@ describe('taxonomicFilterLogic', () => {
         expect(actionRequestCount).toBe(actionRequestsBeforeMount)
 
         noActionsLogic.unmount()
+    })
+
+    it.each([
+        {
+            name: 'mounts dashboardsModel so the Dashboards group can read its items',
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Dashboards],
+            expectsDashboardsModel: true,
+        },
+        {
+            name: 'leaves dashboardsModel unmounted for a filter without the Dashboards group',
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            expectsDashboardsModel: false,
+        },
+    ])('$name', async ({ groupTypes, expectsDashboardsModel }) => {
+        const logicProps: TaxonomicFilterLogicProps = {
+            taxonomicFilterLogicKey: 'dashboardsGroupGate',
+            taxonomicGroupTypes: groupTypes,
+            initialSearchQuery: 'workflows',
+        }
+        const gatedLogic = taxonomicFilterLogic(logicProps)
+        gatedLogic.mount()
+
+        expect(dashboardsModel.isMounted()).toBe(expectsDashboardsModel)
+
+        if (expectsDashboardsModel) {
+            const dashboardsList = infiniteListLogic({
+                ...logicProps,
+                listGroupType: TaxonomicFilterGroupType.Dashboards,
+            })
+            dashboardsList.mount()
+
+            await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+            expect(dashboardsList.values.localItems.results).toEqual([expect.objectContaining({ name: 'Workflows' })])
+
+            dashboardsList.unmount()
+        }
+
+        gatedLogic.unmount()
     })
 
     it('keeps infiniteListCounts in sync', async () => {
@@ -956,14 +1005,11 @@ describe('taxonomicFilterLogic', () => {
     describe('events whose data is moving out of the events table', () => {
         const HIDDEN_EVENT = '$feature_flag_called'
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
-        const eventsGroupExclusions = (props: Record<string, any>): (string | null)[] => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
-            })
+        const eventsGroupExclusions = (
+            props: Record<string, any>,
+            mode: FlagEvaluationsModeEnumApi = FlagEvaluationsModeEnumApi.Number1
+        ): (string | null)[] => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
             const testLogic = taxonomicFilterLogic({
                 taxonomicFilterLogicKey: `hidden-events-${JSON.stringify(props)}`,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
@@ -983,8 +1029,11 @@ describe('taxonomicFilterLogic', () => {
             expect(eventsGroupExclusions({})).toContain(HIDDEN_EVENT)
         })
 
-        it('offers them to a picker that opts out', () => {
-            expect(eventsGroupExclusions({ includeHiddenEvents: true })).not.toContain(HIDDEN_EVENT)
+        it.each([
+            ['a team on the Events mode', {}, FlagEvaluationsModeEnumApi.Number0],
+            ['a picker that opts out', { includeHiddenEvents: true }, FlagEvaluationsModeEnumApi.Number1],
+        ])('offers them to %s', (_label, props, mode) => {
+            expect(eventsGroupExclusions(props, mode)).not.toContain(HIDDEN_EVENT)
         })
 
         // Cohorts exclude "All events" and transformations exclude $exception; adding ours must not
@@ -1044,6 +1093,45 @@ describe('taxonomicFilterLogic', () => {
             } else {
                 expect(testLogic.values.activeTab).not.toBe(TaxonomicFilterGroupType.SuggestedFilters)
             }
+
+            testLogic.unmount()
+        })
+    })
+
+    describe('searchPlaceholder', () => {
+        it.each([
+            { groupTypes: [TaxonomicFilterGroupType.Events], expected: 'events' },
+            {
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                expected: 'events or actions',
+            },
+            {
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Cohorts,
+                ],
+                expected: 'events, actions or cohorts',
+            },
+            {
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Cohorts,
+                ],
+                expected: 'event properties, person properties, and more',
+            },
+        ])('names $expected without meta groups', ({ groupTypes, expected }) => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `testPlaceholder-${groupTypes.join('-')}`,
+                taxonomicGroupTypes: groupTypes,
+            })
+            testLogic.mount()
+
+            expect(testLogic.values.searchPlaceholder).toBe(expected)
 
             testLogic.unmount()
         })

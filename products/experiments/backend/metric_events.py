@@ -25,6 +25,7 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentExposureNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
@@ -44,8 +45,8 @@ from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
+from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.temporal.metric_resolution import ExperimentMetric, build_metric, iter_metric_dicts
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ class MetricScanResult:
     dropped_metric_uuids: set[str]
 
 
-def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
+def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
     return node.model_dump_json(exclude_none=True)
@@ -180,7 +181,7 @@ def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
 
 def _metric_sources(
     metric: ExperimentMetric,
-) -> list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode]]:
+) -> list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode]]:
     if isinstance(metric, ExperimentMeanMetric):
         return [(MetricSourceRole.SOURCE, metric.source)]
     if isinstance(metric, ExperimentFunnelMetric):
@@ -196,7 +197,7 @@ def _metric_sources(
     # the start's: a duplicate chip implying a return the scan can't distinguish from the entry. A
     # distinct completion event (or the same event narrowed by different properties) is a separate
     # signal worth showing, whichever window it opens in.
-    sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode]] = [
+    sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode]] = [
         (MetricSourceRole.RETENTION_START, metric.start_event)
     ]
     if node_signature(metric.completion_event) != node_signature(metric.start_event):
@@ -204,7 +205,7 @@ def _metric_sources(
     return sources
 
 
-def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str | None:
+def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode) -> str | None:
     """Display name for one metric source node, mirroring the frontend `getDefaultName`."""
     if isinstance(node, EventsNode):
         return node.name or node.event
@@ -212,6 +213,8 @@ def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str |
         return node.name or f"Action {node.id}"
     if isinstance(node, ExperimentDataWarehouseNode):
         return node.table_name
+    if isinstance(node, ExperimentExposureNode):
+        return "Exposure"
 
 
 def _default_metric_title(metric: ExperimentMetric) -> str:
@@ -239,7 +242,7 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
     never fail the whole surface.
     """
     metric_sources: list[MetricEventSource] = []
-    for metric_dict in iter_metric_dicts(experiment):
+    for metric_dict in scheduled_metric_definitions(experiment).values():
         try:
             metric = build_metric(metric_dict)
         except (KeyError, pydantic.ValidationError):

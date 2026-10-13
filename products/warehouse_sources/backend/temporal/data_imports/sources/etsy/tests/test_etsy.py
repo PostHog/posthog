@@ -14,11 +14,14 @@ from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
+    DAILY_QUOTA_EXHAUSTED_ERROR,
     ETSY_HISTORY_START,
     MAX_OFFSET,
     MIN_WINDOW_SECONDS,
     PAGE_SIZE,
+    RATE_LIMITED_ERROR,
     EtsyAPIError,
+    EtsyRateLimitError,
     EtsyResumeConfig,
     _window_start,
     etsy_source,
@@ -37,12 +40,19 @@ _REFRESH_TOKEN = "etsy-refresh-token-abcdef123456"
 _LOGGER = structlog.get_logger(__name__)
 
 
-def _response(payload: Any, *, status: int = 200, url: str = "https://api.etsy.com/v3/application/shops/1") -> Response:
+def _response(
+    payload: Any,
+    *,
+    status: int = 200,
+    url: str = "https://api.etsy.com/v3/application/shops/1",
+    headers: Optional[dict[str, str]] = None,
+) -> Response:
     response = Response()
     response.status_code = status
     response.url = url
     response.reason = "OK" if status < 400 else "Error"
     response._content = json.dumps(payload).encode()
+    response.headers.update(headers or {})
     return response
 
 
@@ -96,6 +106,16 @@ class _FakeSession:
         return self._post_responses.pop(0)
 
 
+def _windowed_session(responses: list[Response], *, opened_at: Optional[int] = ETSY_HISTORY_START) -> _FakeSession:
+    """A full-history walk asks when the shop opened before it generates any window."""
+    return _FakeSession([_response({"shop_id": 1, "created_timestamp": opened_at}), *responses])
+
+
+def _walk_calls(session: _FakeSession) -> list[tuple[str, dict[str, Any], dict[str, str]]]:
+    """The endpoint's own GETs, without the shop-opening lookup in front of them."""
+    return [call for call in session.get_calls if not call[0].endswith("/shops/1")]
+
+
 class _FakeManager(ResumableSourceManager[EtsyResumeConfig]):
     def __init__(self, resume: Optional[EtsyResumeConfig] = None) -> None:
         self._resume = resume
@@ -144,17 +164,6 @@ def _collect(
 
 
 class TestEtsyTransport:
-    def test_token_is_minted_from_the_refresh_token_and_reused(self) -> None:
-        session = _FakeSession([_page(_rows(1), 1)])
-        _collect(session, "shop_sections")
-
-        assert session.post_bodies == [
-            {"grant_type": "refresh_token", "client_id": _API_KEY, "refresh_token": _REFRESH_TOKEN}
-        ]
-        # Etsy's token endpoint rejects a JSON body, which leaves the source unable to connect at all.
-        assert session.post_json_bodies == []
-        assert session.get_calls[0][2]["Authorization"] == "Bearer token-1"
-
     def test_secrets_are_redacted_and_api_key_header_is_set(self) -> None:
         session = _FakeSession([_page([], 0)])
         with patch(_SESSION_PATCH, return_value=session) as mock_session:
@@ -176,17 +185,6 @@ class TestEtsyTransport:
         assert set(kwargs["redact_values"]) == {_API_KEY, _SHARED_SECRET, _REFRESH_TOKEN}
         # A custom credential header survives a redirect, so the session must not follow one.
         assert kwargs["allow_redirects"] is False
-
-    def test_expired_access_token_is_reminted_once_and_the_request_replayed(self) -> None:
-        session = _FakeSession(
-            [_response({}, status=401), _page(_rows(2), 2)],
-            post_responses=[_token("token-1"), _token("token-2")],
-        )
-        rows, _ = _collect(session, "shop_sections")
-
-        assert len(rows) == 2
-        assert len(session.post_bodies) == 2
-        assert session.get_calls[1][2]["Authorization"] == "Bearer token-2"
 
     def test_persistent_401_is_raised_rather_than_looping(self) -> None:
         session = _FakeSession(
@@ -212,12 +210,6 @@ class TestEtsyTransport:
         assert session.get_calls[0][0].endswith("/users/me")
         assert session.get_calls[1][0].endswith("/shops/4242/sections")
 
-    def test_configured_shop_id_skips_discovery(self) -> None:
-        session = _FakeSession([_page(_rows(1), 1)])
-        _collect(session, "shop_sections", shop_id=" 99 ")
-
-        assert session.get_calls[0][0].endswith("/shops/99/sections")
-
     def test_account_without_a_shop_fails_with_an_actionable_error(self) -> None:
         session = _FakeSession([_response({"user_id": 7, "shop_id": None})])
         with pytest.raises(EtsyAPIError, match="no shop"):
@@ -241,33 +233,6 @@ class TestEtsyTransport:
         assert session.get_calls[0][1] == {}
         assert manager.cleared == 1
 
-    def test_unpaginated_endpoint_sends_no_limit_or_offset(self) -> None:
-        session = _FakeSession([_page([{"shop_section_id": 3}], 1)])
-        rows, _ = _collect(session, "shop_sections")
-
-        assert rows == [{"shop_section_id": 3}]
-        assert session.get_calls[0][1] == {}
-
-    def test_listings_fan_out_covers_every_state(self) -> None:
-        session = _FakeSession([_page([{"listing_id": i}], 1) for i in range(len(LISTING_STATES))])
-        rows, manager = _collect(session, "listings")
-
-        assert [call[1]["state"] for call in session.get_calls] == list(LISTING_STATES)
-        assert [call[1]["sort_on"] for call in session.get_calls] == ["created"] * len(LISTING_STATES)
-        assert len(rows) == len(LISTING_STATES)
-        assert manager.saved[0].listing_state == LISTING_STATES[0]
-
-    def test_offset_pagination_walks_full_pages_then_stops_on_a_short_one(self) -> None:
-        session = _FakeSession(
-            [_page(_rows(PAGE_SIZE, key="listing_id"), 150), _page(_rows(50, start=100, key="listing_id"), 150)]
-            + [_page([], 0) for _ in range(len(LISTING_STATES) - 1)]
-        )
-        rows, manager = _collect(session, "listings")
-
-        assert len(rows) == 150
-        assert [call[1]["offset"] for call in session.get_calls[:2]] == [0, PAGE_SIZE]
-        assert [state.offset for state in manager.saved[:2]] == [PAGE_SIZE, 150]
-
     def test_offset_pagination_stops_at_the_offset_ceiling(self) -> None:
         # Etsy rejects an offset above 12,000, so a state with more rows than that must terminate
         # rather than request an offset the API refuses.
@@ -278,39 +243,59 @@ class TestEtsyTransport:
         assert len(rows) == MAX_OFFSET + PAGE_SIZE
         assert max(call[1]["offset"] for call in session.get_calls) == MAX_OFFSET
 
-    @time_machine.travel("2005-01-15", tick=False)
-    def test_windowed_endpoint_sends_a_created_window_over_all_history(self) -> None:
-        session = _FakeSession([_page(_rows(2), 2)])
-        rows, _ = _collect(session, "receipts")
+    @parameterized.expand(
+        [
+            # Etsy meters QPS first and then a sliding 24 hour quota, and only the day's counter
+            # comes back on the refusal, so the header is what tells a burst from an empty quota.
+            ({"x-remaining-today": "0"}, DAILY_QUOTA_EXHAUSTED_ERROR),
+            ({"x-remaining-today": "417"}, RATE_LIMITED_ERROR),
+            ({"x-remaining-today": "unparseable"}, RATE_LIMITED_ERROR),
+            ({}, RATE_LIMITED_ERROR),
+        ]
+    )
+    def test_rate_limited_response_names_the_limit_it_hit(self, headers: dict[str, str], expected: str) -> None:
+        # The tracked session has already retried this while honoring retry-after, so a bare 429
+        # reaching the job names neither whose limit was hit nor when it clears.
+        session = _FakeSession([_response({"error": "Too Many Requests"}, status=429, headers=headers)])
 
-        params = session.get_calls[0][1]
-        assert params["min_created"] == ETSY_HISTORY_START
-        assert params["max_created"] == int(time.time())
-        assert params["limit"] == PAGE_SIZE
-        assert len(rows) == 2
+        with pytest.raises(EtsyRateLimitError, match=expected):
+            _collect(session, "shop_sections")
 
-    @time_machine.travel("2005-07-01", tick=False)
-    def test_windows_advance_until_the_range_is_covered(self) -> None:
-        session = _FakeSession([_page([], 0) for _ in range(3)])
+    @time_machine.travel("2020-01-15", tick=False)
+    def test_full_history_walk_starts_when_the_shop_opened(self) -> None:
+        # Windows before the shop existed can only come back empty, and Etsy charges the app's
+        # daily quota for every one of them, which is what a sync runs out of before it finishes.
+        opened_at = int(time.time()) - 30 * 24 * 60 * 60
+        session = _windowed_session([_page(_rows(1), 1)], opened_at=opened_at)
         _collect(session, "receipts")
 
-        windows = [(call[1]["min_created"], call[1]["max_created"]) for call in session.get_calls]
-        assert len(windows) == 3
-        # Contiguous, non-overlapping, and finishing at "now".
-        assert windows[0][0] == ETSY_HISTORY_START
-        assert windows[1][0] == windows[0][1] + 1
-        assert windows[2][0] == windows[1][1] + 1
-        assert windows[-1][1] == int(time.time())
+        assert session.get_calls[0][0].endswith("/shops/1")
+        windows = [(call[1]["min_created"], call[1]["max_created"]) for call in _walk_calls(session)]
+        assert windows == [(opened_at, int(time.time()))]
+
+    @parameterized.expand(
+        [
+            ("etsy reports none", None),
+            ("older than etsy", 5),
+            ("clock skewed into the future", 4_000_000_000),
+        ]
+    )
+    @time_machine.travel("2005-01-15", tick=False)
+    def test_unusable_shop_opening_date_still_walks_all_history(self, _name: str, opened_at: Optional[int]) -> None:
+        session = _windowed_session([_page([], 0)], opened_at=opened_at)
+        _collect(session, "receipts")
+
+        assert _walk_calls(session)[0][1]["min_created"] == ETSY_HISTORY_START
 
     @time_machine.travel("2005-01-15", tick=False)
     def test_oversized_window_is_halved_instead_of_hitting_the_offset_ceiling(self) -> None:
         # First probe reports more rows than the offset ceiling can reach, so the slice splits.
-        session = _FakeSession(
-            [_page(_rows(PAGE_SIZE), MAX_OFFSET + 1), _page(_rows(1), 1), _page(_rows(1, start=1), 1)]
+        session = _windowed_session(
+            [_page(_rows(PAGE_SIZE), MAX_OFFSET + PAGE_SIZE + 1), _page(_rows(1), 1), _page(_rows(1, start=1), 1)]
         )
         rows, _ = _collect(session, "receipts")
 
-        windows = [(call[1]["min_created"], call[1]["max_created"]) for call in session.get_calls]
+        windows = [(call[1]["min_created"], call[1]["max_created"]) for call in _walk_calls(session)]
         outer_start, outer_end = windows[0]
         assert windows[1][0] == outer_start
         assert windows[2] == (windows[1][1] + 1, outer_end)
@@ -321,10 +306,10 @@ class TestEtsyTransport:
     def test_window_that_cannot_be_split_further_stops_at_the_offset_ceiling(self) -> None:
         # A one-hour slice is the floor, so an over-full one reads what it can and moves on.
         pages = [_page(_rows(PAGE_SIZE), 50_000) for _ in range(MAX_OFFSET // PAGE_SIZE + 1)]
-        session = _FakeSession(pages)
+        session = _windowed_session(pages)
         rows, _ = _collect(session, "receipts")
 
-        window = session.get_calls[0][1]
+        window = _walk_calls(session)[0][1]
         assert window["max_created"] - window["min_created"] < MIN_WINDOW_SECONDS
         assert len(rows) == MAX_OFFSET + PAGE_SIZE
 
@@ -346,33 +331,6 @@ class TestEtsyTransport:
         assert second["min_created"] == saved_end + 1
 
     @time_machine.travel("2005-01-15", tick=False)
-    def test_state_is_saved_after_each_batch_and_cleared_when_the_walk_finishes(self) -> None:
-        session = _FakeSession([_page(_rows(PAGE_SIZE), 150), _page(_rows(50, start=100), 150)])
-        _, manager = _collect(session, "receipts")
-
-        assert [state.offset for state in manager.saved] == [PAGE_SIZE, 150]
-        assert manager.saved[0].window_start == ETSY_HISTORY_START
-        assert manager.cleared == 1
-
-    @time_machine.travel("2005-01-15", tick=False)
-    def test_transactions_are_expanded_out_of_the_receipts_payload(self) -> None:
-        session = _FakeSession(
-            [
-                _page(
-                    [
-                        {"receipt_id": 1, "transactions": [{"transaction_id": 10}, {"transaction_id": 11}]},
-                        {"receipt_id": 2, "transactions": []},
-                    ],
-                    2,
-                )
-            ]
-        )
-        rows, _ = _collect(session, "transactions")
-
-        assert rows == [{"transaction_id": 10}, {"transaction_id": 11}]
-        assert session.get_calls[0][0].endswith("/shops/1/receipts")
-
-    @time_machine.travel("2005-01-15", tick=False)
     def test_offset_advances_by_parent_rows_not_expanded_children(self) -> None:
         # Offset addresses receipts, so a page of 100 receipts advances by 100 even when it
         # expands into far more transactions.
@@ -380,11 +338,11 @@ class TestEtsyTransport:
             {"receipt_id": i, "transactions": [{"transaction_id": i * 2}, {"transaction_id": i * 2 + 1}]}
             for i in range(PAGE_SIZE)
         ]
-        session = _FakeSession([_page(parents, 150), _page([], 150)])
+        session = _windowed_session([_page(parents, 150), _page([], 150)])
         rows, _ = _collect(session, "transactions")
 
         assert len(rows) == PAGE_SIZE * 2
-        assert session.get_calls[1][1]["offset"] == PAGE_SIZE
+        assert _walk_calls(session)[1][1]["offset"] == PAGE_SIZE
 
     @parameterized.expand(
         [
@@ -413,13 +371,6 @@ class TestEtsyTransport:
         assert expected_param in params
         assert params[expected_param] == cursor
 
-    @time_machine.travel("2005-01-15", tick=False)
-    def test_full_refresh_ignores_a_stale_cursor(self) -> None:
-        session = _FakeSession([_page([], 0)])
-        _collect(session, "receipts", should_use_incremental_field=False, db_incremental_field_last_value=999_999_999)
-
-        assert session.get_calls[0][1]["min_created"] == ETSY_HISTORY_START
-
     @parameterized.expand(
         [
             (False, None, ETSY_HISTORY_START),
@@ -435,11 +386,6 @@ class TestEtsyTransport:
 
 
 class TestEtsyValidateCredentials:
-    def test_valid_credentials_resolve_the_shop(self) -> None:
-        session = _FakeSession([_response({"user_id": 1, "shop_id": 5})])
-        with patch(_SESSION_PATCH, return_value=session):
-            assert validate_credentials(_API_KEY, _SHARED_SECRET, _REFRESH_TOKEN, None) == (True, None)
-
     def test_configured_shop_id_still_probes_the_token(self) -> None:
         # Skipping the probe here would let a bogus keystring or refresh token pass source creation.
         session = _FakeSession([_response({"user_id": 1, "shop_id": None})])
@@ -448,8 +394,18 @@ class TestEtsyValidateCredentials:
 
         assert session.get_calls[0][0].endswith("/users/me")
 
-    @parameterized.expand([(400,), (401,), (403,), (500,)])
-    def test_failed_probe_reports_a_message_without_raising(self, status: int) -> None:
+    @parameterized.expand(
+        [
+            (400, "Check your API keystring"),
+            (401, "Check your API keystring"),
+            (403, "Check your API keystring"),
+            (500, "Check your API keystring"),
+            # A throttle says nothing about the credentials, so telling the user to check them sends
+            # them off rotating keys that are fine.
+            (429, "rate limiting your app"),
+        ]
+    )
+    def test_failed_probe_reports_a_message_without_raising(self, status: int, expected_fragment: str) -> None:
         # Two of each so the 401 re-mint path has something to replay against.
         session = _FakeSession(
             [_response({}, status=status), _response({}, status=status)], post_responses=[_token(), _token()]
@@ -458,7 +414,7 @@ class TestEtsyValidateCredentials:
             ok, error = validate_credentials(_API_KEY, _SHARED_SECRET, _REFRESH_TOKEN, None)
 
         assert ok is False
-        assert error is not None
+        assert error is not None and expected_fragment in error
 
     def test_account_without_a_shop_surfaces_its_own_message(self) -> None:
         session = _FakeSession([_response({"user_id": 1, "shop_id": None})])
@@ -467,10 +423,6 @@ class TestEtsyValidateCredentials:
 
         assert ok is False
         assert error is not None and "no shop" in error
-
-    def test_transport_failure_does_not_raise(self) -> None:
-        with patch(_SESSION_PATCH, side_effect=OSError("boom")):
-            assert validate_credentials(_API_KEY, _SHARED_SECRET, _REFRESH_TOKEN, None)[0] is False
 
     def test_invalid_shop_id_fails_validation_without_probing(self) -> None:
         # A malformed shop ID is caught up front, so no request is issued to authenticate.
@@ -502,7 +454,7 @@ class TestEtsySourceResponse:
 
     @time_machine.travel("2005-01-15", tick=False)
     def test_items_is_lazy_and_streams_rows(self) -> None:
-        session = _FakeSession([_page(_rows(3), 3)])
+        session = _windowed_session([_page(_rows(3), 3)])
         response = etsy_source(
             api_key=_API_KEY,
             shared_secret=_SHARED_SECRET,

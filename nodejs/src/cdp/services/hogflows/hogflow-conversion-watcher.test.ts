@@ -17,15 +17,13 @@ describe('buildConversionWatcher', () => {
     const propertyGoal = {
         filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
         bytecode: propertyBytecode,
-        window_minutes: null,
     }
     const eventGoal = {
         filters: [],
         bytecode: [],
-        window_minutes: null,
         events: [{ filters: { events: [{ id: 'signed_up' }], bytecode: eventBytecode } }],
     }
-    const noGoal = { filters: [], bytecode: [], window_minutes: null }
+    const noGoal = { filters: [], bytecode: [] }
 
     const invocationFor = (conversion: any, flowOverrides: Partial<HogFlow> = {}): CyclotronJobInvocationHogFlow => {
         const hogFlow = { id: 'flow-1', team_id: 1, version: 3, conversion, ...flowOverrides } as unknown as HogFlow
@@ -68,24 +66,44 @@ describe('buildConversionWatcher', () => {
         const emptyTarget = {
             filters: [],
             bytecode: [],
-            window_minutes: null,
             events: [{ filters: { bytecode: [1] } }],
         }
 
         expect(buildConversionWatcher(invocationFor(emptyTarget))).toBeNull()
     })
 
-    it.each([
-        ['no configured window', null, DEFAULT_CONVERSION_WINDOW_MINUTES],
-        ['a window longer than the cap', 60 * 24 * 400, MAX_CONVERSION_WINDOW_MINUTES],
-        ['a window inside the cap', 60, 60],
-    ])('expires after %s', (_name, windowMinutes, expectedMinutes) => {
-        // Treating null as "forever" would leave rows the expiry sweep can never reach.
+    it('expires after the default when no window is configured', () => {
+        // Treating an absent window as "forever" would leave rows the expiry sweep can never reach.
         const before = Date.now()
-        const watcher = buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: windowMinutes }))
+        const watcher = buildConversionWatcher(invocationFor(propertyGoal))
 
         // Measured from `before`, so the window is at least the expected value and at most a
         // fraction of a minute more.
+        const minutes = (watcher!.expires_at.getTime() - before) / 60_000
+        expect(minutes).toBeGreaterThanOrEqual(DEFAULT_CONVERSION_WINDOW_MINUTES)
+        expect(minutes).toBeLessThan(DEFAULT_CONVERSION_WINDOW_MINUTES + 1)
+    })
+
+    it('ignores a row still carrying the removed legacy field', () => {
+        // Rows keep window_minutes until the backfill strips it. It must read as no window at all,
+        // not as a window of its own, or those flows would measure something different again.
+        const before = Date.now()
+        const watcher = buildConversionWatcher(
+            invocationFor({ ...propertyGoal, window_minutes: 60 } as unknown as typeof propertyGoal)
+        )
+
+        const minutes = (watcher!.expires_at.getTime() - before) / 60_000
+        expect(minutes).toBeGreaterThanOrEqual(DEFAULT_CONVERSION_WINDOW_MINUTES)
+    })
+
+    it.each([
+        ['a duration string', { window: '7d' }, 7 * 24 * 60],
+        ['hours', { window: '12h' }, 12 * 60],
+        ['a duration string past the cap', { window: '400d' }, MAX_CONVERSION_WINDOW_MINUTES],
+    ])('expires after %s', (_name, conversionWindow, expectedMinutes) => {
+        const before = Date.now()
+        const watcher = buildConversionWatcher(invocationFor({ ...propertyGoal, ...conversionWindow }))
+
         const minutes = (watcher!.expires_at.getTime() - before) / 60_000
         expect(minutes).toBeGreaterThanOrEqual(expectedMinutes)
         expect(minutes).toBeLessThan(expectedMinutes + 1)
@@ -99,11 +117,35 @@ describe('buildConversionWatcher', () => {
 
         const before = await clamped()
 
-        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES + 1 }))
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window: '400d' }))
         expect(await clamped()).toBe(before + 1)
 
-        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES }))
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window: '365d' }))
         expect(await clamped()).toBe(before + 1)
+    })
+
+    it('counts a run whose stored window string could not be parsed, and only then', async () => {
+        // A stored window the worker cannot parse falls back to the default, changing what the run
+        // measures. The counter is the only signal that happened, so it must fire on the fallback path.
+        const invalidCount = async (): Promise<number> =>
+            ((await register.getSingleMetric('cdp_conversion_window_invalid')?.get())?.values[0]?.value as number) ?? 0
+
+        const before = await invalidCount()
+
+        // An unparseable window (e.g. a non-ASCII digit reaching storage past validation) falls back to
+        // the default window and increments the counter.
+        // Read the clock before building, not after: expires_at is stamped inside the call, so a
+        // millisecond spent there makes the measured window fall a hair short of the expected one.
+        const start = Date.now()
+        const fallback = buildConversionWatcher(invocationFor({ ...propertyGoal, window: '٧d' }))
+        const minutes = (fallback!.expires_at.getTime() - start) / 60_000
+        expect(minutes).toBeGreaterThanOrEqual(DEFAULT_CONVERSION_WINDOW_MINUTES)
+        expect(minutes).toBeLessThan(DEFAULT_CONVERSION_WINDOW_MINUTES + 1)
+        expect(await invalidCount()).toBe(before + 1)
+
+        // A parseable window does not touch the counter.
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window: '7d' }))
+        expect(await invalidCount()).toBe(before + 1)
     })
 
     it('does not build a watcher for a run that has already started', () => {

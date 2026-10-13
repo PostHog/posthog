@@ -1,12 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
+    _INVALID_CREDENTIALS_VALIDATION_ERROR,
     PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
@@ -116,6 +116,31 @@ def test_project_url_host_is_rejected_before_connecting(host):
 @pytest.mark.parametrize(
     "host",
     [
+        "postgres.abcdefghijklmnop",
+        "POSTGRES.ABCDEFGHIJKLMNOP",
+        "  postgres.abcdefghijklmnop  ",
+        "postgres://postgres.abcdefghijklmnop",
+    ],
+)
+def test_pooler_username_as_host_is_rejected_before_connecting(host):
+    # The pooler username (`postgres.<project-ref>`) reads like a host name, so it lands in the
+    # host field; it can never resolve, so short-circuit to guidance that names both fields
+    # instead of attempting a doomed connection that yields an opaque DNS error.
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "validate_credentials") as super_validate:
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    super_validate.assert_not_called()
+    assert success is False
+    assert error is not None
+    assert "pooler username" in error
+    assert "pooler.supabase.com" in error
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
         "db.abcdefghijklmnop.supabase.co",
         "aws-0-us-east-1.pooler.supabase.com",
         "db.example.com",
@@ -137,6 +162,10 @@ def test_successful_connection_delegates_to_postgres(host):
     [
         "aws-0-us-east-1.pooler.supabase.com",
         "my-db.internal",
+        # A resolvable host whose first label is `postgres` must not be read as the pooler
+        # username, so the username check only claims a single long trailing label.
+        "postgres.example.com",
+        "postgres.internal",
     ],
 )
 def test_non_direct_host_failure_uses_postgres_error(host):
@@ -147,6 +176,27 @@ def test_non_direct_host_failure_uses_postgres_error(host):
 
     assert success is False
     assert error == "postgres error"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "aws-0-us-east-1.pooler.supabase.com",
+        "db.abcdefghijklmnop.supabase.co",
+    ],
+)
+def test_rejected_password_points_at_the_supabase_database_password(host):
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(
+        PostgresSource, "validate_credentials", return_value=(False, _INVALID_CREDENTIALS_VALIDATION_ERROR)
+    ):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error is not None
+    assert "database password" in error
+    assert "ipv4" not in error.lower()
 
 
 def _incremental_field(name: str, field_type: IncrementalFieldType) -> IncrementalField:

@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -24,12 +25,6 @@ export const manifest: ProductManifest = {
             name: 'Error tracking issue',
             layout: 'app-raw',
         },
-        ErrorTrackingIssueFingerprints: {
-            import: () =>
-                import('./frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
-            projectBased: true,
-            name: 'Error tracking issue fingerprints',
-        },
         ErrorTrackingFingerprint: {
             import: () => import('./frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
             projectBased: true,
@@ -37,14 +32,21 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
-        '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     },
     redirects: {
+        // The fingerprints scene became a modal on the issue page. Keep old links working.
+        '/error_tracking/:id/fingerprints': (params) =>
+            combineUrl(`/error_tracking/${params.id}`, { manageFingerprints: 'true' }).url,
         '/error_tracking/configuration': (_params, searchParams, hashParams) =>
             configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
         '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
@@ -82,7 +84,6 @@ export const manifest: ProductManifest = {
                 utm_medium?: string
             } = {}
         ): string => combineUrl(`/error_tracking/${id}`, params).url,
-        errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
         errorTrackingFingerprint: (
             fingerprint: string,
             params: {
@@ -98,7 +99,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             intents: [ProductKey.ERROR_TRACKING],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             type: 'error_tracking',
             iconType: 'error_tracking' as FileSystemIconType,
             iconColor: [
@@ -106,6 +107,15 @@ export const manifest: ProductManifest = {
                 'var(--color-product-error-tracking-dark)',
             ] as FileSystemIconColor,
             href: urls.errorTracking(),
+            searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
+            searchTabs: [
+                { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
+                {
+                    name: 'Recommendations',
+                    href: urls.errorTracking({ activeTab: 'recommendations' }),
+                    flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
+                },
+            ],
             sceneKey: 'ErrorTracking',
         },
     ],

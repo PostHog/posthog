@@ -846,7 +846,7 @@ describe('Data Warehouse Support', () => {
             )
         })
 
-        it('returns the correct query for funnel metrics with events and actions', () => {
+        it('returns the correct query for funnel metrics with events, actions and data warehouse steps', () => {
             const metric: ExperimentMetric = {
                 kind: NodeKind.ExperimentMetric,
                 metric_type: ExperimentMetricType.FUNNEL,
@@ -855,12 +855,28 @@ describe('Data Warehouse Support', () => {
                         kind: NodeKind.EventsNode,
                         event: 'landing_page_view',
                         name: 'landing_page_view',
+                        properties: [
+                            {
+                                key: 'plan',
+                                value: ['paid'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
                     } as EventsNode,
                     {
                         kind: NodeKind.ActionsNode,
                         id: 123,
                         name: 'signup_action',
                     } as ActionsNode,
+                    {
+                        kind: NodeKind.ExperimentDataWarehouseNode,
+                        table_name: 'stripe_charges',
+                        name: 'Stripe charges',
+                        timestamp_field: 'created_at',
+                        events_join_key: 'distinct_id',
+                        data_warehouse_join_key: 'customer_id',
+                    } as ExperimentDataWarehouseNode,
                 ],
             }
 
@@ -874,11 +890,28 @@ describe('Data Warehouse Support', () => {
                     kind: NodeKind.EventsNode,
                     event: 'landing_page_view',
                     name: 'landing_page_view',
+                    properties: [
+                        {
+                            key: 'plan',
+                            value: ['paid'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
                 },
                 {
                     kind: NodeKind.ActionsNode,
                     id: 123,
                     name: 'signup_action',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'stripe_charges',
+                    name: 'Stripe charges',
+                    table_name: 'stripe_charges',
+                    timestamp_field: 'created_at',
+                    id_field: 'customer_id',
+                    aggregation_target_field: 'distinct_id',
                 },
             ])
         })

@@ -129,6 +129,34 @@ GET_PARENTS_TEST_CASES = [
         """,
         set(),
     ),
+    (
+        "select event from events where person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select event, (select count() from persons) as total from events",
+        {"events", "persons"},
+    ),
+    (
+        "select event, count() as c from events group by event having count() > (select count() from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select event from events order by (select count() from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "with cte as (select id from persons) select event from events where person_id in (select id from cte)",
+        {"events", "persons"},
+    ),
+    (
+        "select event from events prewhere person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
+    (
+        "select a.event from events a join events b on a.person_id in (select id from persons)",
+        {"events", "persons"},
+    ),
 ]
 
 
@@ -544,20 +572,43 @@ class TestBoundedResolver(BaseTest):
 
         assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
 
-    def test_cycle_raises_typed_error_with_initial_view(self):
+    @parameterized.expand(
+        [
+            ("where", "select * from shared where event in (select event from mid)", {"shared", "mid"}),
+            (
+                "nested_in_from_subquery",
+                "select * from (select * from shared where event in (select event from mid))",
+                {"shared", "mid"},
+            ),
+        ],
+    )
+    def test_view_read_from_a_subquery_is_a_parent(self, _name: str, query: str, expected_parents: set[str]):
+        self._make_diamond()
+
+        assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
+
+    @parameterized.expand(
+        [
+            ("bare_names", "a", "b"),
+            ("caller_reaches_back_under_models_root", "models.a", "b"),
+            ("callee_named_under_models_root", "a", "models.b"),
+            ("both_under_models_root", "models.a", "models.b"),
+        ]
+    )
+    def test_cycle_raises_typed_error_with_initial_view(self, _name: str, ref_to_a: str, ref_to_b: str):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="a",
-            query={"query": "select * from b"},
+            query={"query": f"select * from {ref_to_b}"},
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="b",
-            query={"query": "select * from a"},
+            query={"query": f"select * from {ref_to_a}"},
         )
 
         with pytest.raises(ResolutionCycleError) as exc_info:
-            get_parents_from_model_query(self.team, "a", "select * from b")
+            get_parents_from_model_query(self.team, "a", f"select * from {ref_to_b}")
 
         # the inner view where the cycle was detected is `a` (already on the stack), and the caller is also `a`
         assert exc_info.value.view_name == "a"

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -84,7 +82,7 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         # scopes for the tables they intend to sync. Per-schema checks enforce the scope.
         if schema_name is not None and scopes is not None:
             endpoint = LIGHTFIELD_ENDPOINTS.get(schema_name)
-            if endpoint is not None and endpoint.scope not in scopes:
+            if endpoint is not None and endpoint.scope is not None and endpoint.scope not in scopes:
                 return (
                     False,
                     f"Your Lightfield API key is missing the `{endpoint.scope}` scope required to sync {schema_name}.",
@@ -109,7 +107,7 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         permissions: dict[str, str | None] = {}
         for name in endpoints:
             endpoint = LIGHTFIELD_ENDPOINTS.get(name)
-            if endpoint is None or endpoint.scope in granted:
+            if endpoint is None or endpoint.scope is None or endpoint.scope in granted:
                 permissions[name] = None
             else:
                 permissions[name] = f"API key is missing the `{endpoint.scope}` scope"
@@ -127,7 +125,7 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LIGHTFIELD,
+            name=ExternalDataSourceType.LIGHTFIELD,
             category=DataWarehouseSourceCategory.CRM,
             label="Lightfield",
             caption="""Enter your Lightfield API key to pull your Lightfield CRM data into the PostHog Data warehouse.
@@ -143,6 +141,8 @@ You can create an API key in your Lightfield settings (admin access required). G
 - `lists:read` - lists
 - `members:read` - members
 - `emails:read` - emails
+
+Custom objects need no extra scope. The field and relationship definitions tables include each object type the key can read.
 """,
             docsUrl="https://posthog.com/docs/cdp/sources/lightfield",
             iconPath="/static/services/lightfield.png",

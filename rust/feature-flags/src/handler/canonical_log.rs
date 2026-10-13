@@ -112,7 +112,7 @@ where
 
 /// Truncate a string to a maximum number of characters (not bytes).
 /// Handles multibyte UTF-8 characters correctly.
-fn truncate_chars(s: &str, max_chars: usize) -> &str {
+pub(crate) fn truncate_chars(s: &str, max_chars: usize) -> &str {
     match s.char_indices().nth(max_chars) {
         Some((byte_idx, _)) => &s[..byte_idx],
         None => s,
@@ -186,6 +186,8 @@ pub struct FlagsCanonicalLogLine {
     pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
+    /// The response shape served, such as `FlagsV2` or `FlagsV3`.
+    pub response_format: Option<&'static str>,
 
     // Populated during authentication
     pub team_id: Option<i32>,
@@ -250,6 +252,9 @@ pub struct FlagsCanonicalLogLine {
     /// - "empty": query succeeded, no overrides found
     /// - "found": query succeeded, overrides returned
     pub hash_key_override_status: Option<&'static str>,
+    /// The first persons DB call that the persons DB deadline stopped, such as
+    /// "fetch_properties". The flags that needed persons data returned an error.
+    pub persons_db_deadline_exceeded: Option<&'static str>,
 
     /// Which evaluation strategy was used for this request.
     /// Set to `Parallel` if any dependency level triggered parallel evaluation.
@@ -325,6 +330,7 @@ impl Default for FlagsCanonicalLogLine {
             lib: None,
             lib_version: None,
             api_version: None,
+            response_format: None,
             team_id: None,
             distinct_id: None,
             device_id: None,
@@ -350,6 +356,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_errored: 0,
             dependency_graph_errors: 0,
             hash_key_override_status: None,
+            persons_db_deadline_exceeded: None,
             evaluation_type: None,
             rate_limited: false,
             rate_limit_warned: false,
@@ -396,6 +403,7 @@ impl FlagsCanonicalLogLine {
             lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
+            response_format = self.response_format,
             duration_ms = duration_ms,
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
@@ -424,6 +432,7 @@ impl FlagsCanonicalLogLine {
             flags_errored = self.flags_errored,
             dependency_graph_errors = self.dependency_graph_errors,
             hash_key_override_status = self.hash_key_override_status,
+            persons_db_deadline_exceeded = self.persons_db_deadline_exceeded,
             evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
             rate_limit_warned = self.rate_limit_warned,
@@ -669,6 +678,7 @@ mod tests {
         assert!(log.lib.is_none());
         assert!(log.lib_version.is_none());
         assert!(log.api_version.is_none());
+        assert!(log.response_format.is_none());
         assert!(log.team_id.is_none());
         assert!(log.distinct_id.is_none());
         assert!(log.device_id.is_none());
@@ -717,6 +727,7 @@ mod tests {
         log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
+        log.response_format = Some("FlagsV3");
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
         log.device_id = Some("device_123".to_string());

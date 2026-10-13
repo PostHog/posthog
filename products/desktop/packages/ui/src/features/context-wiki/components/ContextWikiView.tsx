@@ -32,6 +32,7 @@ import {
 import { buildWikiTree } from "../wikiTree";
 import { ContextWikiDreamsPane } from "./ContextWikiDreamsPane";
 import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
+import { ContextWikiProposalsPane } from "./ContextWikiProposalsPane";
 
 /**
  * The organization context wiki explorer: a tree of every wiki page on the
@@ -72,6 +73,7 @@ function ContextWikiTabs({ explorer }: { explorer: React.ReactNode }) {
         <TabsList variant="line">
           <TabsTrigger value="pages">Pages</TabsTrigger>
           <TabsTrigger value="dreams">Dreams</TabsTrigger>
+          <TabsTrigger value="proposals">Suggested edits</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="pages" className="min-h-0 flex-1">
@@ -79,6 +81,9 @@ function ContextWikiTabs({ explorer }: { explorer: React.ReactNode }) {
       </TabsContent>
       <TabsContent value="dreams" className="min-h-0 flex-1">
         <ContextWikiDreamsPane />
+      </TabsContent>
+      <TabsContent value="proposals" className="min-h-0 flex-1">
+        <ContextWikiProposalsPane />
       </TabsContent>
     </Tabs>
   );

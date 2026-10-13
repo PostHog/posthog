@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -45,10 +43,10 @@ class PylonSource(ResumableSource[PylonSourceConfig, PylonResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PYLON,
+            name=ExternalDataSourceType.PYLON,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Pylon",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Pylon API token to pull your Pylon support data into the PostHog Data warehouse.
 
 You can create an API token from your Pylon dashboard under **Settings > API tokens** (admin only). US and EU workspaces are detected from the token, so there is no region to pick.""",

@@ -15,7 +15,7 @@ from products.ai_training.backend.facade.api import queue_person_training_deleti
 from products.ai_training.backend.models import AITrainingDeletionRequest
 
 
-@override_settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE="test-table")
+@override_settings(AI_RESEARCH_REPLAY_KEY_TABLE="test-table")
 class TestAITrainingDeletionOutbox(TestCase):
     def test_queue_filters_invalid_session_ids_and_batches_valid_sessions(self) -> None:
         session_id = "01a09f92-e780-7000-8000-000000000001"
@@ -31,7 +31,7 @@ class TestAITrainingDeletionOutbox(TestCase):
     ) -> None:
         person = Person(id=1, uuid=UUID("00000000-0000-0000-0000-000000000007"))
         person._distinct_ids = ["known", "alias"]
-        view = MagicMock(team_id=7)
+        view = MagicMock(team_id=7, organization=MagicMock(id=UUID("00000000-0000-0000-0000-00000000000a")))
         request = MagicMock(user=None)
         temporal = MagicMock()
         temporal.start_workflow = AsyncMock()
@@ -43,9 +43,7 @@ class TestAITrainingDeletionOutbox(TestCase):
                 return_value=MagicMock(results=[[session_id]]),
             ) as lookup,
             patch("posthog.api.person.resolve_persons_for_deletion", return_value=[person]),
-            patch("posthog.models.person.bulk_delete._batched_get_distinct_ids_for_persons", return_value={}),
-            patch("posthog.models.person.bulk_delete.delete_person"),
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres"),
+            patch("posthog.models.person.util.publish_person_tombstone", return_value=[]),
             patch("posthog.models.person.bulk_delete.sync_connect", return_value=temporal),
         ):
             PersonViewSet._bulk_delete_persons(

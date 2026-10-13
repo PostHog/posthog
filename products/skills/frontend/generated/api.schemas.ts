@@ -22,6 +22,43 @@ export const CommunitySkillTrustTierEnumApi = {
 } as const
 
 /**
+ * * `skill` - Skill
+ * * `scout` - Scout
+ */
+export type CommunitySkillKindEnumApi = (typeof CommunitySkillKindEnumApi)[keyof typeof CommunitySkillKindEnumApi]
+
+export const CommunitySkillKindEnumApi = {
+    Skill: 'skill',
+    Scout: 'scout',
+} as const
+
+/**
+ * The scout settings a published scout travels with. Every field is optional. An omitted field
+ * means the scout-create form's own default applies.
+ */
+export interface CommunitySkillScoutConfigApi {
+    /**
+     * How often the scout runs, in minutes. Ignored when run_cron_schedule is set.
+     * @minimum 30
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * Five-field cron expression for the scout's schedule, which takes precedence over the interval.
+     * @maxLength 100
+     */
+    run_cron_schedule?: string
+    /** Whether the scout writes its reports to the inbox. False means it runs as a dry run. */
+    emit?: boolean
+    /**
+     * Tags used to group the scout in the fleet.
+     * @maxItems 10
+     * @items.maxLength 50
+     */
+    tags?: string[]
+}
+
+/**
  * One declared variable of a templated skill — the schema a client renders a form from.
  */
 export interface CommunitySkillTemplateVariableApi {
@@ -67,6 +104,13 @@ export interface CommunitySkillListApi {
      * * `verified` - Verified
      * * `community` - Community */
     trust_tier: CommunitySkillTrustTierEnumApi
+    /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout */
+    kind: CommunitySkillKindEnumApi
+    /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+    scout_config: CommunitySkillScoutConfigApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -135,6 +179,13 @@ export interface CommunitySkillApi {
      * * `verified` - Verified
      * * `community` - Community */
     trust_tier: CommunitySkillTrustTierEnumApi
+    /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout */
+    kind: CommunitySkillKindEnumApi
+    /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+    scout_config: CommunitySkillScoutConfigApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -267,6 +318,18 @@ export interface LLMSkillOutlineEntryApi {
     text: string
 }
 
+export interface LLMSkillSpecProblemApi {
+    /** Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides. */
+    code: string
+    /** What is wrong and what to change, written for the skill's author. */
+    message: string
+    /**
+     * The bundled file the problem is about. Null when it is about the skill itself.
+     * @nullable
+     */
+    file_path: string | null
+}
+
 export interface LLMSkillApi {
     readonly id: string
     /**
@@ -310,6 +373,8 @@ export interface LLMSkillApi {
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -324,6 +389,45 @@ export interface LLMSkillApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+}
+
+/**
+ * Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills.
+ */
+export type CommunitySkillRenderApiVariables = { [key: string]: string }
+
+export interface CommunitySkillRenderApi {
+    /** Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills. */
+    variables?: CommunitySkillRenderApiVariables
+}
+
+/**
+ * The {name: value} map the body was rendered with. Empty for a non-template skill.
+ */
+export type CommunitySkillRenderResponseApiVariableBindings = { [key: string]: string }
+
+/**
+ * A catalog entry with its template variables bound, for prefilling a create form. Nothing is
+ * persisted by rendering — the caller submits the result through the product's own create path.
+ */
+export interface CommunitySkillRenderResponseApi {
+    /** Slug of the rendered community skill. */
+    slug: string
+    /** Whether the rendered entry is a 'skill' or a 'scout'.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout */
+    kind: CommunitySkillKindEnumApi
+    /** Display name of the community skill. */
+    name: string
+    /** What the skill does and when to use it. */
+    description: string
+    /** The SKILL.md instruction content, with template variables bound. */
+    body: string
+    /** Schedule, emit posture and tags to prefill a scout with. Empty object for a skill. */
+    scout_config: CommunitySkillScoutConfigApi
+    /** The {name: value} map the body was rendered with. Empty for a non-template skill. */
+    variable_bindings: CommunitySkillRenderResponseApiVariableBindings
 }
 
 export interface CommunitySkillVoteResponseApi {
@@ -373,6 +477,8 @@ export interface LLMSkillListApi {
     readonly owners: readonly UserBasicApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -424,7 +530,7 @@ export interface LLMSkillFileInputApi {
 export interface LLMSkillCreateApi {
     readonly id: string
     /**
-     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.
      * @maxLength 64
      */
     name: string
@@ -467,6 +573,8 @@ export interface LLMSkillCreateApi {
     files?: LLMSkillFileInputApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -632,7 +740,7 @@ export interface PatchedLLMSkillPublishApi {
 
 export interface LLMSkillDuplicateApi {
     /**
-     * Name for the duplicated skill. Must be unique.
+     * Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.
      * @maxLength 64
      */
     new_name: string
@@ -685,6 +793,20 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
+    /** Immutable ID of the skill version that the publisher reviewed. */
+    expected_skill_id: string
+    /**
+     * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
+     * @minimum 1
+     */
+    expected_version: number
+    /**
+     * Category of the skill the publisher reviewed. Registering a skill as a scout changes its category without raising its version, so the version alone would let a skill reviewed as an ordinary one publish as a scout. The request returns 409 if the category changed. Omit it to skip that check.
+     * @maxLength 64
+     */
+    expected_category?: string
+    /** Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout. */
+    scout_config?: CommunitySkillScoutConfigApi
     /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
@@ -705,12 +827,42 @@ export interface CommunitySkillPublishResultApi {
     branch: string
 }
 
+export interface LLMSkillPublishConflictApi {
+    /** Reason that the reviewed skill version can no longer be published. */
+    detail: string
+}
+
 export interface LLMSkillRenameApi {
     /**
-     * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+     * New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'.
      * @maxLength 64
      */
     new_name: string
+}
+
+export type LLMSkillMarkdownApiFrontmatterMetadata = { [key: string]: string }
+
+/**
+ * The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries.
+ */
+export type LLMSkillMarkdownApiFrontmatter = {
+    name: string
+    description: string
+    license?: string
+    compatibility?: string
+    metadata: LLMSkillMarkdownApiFrontmatterMetadata
+    'allowed-tools'?: string
+}
+
+export interface LLMSkillMarkdownApi {
+    /** Name of the skill, which is also its directory name. */
+    name: string
+    /** Version of the skill that this SKILL.md was rendered from. */
+    version: number
+    /** The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. Serve these bytes as the file; a digest must be taken over this exact string. */
+    content: string
+    /** The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries. */
+    frontmatter: LLMSkillMarkdownApiFrontmatter
 }
 
 export interface LLMSkillVersionSummaryApi {
@@ -771,6 +923,11 @@ export interface LLMSkillSearchResultApi {
     name: string
     /** What this skill does and when to use it. */
     description: string
+    /**
+     * Relevance score used to rank this result. Higher scores are more relevant.
+     * @minimum 1
+     */
+    score: number
     /** Up to two locations that matched the search query, ordered by field relevance. */
     matches: LLMSkillSearchMatchApi[]
 }
@@ -788,6 +945,14 @@ export interface LLMSkillSearchErrorApi {
 }
 
 export type CommunitySkillsListParams = {
+    /**
+     * Filter to skills or to scouts. Omit to return both.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout
+     * @minLength 1
+     */
+    kind?: CommunitySkillsListKind
     /**
      * Number of results to return per page.
      */
@@ -830,6 +995,13 @@ export type CommunitySkillsListParams = {
      */
     trust_tier?: CommunitySkillsListTrustTier
 }
+
+export type CommunitySkillsListKind = (typeof CommunitySkillsListKind)[keyof typeof CommunitySkillsListKind]
+
+export const CommunitySkillsListKind = {
+    Skill: 'skill',
+    Scout: 'scout',
+} as const
 
 export type CommunitySkillsListTrustTier =
     (typeof CommunitySkillsListTrustTier)[keyof typeof CommunitySkillsListTrustTier]
@@ -932,6 +1104,14 @@ export type LlmSkillsNameFilesDestroyParams = {
      * @minimum 1
      */
     base_version?: number
+}
+
+export type LlmSkillsNameSkillMdRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
 }
 
 export type LlmSkillsResolveNameRetrieveParams = {

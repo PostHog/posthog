@@ -194,7 +194,7 @@ export async function advancedScrub(
         ;[faceBoxes, textBoxes, codeBoxes] = await Promise.all([
             detectFacesYunet(m.yunet, src, W, H),
             runText(),
-            detectCodes(src),
+            detectCodes(src, plan.code.scale),
         ])
         timings.faceMs = timings.textMs = timings.codesMs = performance.now() - tD
     } else {
@@ -205,7 +205,7 @@ export async function advancedScrub(
         textBoxes = await runText()
         timings.textMs = performance.now() - tT
         const tQ = performance.now()
-        codeBoxes = await detectCodes(src)
+        codeBoxes = await detectCodes(src, plan.code.scale)
         timings.codesMs = performance.now() - tQ
     }
     timings.faces = faceBoxes.length

@@ -2,9 +2,9 @@
 
 The trainer grades a candidate on a holdout cut from the same example set and then refits the
 shipped booster on train plus holdout, so `holdout_auc` grades the recipe rather than the model
-that ships. This module is the offline batch proxy for the number that is missing: each day it
-scores the reports born that day with the day's models, and grades those scores at each head's
-horizon against a snapshot the model could not have seen.
+that ships. This module grades the number that is missing: the scoring sweep's live scores of the
+reports born each day (`training/served.py`), at each head's horizon, against a snapshot the model
+could not have seen.
 
 The cohort, the label and the horizon come from the same `Head` definitions the trainer uses, so
 the unseen AUC is directly comparable to the holdout AUC of the same head and model version. Pure
@@ -12,28 +12,34 @@ functions over frames; `training/dag.py` owns the S3 and telemetry plumbing.
 """
 
 import datetime
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-import xgboost as xgb
 from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import (
-    NO_EXTRAS,
     REPORT_EMBEDDINGS_FEATURE_SET,
-    TABULAR_FEATURE_SET,
-    Extras,
+    TITLE_EMBEDDINGS_FEATURE_SET,
     FeatureSet,
-    feature_set_by_name,
 )
-from products.signals.dags.inbox_ranking.common import snapshot_bounds
-from products.signals.dags.inbox_ranking.training.examples import point_in_time_mask, state_rows
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
+from products.signals.dags.inbox_ranking.training.calibration import (
+    CalibrationBucket,
+    bucket_rows,
+    calibration_buckets,
+    expected_calibration_error,
+)
+from products.signals.dags.inbox_ranking.training.classification import (
+    UNKNOWN_THRESHOLD,
+    ClassificationMetrics,
+    classification_metrics,
+)
+from products.signals.dags.inbox_ranking.training.examples import birth_day_mask, point_in_time_mask
+from products.signals.dags.inbox_ranking.training.heads import Head
 
 # Stamped on every scored event, so a chart can tell this pool definition from a later one.
 POOL_NAME = "newborn"
@@ -42,13 +48,21 @@ POOL_NAME = "newborn"
 # definition puts two populations in one AUC series unless the older one keeps its own name.
 LEGACY_POOL_NAME = "sampled"
 
+# The scoring sweep's own birth-day scores of the newborn pool, one row set per model key
+# (`training/served.py`).
+SERVED_SCORES_TABLE = "inbox_ranking_served_scores"
+
+# The role of a trained candidate on the training events, and of a scored row whose event names no role.
 CANDIDATE_ROLE = "candidate"
-CHAMPION_ROLE = "champion"
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
-TABULAR_MODEL_NAME = "tabular_xgb"
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
+TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
+# Families this build no longer trains. Saved scores objects still hold their rows, so every reader
+# drops them through `with_model_names`: the grades stop with the family, and the rewrite guard does
+# not require rows that no re-run can produce.
+RETIRED_MODEL_NAMES = frozenset({"tabular_xgb"})
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -72,51 +86,34 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
     "score": pa.float64(),
     "age_hours": pa.float64(),
     "label_at_scoring": pa.bool_(),
+    "head_readable": pa.bool_(),
+    # The refit positive rate of the model that wrote the row. Null for a model saved before the
+    # threshold existed, and absent from an object written before the column existed.
+    "classification_threshold": pa.float64(),
 }
 SCORES_SCHEMA = pa.schema(_SCORE_TYPES)
 SCORE_COLUMNS = tuple(_SCORE_TYPES)
 
-# Report-state columns copied onto a scored event next to the scores, so a calibration read can
-# group on the raw inputs without joining the Parquet.
-FEATURE_INPUT_COLUMNS = (
-    "signal_count",
-    "total_weight",
-    "run_count",
-    "title_chars",
-    "summary_chars",
-    "priority",
-    "actionability",
-)
-
-
-@frozen
-class UnseenModel:
-    """One model to score the pool with, the feature set it was fit on, and the readable heads it
-    can score. Models that share a feature set share one matrix."""
-
-    model_name: str
-    model_version: str
-    model_role: str
-    feature_set: FeatureSet
-    boosters: Mapping[str, bytes]
-
 
 @frozen
 class ModelFamily:
-    """One family the training job fits and the unseen read grades: its name, and the feature set
-    its trainer fits. Both families are per-head XGBoost, so the learner is not a field yet; a
-    family with its own predict (the MMoE) adds one at the `UnseenModel` boundary."""
+    """One family the training job fits: its name, and the feature set its trainer fits. Every
+    family is per-head XGBoost, so the learner is not a field yet."""
 
     name: str
     feature_set: FeatureSet
 
 
-# The families the training job trains and the unseen read grades, in the order they are trained. A
+# The families the training job trains, in the order they are trained. A
 # family with no metadata for the day is skipped, so an entry can be added here before its trainer
 # writes its first candidate, and a family that fails costs its own series rather than every one.
+# The two embedding families read one `ReportEmbeddingsFeatureSet` instance each and fit with the
+# same module-level `XGB_PARAMS`, so their width, grain, row budget, sampling, split and booster
+# settings match by construction. Keep it that way: the pair is a measurement of the text choice,
+# and a recipe that differed between them would answer a question nobody asked.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
-    ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
+    ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
 )
 
 
@@ -124,7 +121,7 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
 class HeadGrade:
     head: str
     horizon_days: int
-    # The partition the scores were written on, which is `horizon_days` before the grading day.
+    # The original scores stay fixed while daily evaluations observe more outcomes.
     scoring_partition: str
     # The pool definition the scored rows came from, carried so the AUC series can be read per pool
     # rather than split by hand on the day a definition changed.
@@ -132,9 +129,20 @@ class HeadGrade:
     model_name: str
     model_version: str
     model_role: str
+    # Whether this head's holdout could be read on the model that wrote the scores. A rare head is
+    # scored and graded while unreadable, so the pooled grade over many days can give it a number
+    # its one-day holdout never will; read the two populations apart.
+    readable: bool
+    scored_rows: int
     rows: int
     positives: int
+    # Of the positives, how many had already happened when the report was scored: on this pool the
+    # outcome landed on the report's own birth day, which is where most outcomes land.
+    birth_day_positives: int
     base_rate: float | None
+    # The mean of the scores themselves, next to `base_rate`, the rate they were predicting. AUC
+    # cannot see a gap between the two, and the composite score the heads exist for needs it closed.
+    mean_score: float | None
     auc: float | None
     # AUC of "newest first" on the same outcomes. A model that does not beat it has learned
     # nothing the inbox could not do by sorting on age.
@@ -142,20 +150,32 @@ class HeadGrade:
     # The chance line on the same rows (see ChanceBand): the band a per-day AUC has to clear.
     null_auc: float | None
     null_auc_std: float | None
+    # The deciles are a table, so they stay off the head event and go out one event per bucket.
+    calibration: tuple[CalibrationBucket, ...]
+    expected_calibration_error: float | None
+    # The in-cohort rows at the threshold of the model that wrote the scores, so an early and a
+    # mature grade of one cohort use the same cut.
+    classification: ClassificationMetrics = UNKNOWN_THRESHOLD
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
             "rows": self.rows,
             "positives": self.positives,
+            "birth_day_positives": self.birth_day_positives,
             "base_rate": self.base_rate,
+            "mean_score": self.mean_score,
+            "expected_calibration_error": self.expected_calibration_error,
+            "calibration_buckets": len(self.calibration),
             "auc": self.auc,
             "recency_auc": self.recency_auc,
             "null_auc": self.null_auc,
             "null_auc_std": self.null_auc_std,
             "null_permutations": NULL_PERMUTATIONS,
+            **self.classification.as_dict(),
         }
 
-    def as_dict(self) -> dict[str, object]:
+    def identity(self) -> dict[str, object]:
+        """What was graded, without the numbers: the properties every event of this grade carries."""
         return {
             "head": self.head,
             "horizon_days": self.horizon_days,
@@ -164,13 +184,23 @@ class HeadGrade:
             "model_name": self.model_name,
             "model_version": self.model_version,
             "model_role": self.model_role,
-            **self.metrics(),
+            "readable": self.readable,
         }
+
+    def as_dict(self) -> dict[str, object]:
+        return {**self.identity(), **self.metrics()}
+
+
+def _newest_first(rows: pd.DataFrame) -> np.ndarray:
+    """Each row's creation time in epoch seconds, so a newer report ranks higher. `age_hours` is the
+    delay to each report's own live score, so it cannot order two reports by age."""
+    created = pd.to_datetime(rows["report_created_at"], utc=True)
+    return (created - pd.Timestamp(0, tz="UTC")).dt.total_seconds().to_numpy(dtype=float)
 
 
 def _auc(outcomes: np.ndarray, scores: np.ndarray) -> float | None:
     """AUC, or None when it is undefined: a single outcome class, or a ranking column that carries
-    a non-finite value (a missing `age_hours` makes the recency baseline unrankable)."""
+    a non-finite value (a missing `report_created_at` makes the recency baseline unrankable)."""
     if len(outcomes) == 0 or outcomes.sum() == 0 or outcomes.sum() == len(outcomes):
         return None
     if not np.isfinite(scores).all():
@@ -213,39 +243,6 @@ def chance_band(outcomes: np.ndarray, scores: np.ndarray) -> ChanceBand:
     return ChanceBand(auc=float(np.mean(aucs)), auc_std=float(np.std(aucs)))
 
 
-def model_feature_set(metadata: Mapping[str, Any]) -> FeatureSet | None:
-    """The feature set the model declares, or None when this build cannot produce it. Metadata
-    written before the field existed declares nothing and reads as the tabular set."""
-    return feature_set_by_name(metadata.get("feature_set"))
-
-
-def model_mismatch(metadata: Mapping[str, Any]) -> str | None:
-    """Why the model cannot be scored, or None when it can.
-
-    A model is checked against its own declared set rather than one global contract, so a family
-    on a richer set is not rejected for disagreeing with the tabular one.
-    """
-    feature_set = model_feature_set(metadata)
-    if feature_set is None:
-        return f"feature set {metadata.get('feature_set')} is not one this build can produce"
-    version = metadata.get("feature_schema_version")
-    if version != feature_set.schema_version:
-        return f"feature_schema_version {version} is not {feature_set.name}'s {feature_set.schema_version}"
-    if tuple(metadata.get("feature_names") or ()) != feature_set.feature_names:
-        return f"feature_names differ from the {feature_set.name} feature set"
-    return None
-
-
-def readable_head_files(metadata: Mapping[str, Any]) -> dict[str, str]:
-    """The `<head>.ubj` object name per readable head. Only a readable head is worth an unseen
-    read; an unreadable one has no holdout AUC to compare the unseen AUC against."""
-    return {
-        entry["head"]: entry["file"]
-        for entry in metadata.get("heads", [])
-        if entry.get("readable") and entry.get("file") and entry.get("head") in HEADS_BY_NAME
-    }
-
-
 def unseen_pool(state: pd.DataFrame, snapshot_date: datetime.date) -> pd.DataFrame:
     """The dt=D state rows of the reports created on D.
 
@@ -256,24 +253,11 @@ def unseen_pool(state: pd.DataFrame, snapshot_date: datetime.date) -> pd.DataFra
     backfilled state row carries current Postgres state rather than the state as of the day, and a
     row without `signal_count` has no features to score.
     """
-    start, end = snapshot_bounds(snapshot_date.isoformat())
-    created = pd.to_datetime(state["report_created_at"], utc=True)
     # Newborns first: the remaining filters then run over the slice, not every live report.
-    newborn = state.loc[((created >= start) & (created < end)).to_numpy()]
+    newborn = state.loc[birth_day_mask(state, snapshot_date).to_numpy()]
     keep = newborn["signal_count"].notna().to_numpy()
     keep &= point_in_time_mask(newborn, snapshot_date).to_numpy()
     return newborn.loc[keep]
-
-
-def leaked_report_ids(pool: pd.DataFrame, example_report_ids: Collection[object]) -> list[str]:
-    """Pool reports a training example already covers.
-
-    Empty while every head horizon stays above zero. A non-empty result means the example builder
-    now reaches the partition day, so the read would grade a model on its own training data; the
-    caller fails the asset instead of publishing that number.
-    """
-    covered = set(example_report_ids)
-    return sorted(str(report_id) for report_id in pool.index if report_id in covered)
 
 
 def scored_pool(scores: pd.DataFrame) -> str:
@@ -290,11 +274,11 @@ def scored_pool(scores: pd.DataFrame) -> str:
 
 
 def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
-    """Whether a run that scored nothing may overwrite a partition's scores object.
+    """Whether a run that read no score may overwrite a partition's scores object.
 
-    A partition whose candidate sits under the pre-family models layout loads no model and so
-    scores nothing. Writing that empty result would destroy the rows the dt=D+horizon grade reads,
-    and those rows cannot be rebuilt once the state snapshot they came from ages out. An unknown
+    A run can read no score when the sweep was off or its events are not readable. Writing that
+    empty result would destroy the rows the dt=D+horizon grade reads, and those rows cannot be
+    rebuilt once the state snapshot they came from ages out. An unknown
     count (no object, or one written before the row-count stamp) is not a veto, which is the rule
     `partition_write_allowed` already applies to the emission log.
     """
@@ -302,80 +286,28 @@ def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
 
 
 def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
-    """`scores` with a `model_name` column, filling the tabular family where it is absent.
+    """`scores` without the rows that name no model family or a retired one.
 
-    The grader reads scores objects up to 14 days old, so it still meets objects written before the
-    column existed. Every one of those holds tabular XGBoost rows, and grading them under a null
-    name would split the AUC series on the day the column arrived.
+    A scores object written before the `model_name` column existed holds only rows of a retired
+    family, and a later object can still hold named rows of one. No family this build trains can
+    grade them, and grading them would keep a retired series alive, or put the unnamed rows in a
+    series of their own, so they are dropped. The caller compares lengths to count them.
     """
     if "model_name" not in scores:
-        return scores.assign(model_name=TABULAR_MODEL_NAME)
-    return scores.assign(model_name=scores["model_name"].fillna(TABULAR_MODEL_NAME))
+        return scores.iloc[0:0].assign(model_name=pd.Series(dtype=object))
+    return scores[scores["model_name"].notna() & ~scores["model_name"].isin(RETIRED_MODEL_NAMES)]
 
 
-def score_pool(
-    pool: pd.DataFrame,
-    labels: pd.DataFrame,
-    models: Sequence[UnseenModel],
-    *,
-    snapshot_date: datetime.date,
-    extras: Extras = NO_EXTRAS,
-) -> pd.DataFrame:
-    """One row per (report, model, head) in SCORE_COLUMNS order, where a model is a
-    (model_name, model_version, model_role).
+def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:
+    """The families whose rows a rewrite of a partition's scores object would delete.
 
-    Features are built exactly as `build_examples` builds them, as of the end of the pool's day, so
-    a report scored here sees the same vector it would have seen as a training example. One matrix is built per feature set the
-    models declare, and every model on that set scores against it. `label_at_scoring` records
-    whether the head's outcome had already happened on the scoring day; the grader drops those
-    rows, the same way the example builder drops a scoring moment whose label is already 1.
+    One object holds every family, and the write replaces it in full, so a run that read fewer
+    families than the object already holds removes the rest. That is the loss
+    `empty_scores_write_allowed` refuses for a run that read nothing. Reading the object settles what it holds, which the row-count
+    stamp alone cannot. A retired family's rows do not count: no re-run can produce them, so
+    counting them would refuse every re-run of the days that hold them.
     """
-    _, as_of = snapshot_bounds(snapshot_date.isoformat())
-    aligned_labels = labels.reindex(pool.index)
-    team_id = pool["report_team_id"] if "report_team_id" in pool else pd.Series(None, index=pool.index, dtype=object)
-    report_ids = pool.index.to_numpy()
-    team_ids = pd.to_numeric(team_id, errors="coerce").astype("Int64").to_numpy()
-    created_at = pd.to_datetime(pool["report_created_at"], utc=True).to_numpy()
-    age_hours = pool["report_age_hours"].astype(float).to_numpy()
-    matrices: dict[str, xgb.DMatrix] = {}
-    frames: list[pd.DataFrame] = []
-    for model in models:
-        feature_set = model.feature_set
-        if feature_set.name not in matrices:
-            matrices[feature_set.name] = xgb.DMatrix(
-                feature_set.build_matrix(state_rows(pool, feature_set), extras, as_of=as_of),
-                feature_names=list(feature_set.feature_names),
-            )
-        matrix = matrices[feature_set.name]
-        frames.extend(
-            pd.DataFrame(
-                {
-                    "report_id": report_ids,
-                    "team_id": team_ids,
-                    "report_created_at": created_at,
-                    "snapshot_date": snapshot_date,
-                    "pool": POOL_NAME,
-                    "model_name": model.model_name,
-                    "model_version": model.model_version,
-                    "model_role": model.model_role,
-                    "feature_schema_version": feature_set.schema_version,
-                    "head": head_name,
-                    "score": _predict(booster_ubj, matrix),
-                    "age_hours": age_hours,
-                    "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
-                }
-            )
-            for head_name, booster_ubj in model.boosters.items()
-        )
-    if not frames:
-        return pd.DataFrame(columns=list(SCORE_COLUMNS))
-    return pd.concat(frames, ignore_index=True)[list(SCORE_COLUMNS)]
-
-
-def _predict(booster_ubj: bytes, matrix: xgb.DMatrix) -> np.ndarray:
-    booster = xgb.Booster()
-    booster.load_model(bytearray(booster_ubj))
-    return booster.predict(matrix)
+    return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
 
 
 def scores_table(scores: pd.DataFrame) -> pa.Table:
@@ -384,80 +316,81 @@ def scores_table(scores: pd.DataFrame) -> pa.Table:
     return pa.Table.from_pandas(scores[list(SCORE_COLUMNS)], schema=SCORES_SCHEMA, preserve_index=False)
 
 
-def score_event_rows(scores: pd.DataFrame, pool: pd.DataFrame) -> list[dict[str, object]]:
-    """One dict per (report, model): every head's score as `p_<head>`, plus the raw feature inputs.
-
-    The Parquet is long so that a head can be added without a schema change; an event is wide so a
-    trends insight can aggregate a head's scores without a join.
-    """
-    columns = [column for column in FEATURE_INPUT_COLUMNS if column in pool]
-    inputs = {
-        report_id: {column: _plain(value) for column, value in row.items()}
-        for report_id, row in pool[columns].to_dict("index").items()
-    }
-    rows: dict[tuple[str, str, str], dict[str, object]] = {}
-    for record in scores.to_dict("records"):
-        key = (str(record["report_id"]), str(record["model_name"]), str(record["model_role"]))
-        if key not in rows:
-            rows[key] = {
-                "report_id": record["report_id"],
-                "team_id": _int_or_none(record["team_id"]),
-                "report_created_at": _isoformat_or_none(record["report_created_at"]),
-                "model_name": record["model_name"],
-                "model_version": record["model_version"],
-                "model_role": record["model_role"],
-                "feature_schema_version": record["feature_schema_version"],
-                "pool": POOL_NAME,
-                "unseen_pool": len(pool),
-                "age_hours": float(record["age_hours"]),
-                **inputs.get(record["report_id"], {}),
-            }
-        rows[key][f"p_{record['head']}"] = float(record["score"])
-    return list(rows.values())
-
-
 def missing_label_columns(labels: pd.DataFrame, head: Head) -> list[str]:
     """The head's label columns the grading snapshot lacks. A missing cumulative count reads as
     zero, which would grade every scored report a negative, so the head is skipped instead."""
     return [column for column in head.label_columns if column not in labels]
 
 
-def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head) -> pd.DataFrame:
+def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head, *, pool: str) -> pd.DataFrame:
     """`head_scores` with `in_cohort` and `outcome` read from the later snapshot's labels.
 
-    A row is in cohort when the head's outcome had not already happened on the scoring day, the
-    report still has a labels row, and the head's cohort holds at the grading day. The cohort is
-    read at the later snapshot for the same reason `build_examples` reads it there: the impression
-    that puts a report in the cohort usually lands after the report is scored. An out-of-cohort row
-    keeps its score with `outcome` null, so a calibration read can filter on the flag.
+    A row is in cohort when the report still has a labels row and the head's cohort holds at the
+    grading day. The cohort is read at the later snapshot for the same reason `build_examples`
+    reads it there: the impression that puts a report in the cohort usually lands after the report
+    is scored. An out-of-cohort row keeps its score with `outcome` null, so a calibration read can
+    filter on the flag.
+
+    Outside the newborn pool a row whose outcome had already happened on the scoring day is out of
+    cohort too, because that outcome belongs to an earlier scoring moment. A newborn was scored on
+    its own birth day, which has no earlier moment, so that row is graded. Same rule as
+    `build_examples`.
+
+    A status-label head is the exception, and keeps the exclusion in every pool. `build_examples`
+    reads `label_provenance_ok` on the scoring snapshot as well as on the grading one, while a
+    scores row carries no scoring-day verdict for this side to read. Grading a birth-day outcome
+    here would therefore accept a label the builder can still refuse. Carrying that verdict on the
+    score row is what lifts the exception.
     """
     ids = pd.Index(head_scores["report_id"])
     aligned = labels.reindex(ids)
     aligned.index = head_scores.index
-    in_cohort = (
-        ids.isin(labels.index)
-        & ~head_scores["label_at_scoring"].fillna(False).to_numpy(dtype=bool)
-        & head.cohort(aligned).to_numpy()
-    )
+    in_cohort = ids.isin(labels.index) & head.cohort(aligned).to_numpy()
+    if pool != POOL_NAME or head.status_labels:
+        in_cohort &= ~head_scores["label_at_scoring"].fillna(False).to_numpy(dtype=bool)
     if head.status_labels and "label_provenance_ok" in aligned:
         in_cohort &= aligned["label_provenance_ok"].fillna(False).to_numpy(dtype=bool)
     graded = head_scores.copy()
+    # An object written before the column existed scored a head only when it was readable.
+    graded["head_readable"] = (
+        head_scores["head_readable"].fillna(True).astype(bool) if "head_readable" in head_scores else True
+    )
     graded["in_cohort"] = in_cohort
     graded["outcome"] = pd.array(head.label(aligned).to_numpy(dtype=bool), dtype="boolean")
     graded.loc[~in_cohort, "outcome"] = pd.NA
     return graded
 
 
-def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partition: str) -> list[HeadGrade]:
-    """The unseen read per model that scored this head, over the in-cohort rows."""
+def saved_threshold(scored: pd.DataFrame) -> float | None:
+    """The one threshold the model that wrote `scored` saved for the head, or None when the rows
+    carry none. More than one value means the rows did not come from one model, so no single cut
+    applies to them."""
+    if "classification_threshold" not in scored:
+        return None
+    values = scored["classification_threshold"].dropna().unique()
+    return float(values[0]) if len(values) == 1 else None
+
+
+def head_grades(
+    graded: pd.DataFrame, head: Head, *, pool: str, scoring_partition: str, include_empty: bool = False
+) -> list[HeadGrade]:
+    """The unseen read per model that scored this head, over the in-cohort rows.
+
+    A model key added to the manifest part of the way through the day scores only part of the pool,
+    so read each grade with `pool_coverage_by_model` on the scores asset.
+    """
     grades: list[HeadGrade] = []
-    kept = graded[graded["in_cohort"]]
-    for (model_name, model_version, model_role), rows in kept.groupby(
+    for (model_name, model_version, model_role), scored in graded.groupby(
         ["model_name", "model_version", "model_role"], sort=True
     ):
+        rows = scored[scored["in_cohort"]]
+        if rows.empty and not include_empty:
+            continue
         outcomes = rows["outcome"].to_numpy(dtype=bool)
         scores = rows["score"].to_numpy(dtype=float)
+        at_scoring = rows["label_at_scoring"].fillna(False).to_numpy(dtype=bool)
         band = chance_band(outcomes, scores)
+        buckets = calibration_buckets(outcomes, scores)
         grades.append(
             HeadGrade(
                 head=head.name,
@@ -467,30 +400,54 @@ def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partitio
                 model_name=str(model_name),
                 model_version=str(model_version),
                 model_role=str(model_role),
+                readable=bool((scored if rows.empty else rows)["head_readable"].all()),
+                scored_rows=len(scored),
                 rows=len(rows),
                 positives=int(outcomes.sum()),
+                birth_day_positives=int((outcomes & at_scoring).sum()),
                 base_rate=float(outcomes.mean()) if len(rows) else None,
+                mean_score=float(scores.mean()) if len(rows) else None,
                 auc=_auc(outcomes, scores),
-                recency_auc=_auc(outcomes, -rows["age_hours"].to_numpy(dtype=float)),
+                recency_auc=_auc(outcomes, _newest_first(rows)),
                 null_auc=band.auc,
                 null_auc_std=band.auc_std,
+                calibration=buckets,
+                expected_calibration_error=expected_calibration_error(buckets),
+                # Read from every scored row, so an empty cohort still reports its threshold.
+                classification=classification_metrics(outcomes, scores, saved_threshold(scored)),
             )
         )
     return grades
 
 
+def calibration_rows(grades: Sequence[HeadGrade]) -> list[dict[str, object]]:
+    """One dict per (model, head, decile): the grade's identity plus that bucket's counts.
+
+    One event per bucket rather than a table on the head event, because a JSON array cannot be
+    charted: a reliability read is `mean_score` against `realized_rate` broken down by `bucket`.
+    """
+    return [row for grade in grades for row in bucket_rows(grade.calibration, grade.identity())]
+
+
 def report_grade_rows(
     graded_by_head: Mapping[str, pd.DataFrame], *, pool: str, horizon_days: int, scoring_partition: str
 ) -> list[dict[str, object]]:
-    """One dict per (report, model) carrying every head graded at this horizon.
+    """One dict per (report, model_name, model_version, model_role) carrying every head graded at
+    this horizon. A promotion part of the way through the day can leave one report with a row per
+    served version, and each version keeps its own event.
 
     Heads are grouped by horizon because they were all scored on the same day, so one event holds a
     report's whole outcome at that horizon.
     """
-    rows: dict[tuple[str, str, str], dict[str, object]] = {}
+    rows: dict[tuple[str, str, str, str], dict[str, object]] = {}
     for head_name, graded in sorted(graded_by_head.items()):
         for record in graded.to_dict("records"):
-            key = (str(record["report_id"]), str(record["model_name"]), str(record["model_role"]))
+            key = (
+                str(record["report_id"]),
+                str(record["model_name"]),
+                str(record["model_version"]),
+                str(record["model_role"]),
+            )
             entry = rows.setdefault(
                 key,
                 {

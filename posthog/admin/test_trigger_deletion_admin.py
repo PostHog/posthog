@@ -1,11 +1,17 @@
+from datetime import timedelta
+
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, override_settings
+from django.utils import timezone
 
+from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.admins.organization_admin import OrganizationAdmin
@@ -134,6 +140,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
         self.factory = RequestFactory()
         self.admin = ProjectAdmin(Project, AdminSite())
 
@@ -152,7 +159,18 @@ class TestProjectAdminTriggerDeletion(BaseTest):
             response = self.admin.trigger_deletion_view(http_request, str(self.project.pk))
         return response, mock_start
 
-    def test_post_starts_project_deletion_and_marks_pending(self):
+    @parameterized.expand(
+        [
+            ("with_ingested_data", True, timedelta(hours=48)),
+            ("without_ingested_data", False, None),
+        ]
+    )
+    @time_machine.travel("2025-01-15 12:00:00", tick=False)
+    def test_post_starts_project_deletion_and_marks_pending(self, _name, has_ingested_data, expected_delay):
+        if has_ingested_data:
+            self.team.ingested_event = True
+            self.team.save(update_fields=["ingested_event"])
+
         response, mock_start = self._call("POST")
 
         self.assertEqual(response.status_code, 302)
@@ -162,8 +180,11 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.assertEqual(kwargs["team_ids"], [self.team.pk])
         self.assertEqual(kwargs["user_id"], self.user.pk)
         self.assertEqual(kwargs["project_name"], self.project.name)
+        self.assertEqual(kwargs["start_delay"], expected_delay)
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
+        assert self.project.deletion_scheduled_at is not None
+        self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + (expected_delay or timedelta()))
 
     def test_get_does_not_start_workflow(self):
         response, mock_start = self._call("GET")
@@ -182,22 +203,25 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
-    def test_staff_outside_deletion_group_can_dispatch(self):
-        response, mock_start = self._call("POST")
+    def test_staff_outside_deletion_group_cannot_dispatch(self):
+        self.user.groups.clear()
 
-        self.assertEqual(response.status_code, 302)
-        mock_start.assert_called_once()
+        with self.assertRaises(PermissionDenied):
+            self._call("POST")
+
         self.project.refresh_from_db()
-        self.assertTrue(self.project.is_pending_deletion)
+        self.assertFalse(self.project.is_pending_deletion)
 
-    def test_already_pending_deletion_does_not_block_retrigger(self):
+    @time_machine.travel("2025-01-15 12:00:00", tick=False)
+    def test_already_pending_deletion_does_not_retrigger(self):
         self.project.is_pending_deletion = True
-        self.project.save(update_fields=["is_pending_deletion"])
+        self.project.deletion_scheduled_at = timezone.now() + timedelta(hours=48)
+        self.project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
 
         response, mock_start = self._call("POST")
 
         self.assertEqual(response.status_code, 302)
-        mock_start.assert_called_once()
+        mock_start.assert_not_called()
 
     def test_already_started_workflow_keeps_pending(self):
         response, mock_start = self._call("POST", start_side_effect=WorkflowAlreadyStartedError("id", "type"))
@@ -206,6 +230,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         mock_start.assert_called_once()
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
+        self.assertIsNotNone(self.project.deletion_scheduled_at)
 
     def test_dispatch_failure_rolls_back_pending(self):
         response, mock_start = self._call("POST", start_side_effect=Exception("boom"))
@@ -214,6 +239,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         mock_start.assert_called_once()
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
+        self.assertIsNone(self.project.deletion_scheduled_at)
 
     def test_trigger_deletion_display_has_no_inline_onclick_and_carries_csp_nonce(self):
         # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, which

@@ -2,9 +2,16 @@
 //! (`POST /internal/batch_flag_evaluation`), which backs flag-driven static cohort
 //! generation.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use anyhow::Result;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::{TcpListener, TcpStream};
+use url::Url;
 use uuid::Uuid;
 
 pub mod common;
@@ -200,6 +207,35 @@ async fn test_inactive_flag_rejected() -> Result<()> {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let json_response = res.json::<Value>().await?;
     assert_eq!(json_response["error"], "flag_inactive");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_unsupported_config_format_rejected() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    let server = ServerHandle::for_config(batch_eval_config()).await;
+
+    for version in [json!(2), json!(3), json!("1")] {
+        for active in [true, false] {
+            let key = format!("unsupported-{version}-{active}");
+            let mut row = flag_row(
+                team.id,
+                &key,
+                json!({"version": version, "aggregation_group_type_index": 1}),
+            );
+            row.active = active;
+            context.insert_flag(team.id, Some(row)).await?;
+
+            let res =
+                send_batch_request(&server, Some(INTERNAL_TOKEN), &batch_body(team.id, &key, 0))
+                    .await;
+            assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+            let json_response = res.json::<Value>().await?;
+            assert_eq!(json_response["error"], "unsupported_config_format");
+        }
+    }
 
     Ok(())
 }
@@ -909,6 +945,123 @@ async fn test_experience_continuity_overrides_read_but_never_written() -> Result
         override_count, 1,
         "batch evaluation must never write hash key overrides"
     );
+
+    Ok(())
+}
+
+/// Returns a persons database URL that goes through a proxy. The proxy forwards traffic until a
+/// client sends bytes that contain `needle`. From then on it sends nothing more to Postgres on any
+/// connection and keeps every socket open. Postgres never receives the frozen query. Its statement
+/// timeout therefore cannot end the query. A database that has stopped answering behaves the same
+/// way.
+async fn persons_db_url_frozen_by_query_containing(needle: &'static [u8]) -> Result<String> {
+    let mut url = Url::parse(&DEFAULT_TEST_CONFIG.persons_read_database_url)?;
+    let upstream = format!(
+        "{}:{}",
+        url.host_str().expect("the persons database URL has a host"),
+        url.port().unwrap_or(5432)
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy_port = listener.local_addr()?.port();
+    let frozen = Arc::new(AtomicBool::new(false));
+
+    tokio::spawn(async move {
+        while let Ok((client, _)) = listener.accept().await {
+            let upstream = upstream.clone();
+            let frozen = frozen.clone();
+            tokio::spawn(async move {
+                let Ok(server) = TcpStream::connect(&upstream).await else {
+                    return;
+                };
+                let (client_reader, mut client_writer) = client.into_split();
+                let (mut server_reader, server_writer) = server.into_split();
+                tokio::spawn(async move {
+                    tokio::io::copy(&mut server_reader, &mut client_writer).await
+                });
+                forward_to_postgres_until_frozen(client_reader, server_writer, &frozen, needle)
+                    .await;
+            });
+        }
+    });
+
+    url.set_host(Some("127.0.0.1"))?;
+    url.set_port(Some(proxy_port))
+        .expect("a postgres URL accepts a port");
+    // The proxy matches `needle` in plaintext, so the connection must not use TLS.
+    url.query_pairs_mut().append_pair("sslmode", "disable");
+    Ok(url.to_string())
+}
+
+async fn forward_to_postgres_until_frozen(
+    mut from: OwnedReadHalf,
+    mut to: OwnedWriteHalf,
+    frozen: &AtomicBool,
+    needle: &[u8],
+) {
+    let mut buf = vec![0; 16 * 1024];
+    // Keeps the end of the previous read so that a needle split across two reads still matches.
+    let mut window = Vec::new();
+    loop {
+        let n = match from.read(&mut buf).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => n,
+        };
+        window.extend_from_slice(&buf[..n]);
+        if window.windows(needle.len()).any(|w| w == needle) {
+            frozen.store(true, Ordering::SeqCst);
+        }
+        window.drain(..window.len().saturating_sub(needle.len() - 1));
+        if frozen.load(Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
+        if to.write_all(&buf[..n]).await.is_err() {
+            return;
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_unanswered_persons_query_fails_the_person_at_the_deadline() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+
+    // A continuity flag at 100% rollout skips the hash key override lookup. This flag uses 50% so
+    // that the lookup runs.
+    let flag_key = "continuity-flag";
+    let mut flag = flag_row(
+        team.id,
+        flag_key,
+        json!({"groups": [{"rollout_percentage": 50}]}),
+    );
+    flag.ensure_experience_continuity = Some(true);
+    context.insert_flag(team.id, Some(flag)).await?;
+    context
+        .insert_person(team.id, "unanswered_user".to_string(), Some(json!({})))
+        .await?;
+
+    let mut config = batch_eval_config();
+    // Only the per-person evaluation reads the override table. The page scan runs before it
+    // through the same proxy and gets its answer.
+    config.persons_read_database_url =
+        persons_db_url_frozen_by_query_containing(b"posthog_featureflaghashkeyoverride").await?;
+    config.persons_db_deadline_ms = 200;
+    // Without the deadline, the page does not finish before this timeout. The endpoint then
+    // returns 503.
+    config.batch_flag_eval_timeout_ms = 30_000;
+    let server = ServerHandle::for_config(config).await;
+
+    let res = send_batch_request(
+        &server,
+        Some(INTERNAL_TOKEN),
+        &batch_body(team.id, flag_key, 0),
+    )
+    .await;
+    let status = res.status();
+    let body = res.text().await?;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let json_response: Value = serde_json::from_str(&body)?;
+    assert_eq!(json_response["errors_count"], json!(1));
+    assert_eq!(json_response["matched_person_uuids"], json!([]));
 
     Ok(())
 }

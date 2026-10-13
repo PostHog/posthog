@@ -7,16 +7,20 @@ from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.enums import WizardRunStage
 from products.wizard.backend.logic.workers import service as cloud_worker
 from products.wizard.backend.logic.workers.service import WizardExecutionRequest
+from products.wizard.backend.observability.tracing import annotate_run_span
 from products.wizard.backend.temporal.activities.errors import (
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
     WIZARD_WORKER_TIMEOUT_ERROR_TYPE,
+    sanitize_activity_errors,
 )
 from products.wizard.backend.temporal.contracts import PreparedGitRepositoryWorkspace
 
 
 @activity.defn(name="wizard_execute")
 @asyncify
+@sanitize_activity_errors
 def execute_wizard(input: PreparedGitRepositoryWorkspace) -> None:
+    annotate_run_span(input.team_id, input.run_id)
     wizard_facade.update_run_stage(input.team_id, input.run_id, WizardRunStage.EXECUTING_WIZARD)
     run = wizard_facade.get_run(input.team_id, input.run_id)
     try:

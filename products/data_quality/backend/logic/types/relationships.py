@@ -7,17 +7,25 @@ from posthog.hogql import ast
 
 from ...facade.enums import CheckType, SubjectType
 from ..contracts import CheckPlan, SubjectRef
-from ..errors import SubjectUnresolvableError
+from ..errors import CheckConfigError, SubjectUnresolvableError
 from ..spec import CheckConfig, CheckTypeSpec
-from .common import column, diagnostic_of, one, subject_source
+from .common import column, diagnostic_of, narrowed_to, one, subject_source, window_expr
 
 
 class RelationshipsConfig(CheckConfig):
-    to_subject_type: Literal[SubjectType.TABLE, SubjectType.VIEW] = Field(
-        description="Kind of catalog object holding the referenced values."
+    to_subject_type: Literal[SubjectType.TABLE, SubjectType.VIEW, SubjectType.POSTHOG_TABLE] = Field(
+        description="Kind of object holding the referenced values."
     )
-    to_subject_uuid: UUID = Field(description="Id of the table or view holding the referenced values.")
+    to_subject_uuid: UUID = Field(description="Id of the table, view or PostHog table holding the referenced values.")
     to_column: str = Field(min_length=1, description="Column holding the referenced values.")
+    to_lookback_hours: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Only look for a match among the referenced subject's rows from the last N hours. "
+            "Optional, and only for a referenced subject with a time column."
+        ),
+    )
 
 
 class RelationshipsSpec(CheckTypeSpec):
@@ -40,10 +48,15 @@ class RelationshipsSpec(CheckTypeSpec):
             raise SubjectUnresolvableError(
                 f"The referenced {config.to_subject_type} {config.to_subject_uuid} no longer resolves."
             )
+        if config.to_lookback_hours is not None and not related.time_column:
+            raise CheckConfigError(
+                f"The referenced {config.to_subject_type} has no time column, "
+                "so it cannot take a to_lookback_hours window."
+            )
         value = column(column_name)
-        referenced = ast.SelectQuery(
-            select=[column(config.to_column)],
-            select_from=subject_source(related),
+        referenced = narrowed_to(
+            ast.SelectQuery(select=[column(config.to_column)], select_from=subject_source(related)),
+            window_expr(related.time_column, config.to_lookback_hours),
         )
         failing_rows = ast.SelectQuery(
             select=[one()],

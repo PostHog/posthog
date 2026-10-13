@@ -24,6 +24,8 @@ class JsSnippetVersionSerializer(serializers.Serializer):
 
 class JsSnippetViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
+    scope_object_read_actions = ["resolve", "get_version"]
+    scope_object_write_actions = ["update_version"]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["GET"], detail=False, url_path="resolve")

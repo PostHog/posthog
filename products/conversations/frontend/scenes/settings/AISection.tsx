@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { AIContextAccountPropertiesSection } from '../../components/AIContextAccountPropertiesSection/AIContextAccountPropertiesSection'
+import { SupportPlaybookSection } from '../../components/SupportPlaybookSection/SupportPlaybookSection'
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
@@ -133,6 +135,9 @@ export function AISection(): JSX.Element {
                 </SceneSection>
             )}
 
+            {aiSuggestionsEnabled && <SupportPlaybookSection />}
+            {aiSuggestionsEnabled && <AIContextAccountPropertiesSection />}
+
             {aiSuggestionsEnabled && (
                 <SceneSection
                     title="Allowed channels"
@@ -190,7 +195,8 @@ export function AISection(): JSX.Element {
                     description={
                         <>
                             For each channel and ticket type, choose whether the AI agent posts a private note (visible
-                            only to your team) or sends a safety-reviewed reply directly to the customer.{' '}
+                            only to your team) or sends a safety-reviewed reply directly to the customer. On channels
+                            set to AI reply, the agent may also ask the customer one clarifying question.{' '}
                             <strong>Diagnostic</strong> and <strong>Account/Billing</strong> replies may include data
                             from your project, so they're always kept as private notes and can't be sent directly to the
                             customer.

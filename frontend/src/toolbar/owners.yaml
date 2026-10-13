@@ -4,6 +4,6 @@ rules:
     - match: '/elements/heatmapToolbarMenuLogic.ts'
       owners: team-web-analytics
     - match: '/product-tours/'
-      owners: team-surveys
+      owners: '@adboio'
     - match: '/web-vitals/'
       owners: team-web-analytics

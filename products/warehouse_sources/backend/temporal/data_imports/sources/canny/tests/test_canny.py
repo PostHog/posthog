@@ -327,14 +327,22 @@ class TestValidateCredentials:
 
 
 class TestCannySource:
+    # Opportunities and groups are the only Canny objects the API returns with no timestamp field
+    # at all, so partitioning them would key on a column that never arrives.
+    UNPARTITIONED_ENDPOINTS = {"groups", "opportunities"}
+
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_shape(self, endpoint: str) -> None:
         response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        # Every Canny object carries a stable `created` timestamp we partition on.
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created"]
+
+        if endpoint in self.UNPARTITIONED_ENDPOINTS:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == ["created"]
 
 
 class TestV2CursorPagination:
@@ -413,3 +421,69 @@ class TestV2CursorPagination:
         assert bodies[0].get("skip") == 0
         assert "cursor" not in bodies[0]
         assert [r["id"] for r in rows] == ["c1"]
+
+
+class TestIdeasEraEndpoints:
+    # Canny shipped the Ideas-era endpoints on the v1 base but with the cursor wire, so the
+    # pagination style cannot be inferred from the version pin.
+    CURSOR_V1_ENDPOINTS = ["groups", "ideas", "insights"]
+
+    @pytest.mark.parametrize("api_version", [CANNY_API_VERSION_V1, CANNY_API_VERSION_V2])
+    @pytest.mark.parametrize("endpoint", CURSOR_V1_ENDPOINTS)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_cursor_paginates_on_v1_path_under_either_pin(self, MockSession, endpoint: str, api_version: str) -> None:
+        session = MockSession.return_value
+        urls, bodies = _capture(
+            session,
+            [
+                _cursor_page("items", ["a", "b"], cursor="cur-1", has_next=True),
+                _cursor_page("items", ["c"], cursor=None, has_next=False),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source(endpoint, manager, api_version=api_version))
+
+        assert [r["id"] for r in rows] == ["a", "b", "c"]
+        # These have no v2 implementation; a guessed /v2/ path would 404, and skip/limit would
+        # silently re-read page one forever.
+        assert all(url == f"https://canny.io/api/v1/{endpoint}/list" for url in urls)
+        assert "skip" not in bodies[0]
+        assert bodies[0].get("limit") == PAGE_SIZE
+        assert "cursor" not in bodies[0]
+        assert bodies[1].get("cursor") == "cur-1"
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [CannyResumeConfig(cursor="cur-1")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_seeds_cursor_under_v1_pin(self, MockSession) -> None:
+        # A v1 pin used to imply offset resume; these endpoints must read the saved cursor instead.
+        session = MockSession.return_value
+        _, bodies = _capture(session, [_cursor_page("items", ["x"], cursor=None, has_next=False)])
+
+        manager = _make_manager(CannyResumeConfig(cursor="cur-77"))
+        rows = _rows(_source("ideas", manager, api_version=CANNY_API_VERSION_V1))
+
+        assert bodies[0].get("cursor") == "cur-77"
+        assert "skip" not in bodies[0]
+        assert [r["id"] for r in rows] == ["x"]
+
+    @pytest.mark.parametrize("api_version", [CANNY_API_VERSION_V1, CANNY_API_VERSION_V2])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_opportunities_stay_on_the_skip_wire(self, MockSession, api_version: str) -> None:
+        # Opportunities is the one Ideas-era endpoint Canny left on skip/limit with `hasMore`.
+        session = MockSession.return_value
+        urls, bodies = _capture(
+            session,
+            [_full_page("opportunities", 0), _page("opportunities", ["final"], has_more=False)],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("opportunities", manager, api_version=api_version))
+
+        assert [r["id"] for r in rows] == [*(str(i) for i in range(PAGE_SIZE)), "final"]
+        assert urls == ["https://canny.io/api/v1/opportunities/list"] * 2
+        assert [b.get("skip") for b in bodies] == [0, PAGE_SIZE]
+        assert "cursor" not in bodies[0]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [CannyResumeConfig(skip=PAGE_SIZE)]

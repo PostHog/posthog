@@ -393,14 +393,35 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is expect_groups
         assert "$groups" not in call_kwargs["properties"]
 
+    @parameterized.expand(
+        [
+            # A project outside the resolved organization would contradict the organization group.
+            ("no_current_project", None),
+            ("current_project_in_org", "same_org"),
+            ("current_project_in_another_org", "other_org"),
+        ]
+    )
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_groups_from_person_org(self, mock_get_persons, mock_capture):
+    def test_capture_ticket_created_groups_from_person_org(
+        self, _name, current_project, mock_get_persons, mock_capture
+    ):
+        from posthog.models import Team
         from posthog.models.person.person import Person
 
         person_org = Organization.objects.create(name="Person Org")
         person_user = User.objects.create(email="customer@example.com", distinct_id="customer-123")
         OrganizationMembership.objects.create(user=person_user, organization=person_org)
+        person_team = None
+        if current_project == "same_org":
+            person_team = Team.objects.create(organization=person_org, name="Customer project")
+        elif current_project == "other_org":
+            person_team = Team.objects.create(
+                organization=Organization.objects.create(name="Another Org"), name="Other project"
+            )
+        if person_team is not None:
+            person_user.current_team = person_team
+            person_user.save(update_fields=["current_team"])
 
         mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
 
@@ -410,8 +431,12 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is True
         groups = call_kwargs["properties"]["$groups"]
         assert groups["organization"] == str(person_org.id)
-        assert groups["project"] == str(self.team.uuid)
         assert "instance" in groups
+        if current_project == "same_org":
+            assert person_team is not None
+            assert groups["project"] == str(person_team.uuid)
+        else:
+            assert "project" not in groups
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
@@ -430,7 +455,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is True
         groups = call_kwargs["properties"]["$groups"]
         assert groups["organization"] == str(person_org.id)
-        assert groups["project"] == str(self.team.uuid)
+        assert "project" not in groups
         assert "instance" in groups
 
     @parameterized.expand(
@@ -623,7 +648,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is True
         groups = call_kwargs["properties"]["$groups"]
         assert groups["organization"] == str(person_org.id)
-        assert groups["project"] == str(self.team.uuid)
+        assert "project" not in groups
 
     @parameterized.expand(
         [
@@ -716,7 +741,7 @@ class TestConversationEvents(BaseTest):
             assert call_kwargs["process_person_profile"] is True
             groups = call_kwargs["properties"]["$groups"]
             assert groups["organization"] == "org-uuid-1"
-            assert groups["project"] == str(self.team.uuid)
+            assert "project" not in groups
             assert groups["instance"] == SITE_URL
             self.ticket.refresh_from_db()
             assert self.ticket.organization_id == "org-uuid-1"
@@ -739,11 +764,7 @@ class TestConversationEvents(BaseTest):
         mock_get_persons.return_value = [
             Person(team_id=self.team.id, is_identified=True, properties={"organization_id": "profile-org"})
         ]
-        mock_analytics.return_value = {
-            "instance": SITE_URL,
-            "project": str(self.team.uuid),
-            "organization": "analytics-org",
-        }
+        mock_analytics.return_value = {"instance": SITE_URL, "organization": "analytics-org"}
 
         capture_ticket_created(self.ticket)
 
@@ -854,7 +875,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is True
         groups = call_kwargs["properties"]["$groups"]
         assert groups["organization"] == "org-uuid-2"
-        assert groups["project"] == str(self.team.uuid)
+        assert "project" not in groups
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_groups_by_identifiers")
@@ -941,7 +962,7 @@ class TestConversationEvents(BaseTest):
             {"group_type": "organization", "group_type_index": 1},
             {"group_type": "customer", "group_type_index": 2},
         ]
-        mock_hogql.return_value.results = [["org-eu-123", customer_key]]
+        mock_hogql.return_value.results = [[("org-eu-123", "customer-project-uuid"), customer_key]]
 
         capture_ticket_created(self.ticket)
 
@@ -949,8 +970,8 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is True
         groups = call_kwargs["properties"]["$groups"]
         assert groups["organization"] == "org-eu-123"
-        # instance/project are rebuilt server-side, never taken from the event row
-        assert groups["project"] == str(self.team.uuid)
+        # instance is rebuilt server-side; project is the customer's own, read from the event row
+        assert groups["project"] == "customer-project-uuid"
         assert "instance" in groups
         if customer_key:
             assert groups["customer"] == customer_key
@@ -960,7 +981,7 @@ class TestConversationEvents(BaseTest):
     @parameterized.expand(
         [
             ("no_events", []),
-            ("empty_org_key", [["", ""]]),
+            ("empty_org_key", [[("", ""), ""]]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -1020,7 +1041,7 @@ class TestConversationEvents(BaseTest):
         mock_get_by_email.return_value = {customer_email: person}
 
         mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["org-eu-123", ""]]
+        mock_hogql.return_value.results = [[("org-eu-123", ""), ""]]
 
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -1038,7 +1059,7 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("positive", [["org-eu-123", ""]], True),
+            ("positive", [[("org-eu-123", ""), ""]], True),
             ("negative", [], False),
         ]
     )
@@ -1091,7 +1112,7 @@ class TestConversationEvents(BaseTest):
             mock_get_persons.return_value = []
             mock_get_by_email.return_value = {}
         mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["attacker-org", ""]]
+        mock_hogql.return_value.results = [[("attacker-org", ""), ""]]
 
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -1112,7 +1133,9 @@ class TestConversationEvents(BaseTest):
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_persists_organization_id(self, mock_get_persons, mock_capture):
+    def test_capture_ticket_created_persists_organization_id_for_verified_relayed_ticket(
+        self, mock_get_persons, mock_capture
+    ):
         from posthog.models.person.person import Person
 
         person_org = Organization.objects.create(name="Persist Org")
@@ -1120,6 +1143,9 @@ class TestConversationEvents(BaseTest):
         OrganizationMembership.objects.create(user=person_user, organization=person_org)
 
         mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+        self.ticket.channel_source = "email"
+        self.ticket.identity_verified = True
+        self.ticket.anonymous_traits = {**(self.ticket.anonymous_traits or {}), "email_relayed": True}
 
         assert self.ticket.organization_id is None
         capture_ticket_created(self.ticket)
@@ -1130,6 +1156,31 @@ class TestConversationEvents(BaseTest):
         stored = Ticket.objects.get(id=self.ticket.id)
         assert stored.organization_id == str(person_org.id)
         assert stored.organization_id_source == OrganizationIdSource.PERSON
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_relayed_ticket_does_not_resolve_organization_from_asserted_requester(self, mock_get_persons, mock_capture):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id="customer@example.com",
+            channel_source="email",
+            identity_verified=False,
+            anonymous_traits={
+                "name": "Customer",
+                "email": "customer@example.com",
+                "email_relayed": True,
+            },
+        )
+
+        capture_ticket_created(ticket)
+
+        mock_get_persons.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+        ticket.refresh_from_db()
+        assert ticket.organization_id is None
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events._resolve_org_groups")
@@ -1144,7 +1195,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is True
         groups = call_kwargs["properties"]["$groups"]
         assert groups["organization"] == "stored-org-123"
-        assert groups["project"] == str(self.team.uuid)
+        assert "project" not in groups
         assert groups["instance"] == SITE_URL
 
     def _configure_account_group_type(self, index: int | None) -> None:
@@ -1183,11 +1234,7 @@ class TestConversationEvents(BaseTest):
         mock_get_account.assert_called_once_with(self.team.id, "C123")
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is False
-        assert call_kwargs["properties"]["$groups"] == {
-            "instance": SITE_URL,
-            "project": str(self.team.uuid),
-            "organization": "acme-org-1",
-        }
+        assert call_kwargs["properties"]["$groups"] == {"instance": SITE_URL, "organization": "acme-org-1"}
         ticket.refresh_from_db()
         assert ticket.organization_id == "acme-org-1"
         assert ticket.organization_id_source == OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
@@ -1320,7 +1367,7 @@ class TestConversationEvents(BaseTest):
         # later) is persisted so subsequent messages take the stored-org fast path.
         mock_resolve.return_value = (
             True,
-            {"instance": SITE_URL, "project": str(self.team.uuid), "organization": "late-org-1"},
+            {"instance": SITE_URL, "organization": "late-org-1"},
             OrganizationIdSource.PERSON,
         )
 
@@ -1343,7 +1390,7 @@ class TestConversationEvents(BaseTest):
         # first write wins, in DB and on the in-memory ticket.
         mock_resolve.return_value = (
             True,
-            {"instance": SITE_URL, "project": str(self.team.uuid), "organization": "late-org-2"},
+            {"instance": SITE_URL, "organization": "late-org-2"},
             OrganizationIdSource.PERSON,
         )
         Ticket.objects.filter(id=self.ticket.id).update(organization_id="first-org-1")
@@ -1411,7 +1458,7 @@ class TestResolveGroupsFromAnalyticsClickHouse(ClickhouseTestMixin, APIBaseTest)
                 team=self.team,
                 event="$pageview",
                 distinct_id="eu-user-did",
-                properties={"$group_1": "org-eu-123", "$group_2": "cus_456"},
+                properties={"$group_0": "customer-project-uuid", "$group_1": "org-eu-123", "$group_2": "cus_456"},
             )
         flush_persons_and_events()
 
@@ -1419,7 +1466,7 @@ class TestResolveGroupsFromAnalyticsClickHouse(ClickhouseTestMixin, APIBaseTest)
 
         assert groups == {
             "instance": SITE_URL,
-            "project": str(self.team.uuid),
+            "project": "customer-project-uuid",
             "organization": "org-eu-123",
             "customer": "cus_456",
         }
@@ -1442,7 +1489,8 @@ class TestResolveGroupsFromAnalyticsClickHouse(ClickhouseTestMixin, APIBaseTest)
 
         groups = _resolve_groups_from_analytics(self.team, ["eu-user-did"])
 
-        assert groups == {"instance": SITE_URL, "project": str(self.team.uuid), "organization": "org-eu-123"}
+        # No project group on the customer's events: unset beats the support team's own project.
+        assert groups == {"instance": SITE_URL, "organization": "org-eu-123"}
 
     @patch(
         "products.conversations.backend.events.get_group_types_for_project",

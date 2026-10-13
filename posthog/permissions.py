@@ -1,7 +1,7 @@
 import os
 import time
 import uuid
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -9,7 +9,7 @@ from django.db.models import Model
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -41,10 +41,12 @@ from posthog.scopes import (
     MCP_BUILT_IN_AGENT_SCOPE,
     APIScopeObject,
     APIScopeObjectOrNotSupported,
+    scopes_not_covered,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
@@ -55,7 +57,10 @@ from products.access_control.backend.facade.user_access_control import (
 CREATE_ACTIONS = ["create", "update"]
 
 
-def extract_organization(object: Model, view: ViewSet) -> Organization:
+def extract_organization(object: Model | ObjectAccessRef, view: ViewSet) -> Organization:
+    if isinstance(object, ObjectAccessRef):
+        return _organization_for_ref(object, view)
+
     # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
     if organization_id_rewrite:
@@ -98,6 +103,20 @@ def get_organization_from_view(view) -> Organization:
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
+
+
+def _organization_for_ref(ref: ObjectAccessRef, view: Any) -> Organization:
+    """The ref's organization, read from the view when the view serves the ref's team.
+
+    On a root route the view's organization is the user's current one, which can differ from the ref's,
+    so any other case looks the organization up from the ref's team."""
+    try:
+        view_team_id = view.team_id
+    except (KeyError, AttributeError, AssertionError):
+        view_team_id = None
+    if view_team_id == ref.team_id:
+        return get_organization_from_view(view)
+    return Team.objects.select_related("organization").get(pk=ref.team_id).organization
 
 
 def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
@@ -435,7 +454,6 @@ def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
             "project_feature_flags-local-evaluation",
-            "project_live_debugger_breakpoints-active-breakpoints",
         }
     )
 
@@ -570,6 +588,10 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
+        # A sharing configuration grants access to specific model instances, so it never covers a
+        # contract-backed object.
+        if isinstance(object, ObjectAccessRef):
+            return False
         if not isinstance(
             request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
         ):
@@ -729,6 +751,50 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+CLIENT_ID_POSTHOG = "posthog"
+
+
+def get_authenticator_client(authenticator) -> dict[str, str]:
+    """Who is calling, as targeting context for a feature flag.
+
+    `credential_type` is the kind of credential and `client_id` names the client where one
+    exists: the app's own session is `posthog`, matching the claim the billing access token
+    carries, and an OAuth caller is its registered application. Both are derived from the
+    authenticator rather than read from the request, so a caller cannot claim to be the app.
+
+    Both keys are always set. A flag condition on a property the evaluation context omits is
+    inconclusive locally and falls back to a remote call that cannot answer it either.
+    """
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return {"credential_type": "personal_api_key", "client_id": "personal_api_key"}
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        application = getattr(authenticator.access_token, "application", None)
+        return {"credential_type": "oauth", "client_id": getattr(application, "client_id", None) or "oauth"}
+    if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+        return {"credential_type": "project_secret_key", "client_id": "project_secret_key"}
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        return {"credential_type": "id_jag", "client_id": getattr(authenticator, "client_id", None) or "id_jag"}
+    if authenticator is None or isinstance(authenticator, SessionAuthentication):
+        return {"credential_type": "session", "client_id": CLIENT_ID_POSTHOG}
+    return {"credential_type": "other", "client_id": "other"}
+
+
+SCOUT_SANDBOX_SCOPE_PREFIX = "signal_scout_internal:"
+
+
+def is_scout_sandbox_request(request: Request) -> bool:
+    """Whether a request is authenticated with a Signals scout sandbox token.
+
+    The scout harness is the only issuer of `signal_scout_internal:*`, so those scopes identify a
+    scout run. The scope object is internal, so session auth and ordinary API keys never carry
+    them. Shared rather than reimplemented per product: a viewset that restricts what a scout may
+    do has to read the same signal as every other one, or a rule holds on one surface and not the
+    next.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is not None and any(scope.startswith(SCOUT_SANDBOX_SCOPE_PREFIX) for scope in scopes)
+
+
 def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None:
     """The organizations a scoped token is confined to, or None when the credential carries no
     organization restriction (session auth, or a token scoped to every organization).
@@ -840,16 +906,10 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
-        for required_scope in required_scopes:
-            valid_scopes = [required_scope]
-
-            # For all valid scopes with :read we also add :write
-            if required_scope.endswith(":read"):
-                valid_scopes.append(required_scope.replace(":read", ":write"))
-
-            if not any(scope in key_scopes for scope in valid_scopes):
-                self.message = f"API key missing required scope '{required_scope}'"
-                return False
+        missing_scopes = scopes_not_covered(key_scopes, required_scopes)
+        if missing_scopes:
+            self.message = f"API key missing required scope '{missing_scopes[0]}'"
+            return False
 
         return True
 
@@ -1054,6 +1114,13 @@ class AccessControlPermission(ScopeBasePermission):
 
         return READ_LEVEL
 
+    def required_access_level(self, request, view) -> Optional[AccessControlLevel]:
+        """The access level this request needs on the view's resource and its objects.
+
+        Subclasses change the level by overriding `_get_required_access_level`.
+        """
+        return self._get_required_access_level(request, view)
+
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
@@ -1079,7 +1146,10 @@ class AccessControlPermission(ScopeBasePermission):
         if not required_level:
             return True
 
-        has_access = uac.check_access_level_for_object(object, required_level=required_level)
+        if isinstance(object, ObjectAccessRef):
+            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
+        else:
+            has_access = uac.check_access_level_for_object(object, required_level=required_level)
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."
@@ -1099,7 +1169,13 @@ class AccessControlPermission(ScopeBasePermission):
         if hasattr(view, "param_derived_from_user_current_team"):
             if view.param_derived_from_user_current_team in ("team_id", "project_id"):
                 if request.user.current_team_id is None:
-                    raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
+                    # Not `AuthenticationFailed`: the credential is valid, the account state is
+                    # not. A 401 here tells a token caller to replace a key that was never the
+                    # problem, and clients act on it by refreshing the token and retrying.
+                    raise PermissionDenied(
+                        "This endpoint reads the project that is set on your account, and your "
+                        "account has none. Open PostHog, select a project, then try again."
+                    )
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)
@@ -1164,7 +1240,9 @@ def posthog_feature_flag_value(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    person_properties: dict[str, Any] | None = None,
     only_evaluate_locally: bool = False,
+    caller_properties: dict[str, str] | None = None,
 ) -> bool | None:
     """Server-side check of a PostHog-internal gating flag with org/project group context.
 
@@ -1172,23 +1250,31 @@ def posthog_feature_flag_value(
     groups miss per-environment rollouts (e.g. logs-settings-drop-rules for project 2 only).
     Use this wherever a flag gates access outside a DRF view (query runners, tasks) so evaluation
     can't drift from PostHogFeatureFlagPermission.
+
+    `caller_properties` is request context a flag can target, such as the client behind the call
+    (see `get_authenticator_client`). It goes in both channels because a flag reads only one of
+    them: a flag aggregated by a group matches that group's properties and never a person's.
     """
     if flag in _FORCE_ENABLED_FLAGS:
         return True
 
     org_id = str(organization_id)
+    caller = dict(caller_properties or {})
+    # Caller context is merged in last so a caller-supplied property cannot claim to be the app.
+    person = {**(person_properties or {}), **caller}
     groups: dict[str, str] = {"organization": org_id}
-    group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
+    group_properties: dict[str, dict[str, str]] = {"organization": {**caller, "id": org_id}}
     if team_id is not None:
         project_id = str(team_id)
         groups["project"] = project_id
-        group_properties["project"] = {"id": project_id}
+        group_properties["project"] = {**caller, "id": project_id}
 
     return posthoganalytics.feature_enabled(
         flag,
         distinct_id,
         groups=groups,
         group_properties=group_properties,
+        person_properties=person or None,
         only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
     )
@@ -1200,7 +1286,9 @@ def posthog_feature_flag_enabled(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    person_properties: dict[str, Any] | None = None,
     only_evaluate_locally: bool = False,
+    caller_properties: dict[str, str] | None = None,
 ) -> bool:
     return bool(
         posthog_feature_flag_value(
@@ -1208,7 +1296,9 @@ def posthog_feature_flag_enabled(
             distinct_id,
             organization_id=organization_id,
             team_id=team_id,
+            person_properties=person_properties,
             only_evaluate_locally=only_evaluate_locally,
+            caller_properties=caller_properties,
         )
     )
 
@@ -1250,6 +1340,7 @@ class PostHogFeatureFlagPermission(BasePermission):
                     str(user.distinct_id),
                     organization_id=organization.id,
                     team_id=team_for_flag.id if team_for_flag is not None else None,
+                    caller_properties=get_authenticator_client(getattr(request, "successful_authenticator", None)),
                 )
 
                 if enabled:

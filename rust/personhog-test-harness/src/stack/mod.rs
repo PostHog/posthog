@@ -73,6 +73,14 @@ pub struct StackConfig {
 /// leader-mode routers (each hosting a coordinator candidate), all pointed
 /// at the docker-compose Kafka/etcd/Postgres but isolated from the dev
 /// stack via their own ports, etcd prefix, and per-run changelog topic.
+/// Identity's companion tables; its env must name the full set.
+struct IdentityCompanionTables {
+    person_distinct_id: &'static str,
+    ff_hash_key_override: &'static str,
+    lifecycle_op: &'static str,
+    lifecycle_op_person: &'static str,
+}
+
 pub struct Stack {
     config: StackConfig,
     infra: Vec<ServiceProcess>,
@@ -101,16 +109,21 @@ impl Stack {
     /// The distinct id and hash-key-override tables paired with a person
     /// table. Identity writes the mapping (and clears overrides) in the same
     /// id namespace as its person table, so the three always travel together.
-    fn identity_companion_tables(person_table: &str) -> Result<(&'static str, &'static str)> {
+    fn identity_companion_tables(person_table: &str) -> Result<IdentityCompanionTables> {
+        let (lifecycle_op, lifecycle_op_person) = crate::seed::lifecycle_tables_for(person_table);
         match person_table {
-            "posthog_person" => Ok((
-                "posthog_persondistinctid",
-                "posthog_featureflaghashkeyoverride",
-            )),
-            "personhog_person_tmp" => Ok((
-                "personhog_persondistinctid_tmp",
-                "personhog_featureflaghashkeyoverride_tmp",
-            )),
+            "posthog_person" => Ok(IdentityCompanionTables {
+                person_distinct_id: "posthog_persondistinctid",
+                ff_hash_key_override: "posthog_featureflaghashkeyoverride",
+                lifecycle_op,
+                lifecycle_op_person,
+            }),
+            "personhog_person_tmp" => Ok(IdentityCompanionTables {
+                person_distinct_id: "personhog_persondistinctid_tmp",
+                ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp",
+                lifecycle_op,
+                lifecycle_op_person,
+            }),
             other => bail!(
                 "--create-via-identity has no known identity table set for \
                  --pg-target-table {other:?}"
@@ -248,13 +261,12 @@ impl Stack {
         let router_url = format!("http://127.0.0.1:{traffic_router_port}");
 
         // Identity resolves and creates on the Postgres primary and pushes
-        // initial properties through the traffic router; it holds no etcd
-        // state, so it can come up alongside the routers. Its table set is
+        // initial properties through the traffic router; from etcd it reads
+        // only the partition count the reset above wrote. Its table set is
         // derived from the stack's person table so identity, writer, and the
         // leader fallback agree on one id namespace.
         let identity_url = if config.spawn_identity {
-            let (pdi_table, ffhko_table) =
-                Self::identity_companion_tables(&config.pg_target_table)?;
+            let companions = Self::identity_companion_tables(&config.pg_target_table)?;
             infra.push(ServiceProcess::spawn(
                 "identity",
                 &config.bin_dir.join("personhog-identity"),
@@ -262,10 +274,23 @@ impl Stack {
                     ("GRPC_ADDRESS", format!("127.0.0.1:{IDENTITY_GRPC_PORT}")),
                     ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
                     ("ROUTER_URL", router_url.clone()),
+                    ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
+                    ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                     ("METRICS_PORT", IDENTITY_METRICS_PORT.to_string()),
                     ("PERSON_TABLE", config.pg_target_table.clone()),
-                    ("PERSON_DISTINCT_ID_TABLE", pdi_table.to_string()),
-                    ("FF_HASH_KEY_OVERRIDE_TABLE", ffhko_table.to_string()),
+                    (
+                        "PERSON_DISTINCT_ID_TABLE",
+                        companions.person_distinct_id.to_string(),
+                    ),
+                    (
+                        "FF_HASH_KEY_OVERRIDE_TABLE",
+                        companions.ff_hash_key_override.to_string(),
+                    ),
+                    ("LIFECYCLE_OP_TABLE", companions.lifecycle_op.to_string()),
+                    (
+                        "LIFECYCLE_OP_PERSON_TABLE",
+                        companions.lifecycle_op_person.to_string(),
+                    ),
                     // The service default is off. The gate needs the
                     // sweeper: a leader kill abandons a merge mid-saga,
                     // and only the sweeper re-drives it. The short
@@ -313,6 +338,8 @@ impl Stack {
     pub fn spawn_leader(&mut self) -> Result<String> {
         let index = self.next_leader_index;
         self.next_leader_index += 1;
+        let (lifecycle_op, lifecycle_op_person) =
+            crate::seed::lifecycle_tables_for(&self.config.pg_target_table);
 
         let grpc_port = LEADER_GRPC_BASE_PORT + index as u16;
         // A real pod name: the leader derives its advertise address from
@@ -355,6 +382,8 @@ impl Stack {
                 // dirty index treats an unmarked person's PG row as
                 // current, which is only true of the writer's own table.
                 ("FALLBACK_TABLE", self.config.pg_target_table.clone()),
+                ("LIFECYCLE_OP_TABLE", lifecycle_op.to_string()),
+                ("LIFECYCLE_OP_PERSON_TABLE", lifecycle_op_person.to_string()),
                 (
                     "METRICS_PORT",
                     (LEADER_METRICS_BASE_PORT + index as u16).to_string(),

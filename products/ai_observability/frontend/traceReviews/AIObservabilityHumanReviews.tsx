@@ -6,7 +6,6 @@ import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 import { urls } from '~/scenes/urls'
 
 import { AIObservabilityReviewQueues } from '../reviewQueues/AIObservabilityReviewQueues'
-import { AIObservabilityScoreDefinitions } from '../scoreDefinitions/AIObservabilityScoreDefinitions'
 import { AIObservabilityReviews } from './AIObservabilityReviews'
 
 const HUMAN_REVIEWS_TAB_PARAM = 'human_reviews_tab'
@@ -46,11 +45,8 @@ export function AIObservabilityHumanReviews(): JSX.Element {
         {
             key: 'scorers',
             label: 'Scorers',
-            content: <AIObservabilityScoreDefinitions />,
-            link: combineUrl(urls.aiObservabilityReviews(), {
-                ...searchParams,
-                [HUMAN_REVIEWS_TAB_PARAM]: 'scorers',
-            }).url,
+            content: <></>,
+            link: urls.aiObservabilityScorers(),
             'data-attr': 'llma-scorers-tab',
         },
     ]
@@ -62,11 +58,12 @@ export function AIObservabilityHumanReviews(): JSX.Element {
             tabs={tabs}
             onChange={(tab) =>
                 push(
-                    combineUrl(urls.aiObservabilityReviews(), {
-                        ...searchParams,
-                        [HUMAN_REVIEWS_TAB_PARAM]:
-                            tab === 'reviews' ? 'reviews' : tab === 'scorers' ? 'scorers' : undefined,
-                    }).url
+                    tab === 'scorers'
+                        ? urls.aiObservabilityScorers()
+                        : combineUrl(urls.aiObservabilityReviews(), {
+                              ...searchParams,
+                              [HUMAN_REVIEWS_TAB_PARAM]: tab === 'reviews' ? 'reviews' : undefined,
+                          }).url
                 )
             }
         />

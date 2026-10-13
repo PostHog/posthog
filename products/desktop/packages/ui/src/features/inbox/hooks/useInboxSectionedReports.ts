@@ -4,6 +4,10 @@ import {
   INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
   sortInboxReports,
 } from "@posthog/core/inbox/reportFiltering";
+import {
+  needsImplementationDecision,
+  type ReportImplementationState,
+} from "@posthog/core/inbox/reportImplementation";
 import type { InboxScope } from "@posthog/core/inbox/reportMembership";
 import type {
   SignalReport,
@@ -12,6 +16,7 @@ import type {
   SourceProduct,
 } from "@posthog/shared/types";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useReportImplementationStates } from "@posthog/ui/features/inbox/hooks/useReportImplementationStates";
 import {
   type InboxReportStateFilter,
   useInboxSignalsFilterStore,
@@ -37,6 +42,10 @@ export interface InboxSectionedReports {
   /** The subset triage steps through: reports that still need a decision. */
   triageReports: SignalReport[];
   triageReportCount: number;
+  triageLoading: boolean;
+  /** Another page of decisions is in flight, or autopaging will ask for one. */
+  triagePagePending: boolean;
+  implementationStates: Map<string, ReportImplementationState | null>;
   reportCount: number;
   isLoading: boolean;
   isSuccess: boolean;
@@ -53,7 +62,8 @@ export interface InboxSectionedReports {
   priorityFilter: SignalReportPriority[];
 }
 
-function useAutoPage(query: InboxQuery, enabled: boolean): void {
+/** Returns true while another page is in flight or still to come. */
+function useAutoPage(query: InboxQuery, enabled: boolean): boolean {
   const shouldPage =
     enabled &&
     query.hasNextPage &&
@@ -65,6 +75,8 @@ function useAutoPage(query: InboxQuery, enabled: boolean): void {
   useEffect(() => {
     if (shouldPage) void fetchNextPage();
   }, [shouldPage, fetchNextPage]);
+
+  return shouldPage || (enabled && query.isFetchingNextPage);
 }
 
 /**
@@ -127,13 +139,23 @@ export function useInboxSectionedReports(options?: {
   });
 
   useAutoPage(reviewAndMergeQuery, autoPage && showReviewAndMerge);
-  useAutoPage(needsDecisionQuery, autoPage && showNeedsDecision);
+  const decisionPagePending = useAutoPage(
+    needsDecisionQuery,
+    autoPage && showNeedsDecision,
+  );
   useAutoPage(terminalQuery, autoPage && showTerminal);
 
   const { searchQuery, scope, sourceProductFilter, priorityFilter } =
     reviewAndMergeQuery;
+  const implementations = useReportImplementationStates(
+    showNeedsDecision ? needsDecisionQuery.scopedReports : EMPTY_REPORTS,
+  );
   const triageReports = showNeedsDecision
-    ? needsDecisionQuery.scopedReports
+    ? needsDecisionQuery.scopedReports.filter((report) =>
+        needsImplementationDecision(
+          implementations.states.get(report.id) ?? null,
+        ),
+      )
     : EMPTY_REPORTS;
 
   const visibleReports = useMemo(() => {
@@ -174,8 +196,11 @@ export function useInboxSectionedReports(options?: {
   return {
     reports: visibleReports,
     triageReports,
-    triageReportCount: showNeedsDecision ? needsDecisionQuery.totalCount : 0,
+    triageReportCount: triageReports.length,
+    implementationStates: implementations.states,
     reportCount,
+    triageLoading: implementations.isLoading,
+    triagePagePending: decisionPagePending,
     isLoading: selected.some((query) => query.isPending),
     isSuccess,
     isError:

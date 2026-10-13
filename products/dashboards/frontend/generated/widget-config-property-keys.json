@@ -1,5 +1,6 @@
 {
     "configPropertyKeys": {
+        "notebook_widget": ["notebookShortId", "snapshotId"],
         "activity_events_list": [
             "dateRange",
             "eventName",
@@ -49,9 +50,18 @@
             "savedViewId",
             "search",
             "status"
-        ]
+        ],
+        "canvas_app": ["canvasId"]
     },
     "configPropertyTrees": {
+        "notebook_widget": {
+            "notebookShortId": {
+                "$type": "string"
+            },
+            "snapshotId": {
+                "$type": "string"
+            }
+        },
         "activity_events_list": {
             "dateRange": {
                 "date_from": {
@@ -458,6 +468,11 @@
                 "$type": "string"
             },
             "savedViewId": {
+                "$type": "string"
+            }
+        },
+        "canvas_app": {
+            "canvasId": {
                 "$type": "string"
             }
         }

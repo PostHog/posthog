@@ -127,6 +127,59 @@ export interface AnonymizeKafkaPayloadResult {
     timings: AnonymizeTimings | null
     /** Original bytes of the collected images, concatenated in `meta.images` order; null when none. */
     images: Buffer | null
+    dedupedImageCount?: number
+    dedupedUrlCount?: number
+    /** Distinct registrable domains among the collected URLs, counted before the dedup drop. */
+    collectedUrlDomainCount?: number
+}
+
+export interface RefDedupCacheStats {
+    entries: number
+    evictions: number
+    /** Sampled misses on a ref that a cache of twice the capacity would still have held. */
+    wouldHit: number
+    wouldMiss: number
+}
+
+/** The entries live outside the V8 heap, so a full cache adds nothing for a major GC to mark. A capacity of 0 turns dedup off. */
+export class RefDedupCache {
+    /** The addon's handle. Only this package reads it. */
+    readonly nativeHandle: unknown
+
+    constructor(capacity: number) {
+        this.nativeHandle = native.refDedupCacheNew(capacity)
+    }
+
+    claimRefs(refs: string[]): boolean[] {
+        return native.refDedupCacheClaimRefs(this.nativeHandle, refs)
+    }
+
+    releaseRefs(refs: string[]): void {
+        native.refDedupCacheReleaseRefs(this.nativeHandle, refs)
+    }
+
+    claimTransportUrls(refs: string[], urls: string[], timeBucket: number): boolean[] {
+        return native.refDedupCacheClaimTransportUrls(this.nativeHandle, refs, urls, timeBucket)
+    }
+
+    releaseTransportUrls(refs: string[], urls: string[], timeBucket: number): void {
+        native.refDedupCacheReleaseTransportUrls(this.nativeHandle, refs, urls, timeBucket)
+    }
+
+    stats(): RefDedupCacheStats {
+        return native.refDedupCacheStats(this.nativeHandle)
+    }
+}
+
+/**
+ * The produce lanes' caches, consulted inside the anonymize call without marking. An image or URL
+ * whose ref the cache holds is left out of the result, so it never reaches the JS heap. The caller
+ * still claims what comes back before it produces.
+ */
+export interface ProducedRefDedup {
+    images?: RefDedupCache
+    urls?: RefDedupCache
+    urlTimeBucket?: number
 }
 
 /** Initialize the process-wide allow lists. Call once at startup before {@link anonymizeKafkaPayload}. */
@@ -142,31 +195,41 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * `cv` payloads re-emit as zstd; the reader dispatches on magic bytes.
  *
- * Non-empty `pseudoTeam` + `contentKey` (the per-team HMAC pseudonym and content-hash key — never
- * the raw team id or master secret) enable the image-collection lane: inlined images are replaced
- * with `image:<pseudoTeam>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
+ * Non-empty `teamId` + `contentKey` enable image collection using the raw team ID and per-team
+ * content HMAC key. The master secret stays with the caller. Inlined images are replaced
+ * with `image:<teamId>:<hash>` refs (hash = keyed HMAC of the bytes) instead of the inline
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
  * the scrub topic.
  *
  * `urlKey` enables the URL-collection lane independently. It is the global URL HMAC key. A remote
  * image's `src` keeps the media placeholder, a namespaced sibling attribute carries its ref, and
  * its original URL comes back in `meta.urls` for the caller to hand to the fetch lane.
+ * `referenceNamespace` scopes URL refs as `imageurl:<namespace>:<hash>`; omitting it produces
+ * `imageurl:<hash>`. For v2, pass `v2:<raw team id>:<YYYY-MM>` as both `teamId` and `referenceNamespace`.
  *
- * The two lanes are independent: either, both, or neither. Only `contentKey` needs `pseudoTeam`.
+ * The two lanes are independent: either, both, or neither. Only `contentKey` needs `teamId`.
+ *
+ * `producedRefDedup` leaves out the collected images and URLs that an earlier message already produced.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
-    pseudoTeam?: string | null,
+    teamId?: string | null,
     contentKey?: string | null,
-    urlKey?: string | null
+    urlKey?: string | null,
+    referenceNamespace?: string | null,
+    producedRefDedup?: ProducedRefDedup
 ): Promise<AnonymizeKafkaPayloadResult> {
     const result = await native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
-        pseudoTeam ?? undefined,
+        teamId ?? undefined,
         contentKey ?? undefined,
-        urlKey ?? undefined
+        urlKey ?? undefined,
+        referenceNamespace ?? undefined,
+        producedRefDedup?.images?.nativeHandle,
+        producedRefDedup?.urls?.nativeHandle,
+        producedRefDedup?.urlTimeBucket
     )
     // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
     let timings: AnonymizeTimings | null = null
@@ -239,7 +302,11 @@ export type UrlPolicyVerdict =
 export function tryCanonicalizeUrl(url: string): UrlPolicyVerdict {
     const result = native.tryCanonicalizeUrl(url)
     if (typeof result.decline === 'string') {
-        return { ok: false, decline: result.decline, unwanted: result.unwanted === true }
+        return {
+            ok: false,
+            decline: result.decline,
+            unwanted: result.unwanted === true,
+        }
     }
     return { ok: true, url: result }
 }
@@ -247,4 +314,9 @@ export function tryCanonicalizeUrl(url: string): UrlPolicyVerdict {
 export function canonicalizeUrl(url: string): CanonicalUrl | null {
     const verdict = tryCanonicalizeUrl(url)
     return verdict.ok ? verdict.url : null
+}
+
+/** The same bytes as `zlib.brotliCompress` at this quality with a size hint of `data.length`. */
+export function compressBrotli(data: Buffer, quality: number): Promise<Buffer> {
+    return native.compressBrotli(data, quality)
 }

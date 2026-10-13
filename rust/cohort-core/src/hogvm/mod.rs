@@ -21,6 +21,6 @@ pub use executor::{
 };
 pub use globals::{
     build_behavioral_globals, build_person_property_globals, build_person_scan_globals,
-    GlobalsError,
+    parse_person_scan_properties, person_scan_globals, GlobalsError,
 };
 pub use program::ConditionProgram;

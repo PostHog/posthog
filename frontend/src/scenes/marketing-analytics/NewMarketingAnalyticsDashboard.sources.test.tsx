@@ -10,7 +10,7 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('~/queries/Query/Query', () => ({ Query: () => null }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable', () => ({
@@ -54,6 +54,11 @@ it('reuses source suggestions, remembers collapse and opens their review in Setu
     const unmountSetup = setupPlanLogic.mount()
     const view = render(<NewMarketingAnalyticsDashboard />)
     try {
+        await screen.findByText('Suggested ad sources (1)')
+        expect(
+            screen.getByText('Suggested ad sources (1)').closest('[aria-expanded]')?.getAttribute('aria-expanded')
+        ).toBe('false')
+        fireEvent.click(screen.getByText('Suggested ad sources (1)'))
         await screen.findByText('Connect Google Ads')
         fireEvent.click(screen.getByText('Suggested ad sources (1)'))
         expect(localStorage.getItem('marketing-source-suggestions-expanded')).toBe('false')
@@ -71,6 +76,8 @@ it('reuses source suggestions, remembers collapse and opens their review in Setu
         await waitFor(() => expect(screen.queryByText('Suggested ad sources (1)')).toBeNull())
     } finally {
         cleanup()
+        setupPlanLogic.actions.restoreAllDismissed()
+        localStorage.removeItem('marketing-source-suggestions-expanded')
         unmountSetup()
         unmountMarketing()
     }

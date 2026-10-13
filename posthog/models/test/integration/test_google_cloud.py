@@ -7,13 +7,22 @@ from typing import Optional
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import GoogleCloudIntegration, GoogleCloudServiceAccountIntegration, Integration
+from posthog.models.integration.google_cloud import GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+
+NON_GOOGLE_TOKEN_URIS = [
+    ("relay", "https://relay.example.com/token"),
+    ("plain_http_google", "http://oauth2.googleapis.com/token"),
+    ("lookalike_host", "https://oauth2.googleapis.com.example.com/token"),
+    ("link_local", "http://169.254.169.254/latest/meta-data/"),
+]
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):
@@ -165,8 +174,87 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         assert token == "ACCESS_TOKEN"
         assert "access_token" not in integration.config
 
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_rejects_key_file_token_uri_that_is_not_google(
+        self, _name: str, token_uri: str, mock_credentials: MagicMock
+    ) -> None:
+        with pytest.raises(ValidationError):
+            GoogleCloudIntegration.integration_from_key(
+                "google-pubsub", {**self.mock_keyfile, "token_uri": token_uri}, self.team.id, self.user
+            )
+
+        mock_credentials.assert_not_called()
+        assert not Integration.objects.filter(team=self.team, kind="google-pubsub").exists()
+
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_stored_key_file_with_non_google_token_uri_never_refreshes(
+        self, _name: str, token_uri: str, mock_credentials: MagicMock
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-pubsub",
+            integration_id="stored-before-validation",
+            config={"refreshed_at": 0, "expires_in": 1},
+            sensitive_config={"key_info": {**self.mock_keyfile, "token_uri": token_uri}, "access_token": "OLD"},
+        )
+
+        with pytest.raises(ValidationError):
+            GoogleCloudIntegration(integration).refresh_access_token()
+
+        mock_credentials.assert_not_called()
+        integration.refresh_from_db()
+        assert integration.config["refresh_failure_count"] == 1
+        assert integration.config["refresh_terminal"] is True
+
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    def test_rejects_key_file_token_uri_that_is_not_google(self, _name: str, token_uri: str) -> None:
+        with pytest.raises(ValidationError):
+            GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=self.team.pk,
+                organization_id=str(self.team.organization.id),
+                service_account_email="test@test.iam.gserviceaccount.com",
+                project_id="test",
+                private_key="something",
+                private_key_id="something",
+                token_uri=token_uri,
+            )
+
+        assert not Integration.objects.filter(team_id=self.team.pk, kind="google-cloud-service-account").exists()
+
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    def test_stored_key_file_with_non_google_token_uri_never_builds_credentials(
+        self, _name: str, token_uri: str
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-cloud-service-account",
+            integration_id="stored-before-validation",
+            config={"project_id": "test", "service_account_email": "test@test.iam.gserviceaccount.com"},
+            sensitive_config={"private_key": "something", "private_key_id": "something", "token_uri": token_uri},
+        )
+
+        with pytest.raises(ValidationError) as exc_info:
+            _ = GoogleCloudServiceAccountIntegration(integration).service_account_info
+
+        assert str(exc_info.value) == GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
+
+    def test_stores_key_file_token_uri_stripped(self) -> None:
+        integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization.id),
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+            private_key="something",
+            private_key_id="something",
+            token_uri=" https://oauth2.googleapis.com/token ",
+        )
+
+        assert integration.sensitive_config["token_uri"] == "https://oauth2.googleapis.com/token"
+
     def test_raises_on_duplicate_service_account_email(self):
         _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
             team_id=self.team.pk,
@@ -190,7 +278,7 @@ class TestGoogleCloudServiceAccountIntegration(BaseTest):
             project_id="test",
             private_key="something",
             private_key_id="something",
-            token_uri="something",
+            token_uri="https://oauth2.googleapis.com/token",
         )
 
         other_org = Organization.objects.create(name="other org")
@@ -209,7 +297,7 @@ class TestGoogleCloudServiceAccountIntegration(BaseTest):
             project_id="test",
             private_key="something",
             private_key_id="something",
-            token_uri="something",
+            token_uri="https://oauth2.googleapis.com/token",
         )
 
         assert (

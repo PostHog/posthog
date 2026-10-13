@@ -42,7 +42,7 @@ export const AllProducts: Story = {
         const humanizeProductKey = (productKey: string): string => {
             const spaced = productKey.replace(/_/g, ' ')
             const sentence = spaced.charAt(0).toUpperCase() + spaced.slice(1)
-            return sentence.replace(/^Llm\b/, 'LLM')
+            return sentence.replace(/^(Llm|Mcp)\b/, (acronym) => acronym.toUpperCase())
         }
 
         return (

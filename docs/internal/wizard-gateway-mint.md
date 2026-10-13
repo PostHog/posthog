@@ -44,7 +44,8 @@ bounded by the posture's ceiling, then the posture's cap, then
 `WIZARD_GATEWAY_TOKEN_CAP_USD`. The flat setting applies only when no posture
 resolved. Every value passes a contract check bounded by `_MAX_CAP_USD`.
 
-Mints are metered per user, per program, per week. The reservation is atomic and
+Mints are metered per user, per week — one bucket across every program, so the
+tier's count is the hard per-account ceiling. The reservation is atomic and
 charged immediately before the mint, so a run refused by an earlier gate spends
 nothing, and a failure that proves no token was issued returns the slot.
 

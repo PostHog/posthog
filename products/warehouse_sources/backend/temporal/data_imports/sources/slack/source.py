@@ -2,21 +2,20 @@ from dataclasses import field
 from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
     from posthog.models.integration import Integration
 
-from posthog.schema import (
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
 )
-
-from posthog.dataclasses import frozen
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -137,7 +136,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SLACK,
+            name=ExternalDataSourceType.SLACK,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             caption="""Sync Slack channels, users, and messages into PostHog by connecting your own Slack app.
 

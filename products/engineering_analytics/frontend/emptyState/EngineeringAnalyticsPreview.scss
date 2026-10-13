@@ -65,8 +65,6 @@
         color: var(--color-text-tertiary);
     }
 
-    // Pull request rows
-
     &__rows {
         display: flex;
         flex-direction: column;
@@ -148,8 +146,6 @@
             background: color-mix(in oklab, var(--color-danger) 12%, transparent);
         }
     }
-
-    // Bottom row: workflow runs and the stat card side by side.
 
     &__bottom {
         display: grid;
@@ -236,8 +232,6 @@
         }
     }
 
-    // Stat card
-
     &__stat {
         padding: 0.625rem 0.75rem 0.75rem;
     }
@@ -265,7 +259,6 @@
         stroke-width: 2;
     }
 
-    // The moving bit: a short bright segment cycling along the line.
     &__spark-trace {
         fill: none;
         stroke: var(--eng-preview-accent);
@@ -284,8 +277,6 @@
 .EngAnalyticsPreview__radio--red:checked ~ .EngAnalyticsPreview__panel .EngAnalyticsPreview__row--red {
     background: color-mix(in oklab, var(--eng-preview-accent) 8%, transparent);
 }
-
-// Failing pull request selected
 
 .EngAnalyticsPreview__radio--red:checked ~ .EngAnalyticsPreview__bottom .EngAnalyticsPreview__when-red {
     @include preview-swap-visible;

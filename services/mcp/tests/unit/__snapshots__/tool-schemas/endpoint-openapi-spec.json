@@ -5,7 +5,7 @@
             "type": "string"
         },
         "version": {
-            "description": "Specific endpoint version to generate the spec for. Defaults to latest.",
+            "description": "Endpoint version to act on. Defaults to the current version.",
             "type": "number"
         }
     },

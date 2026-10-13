@@ -436,8 +436,6 @@ class TestCoderConfig:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
-        monkeypatch.setattr(coder, "ensure_tailscale_routes_accepted", lambda: None)
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
@@ -574,7 +572,9 @@ class TestCoderReachable:
         recorded_properties: dict[str, object],
     ) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
-        monkeypatch.setattr(coder, "coder_reachable", lambda: False)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: None)
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
         monkeypatch.setattr(
             coder,
             "_diagnose_unreachable_coder",
@@ -595,6 +595,56 @@ class TestCoderReachable:
         assert "stubbed step." in out
         assert "fact: one" in out
         assert recorded_properties == {"devbox_failure_cause": "stubbed_code"}
+
+    @pytest.mark.parametrize(
+        "probe_statuses, expected_tailscale_commands, exits",
+        [
+            ([200], [], False),
+            ([None, 200], [["/usr/bin/tailscale", "set", "--accept-routes"]], False),
+            ([None, None], [["/usr/bin/tailscale", "set", "--accept-routes"]], True),
+            ([503], [], True),
+        ],
+    )
+    def test_ensure_coder_reachable_changes_tailscale_only_when_coder_does_not_respond(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        probe_statuses: list[int | None],
+        expected_tailscale_commands: list[list[str]],
+        exits: bool,
+    ) -> None:
+        def response(status: int | None) -> coder.requests.Response | None:
+            if status is None:
+                return None
+            resp = coder.requests.Response()
+            resp.status_code = status
+            return resp
+
+        probes = iter(probe_statuses)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: response(next(probes)))
+        monkeypatch.setattr(
+            coder,
+            "_diagnose_unreachable_coder",
+            lambda: coder.CoderReachabilityDiagnosis(code="stubbed_code", cause="", next_step="", facts=[]),
+        )
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: "/usr/bin/tailscale")
+        monkeypatch.setattr(coder.os, "geteuid", lambda: 0)
+        commands: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        if exits:
+            with pytest.raises(SystemExit):
+                coder.ensure_coder_reachable()
+        else:
+            coder.ensure_coder_reachable()
+
+        assert commands == expected_tailscale_commands
 
 
 class TestDiagnoseUnreachableCoder:
@@ -911,7 +961,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
 
     def stub(
         name: str,
-        disk_size: int,
+        disk_size: int | None,
         *,
         git_name: str | None = None,
         git_email: str | None = None,
@@ -967,7 +1017,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # An explicit warm preset that the template defines flows through to
             # the coder argv unchanged, alongside all optional params.
@@ -982,7 +1032,6 @@ class TestWorkspaceCreation:
                 "posthog-linux",
                 "Default (warm)",
                 {
-                    "disk_size": "100",
                     "repo": _REPO,
                     "workspace_region": "us-east-1",
                     "git_name": "PostHog Engineer",
@@ -995,7 +1044,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
@@ -1006,7 +1055,7 @@ class TestWorkspaceCreation:
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # A non-default region is forwarded verbatim as workspace_region.
             (
@@ -1014,7 +1063,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
+                {"repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
@@ -1038,7 +1087,7 @@ class TestWorkspaceCreation:
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
         monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
-        coder.create_workspace("devbox-test-user", 100, **kwargs)
+        coder.create_workspace("devbox-test-user", None, **kwargs)
 
         args = captured["args"]
         assert args[:3] == ["coder", "create", "devbox-test-user"]
@@ -1414,9 +1463,7 @@ class TestDevboxCommands:
     def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": calls.append("tailscale"))
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: calls.append("routes"))
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: calls.append("reachable"))
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": calls.append("reachable"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
@@ -1467,8 +1514,6 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0
         assert calls == [
-            "tailscale",
-            "routes",
             "reachable",
             "install",
             "login",
@@ -1486,9 +1531,7 @@ class TestDevboxCommands:
     ) -> None:
         captured: dict[str, object] = {}
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: "/tmp/resolved.sock")
@@ -1517,9 +1560,7 @@ class TestDevboxCommands:
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
     ) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
@@ -1553,9 +1594,7 @@ class TestDevboxCommands:
     ) -> None:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
@@ -1592,7 +1631,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert captured == {
             "name": "devbox-test-user",
-            "disk_size": "100",
+            "disk_size": "None",
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
@@ -1603,8 +1642,6 @@ class TestDevboxCommands:
         }
 
     def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Guards that --disk 200 is an accepted choice and reaches create_workspace;
-        # regresses if the choice list drifts from the Coder template's disk_size options.
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -2057,12 +2094,7 @@ class TestDevboxCommands:
 @pytest.fixture
 def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
-    for name in (
-        "ensure_tailscale_connected",
-        "ensure_tailscale_routes_accepted",
-        "ensure_coder_reachable",
-        "ensure_coder_authenticated",
-    ):
+    for name in ("ensure_coder_reachable", "ensure_coder_authenticated"):
         monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
     monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
@@ -2978,44 +3010,6 @@ class TestSetupClaudeSecret:
         assert called == []
 
 
-class TestDevboxTaskClaudeWarning:
-    """Test the Claude-secret warning printed by devbox:task."""
-
-    def test_warns_when_secret_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" in result.output
-
-    def test_no_warning_when_secret_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: True)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" not in result.output
-
-    def test_no_warning_when_server_unsupported(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: False)
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: called.append(True) or False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert called == []
-
-
 class TestDevboxSecretCommands:
     """Test the devbox:secret:list / set / rm wrappers."""
 
@@ -3093,123 +3087,6 @@ class TestDevboxSecretCommands:
         result = runner.invoke(cli, ["devbox:secret:rm", "GH_TOKEN"])
         assert result.exit_code == 0
         assert captured == ["GH_TOKEN"]
-
-
-class TestCreateTask:
-    """Test the coder task create argv assembly."""
-
-    @pytest.mark.parametrize(
-        "prompt, task_name, quiet, expected_tail",
-        [
-            ("fix CI on PR #1234", None, False, ["fix CI on PR #1234"]),
-            (None, None, False, ["--stdin"]),
-            ("do the thing", "my-task", True, ["--name", "my-task", "--quiet", "do the thing"]),
-        ],
-    )
-    def test_create_task_argv(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        prompt: str | None,
-        task_name: str | None,
-        quiet: bool,
-        expected_tail: list[str],
-    ) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task(prompt, task_name=task_name, quiet=quiet)
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-linux", *expected_tail]]
-
-    def test_create_task_argv_uses_selected_template(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task("do it", template="posthog-microvm")
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-microvm", "do it"]]
-
-
-class TestDevboxTaskCommand:
-    """Test the devbox:task Click command."""
-
-    @pytest.mark.parametrize(
-        "cli_args, expected",
-        [
-            (
-                ["devbox:task", "fix CI on PR #1234"],
-                {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "--name", "my-task", "-q", "do it"],
-                {"prompt": "do it", "task_name": "my-task", "quiet": True, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "-t", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-            (
-                ["devbox:task", "--template", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-        ],
-    )
-    def test_options_forwarded_to_create_task(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        cli_args: list[str],
-        expected: dict[str, object],
-    ) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, cli_args)
-
-        assert result.exit_code == 0
-        assert captured == expected
-
-    def test_no_prompt_on_tty_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-
-        class FakeTTY:
-            def isatty(self) -> bool:
-                return True
-
-        monkeypatch.setattr(devbox_cli.click, "get_text_stream", lambda stream: FakeTTY())
-
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: called.append(True))
-
-        result = runner.invoke(cli, ["devbox:task"])
-
-        assert result.exit_code != 0
-        assert "Provide a prompt" in result.output
-        assert called == []
-
-    def test_piped_stdin_passes_none_as_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, ["devbox:task"], input="piped prompt\n")
-
-        assert result.exit_code == 0
-        assert captured == {"prompt": None, "task_name": None, "quiet": False, "template": "posthog-linux"}
 
 
 class TestResolveLocalSigningKey:

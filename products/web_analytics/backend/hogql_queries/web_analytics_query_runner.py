@@ -3,7 +3,7 @@ from abc import ABC
 from datetime import datetime, timedelta
 from math import ceil
 from time import perf_counter
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -62,6 +62,7 @@ from products.web_analytics.backend.hogql_queries.traffic_type import get_traffi
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     compute_filters_eligibility_hash,
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
 )
 
 logger = structlog.get_logger(__name__)
@@ -109,6 +110,26 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     # SAMPLE clauses nor scale results.
     query: WebQueryNode
     query_type: type[WebQueryNode]
+    bypass_warehouse_access_control: bool = False
+
+    def __init__(self, *args: Any, bypass_warehouse_access_control: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.bypass_warehouse_access_control = bypass_warehouse_access_control
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # The base fingerprint does not see a warehouse table that a test-account filter reads through a join,
+        # so a bypass run and a user run would share one cache entry. The separate key stops a user who is
+        # denied that table from reading a result that a bypass run computed.
+        if self.bypass_warehouse_access_control:
+            payload["bypass_warehouse_access_control"] = True
+        return payload
+
+    def single_flight_variant(self) -> str:
+        variant = super().single_flight_variant()
+        if self.bypass_warehouse_access_control:
+            return f"{variant}:bypass_warehouse_access_control"
+        return variant
 
     def query_strategy(self) -> str | None:
         return None
@@ -325,6 +346,7 @@ WHERE and(
                 query=count_query,
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
@@ -524,15 +546,18 @@ WHERE and(
                 raise QueryError(
                     f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
                 )
-            return action_to_expr(action)
+            goal_expr = action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            return ast.CompareOperation(
+            goal_expr = ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=self.query.conversionGoal.customEventName),
             )
         else:
             return None
+        if self.query.conversionGoal.properties:
+            return ast.And(exprs=[goal_expr, property_to_expr(self.query.conversionGoal.properties, team=self.team)])
+        return goal_expr
 
     @cached_property
     def conversion_count_expr(self) -> Optional[ast.Expr]:
@@ -758,19 +783,23 @@ WHERE and(
             modifiers=self.modifiers,
         )
 
-    def get_cache_key(self) -> str:
-        original = super().get_cache_key()
+    def get_cache_key_variant(self) -> str:
         # Precompute enrollment is part of the key so flipping the rollout flag
         # invalidates cached results: with default-on reads, disabling the flag
         # (the kill switch) must not keep serving cached precompute-produced
         # responses until they stale out.
         precompute = is_precompute_enabled_for_team(self.team)
-        key = f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}"
+        # The volume-floor verdict is part of the key too: a team crossing below
+        # the floor switches to the live path, so a precompute-produced response
+        # under the old key must not keep serving until it stales out. Only read
+        # the floor when precompute is on — otherwise it can't change the result.
+        above_floor = precompute and is_team_above_volume_floor(self.team.pk)
+        variant = f"_{self.team.path_cleaning_filters}_pc{int(precompute)}_vf{int(above_floor)}"
         # A rewritten filter selects a different population for the same query, so
         # rewritten and entry-attributed runs must not share cache entries.
         if self.rewritten_first_pageview_filters:
-            key = f"{key}_fpfilters"
-        return key
+            variant = f"{variant}_fpfilters"
+        return variant
 
     @cached_property
     def events_session_property(self):

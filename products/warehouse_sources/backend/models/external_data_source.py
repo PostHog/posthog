@@ -1,6 +1,7 @@
+from typing import Any
 from uuid import UUID
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
@@ -36,7 +37,7 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     AccessMethod = ExternalDataSourceAccessMethod
     CreatedVia = ExternalDataSourceCreatedVia
     Status = ExternalDataSourceStatus
@@ -50,7 +51,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
-    sync_frequency = models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
+    sync_frequency = models.CharField(
+        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY.value, blank=True
+    )
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
@@ -67,8 +70,8 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     description = models.CharField(max_length=400, null=True, blank=True)
     # How this source was created — e.g. web UI, direct API call, or MCP tool. Required for new rows
     # via the serializer; NULL on historical rows created before this field existed.
-    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
-    access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
+    created_via = models.CharField(max_length=20, choices=CreatedVia.choices, null=True, blank=True)
+    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE.value)
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
     # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
     direct_query_enabled = models.BooleanField(default=False)
@@ -89,6 +92,31 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+
+    def merge_connection_metadata(self, metadata: dict[str, Any]) -> None:
+        """Merge ``metadata`` into ``connection_metadata`` under a lock on this row.
+
+        Several writers share the field: the API stores direct-query connection config, and the
+        schema-discovery pass and the backfill command store probed server versions. Each one holds
+        a row it read before a network round trip, so a plain read-modify-write drops whichever
+        write landed in between. Re-reading under the lock is what makes the merge safe, and the
+        lock covers only that re-read and the write, with no network call inside it.
+
+        ``of=("self",)`` keeps the lock on this row. The default manager joins
+        ``revenue_analytics_config``, and an unqualified ``FOR UPDATE`` would lock the joined rows
+        as well.
+
+        ``updated_at`` stays out of the write so a probe does not read as a customer edit.
+        """
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update(of=("self",)).get(pk=self.pk)
+            # The field is an unconstrained JSONField, so a non-mapping value is replaced rather
+            # than unpacked, which would raise.
+            existing = locked.connection_metadata if isinstance(locked.connection_metadata, dict) else {}
+            merged = {**existing, **metadata}
+            locked.connection_metadata = merged
+            locked.save(update_fields=["connection_metadata"])
+        self.connection_metadata = merged
 
     @property
     def is_direct_query(self) -> bool:

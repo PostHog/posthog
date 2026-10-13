@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -195,6 +196,32 @@ describe('sourceSettingsLogic', () => {
         expect(logic.values.source?.schemas[0].enabled_columns).toEqual(['id', 'name'])
     })
 
+    it('bulk sync method edit batches every selected table into one request', async () => {
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(
+            makeSource([
+                makeSchema({ id: 'schema-1', sync_type: 'incremental', incremental_field: 'updated_at' }),
+                makeSchema({ id: 'schema-2', sync_type: 'incremental', incremental_field: 'created_at' }),
+            ])
+        )
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation(async (_id, schemas) => schemas.map((partial) => ({ ...makeSchema(), ...partial })))
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.bulkSetSyncMethod(logic.values.source!.schemas, 'full_refresh')
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
+        expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
+            { id: 'schema-1', sync_type: 'full_refresh' },
+            { id: 'schema-2', sync_type: 'full_refresh' },
+        ])
+    })
+
     it('sends a changed writable field discovered by diff, not a fixed allowlist', async () => {
         // row_filters isn't in any hardcoded list — guards against regressing to an allowlist that drops it.
         jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(
@@ -259,6 +286,60 @@ describe('sourceSettingsLogic', () => {
             { id: 'schema-1', should_sync: true, sync_frequency: '24hour' },
         ])
     })
+
+    it.each([
+        { outcome: 'accepted', rejected: false, successToasts: 1, formAction: 'submitSourceConfigSuccess' },
+        { outcome: 'rejected', rejected: true, successToasts: 0, formAction: 'submitSourceConfigFailure' },
+    ])('reports a save as $outcome', async ({ rejected, successToasts, formAction }) => {
+        silenceKeaLoadersErrors()
+        const source = makeSource([makeSchema()])
+        const updateSpy = jest.spyOn(api.externalDataSources, 'update')
+        if (rejected) {
+            updateSpy.mockRejectedValue(Object.assign(new Error('Connection timed out'), { status: 400 }))
+        } else {
+            updateSpy.mockResolvedValue(source)
+        }
+        const successToastSpy = jest.spyOn(lemonToast, 'success')
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSourceConfigValue('description', 'edited description')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitSourceConfig()
+        }).toDispatchActions([formAction])
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(successToastSpy).toHaveBeenCalledTimes(successToasts)
+        // A rejected save must keep the edits so that the person can retry.
+        expect(logic.values.sourceConfig.description).toEqual('edited description')
+    })
+
+    it.each([
+        { case: 'a warning toast', connection_warning: 'Source saved, but the connection check failed.', warnings: 1 },
+        { case: 'the success toast', connection_warning: null, warnings: 0 },
+    ])(
+        'shows $case after a save, from the connection warning in the response',
+        async ({ connection_warning, warnings }) => {
+            const source = { ...makeSource([makeSchema()]), connection_warning }
+            jest.spyOn(api.externalDataSources, 'update').mockResolvedValue(source)
+            const warningToastSpy = jest.spyOn(lemonToast, 'warning')
+            const successToastSpy = jest.spyOn(lemonToast, 'success')
+
+            logic = sourceSettingsLogic({ id: 'source-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.submitSourceConfig()
+            }).toDispatchActions(['submitSourceConfigSuccess'])
+
+            expect(warningToastSpy).toHaveBeenCalledTimes(warnings)
+            expect(successToastSpy).toHaveBeenCalledTimes(1 - warnings)
+        }
+    )
 
     it('keys the logic by source id', () => {
         expect(sourceSettingsLogic({ id: 'source-1' }).key).toEqual('source-1')

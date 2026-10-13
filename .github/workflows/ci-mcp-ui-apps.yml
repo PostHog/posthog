@@ -60,7 +60,7 @@ jobs:
 
     build-and-report:
         name: Build and validate UI Apps
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.ui-apps == 'true'
@@ -144,7 +144,7 @@ jobs:
     ci_mcp_ui_apps:
         needs: [changes, build-and-report]
         name: MCP UI Apps CI
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

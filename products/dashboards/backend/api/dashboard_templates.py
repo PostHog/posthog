@@ -41,7 +41,7 @@ logger = structlog.get_logger(__name__)
 MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION = 100
 
 _NON_STAFF_ALLOWED_PATCH_KEYS = frozenset({"template_name", "dashboard_description", "tags", "deleted", "scope"})
-_NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url", "github_url"})
+_NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url"})
 _NON_STAFF_ALLOWED_SCOPES = frozenset({DashboardTemplate.Scope.ONLY_TEAM, DashboardTemplate.Scope.ORGANIZATION})
 
 
@@ -73,13 +73,15 @@ def enforce_organization_dashboard_template_limit(*, organization_id: UUID) -> N
 
 def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
     """Featured rows first, then order by `template_name` or `created_at` (when `ordering` requests it)."""
+    # Neither template_name nor created_at is unique across the visible templates, so each order needs `id`
+    # to page reliably. The `id` direction mirrors the column above it.
     if ordering == "-template_name":
-        return ["-is_featured", OrderBy(Lower("template_name"), descending=True)]
+        return ["-is_featured", OrderBy(Lower("template_name"), descending=True), "-id"]
     if ordering == "created_at":
-        return ["-is_featured", "created_at"]
+        return ["-is_featured", "created_at", "id"]
     if ordering == "-created_at":
-        return ["-is_featured", "-created_at"]
-    return ["-is_featured", Lower("template_name")]
+        return ["-is_featured", "-created_at", "-id"]
+    return ["-is_featured", Lower("template_name"), "id"]
 
 
 def _collect_warehouse_table_names(node: Any) -> set[str]:
@@ -125,6 +127,15 @@ def detect_non_portable_references(tiles: list[Any]) -> dict[str, Any]:
         "cohorts": len(cohort_ids),
         "warehouse_tables": sorted(warehouse_tables),
     }
+
+
+def _tiles_without_agent_context(tiles: Any) -> Any:
+    if not isinstance(tiles, list):
+        return tiles
+    return [
+        {key: value for key, value in tile.items() if key != "agent_context"} if isinstance(tile, dict) else tile
+        for tile in tiles
+    ]
 
 
 class CustomerDashboardTemplateWritePermission(BasePermission):
@@ -219,6 +230,15 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else None
         return bool(user and user.is_authenticated and user.is_staff)
+
+    def to_representation(self, instance: DashboardTemplate) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        get_team = self.context.get("get_team")
+        team = get_team() if callable(get_team) else instance.team
+        ai_data_processing_approved = bool(team and team.organization.is_ai_data_processing_approved)
+        if instance.scope != DashboardTemplate.Scope.ONLY_TEAM or not ai_data_processing_approved:
+            representation["tiles"] = _tiles_without_agent_context(representation.get("tiles"))
+        return representation
 
     @extend_schema_field(NonPortableReferencesSerializer)
     def get_non_portable_references(self, obj: DashboardTemplate) -> dict[str, Any] | None:
@@ -322,6 +342,9 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         if not validated_data.get("scope"):
             validated_data["scope"] = DashboardTemplate.Scope.ONLY_TEAM
 
+        if validated_data["scope"] != DashboardTemplate.Scope.ONLY_TEAM:
+            validated_data["tiles"] = _tiles_without_agent_context(validated_data.get("tiles"))
+
         team_id = self.context["team_id"]
         validated_data["team_id"] = team_id
         org_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
@@ -361,7 +384,10 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             validated_data.pop("is_featured", None)
             validated_data.pop("availability_contexts", None)
             validated_data.pop("image_url", None)
-            validated_data.pop("github_url", None)
+
+        effective_scope = validated_data.get("scope", instance.scope)
+        if effective_scope != DashboardTemplate.Scope.ONLY_TEAM:
+            validated_data["tiles"] = _tiles_without_agent_context(validated_data.get("tiles", instance.tiles))
 
         try:
             return super().update(instance, validated_data, *args, **kwargs)
@@ -588,7 +614,6 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             scope=DashboardTemplate.Scope.ONLY_TEAM,
             is_featured=False,
             image_url=None,
-            github_url=None,
             availability_contexts=None,
             deleted=False,
             created_by=user if user.is_authenticated else None,
@@ -663,7 +688,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                 rank=build_rank({"template_name": "A", "dashboard_description": "C", "tags": "B"}, search),
             )
             qs = qs.filter(rank__gt=0.05)
-            qs = qs.order_by("-is_featured", "-rank", Lower("template_name"))
+            qs = qs.order_by("-is_featured", "-rank", Lower("template_name"), "id")
         else:
             qs = qs.order_by(*_dashboard_template_list_order_by(ordering))
 

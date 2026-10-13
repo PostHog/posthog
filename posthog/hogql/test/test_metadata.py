@@ -9,6 +9,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from posthoganalytics import FeatureFlagResult
 
 from posthog.schema import (
     HogLanguage,
@@ -22,17 +23,33 @@ from posthog.schema import (
 )
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.flag_called_warnings import FLAG_CALLED_ON_EVENTS_WARNING
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.models.scoping import team_scope
+from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+_FLAG_CALLED_QUERY = "SELECT count() FROM events WHERE event = '$feature_flag_called'"
+
+
+def _move_notices(url: str | None = None, enabled: bool = True) -> FeatureFlagResult:
+    return FeatureFlagResult(
+        key="flag-called-move-notices", enabled=enabled, variant=None, payload={"url": url}, reason=None
+    )
+
+
+_MOVE_NOTICES_WITHOUT_URL = _move_notices()
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -77,6 +94,57 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
             team=self.team,
         )
+
+    @parameterized.expand(
+        [
+            ("select 1 as count, 'hello' as category", [("count", "Int64"), ("category", "String")]),
+            ("select 1 + 2", [("plus(1, 2)", "Int64")]),
+            ("select toNullable(1) as value", [("value", "Nullable(Int64)")]),
+            ("select * from (select 1 as count, 'hello' as category)", [("count", "Int64"), ("category", "String")]),
+            ("with totals as (select 1 as count) select count from totals", [("count", "Int64")]),
+            ("select 1 as value union all select 1.5 as value", [("value", "Float64")]),
+            (
+                "select toDate(timestamp) as day, count() as total from events group by day",
+                [("day", "Date"), ("total", "Int64")],
+            ),
+            ("select 1, 1", [("1", "Int64"), ("1", "Int64")]),
+            ("select throwIf(0, 'not reached') as value", [("value", "Nullable(Unknown)")]),
+        ]
+    )
+    def test_output_types(self, query: str, expected: list[tuple[str, str]]) -> None:
+        response = get_hogql_metadata(
+            HogQLMetadata(query=query, language=HogLanguage.HOG_QL, includeOutputTypes=True), self.team
+        )
+        self.assertTrue(response.isValid, response.errors)
+        self.assertIsNotNone(response.output_columns)
+        self.assertEqual([(column.name, column.type) for column in response.output_columns or []], expected)
+
+    @parameterized.expand([("select 1", True), ("select missing from events", False)])
+    def test_output_types_are_opt_in_and_invalid_queries_have_no_schema(self, query: str, valid: bool) -> None:
+        response = self._select(query)
+        self.assertEqual(response.isValid, valid)
+        self.assertIsNone(response.output_columns)
+        if not valid:
+            response = get_hogql_metadata(
+                HogQLMetadata(query=query, language=HogLanguage.HOG_QL, includeOutputTypes=True), self.team
+            )
+            self.assertFalse(response.isValid)
+            self.assertIsNone(response.output_columns)
+
+    def test_output_types_through_query_api(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLMetadata",
+                    "language": "hogQL",
+                    "query": "select toNullable(1) as total",
+                    "includeOutputTypes": True,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["output_columns"], [{"name": "total", "type": "Nullable(Int64)"}])
 
     def _program(self, query: str, globals: Optional[dict] = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
@@ -157,6 +225,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 8,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -197,6 +266,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -216,6 +286,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -235,6 +306,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 4,
                         "end": 12,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -302,6 +374,116 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.warnings, [])
+
+    @parameterized.expand(
+        [
+            ("equals", _FLAG_CALLED_QUERY, True, 1),
+            ("in_list", "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')", True, 1),
+            ("namespaced_table", "SELECT count() FROM posthog.events WHERE event = '$feature_flag_called'", True, 1),
+            ("aliased_table", "SELECT count() FROM events AS e WHERE e.event = '$feature_flag_called'", True, 1),
+            ("aliased_column", "SELECT event AS name FROM events WHERE name = '$feature_flag_called'", True, 1),
+            ("table_not_available", _FLAG_CALLED_QUERY, False, 1),
+            (
+                "flag_evaluations_table",
+                "SELECT count() FROM posthog.flag_evaluations WHERE event = '$feature_flag_called'",
+                True,
+                0,
+            ),
+            ("saved_view_body", "SELECT count() FROM flag_calls_view WHERE event != '$feature_flag_called'", True, 0),
+            (
+                "property_named_event",
+                "SELECT count() FROM events WHERE properties.event = '$feature_flag_called'",
+                True,
+                0,
+            ),
+            ("not_compared_to_event", "SELECT '$feature_flag_called' FROM events", True, 0),
+            (
+                "saved_expression_body",
+                "SELECT count() FROM events WHERE flag_call_expr AND distinct_id != '$feature_flag_called'",
+                True,
+                0,
+            ),
+            ("move_notices_off", _FLAG_CALLED_QUERY, True, 0, _move_notices(enabled=False)),
+            ("move_notices_missing", _FLAG_CALLED_QUERY, True, 0, None),
+            (
+                "announcement_url",
+                _FLAG_CALLED_QUERY,
+                True,
+                1,
+                _move_notices("https://example.com/announcement"),
+                "https://example.com/announcement",
+            ),
+            (
+                "padded_announcement_url",
+                _FLAG_CALLED_QUERY,
+                True,
+                1,
+                _move_notices("  https://example.com/announcement  "),
+                "https://example.com/announcement",
+            ),
+            (
+                "command_announcement_url",
+                _FLAG_CALLED_QUERY,
+                True,
+                1,
+                _move_notices("command:editor.action.deleteLines"),
+            ),
+            ("malformed_announcement_url", _FLAG_CALLED_QUERY, True, 1, _move_notices("https://[broken")),
+        ]
+    )
+    def test_metadata_warns_for_flag_called_read_from_events(
+        self,
+        _name: str,
+        query: str,
+        flag_evaluations_enabled: bool,
+        expected: int,
+        move_notices: FeatureFlagResult | None = _MOVE_NOTICES_WITHOUT_URL,
+        expected_url: str | None = None,
+    ) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="flag_calls_view",
+            query={"query": "SELECT uuid, event FROM events WHERE event = '$feature_flag_called'"},
+            columns={"uuid": "String", "event": "String"},
+        )
+        with team_scope(self.team.pk, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="events",
+                field_name="flag_call_expr",
+                expression="event = '$feature_flag_called'",
+            )
+
+        with (
+            patch(
+                "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+                return_value=flag_evaluations_enabled,
+            ),
+            patch("posthoganalytics.get_feature_flag_result", return_value=move_notices),
+        ):
+            metadata = self._select(query)
+
+        self.assertTrue(metadata.isValid, metadata.errors)
+        warnings = [w for w in metadata.warnings if w.message == FLAG_CALLED_ON_EVENTS_WARNING]
+        literal_start = query.rindex("'$feature_flag_called'")
+        self.assertEqual(
+            [(w.start, w.end, w.fix, w.url) for w in warnings],
+            [(literal_start, literal_start + len("'$feature_flag_called'"), None, expected_url)] * expected,
+        )
+
+    def test_metadata_does_not_log_invalid_announcement_url_without_a_flag_called_literal(self) -> None:
+        with (
+            patch(
+                "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+                return_value=True,
+            ),
+            patch("posthoganalytics.get_feature_flag_result", return_value=_move_notices("http://example.com")),
+            patch("posthog.hogql.metadata.logger") as mock_logger,
+        ):
+            metadata = self._select("SELECT 1")
+
+        self.assertTrue(metadata.isValid, metadata.errors)
+        mock_logger.warning.assert_not_called()
 
     def test_metadata_warns_for_unknown_event_in_literal(self):
         EventDefinition.objects.create(team=self.team, name="signed_up")
@@ -419,13 +601,64 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
-    def test_metadata_does_not_warn_for_allowlisted_dynamic_property(self):
+    @parameterized.expand([(pattern.prefix,) for pattern in DYNAMIC_PROPERTY_PATTERNS])
+    def test_metadata_does_not_warn_for_documented_dynamic_property(self, prefix: str):
+        # Every prefix the read_taxonomy tool tells an agent to construct by hand must pass this
+        # check. A name documented there and rejected here reads to the caller as a broken taxonomy.
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
 
-        metadata = self._select("SELECT properties['$feature/my-flag'] FROM events")
+        metadata = self._select(f"SELECT properties['{prefix}some-id'] FROM events")
 
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
+
+    @parameterized.expand(
+        [
+            "$virt_traffic_type",
+            "$virt_traffic_category",
+            "$virt_is_bot",
+            "$virt_bot_name",
+            "$virt_bot_operator",
+        ]
+    )
+    def test_metadata_does_not_warn_for_virtual_property(self, prop: str):
+        # Virtual traffic properties are computed at query time and never stored as PropertyDefinition
+        # rows, so the validator must treat them as known — read_taxonomy lists the same set.
+        # The unrelated definition is what makes this assertion mean anything: a project with no
+        # definitions at all never warns, so without a row here the case passes however the validator behaves.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select(f"SELECT properties.{prop} FROM events WHERE properties.{prop} = 'x'")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_warns_for_virtual_property_bracket_access(self):
+        # Dot access (`properties.$virt_is_bot`) is remapped by the resolver onto the computed field, but
+        # bracket access reads the raw JSON blob, where the virtual value is never stored. So a bracket
+        # reference to a virtual property returns an empty value and must still warn, unlike the dot form.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties['$virt_is_bot'] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(
+            [warning.message for warning in taxonomy_warnings],
+            ["Property '$virt_is_bot' was not found in this project taxonomy."],
+        )
+
+    def test_metadata_warns_for_unknown_virtual_property(self):
+        # A `$virt_`-prefixed name that is not a real virtual property (e.g. a typo) is still unknown,
+        # so the warning must state it, rather than the prefix silently passing validation.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties.$virt_trafic_type FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(
+            [warning.message for warning in taxonomy_warnings],
+            ["Property '$virt_trafic_type' was not found in this project taxonomy."],
+        )
 
     def test_metadata_skips_suggestion_lookup_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
@@ -822,30 +1055,35 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 16,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'",
                         "start": 55,
                         "end": 55 + len(str(cohort.pk)),
                         "fix": f"'{cohort.name}'",
+                        "url": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
                         "fix": str(cohort.pk),
+                        "url": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -878,12 +1116,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -941,12 +1181,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": "Event property 'number' is of type 'Float'.",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -1021,7 +1263,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "notices": [],
                 "warnings": [],
-                "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
+                "errors": [
+                    {
+                        "end": 15,
+                        "fix": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 9,
+                        "url": None,
+                    }
+                ],
             },
         )
 
@@ -1033,8 +1283,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
-                "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
+                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6, "url": None}],
+                "warnings": [
+                    {"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13, "url": None}
+                ],
                 "errors": [],
             },
         )
@@ -1057,7 +1309,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
+                "errors": [
+                    {
+                        "end": 17,
+                        "fix": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 11,
+                        "url": None,
+                    }
+                ],
             },
         )
 

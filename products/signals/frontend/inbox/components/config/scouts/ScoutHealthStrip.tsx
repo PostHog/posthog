@@ -10,11 +10,16 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCostLineParts, scoutCostWindowLabel } from '../../../utils/scoutCosts'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutGroupKey, scoutGroup } from '../../../utils/scoutGroups'
-import { filedOrAddedLabel, ScoutRollup, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import {
+    filedOrAddedLabel,
+    runStripEmptyLabel,
+    ScoutRollup,
+    SCOUT_RUNS_PER_SCOUT_LABEL,
+} from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
-import { ScoutRunBoxes } from './ScoutRunBoxes'
+import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
 
 /**
@@ -54,8 +59,7 @@ export function ScoutHealthStrip({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { scoutRunCosts, scoutCostRollups, expensiveRunCostThreshold, scoutRunsLoadedOnce } =
-        useValues(scoutFleetLogic)
+    const { scoutCostRollups, scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
 
@@ -98,7 +102,7 @@ export function ScoutHealthStrip({
             <Segment tooltip={`Runs this scout made in the ${SCOUT_RUNS_PER_SCOUT_LABEL}, quiet ones included.`}>
                 {runs.length > 0 ? (
                     <>
-                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
+                        <ScoutRosterRunBoxes skillName={config.skill_name} runs={runs} />
                         <span className="whitespace-nowrap tabular-nums">{pluralize(runs.length, 'run')}</span>
                         {/* The counts here and below change while the page is open, so each number
                             gets its own element — see "Rule 7" in frontend/src/AGENTS.md for what a
@@ -111,8 +115,14 @@ export function ScoutHealthStrip({
                     </>
                 ) : (
                     // Until the runs request has landed once, an empty rollup means "not loaded",
-                    // not "never ran"; the poll retries a failed load on its own.
-                    <span className="text-muted">{scoutRunsLoadedOnce ? 'No runs yet' : '…'}</span>
+                    // not "never ran"; the poll retries a failed load on its own. Past the fleet the
+                    // response covers it means neither, so the strip says so instead of guessing.
+                    <span className="text-muted">
+                        {runStripEmptyLabel({
+                            loadedOnce: scoutRunsLoadedOnce,
+                            coversFleet: scoutRunsCoverFleet,
+                        })}
+                    </span>
                 )}
             </Segment>
 

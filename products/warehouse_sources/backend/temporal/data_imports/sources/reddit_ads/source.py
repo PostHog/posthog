@@ -2,19 +2,17 @@ from typing import Optional, cast
 
 from requests.exceptions import RequestException
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -66,7 +64,10 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": None,
+            # Reddit returns 401 once the OAuth grant behind the connected account expires or
+            # is revoked. Every retry replays the same rejected token, and without a message of
+            # its own the schema stops with no sign that reconnecting is what fixes it.
+            "401 Client Error": "Your Reddit Ads connection is no longer valid. Reconnect your Reddit account in the source settings, then re-enable the sync.",
             # Reddit returns 403 when the connected account lacks permission to read the
             # configured ad account's reports (access revoked or insufficient scope). The
             # request can never succeed without the user reconnecting, so stop retrying.
@@ -86,7 +87,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.REDDIT_ADS,
+            name=ExternalDataSourceType.REDDITADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Reddit Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Reddit Ads. Ensure you have granted PostHog access to your Reddit Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/reddit-ads).",

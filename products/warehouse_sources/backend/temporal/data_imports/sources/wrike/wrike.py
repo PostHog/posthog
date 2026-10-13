@@ -7,14 +7,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import WRIKE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import (
+    WRIKE_ENDPOINTS,
+    WrikeEndpointConfig,
+)
 
 # Wrike serves each account from a region-specific host (www.wrike.com, app-us2.wrike.com,
 # app-eu.wrike.com, ...). The user supplies their host; we only ever send the token to a
@@ -25,6 +33,8 @@ API_PATH = "/api/v4"
 PAGE_SIZE = 1000
 # Paginated endpoints carry a `nextPageToken` in the body; the same token is sent back as a query param.
 NEXT_PAGE_TOKEN = "nextPageToken"
+# (connect, read) seconds, so a stalled Wrike response can't hold an import worker indefinitely.
+REQUEST_TIMEOUT = (10, 60)
 
 
 @dataclasses.dataclass
@@ -89,6 +99,58 @@ def validate_credentials(access_token: str, host: str) -> tuple[bool, str | None
     return False, f"Wrike API error: status={status}"
 
 
+def _client_config(access_token: str, host: str) -> ClientConfig:
+    return {
+        "base_url": _base_url(host),
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": access_token},
+        # Pin every request (base and paginated) to the validated Wrike host so a tampered
+        # response can't retarget the credential off-host.
+        "allowed_hosts": [],
+        "request_timeout": REQUEST_TIMEOUT,
+    }
+
+
+def _fanout_source(
+    access_token: str,
+    host: str,
+    config: WrikeEndpointConfig,
+    fanout: DependentEndpointConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    # The parent listing and every child response are single, unpaginated `data` arrays.
+    resource = build_dependent_resource(
+        endpoint_configs=WRIKE_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=fanout,
+        client_config=_client_config(access_token, host),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"data_selector": "data", "paginator": SinglePagePaginator()},
+        child_endpoint_extra={"data_selector": "data", "paginator": SinglePagePaginator()},
+        page_size_param=None,
+    )
+    return _make_source_response(config, resource)
+
+
+def _make_source_response(config: WrikeEndpointConfig, resource: Any, column_hints: Any = None) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=column_hints,
+    )
+
+
 def wrike_source(
     access_token: str,
     host: str,
@@ -103,6 +165,9 @@ def wrike_source(
     if not is_host_valid(host):
         raise ValueError(f"Refusing to send Wrike credentials to non-Wrike host: {host}")
 
+    if config.fanout is not None:
+        return _fanout_source(access_token, host, config, config.fanout, team_id, job_id)
+
     params: dict[str, Any] = {"pageSize": PAGE_SIZE} if config.paginated else {}
     paginator = (
         JSONResponseCursorPaginator(cursor_path=NEXT_PAGE_TOKEN, cursor_param=NEXT_PAGE_TOKEN)
@@ -111,14 +176,7 @@ def wrike_source(
     )
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(host),
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": access_token},
-            # Pin every request (base and paginated) to the validated Wrike host so a tampered
-            # response can't retarget the credential off-host.
-            "allowed_hosts": [],
-        },
+        "client": _client_config(access_token, host),
         "resource_defaults": {},
         "resources": [
             {
@@ -154,15 +212,4 @@ def wrike_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=[config.primary_key],
-        sort_mode="asc",
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _make_source_response(config, resource, resource.column_hints)

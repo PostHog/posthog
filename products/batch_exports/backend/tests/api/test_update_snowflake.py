@@ -13,25 +13,58 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("integration_value", [None, "omitted"])
 def test_updating_snowflake_batch_export_rejects_removing_integration(
-    client: HttpClient, temporal, organization, team, user, integration_value
+    client: HttpClient, temporal, organization, team, user
 ):
-    """An integration-backed export can't drop back to inline credentials — whether the caller sends
-    `integration: null` or omits it entirely (clients re-send the full destination on update).
-    """
+    """Sending `integration: null` is a removal, and a Snowflake export cannot authenticate without one."""
     _, batch_export = create_integration_backed_snowflake_export(client, team, user)
 
-    destination: dict = {"type": "Snowflake", "config": {}}
-    if integration_value is None:
-        destination["integration"] = None
-
-    response = patch_batch_export(client, team.pk, batch_export["id"], {"destination": destination})
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == (
-        "Cannot remove the integration from a Snowflake batch export that uses one. "
-        "Re-send its `integration` to keep it (or a different one to swap)."
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": "Snowflake", "config": {}, "integration": None}},
     )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Integration is required for Snowflake batch exports"
+
+
+def test_updating_snowflake_batch_export_keeps_its_integration_when_omitted(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Omitting `integration` on a PATCH keeps the linked one, so a config-only edit succeeds."""
+    integration, batch_export = create_integration_backed_snowflake_export(client, team, user)
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": "Snowflake", "config": {"schema": "new_schema"}}},
+    )
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.json()["destination"]["integration"] == integration.id
+
+
+def test_updating_snowflake_batch_export_rejects_inline_credentials(
+    client: HttpClient, temporal, organization, team, user
+):
+    """A migrated export still stores its old credentials, so a client that echoes them back is rejected."""
+    integration, batch_export = create_integration_backed_snowflake_export(client, team, user)
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {
+            "destination": {
+                "type": "Snowflake",
+                "config": {"schema": "new_schema", "account": "my-account", "password": "hunter2"},
+                "integration": integration.id,
+            }
+        },
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Configuration has unknown field/s: 'account', 'password'"
 
 
 def test_updating_integration_backed_snowflake_export_allows_config_patch_with_integration(

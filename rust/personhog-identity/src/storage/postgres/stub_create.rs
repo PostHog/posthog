@@ -26,16 +26,17 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::{Person, PersonStub, StubOutcome};
+use personhog_common::query_tag;
 
 type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
@@ -67,7 +68,7 @@ struct MappingOutcome {
 }
 
 pub(super) async fn create_person_stubs(
-    pool: &PgPool,
+    pools: &IdentityPools,
     tables: &IdentityTables,
     stubs: &[PersonStub],
 ) -> StorageResult<Vec<StubOutcome>> {
@@ -83,10 +84,9 @@ pub(super) async fn create_person_stubs(
         .collect();
     let team_ids: Vec<i32> = stubs.iter().map(|s| s.team_id as i32).collect();
 
-    let mut tx = super::begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
-    let mut persons =
-        insert_or_revive_persons(&mut tx, &tables.person, stubs, &team_ids, &uuids).await?;
+    let mut persons = insert_or_revive_persons(&mut tx, tables, stubs, &team_ids, &uuids).await?;
     fetch_conflict_winners(
         &mut tx,
         &tables.person,
@@ -121,11 +121,12 @@ pub(super) async fn create_person_stubs(
 /// (xmax can't be read back from a partitioned table).
 async fn insert_or_revive_persons(
     tx: &mut Tx<'_>,
-    person_table: &str,
+    tables: &IdentityTables,
     stubs: &[PersonStub],
     team_ids: &[i32],
     uuids: &[Uuid],
 ) -> StorageResult<PersonsByKey> {
+    let person_table = &tables.person;
     // Sorted and deduped by the (team_id, uuid) conflict key — see the
     // module invariants.
     let mut order: Vec<usize> = (0..stubs.len()).collect();
@@ -157,16 +158,17 @@ async fn insert_or_revive_persons(
             last_seen_at = EXCLUDED.last_seen_at
             WHERE {person_table}.is_deleted = true
               AND NOT EXISTS (
-                  SELECT 1 FROM lifecycle_op_person lop
+                  SELECT 1 FROM {lop_table} lop
                   WHERE lop.team_id = {person_table}.team_id
                     AND lop.person_id = {person_table}.id
-                    AND lop.status IN ('marked', 'sealed')
+                    AND lop.mark_active
               )
         RETURNING {person_cols}
         "#,
         person_cols = person_columns(person_table),
+        lop_table = tables.lifecycle_op_person,
     );
-    let inserted = sqlx::query(&sql)
+    let inserted = sqlx::query(&query_tag!("stub_create_persons", sql))
         .bind(&sorted_created_ats)
         .bind(&sorted_team_ids)
         .bind(&sorted_is_identified)
@@ -220,7 +222,7 @@ async fn fetch_conflict_winners(
         "#,
         person_cols = person_columns("p"),
     );
-    let winners = sqlx::query(&sql)
+    let winners = sqlx::query(&query_tag!("stub_create_conflict_winners", sql))
         .bind(&conflicted_teams)
         .bind(&conflicted_uuids)
         .fetch_all(&mut **tx)
@@ -306,7 +308,7 @@ async fn insert_distinct_id_mappings(
                   (xmax = 0) AS inserted
         "#
     );
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(&query_tag!("stub_create_mappings", sql))
         .bind(&pdi_dids)
         .bind(&pdi_person_ids)
         .bind(&pdi_teams)
@@ -364,11 +366,12 @@ async fn resolve_stub_outcomes(
             "SELECT person_id FROM {} WHERE team_id = $1 AND distinct_id = $2 AND is_deleted = false",
             tables.person_distinct_id
         );
-        let existing: Option<i64> = sqlx::query_scalar(&existing_sql)
-            .bind(stub.team_id as i32)
-            .bind(&stub.distinct_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+        let existing: Option<i64> =
+            sqlx::query_scalar(&query_tag!("stub_create_existing_mapping", existing_sql))
+                .bind(stub.team_id as i32)
+                .bind(&stub.distinct_id)
+                .fetch_optional(&mut **tx)
+                .await?;
         if existing == Some(resolved.person.id) {
             outcomes.push(StubOutcome::Committed {
                 person: resolved.person.clone(),
@@ -413,20 +416,26 @@ async fn undo_created_person(
             WHERE team_id = $1 AND distinct_id = ANY($2)
             "#
         );
-        sqlx::query(&retombstone_sql)
-            .bind(team_id as i32)
-            .bind(&revived_dids)
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query(&query_tag!(
+            "stub_create_undo_retombstone_mappings",
+            retombstone_sql
+        ))
+        .bind(team_id as i32)
+        .bind(&revived_dids)
+        .execute(&mut **tx)
+        .await?;
     }
     let delete_mappings_sql = format!(
         "DELETE FROM {pdi_table} WHERE team_id = $1 AND person_id = $2 AND is_deleted = false"
     );
-    sqlx::query(&delete_mappings_sql)
-        .bind(team_id as i32)
-        .bind(resolved.person.id)
-        .execute(&mut **tx)
-        .await?;
+    sqlx::query(&query_tag!(
+        "stub_create_undo_delete_mappings",
+        delete_mappings_sql
+    ))
+    .bind(team_id as i32)
+    .bind(resolved.person.id)
+    .execute(&mut **tx)
+    .await?;
     if resolved.revived_tombstone {
         let sql = format!(
             r#"
@@ -436,14 +445,14 @@ async fn undo_created_person(
             WHERE team_id = $1 AND id = $2
             "#
         );
-        sqlx::query(&sql)
+        sqlx::query(&query_tag!("stub_create_undo_retombstone_person", sql))
             .bind(team_id as i32)
             .bind(resolved.person.id)
             .execute(&mut **tx)
             .await?;
     } else {
         let sql = format!("DELETE FROM {person_table} WHERE team_id = $1 AND id = $2");
-        sqlx::query(&sql)
+        sqlx::query(&query_tag!("stub_create_undo_delete_person", sql))
             .bind(team_id as i32)
             .bind(resolved.person.id)
             .execute(&mut **tx)

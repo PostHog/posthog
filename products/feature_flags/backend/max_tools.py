@@ -2,7 +2,6 @@ from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any
 
-import posthoganalytics
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
@@ -13,7 +12,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.api import create_flag
 from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -289,20 +288,12 @@ class CreateFeatureFlagTool(MaxTool):
                 headers={},
             )
             team = self._team
-            context = {
-                "request": mock_request,
-                "team_id": team.id,
-                "project_id": team.project_id,
-                "get_team": lambda: team,
-            }
 
             @database_sync_to_async
-            def create_flag_via_serializer() -> FeatureFlag:
-                serializer = FeatureFlagSerializer(data=serializer_data, context=context)
-                serializer.is_valid(raise_exception=True)
-                return serializer.save()
+            def create_flag_through_facade() -> FeatureFlag:
+                return create_flag(serializer_data, team=team, user=self._user, request=mock_request)
 
-            flag = await create_flag_via_serializer()
+            flag = await create_flag_through_facade()
 
             flag_url = f"/project/{self._team.project_id}/feature_flags/{flag.id}"
             targeting_info = self._format_targeting_info(flag_schema, group_type_display_name)
@@ -361,21 +352,6 @@ class CreateFeatureFlagTool(MaxTool):
     def _get_default_evaluation_contexts(self) -> list[str]:
         """Return the project's default evaluation context names, if defaults are enabled."""
         if not self._team.default_evaluation_contexts_enabled:
-            return []
-
-        # Mirror the web UI, which applies defaults only when this gate is also on (featureFlagLogic.ts).
-        organization = self._user.organization
-        distinct_id = self._user.distinct_id
-        if organization is None or distinct_id is None:
-            return []
-        if not posthoganalytics.feature_enabled(
-            "default-evaluation-environments",
-            distinct_id,
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        ):
             return []
 
         return list(

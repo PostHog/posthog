@@ -35,8 +35,14 @@ describe('organizationActivityDescriber', () => {
     // Base UI marks the element it merges the tooltip trigger onto. Opening the popup is not
     // reliable in jsdom because of the hover delay, so assert on the trigger instead.
     const renderInviterName = (context: Record<string, any>, overrides?: Partial<ActivityLogItem>): HTMLElement => {
-        const { description } = organizationActivityDescriber(makeInviteLogItem(context, overrides))
+        const { description, summary } = organizationActivityDescriber(makeInviteLogItem(context, overrides))
+        const actor = render(<>{summary?.actor}</>).container
+        const inviter = within(actor).getByText('Ada Lovelace')
+        expect(inviter.classList.contains('ph-no-capture')).toBe(true)
         const { container } = render(description as JSX.Element)
+        expect(inviter.hasAttribute('data-base-ui-tooltip-trigger')).toBe(
+            within(container).getByText('Ada Lovelace').hasAttribute('data-base-ui-tooltip-trigger')
+        )
         return within(container).getByText('Ada Lovelace')
     }
 

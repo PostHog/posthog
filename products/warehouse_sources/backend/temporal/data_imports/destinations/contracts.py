@@ -84,6 +84,11 @@ class DestinationWriter(Protocol):
     re-claims a batch whose state it could not confirm, so `write_batch` in particular has
     to be idempotent per `batch_index` (merge on primary keys, delete-then-insert by batch
     index, or a deterministic object key).
+
+    Nothing upstream promises a batch holds one row per primary key. Sources re-yield a page
+    after a crash, and a CDC lane carries every event a row went through, so a writer that
+    merges on the keys has to collapse its merge source itself. `writers.merge_dedup` does
+    that for the SQL destinations.
     """
 
     # The v3 Redis sync lock is released when this writer's child job goes terminal. Only the

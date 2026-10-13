@@ -392,16 +392,19 @@ export function computeBarAtIndex({
         const valueRangeMax = Math.max(valueRangeA, valueRangeB)
         topPixel = Math.min(Math.max(flooredTopPixel, valueRangeMin), valueRangeMax)
     }
-    // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
-    // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
-    const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
+    // A diverging stack emits a negative segment as [bottom = cumulative, top = towards zero] — the
+    // same pixel ordering as a positive segment — so direction comes from which side of the value
+    // baseline the segment sits on, not from which edge is further along the axis.
+    const midPixel = (topPixel + bottomPixel) / 2
+    const basePixel = valueScale(0)
+    const isPositive = isHorizontal ? midPixel >= basePixel : midPixel <= basePixel
     const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap, shouldRoundBaseline)
     // Extend an interior segment a sub-pixel toward the baseline so it overlaps its lower neighbour,
     // hiding the faint anti-aliased seam where two adjacent fills meet on a fractional device pixel.
     // The bottom-of-stack segment sits on the value-axis baseline, so it's left exact — extending it
     // would only overpaint the axis. The cap (away-from-baseline) side is always exact so cap
     // rounding and the stack's outer edge stay put.
-    const sitsOnBaseline = Math.abs(bottomPixel - valueScale(0)) < 0.001
+    const sitsOnBaseline = Math.abs(bottomPixel - basePixel) < 0.001
     const overlappedBottom = sitsOnBaseline
         ? bottomPixel
         : bottomPixel + STACK_SEGMENT_OVERLAP_PX * Math.sign(bottomPixel - topPixel)

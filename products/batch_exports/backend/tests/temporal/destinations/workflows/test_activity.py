@@ -1,9 +1,11 @@
 import uuid
+import functools
 import urllib.parse
 
 import pytest
 
 from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.temporal.destinations import workflows_batch_export
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     WorkflowsInsertInputs,
     insert_into_workflows_activity_from_stage,
@@ -13,6 +15,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 from products.batch_exports.backend.tests.temporal.destinations.workflows.utils import (
     assert_clickhouse_records_were_handled,
 )
@@ -21,6 +24,15 @@ pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
+
+
+@pytest.fixture
+def no_retry_delay(monkeypatch):
+    monkeypatch.setattr(
+        workflows_batch_export,
+        "make_retryable_with_exponential_backoff",
+        functools.partial(make_retryable_with_exponential_backoff, initial_retry_delay=0, max_delay_jitter=0),
+    )
 
 
 async def _run_activity(
@@ -196,6 +208,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_on_non_retryable_
 
 
 @pytest.mark.parametrize("error", [429, 500, 503], indirect=True)
+@pytest.mark.usefixtures("no_retry_delay")
 async def test_insert_into_workflows_activity_from_stage_retries_on_retryable_errors(
     clickhouse_client,
     activity_environment,

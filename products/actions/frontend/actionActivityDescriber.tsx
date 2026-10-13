@@ -1,3 +1,5 @@
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -5,10 +7,10 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
@@ -35,6 +37,8 @@ const actionActionsMapping: Record<
         const after = change?.after as string | null
         if (!before && after) {
             return {
+                summary: summarizeDescriptionChange(change),
+                preview: after,
                 description: [
                     <>
                         added description <strong>"{after}"</strong>
@@ -43,6 +47,8 @@ const actionActionsMapping: Record<
             }
         } else if (before && !after) {
             return {
+                summary: summarizeDescriptionChange(change),
+                preview: before,
                 description: [
                     <>
                         removed description (was <strong>"{before}"</strong>)
@@ -51,6 +57,8 @@ const actionActionsMapping: Record<
             }
         }
         return {
+            summary: summarizeDescriptionChange(change),
+            preview: after ?? undefined,
             description: [
                 <>
                     changed description from <strong>"{before}"</strong> to <strong>"{after}"</strong>
@@ -164,6 +172,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the action', nameAndLink(logItem)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created action {nameAndLink(logItem)}
@@ -174,6 +183,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the action', nameAndLink(logItem)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted action {nameAndLink(logItem)}
@@ -183,40 +193,14 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = <>on action {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !actionActionsMapping[change.field]) {
-                continue
-            }
-
-            const actionHandler = actionActionsMapping[change.field]
-            const processedChange = actionHandler(change, logItem)
-            if (processedChange === null) {
-                continue
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            actionActionsMapping,
+            nameAndLink(logItem),
+            <>on action {nameAndLink(logItem)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 

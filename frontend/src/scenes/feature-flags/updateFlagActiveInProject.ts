@@ -4,7 +4,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 
-import { featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
+import { FeatureFlagConfig } from '~/types'
+
+import { isV1FeatureFlagConfig, rowVersionToken } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { featureFlagsPartialUpdate, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 /** Key for the per-row in-flight maps shared by the Projects tab toggles. */
@@ -64,14 +67,24 @@ export async function updateFlagActiveInProject({
     teamId,
     flagId,
     active,
+    filters,
 }: {
     teamId: number
     flagId: number
     active: boolean
+    filters?: FeatureFlagConfig
 }): Promise<FeatureFlagApi | null> {
     const actionDescription = `${active ? 'enable' : 'disable'} this feature flag`
     try {
-        const updatedFlag = await featureFlagsPartialUpdate(String(teamId), flagId, { active })
+        let versioned: { version?: number } = {}
+        if (!(filters && isV1FeatureFlagConfig(filters))) {
+            const stored = await featureFlagsRetrieve(String(teamId), flagId)
+            versioned = rowVersionToken({
+                filters: stored.filters as FeatureFlagConfig | undefined,
+                version: stored.version,
+            })
+        }
+        const updatedFlag = await featureFlagsPartialUpdate(String(teamId), flagId, { active, ...versioned })
         lemonToast.success(`Feature flag ${active ? 'enabled' : 'disabled'}`)
         return updatedFlag
     } catch (e: any) {

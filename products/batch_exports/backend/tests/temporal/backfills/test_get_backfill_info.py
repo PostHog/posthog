@@ -93,7 +93,7 @@ class TestGetBackfillInfoForEvents:
                 config["include_events"] = include_events
             if exclude_events:
                 config["exclude_events"] = exclude_events
-            destination = await BatchExportDestination.objects.acreate(type="S3", config=config)
+            destination = await BatchExportDestination.objects.acreate(type="AwsS3", config=config)
             return await BatchExport.objects.acreate(
                 team_id=ateam.pk,
                 name="Test Batch Export",
@@ -296,7 +296,7 @@ class TestGetBackfillInfoForPersons:
                 "aws_access_key_id": "key",
                 "aws_secret_access_key": "secret",
             }
-            destination = await BatchExportDestination.objects.acreate(type="S3", config=config)
+            destination = await BatchExportDestination.objects.acreate(type="AwsS3", config=config)
             return await BatchExport.objects.acreate(
                 team_id=ateam.pk,
                 name="Test Batch Export",
@@ -705,7 +705,7 @@ class TestGetBackfillInfoForSessions:
                 "aws_access_key_id": "key",
                 "aws_secret_access_key": "secret",
             }
-            destination = await BatchExportDestination.objects.acreate(type="S3", config=config)
+            destination = await BatchExportDestination.objects.acreate(type="AwsS3", config=config)
             return await BatchExport.objects.acreate(
                 team_id=ateam.pk,
                 name="Test Batch Export",

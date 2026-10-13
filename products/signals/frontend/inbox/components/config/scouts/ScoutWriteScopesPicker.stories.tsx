@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
 
 /** Stories drive the picker like its call sites do: selection state lives outside. */
@@ -27,6 +29,9 @@ function ControlledPicker({
 const meta: Meta<typeof ScoutWriteScopesPicker> = {
     title: 'Scenes-App/Inbox/ScoutWriteScopesPicker',
     component: ScoutWriteScopesPicker,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+    },
 }
 export default meta
 type Story = StoryObj<typeof ScoutWriteScopesPicker>
@@ -62,6 +67,14 @@ export const MaintainerScout: Story = {
                 compact
                 initialScopes={['llm_skill:write', 'warehouse_view:write', 'warehouse_table:write']}
             />
+        </div>
+    ),
+}
+
+export const ScannerMaintainerScout: Story = {
+    render: () => (
+        <div className="max-w-md p-4">
+            <ControlledPicker compact initialScopes={['replay_scanner:write']} />
         </div>
     ),
 }

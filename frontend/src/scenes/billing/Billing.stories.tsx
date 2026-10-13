@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_100_percent_discount.json'
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
@@ -59,6 +60,22 @@ export const _Billing: Story = {
             get: {
                 '/api/billing/': {
                     ...billingJson,
+                },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingManagedByPartner: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingUnsubscribedJson,
+                    customer_id: '',
+                    billing_managed_by_partner: { partner_name: 'Example Partner' },
                 },
             },
         })

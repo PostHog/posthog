@@ -32,6 +32,7 @@ import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
@@ -123,18 +124,21 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
             </p>
 
             <div className="space-y-4">
-                <Field name="model" label="Model">
-                    <ModelPicker
-                        model={selectedModel}
-                        selectedProviderKeyId={selectedPickerProviderKeyId}
-                        onSelect={selectModelFromPicker}
-                        groups={groups}
-                        loading={loading}
-                        footerLink={footerLink}
-                        selectedModelName={selectedModelName}
-                        data-attr="tagger-model-selector"
-                    />
-                </Field>
+                <div>
+                    <Field name="model" label="Model">
+                        <ModelPicker
+                            model={selectedModel}
+                            selectedProviderKeyId={selectedPickerProviderKeyId}
+                            onSelect={selectModelFromPicker}
+                            groups={groups}
+                            loading={loading}
+                            footerLink={footerLink}
+                            selectedModelName={selectedModelName}
+                            data-attr="tagger-model-selector"
+                        />
+                    </Field>
+                    <ByokModelPickerNotice />
+                </div>
             </div>
         </div>
     )

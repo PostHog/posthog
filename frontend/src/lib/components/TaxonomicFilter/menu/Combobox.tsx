@@ -13,7 +13,7 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { MutableRefObject, ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MutableRefObject, ReactElement, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
 import {
@@ -43,6 +43,7 @@ import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLo
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
+import { HiddenEventExplanation } from '../HiddenEventExplanation'
 import { useGroupList } from '../hooks/useGroupList'
 import {
     OPEN_AS_SELF_ON_REOPEN,
@@ -52,6 +53,7 @@ import {
 } from '../types'
 import {
     COLLAPSED_TO_CONTAINS_ROW,
+    offersUrlContainsRow,
     partitionContainsShortcuts,
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
@@ -367,7 +369,7 @@ export function MenuFilterCombobox({
             // `name`), so `selectItem`'s existing PageviewUrls branch commits
             // `$current_url IContains <query>`.
             if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
-                if (trimmedQuery && items.length > 0) {
+                if (trimmedQuery && offersUrlContainsRow(group.type, trimmedQuery) && items.length > 0) {
                     const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
                         // A plain item (not a QuickFilterItem): the commit reads its value via
@@ -720,7 +722,7 @@ export function MenuFilterCombobox({
     //     resolved. Names the active category for context.
     //   - "no items" — initial render with no search and no resolved
     //     entries (rare for finite groups).
-    const emptyState = useMemo<{ title: string; body?: string } | null>(() => {
+    const emptyState = useMemo<{ title: string; body?: ReactNode } | null>(() => {
         if (filtered.length > 0) {
             return null
         }
@@ -754,7 +756,7 @@ export function MenuFilterCombobox({
             // is absent, and neither of them can bring back an excluded name.
             return {
                 title: `${hiddenEventSearched} isn't available here`,
-                body: "PostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
+                body: <HiddenEventExplanation />,
             }
         }
         const categoryLabel = singleGroup?.name ?? null
@@ -1327,6 +1329,7 @@ function Row({
     // The committed selection of a renamed series shows the series' name; the raw key
     // it queries moves to the value cell, like any other friendly-labelled row.
     const isRenamedSelection = isSelected && !!selectedRename && selectedRename.label !== cells.name
+    const itemTag = entry.group.getTag?.(entry.item)
     const name = isRenamedSelection ? selectedRename.label : cells.name
     const value = isRenamedSelection && selectedRename.raw !== selectedRename.label ? selectedRename.raw : cells.value
     const category = cells.category
@@ -1378,6 +1381,9 @@ function Row({
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
             <MatchedValueBadge entry={entry} />
+            {/* Whatever the group supplies for this item, the same node the classic list renders,
+                so a picker row carries its per-item state in either menu. */}
+            {itemTag && <span className="shrink-0 empty:hidden">{itemTag}</span>}
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
                     {recency === 'recent' ? <IconClock className="size-3" /> : <IconPinFilled className="size-3" />}

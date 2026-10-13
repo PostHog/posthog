@@ -165,7 +165,7 @@ class LocalSkillsCache:
             return False
 
     def _build(self, source_hash: str) -> None:
-        from products.posthog_ai.scripts.build_skills import SkillBuilder
+        from products.posthog_ai.scripts.build_skills.skill_builder import SkillBuilder
 
         builder = SkillBuilder(self.base_dir, self.base_dir / "products", self.output_dir)
         manifest = builder.build_all()

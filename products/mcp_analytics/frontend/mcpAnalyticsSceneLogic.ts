@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { type MCPDashboardStage, mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 
 export type MCPAnalyticsTab =
@@ -73,6 +74,7 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsSceneLogic']),
     connect(() => ({
         values: [sceneLogic, ['sceneKey'], mcpAnalyticsOnboardingLogic, ['dashboardStage']],
+        logic: [mcpAnalyticsFiltersLogic],
     })),
     selectors({
         activeTab: [

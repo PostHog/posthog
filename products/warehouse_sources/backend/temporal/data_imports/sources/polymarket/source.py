@@ -1,12 +1,10 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -47,13 +45,13 @@ class PolymarketSource(ResumableSource[PolymarketSourceConfig, PolymarketResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.POLYMARKET,
+            name=ExternalDataSourceType.POLYMARKET,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Polymarket",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Polymarket's Gamma API is public, so this source needs no API key.
 
-It syncs events, markets, series, and tags. Order books, price history, and wallet positions come from separate APIs and are not supported yet.""",
+It syncs events, markets, series, tags, and the all-time biggest wins board. Order books, price history, and wallet positions are not supported yet.""",
             iconPath="/static/services/polymarket.png",
             docsUrl="https://posthog.com/docs/cdp/sources/polymarket",
             keywords=["prediction market", "gamma", "trading"],
@@ -71,6 +69,7 @@ It syncs events, markets, series, and tags. Order books, price history, and wall
         return {
             # There is no credential to fix, so a 403 means Gamma is refusing this caller.
             "403 Client Error: Forbidden for url: https://gamma-api.polymarket.com": "Polymarket refused the request. Access is restricted from some regions, so this source may not be usable from where PostHog runs.",
+            "403 Client Error: Forbidden for url: https://data-api.polymarket.com": "Polymarket refused the request. Access is restricted from some regions, so this source may not be usable from where PostHog runs.",
         }
 
     def get_schemas(

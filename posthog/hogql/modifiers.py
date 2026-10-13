@@ -88,6 +88,14 @@ def create_default_modifiers_for_team(
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
 
+    from products.web_analytics.backend.hogql_queries.cookieless_flag import (  # noqa: PLC0415 - keeps posthog.schema off the django.setup() import path
+        resolve_cookieless_traffic_is_regular_modifier,
+    )
+
+    modifiers.cookielessTrafficIsRegular = resolve_cookieless_traffic_is_regular_modifier(
+        team, modifiers.cookielessTrafficIsRegular
+    )
+
     set_default_modifier_values(modifiers, team)
 
     return modifiers

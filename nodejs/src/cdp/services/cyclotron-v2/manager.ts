@@ -6,6 +6,7 @@ import { isTransientPgError } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
+import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -787,5 +788,11 @@ export class CyclotronV2Manager {
             logger.error('Cyclotron V2 depth check failed', { error: String(e) })
             return false
         }
+    }
+
+    // Wakes parked workflow steps with the outcome of the run they dispatched. Scoped to one team
+    // because the caller's token is; see processStepResumes for the per-job outcomes.
+    async resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>> {
+        return await processStepResumes(this.pool, resumes, teamId)
     }
 }

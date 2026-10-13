@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import type { AnonymizeMeta } from '@posthog/replay-anonymizer'
+import type { AnonymizeKafkaPayloadResult, AnonymizeMeta } from '@posthog/replay-anonymizer'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -24,7 +24,9 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { MlSessionKeys } from './keys/key-store'
 import { MlMirrorMetrics } from './metrics'
+import { ProducedRefs, producedRefDedup } from './produced-refs'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
@@ -32,19 +34,10 @@ import {
     PSEUDONYM_TEAM,
     pseudonymize,
 } from './pseudonymize'
+import { getRustAnonymizer } from './rust-anonymizer'
+import { mlDatasetVersion, sessionStartMonth, usesRawSessionIdentifiers } from './session-identifier-format'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
-
-// Lazily loaded so deployments that never run this step don't pay the native-module load (and so a
-// missing addon only breaks the native path, not every import of this module).
-type RustAnonymizer = typeof import('@posthog/replay-anonymizer')
-let rustAnonymizer: RustAnonymizer | undefined
-function getRustAnonymizer(): RustAnonymizer {
-    if (!rustAnonymizer) {
-        rustAnonymizer = require('@posthog/replay-anonymizer') as RustAnonymizer
-    }
-    return rustAnonymizer
-}
 
 // Addon failure reasons that map to a DLQ (mirroring the TS parse step's classifications).
 const DLQ_REASONS = new Set([
@@ -56,7 +49,7 @@ const DLQ_REASONS = new Set([
 
 /** An original image the addon collected for the out-of-band scrub lane, ready to produce. */
 export interface CollectedImage {
-    /** `image:<pseudoTeam>:<hash>` — the Kafka key the scrub consumer indexes the bytes under. */
+    /** `image:<teamId>:<hash>`, the Kafka key the scrub consumer indexes the bytes under. */
     ref: string
     bytes: Buffer
 }
@@ -71,8 +64,7 @@ export interface CollectedImage {
 export interface CollectedUrl {
     /** `imageurl:<hash>` stored in the mirrored line's namespaced ref attribute. */
     ref: string
-    /** The team pseudonym remains transport metadata until the fetch topic moves to its global schema. */
-    pseudoTeam: string
+    teamId: string
     url: string
     /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
     host: string
@@ -87,7 +79,7 @@ export interface ParseAndAnonymizeStepOutput extends ParseMessageStepOutput {
 }
 
 export interface ImageCollectionConfig {
-    /** The ML pseudonym HMAC key; only its per-team derivatives (never the key) cross the FFI. */
+    /** Only derived image content and URL keys cross the FFI; the root key stays here. */
     pseudonymSecret: string | Buffer
     /** Replace inlined images with refs and return their bytes for the scrub topic. */
     collectImages: boolean
@@ -110,8 +102,11 @@ export interface ImageCollectionConfig {
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput & { team: TeamForReplay }>(
-    imageCollection?: ImageCollectionConfig
+export function createParseAndAnonymizeMessageStep<
+    T extends ParseMessageStepInput & { team: TeamForReplay; mlKeys?: MlSessionKeys },
+>(
+    imageCollection?: ImageCollectionConfig,
+    producedRefs?: ProducedRefs
 ): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
     const globalUrlKey =
         imageCollection?.collectUrls === true
@@ -121,35 +116,37 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
     // Cache the team values rather than re-deriving them for every message. The content key keys
     // the inline image hash. The URL key is global and does not use this cache.
     interface TeamImageKeys {
-        pseudoTeam: string
+        teamId: string
         contentKey?: string
     }
-    const teamKeysCache = new Map<number, TeamImageKeys>()
-    const teamKeysFor = (teamId: number): TeamImageKeys | undefined => {
+    const teamKeysCache = new Map<string, TeamImageKeys>()
+    const teamKeysFor = (teamId: number, sessionId: string): TeamImageKeys | undefined => {
         if (!imageCollection) {
             return undefined
         }
-        let keys = teamKeysCache.get(teamId)
+        const rawIdentifiers = usesRawSessionIdentifiers(sessionId)
+        const cacheKey = `${teamId}:${rawIdentifiers}`
+        let keys = teamKeysCache.get(cacheKey)
         if (!keys) {
-            const pseudoTeam = pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_TEAM, String(teamId))
+            const teamIdString = rawIdentifiers
+                ? String(teamId)
+                : pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_TEAM, String(teamId))
             const contentKey = pseudonymize(
                 imageCollection.pseudonymSecret,
                 PSEUDONYM_IMAGE_CONTENT_KEY,
                 String(teamId)
             )
-            // The consumer regex-validates every ref and silently drops non-matches, so a pseudonym
-            // format drift would zero the lane with no signal. Refuse to embed a ref the consumer
-            // would drop — those messages fall back to the inline blur, loudly.
-            if (!isImageRef(imageRef(pseudoTeam, hashImageBytes(contentKey, Buffer.alloc(0))))) {
-                logger.error('🖼️', 'ml_image_scrub_pseudo_team_shape_invalid', { teamId })
-                MlMirrorMetrics.incrementMlImagePseudoTeamInvalid()
+            // Reject refs the consumer cannot parse so images fall back to inline scrubbing.
+            if (!isImageRef(imageRef(teamIdString, hashImageBytes(contentKey, Buffer.alloc(0))))) {
+                logger.error('🖼️', 'ml_image_scrub_team_id_shape_invalid', { teamId })
+                MlMirrorMetrics.incrementMlImageTeamIdInvalid()
                 return undefined
             }
             keys = {
-                pseudoTeam,
+                teamId: teamIdString,
                 contentKey: imageCollection.collectImages ? contentKey : undefined,
             }
-            teamKeysCache.set(teamId, keys)
+            teamKeysCache.set(cacheKey, keys)
         }
         return keys
     }
@@ -168,17 +165,27 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             contentEncoding ?? (isGzipped(message.value) ? 'gzip' : 'none')
         )
 
-        const teamKeys = teamKeysFor(input.team.teamId)
+        const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
+        const sessionKeys = input.mlKeys
+        let referenceNamespace: string | undefined
+        let imageTeamId: string | undefined
         const t0 = performance.now()
         const callStartEpochMs = performance.timeOrigin + t0
         let result
         try {
+            referenceNamespace =
+                sessionKeys && usesRawSessionIdentifiers(headers.session_id)
+                    ? `v${mlDatasetVersion(headers.session_id)}:${input.team.teamId}:${sessionStartMonth(headers.session_id)}`
+                    : undefined
+            imageTeamId = referenceNamespace ?? teamKeys?.teamId
             result = await getRustAnonymizer().anonymizeKafkaPayload(
                 message.value,
                 contentEncoding,
-                teamKeys?.pseudoTeam,
+                imageTeamId,
                 teamKeys?.contentKey,
-                globalUrlKey
+                globalUrlKey,
+                referenceNamespace,
+                producedRefDedup(producedRefs, Date.now())
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -256,6 +263,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             return dlq('distinct_id_header_body_mismatch')
         }
 
+        recordImageSources(meta)
         MlMirrorMetrics.incrementMlJsonLdEvents(meta.jsonLdEventCount)
 
         const parsedMessage: ParsedMessageData = {
@@ -287,11 +295,12 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             snapshot_library: meta.snapshotLibrary,
         }
 
-        const collectedImages = teamKeys?.contentKey
-            ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images)
-            : undefined
-        const collectedUrls = globalUrlKey && teamKeys ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
-        recordImageSources(meta)
+        const collectedImages = teamKeys?.contentKey ? unpackCollectedImages(imageTeamId!, meta, result) : undefined
+        const collectedUrls =
+            globalUrlKey && teamKeys
+                ? unpackCollectedUrls(teamKeys.teamId, meta, result, referenceNamespace)
+                : undefined
+
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
 }
@@ -311,13 +320,19 @@ function recordImageSources(meta: AnonymizeMeta): void {
  * Slice the addon's packed image buffer into per-image produce records. The lines already carry the
  * refs, so a skipped slice only means that ref stays dangling (same outcome as a failed produce) —
  * never a blocked message.
+ *
+ * The addon left out the images an earlier message produced. They still count as collected.
  */
 function unpackCollectedImages(
-    pseudoTeam: string,
+    teamId: string,
     meta: AnonymizeMeta,
-    packed: Buffer | null
+    result: Pick<AnonymizeKafkaPayloadResult, 'images' | 'dedupedImageCount'>
 ): CollectedImage[] | undefined {
+    const deduped = result.dedupedImageCount ?? 0
+    MlMirrorMetrics.incrementMlImagesCollected('deduped', deduped)
+    const packed = result.images
     if (!meta.images?.length || !packed) {
+        MlMirrorMetrics.incrementMlImagesCollected('collected', deduped)
         return undefined
     }
     const images: CollectedImage[] = []
@@ -327,11 +342,11 @@ function unpackCollectedImages(
             continue
         }
         images.push({
-            ref: imageRef(pseudoTeam, entry.hash),
+            ref: imageRef(teamId, entry.hash),
             bytes: packed.subarray(entry.offset, entry.offset + entry.len),
         })
     }
-    MlMirrorMetrics.incrementMlImagesCollected('collected', images.length)
+    MlMirrorMetrics.incrementMlImagesCollected('collected', images.length + deduped)
     return images.length > 0 ? images : undefined
 }
 
@@ -341,28 +356,36 @@ function unpackCollectedImages(
  * The domain count is observed for a message with no URL too. A count taken only from messages
  * that carry one describes an image-heavy page, and this number exists to size a topic that
  * carries all the traffic.
+ *
+ * The addon left out the URLs an earlier message produced. They still count as collected, and the
+ * addon counted the domains before it left them out.
  */
-function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
-    const urls: CollectedUrl[] = []
-    const domains = new Set<string>()
-    for (const entry of meta.urls ?? []) {
-        urls.push({
-            ref: urlRef(entry.hash),
-            pseudoTeam,
-            url: entry.url,
-            host: entry.host,
-            domain: entry.domain,
-        })
-        domains.add(entry.domain)
-    }
+function unpackCollectedUrls(
+    teamId: string,
+    meta: AnonymizeMeta,
+    result: Pick<AnonymizeKafkaPayloadResult, 'dedupedUrlCount' | 'collectedUrlDomainCount'>,
+    referenceNamespace?: string
+): CollectedUrl[] | undefined {
+    const urls: CollectedUrl[] = (meta.urls ?? []).map((entry) => ({
+        ref: referenceNamespace ? `imageurl:${referenceNamespace}:${entry.hash}` : urlRef(entry.hash),
+        teamId,
+        url: entry.url,
+        host: entry.host,
+        domain: entry.domain,
+    }))
     for (const decline of meta.urlDeclines ?? []) {
         MlMirrorMetrics.incrementMlUrlsDeclined(decline.reason, decline.count)
     }
-    MlMirrorMetrics.observeMlUrlDomainsPerMessage(domains.size)
-    if (urls.length === 0) {
+    const deduped = result.dedupedUrlCount ?? 0
+    const collected = urls.length + deduped
+    MlMirrorMetrics.observeMlUrlDomainsPerMessage(
+        result.collectedUrlDomainCount ?? new Set(urls.map(({ domain }) => domain)).size
+    )
+    if (collected === 0) {
         return undefined
     }
-    MlMirrorMetrics.incrementMlUrlsCollected('collected', urls.length)
-    MlMirrorMetrics.observeMlUrlsPerMessage(urls.length)
-    return urls
+    MlMirrorMetrics.incrementMlUrlsCollected('collected', collected)
+    MlMirrorMetrics.incrementMlUrlsCollected('deduped', deduped)
+    MlMirrorMetrics.observeMlUrlsPerMessage(collected)
+    return urls.length > 0 ? urls : undefined
 }

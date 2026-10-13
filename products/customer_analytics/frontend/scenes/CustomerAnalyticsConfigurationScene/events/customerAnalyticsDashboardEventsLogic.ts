@@ -5,7 +5,7 @@ import { urlToAction } from 'kea-router'
 import { isEmptyObject } from 'lib/utils/guards'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { ActionsNode, DataWarehouseNode, EventsNode, GroupNode } from '~/queries/schema/schema-general'
 import { FilterType, InsightType } from '~/types'

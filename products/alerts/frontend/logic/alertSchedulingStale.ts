@@ -6,15 +6,36 @@ import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
 import type { ScheduleRestriction } from '../types'
 
-function calendarAnchor(localDate: Dayjs, hour: number, timezone: string): Dayjs {
-    return dayjs.tz(`${localDate.format('YYYY-MM-DD')} ${hour}:00`, 'YYYY-MM-DD H:mm', timezone)
+function calendarTime(localDate: Dayjs, hour: number, minute: number, timezone: string): Dayjs {
+    const wallTime = `${localDate.format('YYYY-MM-DD')} ${hour}:${String(minute).padStart(2, '0')}`
+    const run = dayjs.tz(wallTime, 'YYYY-MM-DD H:mm', timezone)
+    // When a DST change repeats this wall time, dayjs picks either occurrence depending on the browser's
+    // timezone. The backend uses the first occurrence, which has the larger UTC offset.
+    const shiftMinutes = run.subtract(3, 'hours').tz(timezone).utcOffset() - run.utcOffset()
+    const firstOccurrence = run.subtract(shiftMinutes, 'minutes').tz(timezone)
+    return shiftMinutes > 0 && firstOccurrence.format('YYYY-MM-DD H:mm') === wallTime ? firstOccurrence : run
+}
+
+// Compare instants, because dayjs re-reads the wall time inside `isAfter` and can pick the other occurrence of a
+// repeated local time.
+function isLater(time: Dayjs, than: Dayjs): boolean {
+    return time.valueOf() > than.valueOf()
+}
+
+function parseScheduleStartTime(scheduleStartTime: string | null | undefined): { hour: number; minute: number } | null {
+    const [hour, minute] = (scheduleStartTime ?? '').split(':').map(Number)
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return null
+    }
+    return { hour, minute }
 }
 
 export function approximateNextAlertRun(
     interval: AlertCalculationInterval,
     timezone: string,
+    scheduleStartTime: string | null | undefined = null,
     now: Dayjs = dayjs()
-): Dayjs {
+): { earliest: Dayjs; latest: Dayjs } {
     let localNow: Dayjs
     try {
         localNow = now.tz(timezone)
@@ -23,22 +44,82 @@ export function approximateNextAlertRun(
         localNow = now.utc()
     }
 
+    const scheduleStart = parseScheduleStartTime(scheduleStartTime)
+    const nextRunFromScheduleStartMinute = (cadenceMinutes: number): Dayjs | null => {
+        if (!scheduleStart) {
+            return null
+        }
+
+        let candidate = localNow.startOf('hour').minute(scheduleStart.minute).second(0).millisecond(0)
+        while (!isLater(candidate, localNow)) {
+            candidate = candidate.add(cadenceMinutes, 'minutes')
+        }
+        return candidate
+    }
+
+    if (interval === AlertCalculationInterval.REAL_TIME) {
+        const nextRun = localNow.add(2, 'minutes')
+        return { earliest: nextRun, latest: nextRun }
+    }
+    if (interval === AlertCalculationInterval.EVERY_15_MINUTES || interval === AlertCalculationInterval.HOURLY) {
+        const cadence = interval === AlertCalculationInterval.EVERY_15_MINUTES ? 15 : 60
+        const customRun = nextRunFromScheduleStartMinute(cadence)
+        if (customRun) {
+            return { earliest: customRun, latest: customRun }
+        }
+        // Floor the instant in UTC, because `startOf` on the zoned value re-reads the wall time and, in a repeated
+        // hour, can move to the earlier occurrence.
+        const currentMinute = dayjs.utc(localNow.valueOf()).startOf('minute')
+        const anchor = currentMinute.add(cadence - (localNow.minute() % cadence), 'minutes')
+        return {
+            earliest: anchor.add(cadence === 15 ? 1 : 2, 'minutes'),
+            latest: anchor.add(cadence === 15 ? 3 : 13, 'minutes'),
+        }
+    }
+
+    if (scheduleStart) {
+        // An explicit start time runs at exactly that local time: today, this Monday, or the 1st of this
+        // month, moved on by whole days, weeks, or months until it is in the future.
+        let firstDate: Dayjs
+        let unit: 'day' | 'week' | 'month'
+        switch (interval) {
+            case AlertCalculationInterval.DAILY:
+                firstDate = localNow
+                unit = 'day'
+                break
+            case AlertCalculationInterval.WEEKLY:
+                firstDate = localNow.add((8 - localNow.day()) % 7, 'days')
+                unit = 'week'
+                break
+            case AlertCalculationInterval.MONTHLY:
+                firstDate = localNow.startOf('month')
+                unit = 'month'
+                break
+        }
+        let steps = 0
+        let run = calendarTime(firstDate, scheduleStart.hour, scheduleStart.minute, timezone)
+        while (!isLater(run, localNow)) {
+            steps += 1
+            run = calendarTime(firstDate.add(steps, unit), scheduleStart.hour, scheduleStart.minute, timezone)
+        }
+        return { earliest: run, latest: run }
+    }
+
+    let anchor: Dayjs
     switch (interval) {
-        case AlertCalculationInterval.REAL_TIME:
-            return localNow.add(2, 'minutes')
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return localNow.add(15, 'minutes')
-        case AlertCalculationInterval.HOURLY:
-            return localNow.add(1, 'hour')
         case AlertCalculationInterval.DAILY:
-            return calendarAnchor(localNow.add(1, 'day'), 1, timezone)
+            anchor = calendarTime(localNow.add(1, 'day'), 1, 0, timezone)
+            break
         case AlertCalculationInterval.WEEKLY: {
             const daysUntilMonday = localNow.day() === 0 ? 1 : 8 - localNow.day()
-            return calendarAnchor(localNow.add(daysUntilMonday, 'days'), 3, timezone)
+            anchor = calendarTime(localNow.add(daysUntilMonday, 'days'), 3, 0, timezone)
+            break
         }
         case AlertCalculationInterval.MONTHLY:
-            return calendarAnchor(localNow.add(1, 'month').startOf('month'), 4, timezone)
+            anchor = calendarTime(localNow.add(1, 'month').startOf('month'), 4, 0, timezone)
+            break
     }
+    return { earliest: anchor.add(2, 'minutes'), latest: anchor.add(59, 'minutes') }
 }
 
 export function normalizeScheduleRestrictionForCompare(
@@ -54,6 +135,7 @@ export function normalizeScheduleRestrictionForCompare(
 export type SchedulingSnapshot = {
     calculation_interval: AlertCalculationInterval
     schedule_restriction?: ScheduleRestriction | null
+    schedule_start_time?: string | null
     skip_weekend?: boolean | null
     config?: { check_ongoing_interval?: boolean } | null
 }
@@ -78,6 +160,9 @@ export function isNextPlannedEvaluationStale(
         return true
     }
     if (Boolean(form.skip_weekend) !== Boolean(saved.skip_weekend)) {
+        return true
+    }
+    if (form.schedule_start_time !== saved.schedule_start_time) {
         return true
     }
     if (Boolean(form.config?.check_ongoing_interval) !== Boolean(saved.config?.check_ongoing_interval)) {

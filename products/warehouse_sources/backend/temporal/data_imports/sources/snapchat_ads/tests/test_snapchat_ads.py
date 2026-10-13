@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_a
     AD_ACCOUNTS_PAGE_LIMIT,
     MAX_AD_ACCOUNT_PAGES,
     SnapchatAdsPaginator,
-    SnapchatDateRangeManager,
     SnapchatStatsResource,
     format_stats_day_boundary,
     list_ad_accounts,
@@ -64,81 +63,6 @@ def _mock_resumable_manager(*, can_resume: bool = False, saved: Optional[Snapcha
     manager.can_resume.return_value = can_resume
     manager.load_state.return_value = saved
     return manager
-
-
-class TestIterRowsFreshRun:
-    def test_calls_rest_api_resource_without_initial_state(self) -> None:
-        captured_kwargs: dict[str, Any] = {}
-
-        def _fake_rest_api_resource(*args: Any, **kwargs: Any) -> _FakeResource:
-            captured_kwargs.update(kwargs)
-            return _FakeResource(
-                pages=[[{"id": "c1"}], [{"id": "c2"}]],
-                resume_hook=kwargs["resume_hook"],
-            )
-
-        manager = _mock_resumable_manager(can_resume=False)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
-            side_effect=_fake_rest_api_resource,
-        ):
-            batches = list(
-                _iter_rows(
-                    ad_account_id="acct",
-                    endpoint="campaigns",
-                    team_id=1,
-                    job_id="job",
-                    access_token="token",
-                    resumable_source_manager=manager,
-                    db_incremental_field_last_value=None,
-                    should_use_incremental_field=False,
-                )
-            )
-
-        assert batches == [[{"id": "c1"}], [{"id": "c2"}]]
-        assert captured_kwargs["initial_paginator_state"] is None
-        manager.load_state.assert_not_called()
-
-    def test_saves_checkpoint_with_next_link_after_each_page(self) -> None:
-        def _fake_rest_api_resource(*args: Any, **kwargs: Any) -> _FakeResource:
-            return _FakeResource(
-                pages=[[{"id": "c1"}], [{"id": "c2"}], [{"id": "c3"}]],
-                resume_hook=kwargs["resume_hook"],
-            )
-
-        manager = _mock_resumable_manager(can_resume=False)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
-            side_effect=_fake_rest_api_resource,
-        ):
-            list(
-                _iter_rows(
-                    ad_account_id="acct",
-                    endpoint="campaigns",
-                    team_id=1,
-                    job_id="job",
-                    access_token="token",
-                    resumable_source_manager=manager,
-                    db_incremental_field_last_value=None,
-                    should_use_incremental_field=False,
-                )
-            )
-
-        saved_configs = [call.args[0] for call in manager.save_state.call_args_list]
-        # Only concrete next_link cursors are persisted — the final None call
-        # from the resume_hook is a no-op, matching mailchimp/reddit_ads.
-        assert saved_configs == [
-            SnapchatResumeConfig(
-                chunk_index=0,
-                next_link="https://adsapi.snapchat.com/v1/next?cursor=page1",
-            ),
-            SnapchatResumeConfig(
-                chunk_index=0,
-                next_link="https://adsapi.snapchat.com/v1/next?cursor=page2",
-            ),
-        ]
 
 
 class TestIterRowsResume:
@@ -374,26 +298,6 @@ class TestStatsDayBoundaryTimezone:
     ) -> None:
         assert format_stats_day_boundary(dt, account_timezone) == expected
 
-    def test_generate_chunks_localizes_each_boundary_across_dst(self) -> None:
-        # A range straddling the spring-forward boundary: each chunk must carry the
-        # offset that aligns it to local midnight on its own date, not one fixed
-        # offset for the whole range.
-        chunks = SnapchatDateRangeManager.generate_chunks(
-            "2025-01-01T00:00:00", "2025-08-01T00:00:00", account_timezone="America/Los_Angeles"
-        )
-        starts = [start for start, _ in chunks]
-
-        assert chunks[0][0] == "2025-01-01T00:00:00-08:00"
-        assert any(s.endswith("-08:00") for s in starts)
-        assert any(s.endswith("-07:00") for s in starts)
-        assert all("T00:00:00" in s for s in starts)
-
-    def test_generate_chunks_naive_without_timezone(self) -> None:
-        chunks = SnapchatDateRangeManager.generate_chunks(
-            "2025-01-01T00:00:00", "2025-02-01T00:00:00", account_timezone=None
-        )
-        assert chunks == [("2025-01-01T00:00:00", "2025-02-01T00:00:00")]
-
 
 class TestNonRetryableErrors:
     _patterns = SnapchatAdsSource().get_non_retryable_errors()
@@ -485,27 +389,6 @@ class TestListAdAccounts:
         session.get.side_effect = responses
         return session
 
-    def test_follows_next_link_until_exhausted(self) -> None:
-        # A single page would silently truncate the picker for an org with more accounts than fit
-        # in one page — the user's account just wouldn't be there, with no error.
-        next_link = "https://adsapi.snapchat.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2"
-        session = self._session_returning(
-            self._organizations_page("PostHog", "acc-1", next_link=next_link),
-            self._organizations_page("Agency", "acc-2"),
-        )
-
-        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
-            result = list_ad_accounts("token")
-
-        assert [(account["id"], org_name) for account, org_name in result] == [
-            ("acc-1", "PostHog"),
-            ("acc-2", "Agency"),
-        ]
-        assert session.get.call_count == 2
-        # The second request follows next_link verbatim: it already carries the cursor and the query.
-        assert session.get.call_args_list[1].args[0] == next_link
-        assert session.get.call_args_list[1].kwargs["params"] is None
-
     def test_in_body_failure_raises_actionable_error(self) -> None:
         # A 200 whose body reports failure would otherwise fall through to an empty picker.
         session = self._session_returning(
@@ -533,12 +416,6 @@ class TestListAdAccounts:
             pytest.raises(IntegrationAccountListingError),
         ):
             list_ad_accounts("token")
-
-    def test_no_organizations_returns_empty_list(self) -> None:
-        session = self._session_returning({"request_status": "SUCCESS", "organizations": []})
-
-        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
-            assert list_ad_accounts("token") == []
 
     def test_page_cap_raises_instead_of_returning_partial(self) -> None:
         # A looping/oversized next_link must fail closed rather than return the accounts collected so
@@ -606,89 +483,6 @@ def _breakdown_page(entity_id: str, breakdown_key: str, entries: list[dict[str, 
 
 
 class TestStatsDimensionTransform:
-    def test_dimension_stats_expand_to_one_row_per_dimension_value(self) -> None:
-        # A `report_dimension` response replaces the day's `stats` object with a
-        # `dimension_stats` array. Reading only `stats` would sync the breakdown tables empty.
-        page = _breakdown_page(
-            "campaign-1",
-            "campaign",
-            [
-                {
-                    "start_time": "2026-04-01T00:00:00-07:00",
-                    "end_time": "2026-04-02T00:00:00-07:00",
-                    "dimension_stats": [
-                        {"impressions": 10, "swipes": 1, "country": "us"},
-                        {"impressions": 4, "swipes": 0, "country": "gb"},
-                    ],
-                },
-                {
-                    "start_time": "2026-04-02T00:00:00-07:00",
-                    "end_time": "2026-04-03T00:00:00-07:00",
-                    "dimension_stats": [{"impressions": 7, "swipes": 2, "country": "us"}],
-                },
-            ],
-        )
-
-        rows = SnapchatStatsResource.transform_stats_reports(page, currency="USD")
-
-        assert rows == [
-            {
-                "id": "campaign-1",
-                "type": "CAMPAIGN",
-                "start_time": "2026-04-01T00:00:00-07:00",
-                "end_time": "2026-04-02T00:00:00-07:00",
-                "impressions": 10,
-                "swipes": 1,
-                "country": "us",
-                "currency": "USD",
-            },
-            {
-                "id": "campaign-1",
-                "type": "CAMPAIGN",
-                "start_time": "2026-04-01T00:00:00-07:00",
-                "end_time": "2026-04-02T00:00:00-07:00",
-                "impressions": 4,
-                "swipes": 0,
-                "country": "gb",
-                "currency": "USD",
-            },
-            {
-                "id": "campaign-1",
-                "type": "CAMPAIGN",
-                "start_time": "2026-04-02T00:00:00-07:00",
-                "end_time": "2026-04-03T00:00:00-07:00",
-                "impressions": 7,
-                "swipes": 2,
-                "country": "us",
-                "currency": "USD",
-            },
-        ]
-
-    def test_totals_rows_still_read_the_stats_object(self) -> None:
-        # The existing totals tables must keep flattening `stats` unchanged.
-        page = _breakdown_page(
-            "adsquad-1",
-            "adsquad",
-            [
-                {
-                    "start_time": "2026-04-01T00:00:00-07:00",
-                    "end_time": "2026-04-02T00:00:00-07:00",
-                    "stats": {"impressions": 21, "spend": 500},
-                }
-            ],
-        )
-
-        assert SnapchatStatsResource.transform_stats_reports(page) == [
-            {
-                "id": "adsquad-1",
-                "type": "ADSQUAD",
-                "start_time": "2026-04-01T00:00:00-07:00",
-                "end_time": "2026-04-02T00:00:00-07:00",
-                "impressions": 21,
-                "spend": 500,
-            }
-        ]
-
     def test_entity_level_dimension_stats_are_kept_and_dated_from_the_entity(self) -> None:
         # Snapchat only documents delivery insights at TOTAL granularity, where the breakdown
         # hangs off the entity with no `timeseries`. Those rows must not be silently dropped.
@@ -732,14 +526,6 @@ class TestEntityUnwrapping:
         )
 
         assert rows == [{"id": "obj-1", "name": "Object"}]
-
-    def test_campaign_style_wrappers_still_unwrap_without_a_configured_key(self) -> None:
-        rows = SnapchatStatsResource.apply_stream_transformations(
-            EndpointType.ENTITY,
-            [{"sub_request_status": "SUCCESS", "campaign": {"id": "c-1"}}],
-        )
-
-        assert rows == [{"id": "c-1"}]
 
 
 class TestBreakdownEndpointConfig:
@@ -785,32 +571,6 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert error is not None and expected_fragment in error
-
-
-class TestSchemaDefaults:
-    def test_breakdown_tables_are_opt_in_and_the_rest_stay_on(self) -> None:
-        # Breakdown tables multiply every day by its dimension values, so they must not be
-        # pre-selected for every new connection.
-        schemas = SnapchatAdsSource().get_schemas(config=MagicMock(), team_id=1)
-        by_name = {schema.name: schema.should_sync_default for schema in schemas}
-
-        assert by_name == {
-            "campaigns": True,
-            "ad_squads": True,
-            "ads": True,
-            "ad_accounts": True,
-            "creatives": True,
-            "media": True,
-            "audience_segments": True,
-            "pixels": True,
-            "campaign_stats_daily": True,
-            "ad_squad_stats_daily": True,
-            "ad_stats_daily": True,
-            "campaign_stats_daily_country": False,
-            "campaign_stats_daily_demographics": False,
-            "ad_stats_daily_country": False,
-            "ad_stats_daily_demographics": False,
-        }
 
 
 class TestPaginatorRequestStatus:

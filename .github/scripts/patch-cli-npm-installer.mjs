@@ -62,6 +62,27 @@ ${sleep.toString()}
 ${downloadWithRetry.toString()}
 `
 
+// Windows PowerShell joins every argument after -Command into one script, so a positional path
+// that contains a space splits in two. The env passes each path to Expand-Archive as one value.
+const WINDOWS_EXPAND_ARCHIVE_ANCHOR =
+    /`& \{\s*param\(\[string\]\$LiteralPath, \[string\]\$DestinationPath\)\s*Expand-Archive -LiteralPath \$LiteralPath -DestinationPath \$DestinationPath -Force\s*\}`,\s*tempFile,\s*this\.installDirectory,\s*\]\);/
+const WINDOWS_EXPAND_ARCHIVE_SOURCE = `"$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:POSTHOG_CLI_ZIP -DestinationPath $env:POSTHOG_CLI_DEST -Force",
+                  ], {
+                    env: {
+                      ...process.env,
+                      POSTHOG_CLI_ZIP: tempFile,
+                      POSTHOG_CLI_DEST: this.installDirectory,
+                    },
+                  });`
+
+const INSTALLED_ANCHOR =
+    /\.then\(\(\) => \{(\s*)if \(!suppressLogs\) \{\s*console\.error\(`\$\{this\.name\} has been installed!`\);/
+const INSTALLED_CHECK_SOURCE = `if (!this.exists()) {
+          throw new Error(
+            \`The archive extracted, but \${this.name} is missing from \${this.installDirectory}\`,
+          );
+        }`
+
 export function patchBinaryInstaller(source) {
     const importAnchor = 'const http = require("node:http");'
     const downloadAnchor = 'return download(this.url)'
@@ -72,12 +93,23 @@ export function patchBinaryInstaller(source) {
     if (!source.includes(downloadAnchor)) {
         throw new Error(`Could not find the artifact download call in cargo-dist's binary-install.js`)
     }
+    if (!WINDOWS_EXPAND_ARCHIVE_ANCHOR.test(source)) {
+        throw new Error(`Could not find the Windows Expand-Archive call in cargo-dist's binary-install.js`)
+    }
+    if (!INSTALLED_ANCHOR.test(source)) {
+        throw new Error(`Could not find the install success log in cargo-dist's binary-install.js`)
+    }
     if (source.includes('downloadWithRetry(() => download(this.url)')) {
         throw new Error(`cargo-dist's binary-install.js is already patched`)
     }
 
     return source
         .replace(importAnchor, `${importAnchor}\n${RETRY_HELPER_SOURCE}`)
+        .replace(WINDOWS_EXPAND_ARCHIVE_ANCHOR, () => WINDOWS_EXPAND_ARCHIVE_SOURCE)
+        .replace(
+            INSTALLED_ANCHOR,
+            (match, indent) => `.then(() => {${indent}${INSTALLED_CHECK_SOURCE}${match.slice('.then(() => {'.length)}`
+        )
         .replace(
             downloadAnchor,
             `return downloadWithRetry(() => download(this.url), {\n      onRetry: (error, attempt, delayMs) => {\n        console.error(\n          \`Download attempt \${attempt} failed (\${error.message}); retrying in \${delayMs}ms...\`,\n        );\n      },\n    })`
@@ -134,5 +166,5 @@ export function patchCliNpmInstaller(distributionDirectory, manifestPath) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const [distributionDirectory = 'target/distrib', manifestPath = 'dist-manifest.json'] = process.argv.slice(2)
     patchCliNpmInstaller(distributionDirectory, manifestPath)
-    console.log('Added retries with exponential backoff to the generated posthog-cli npm installer')
+    console.log('Patched the generated posthog-cli npm installer with download retries and safe Windows extraction')
 }

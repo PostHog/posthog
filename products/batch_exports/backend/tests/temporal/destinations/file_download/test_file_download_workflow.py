@@ -11,8 +11,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload
 from products.batch_exports.backend.service import BatchExportModel, FileDownloadBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -25,6 +23,11 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import inse
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
     assert_clickhouse_records_in_s3,
     has_valid_credentials,
+)
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on_application_error
 
@@ -170,6 +173,7 @@ async def test_file_download_workflow_exports_data(
         compression=compression,
         file_format=file_format,
         sort_key="uuid",
+        legacy_parquet_extension=False,
     )
 
     # Verify BatchExportFileDownload records were created by the workflow.

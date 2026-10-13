@@ -5,7 +5,11 @@ from django.test import override_settings
 
 import aiohttp
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockFetchError,
+    RecordingApiConfigurationError,
+    RecordingDeletedError,
+)
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 
@@ -448,3 +452,23 @@ class TestAuthHeaderRollout:
         with patch("posthog.session_recordings.recordings.recording_api_jwt.logger") as mock_logger:
             assert recording_api_auth_headers(7, "read") == {}
             mock_logger.warning.assert_called_once_with("recording_api.no_auth_configured")
+
+
+class TestClientPreconditions:
+    @pytest.mark.asyncio
+    @override_settings(
+        RECORDING_API_URL="http://recording-api:6738", RECORDING_API_JWT_SECRET="", INTERNAL_API_SECRET=""
+    )
+    async def test_no_credential_is_a_configuration_error_not_a_401(self):
+        # Without a credential the request goes out unauthenticated and comes back 401, which the
+        # tolerant listing handlers flatten into "this recording has no blocks".
+        with pytest.raises(RecordingApiConfigurationError):
+            async with recording_api_client():
+                pass
+
+    @pytest.mark.asyncio
+    @override_settings(RECORDING_API_URL="", RECORDING_API_JWT_SECRET="dev-secret", INTERNAL_API_SECRET="")
+    async def test_missing_url_is_a_configuration_error(self):
+        with pytest.raises(RecordingApiConfigurationError):
+            async with recording_api_client():
+                pass

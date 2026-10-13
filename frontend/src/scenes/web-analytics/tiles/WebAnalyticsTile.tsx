@@ -62,6 +62,7 @@ import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     DataVisualizationNode,
+    VisualizationNode,
     InsightVizNode,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
@@ -77,6 +78,7 @@ import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleCompo
 import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
+import { MarketingAnalyticsCrossSell } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsCrossSell'
 
 import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
@@ -219,15 +221,47 @@ const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
     )
 }
 
-type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
-const VariationCell = (
-    { isPercentage, reverseColors, isDuration }: VariationCellProps = {
+type VariationCellProps = {
+    isPercentage?: boolean
+    reverseColors?: boolean
+    isDuration?: boolean
+    reserveTrendSpace?: boolean
+    neutral?: boolean
+    formatValue?: (value: number) => string
+}
+
+export function comparisonTooltipText(
+    current: number,
+    previous: number | null,
+    compare: boolean,
+    formatNumber: (value: number) => string
+): string | null {
+    if (!compare || previous === null) {
+        return null
+    }
+    if (current === previous) {
+        return `No change since last period (${formatNumber(current)})`
+    }
+    if (previous === 0) {
+        return `Increased from ${formatNumber(previous)} to ${formatNumber(current)} since last period`
+    }
+    return `${current > previous ? 'Increased' : 'Decreased'} by ${percentage(
+        Math.abs(current / previous - 1),
+        0
+    )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+}
+
+export const VariationCell = (
+    { isPercentage, reverseColors, isDuration, reserveTrendSpace = true, neutral, formatValue }: VariationCellProps = {
         isPercentage: false,
         reverseColors: false,
         isDuration: false,
     }
-): QueryContextColumnComponent => {
+) => {
     const formatNumber = (value: number): string => {
+        if (formatValue) {
+            return formatValue(value)
+        }
         if (isPercentage) {
             return `${(value * 100).toFixed(1)}%`
         } else if (isDuration) {
@@ -236,7 +270,15 @@ const VariationCell = (
         return value?.toLocaleString() ?? '(empty)'
     }
 
-    return function Cell({ value, context }) {
+    return function Cell({
+        value,
+        context,
+        tooltipContent,
+    }: {
+        value: unknown
+        context?: QueryContext
+        tooltipContent?: React.ReactNode
+    }) {
         const compareFilter = context?.compareFilter
 
         if (!value) {
@@ -247,23 +289,16 @@ const VariationCell = (
             return <span>{String(value)}</span>
         }
 
-        const [current, previous] = value as [number, number]
-
-        const pctChangeFromPrevious =
-            previous === 0 && current === 0 // Special case, render as flatline
-                ? 0
-                : current === null || !compareFilter || compareFilter.compare === false
-                  ? null
-                  : previous === null || previous === 0
-                    ? Infinity
-                    : current / previous - 1
+        const [current, previous] = value as [number, number | null]
+        const hasComparison = previous !== null && compareFilter?.compare === true
+        const difference = hasComparison ? current - previous : null
 
         const trend =
-            pctChangeFromPrevious === null
+            difference === null
                 ? null
-                : pctChangeFromPrevious === 0
+                : difference === 0
                   ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
-                  : pctChangeFromPrevious > 0
+                  : difference > 0
                     ? {
                           Icon: IconTrending,
                           color: reverseColors ? getColorVar('danger') : getColorVar('success'),
@@ -273,24 +308,29 @@ const VariationCell = (
                           color: reverseColors ? getColorVar('success') : getColorVar('danger'),
                       }
 
-        // If current === previous, say "increased by 0%"
+        const trendColor = neutral ? getColorVar('muted') : trend?.color
+
+        const comparisonTooltip = comparisonTooltipText(current, previous, hasComparison, formatNumber)
         const tooltip =
-            pctChangeFromPrevious !== null
-                ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
-                      Math.abs(pctChangeFromPrevious),
-                      0
-                  )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
-                : null
+            comparisonTooltip && tooltipContent ? (
+                <div className="flex flex-col gap-1">
+                    <div>{comparisonTooltip}</div>
+                    <div>{tooltipContent}</div>
+                </div>
+            ) : (
+                (comparisonTooltip ?? tooltipContent)
+            )
 
         return (
-            <div className={clsx({ 'pr-4': !trend })}>
+            <div className={clsx({ 'pr-4': !trend && reserveTrendSpace })}>
                 <Tooltip title={tooltip}>
                     <span>
-                        {formatNumber(current)}&nbsp;
+                        {formatNumber(current)}
+                        {(reserveTrendSpace || trend) && '\u00a0'}
                         {trend && (
                             // eslint-disable-next-line react/forbid-dom-props
-                            <span style={{ color: trend.color }}>
-                                <trend.Icon color={trend.color} className="ml-1" />
+                            <span style={{ color: trendColor }}>
+                                <trend.Icon color={trendColor} className="ml-1" />
                             </span>
                         )}
                     </span>
@@ -338,6 +378,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>UTM Content</>
         case WebStatsBreakdown.Browser:
             return <>Browser</>
+        case WebStatsBreakdown.InAppBrowser:
+            return <>In-app browser</>
         case WebStatsBreakdown.OS:
             return <>OS</>
         case WebStatsBreakdown.Viewport:
@@ -490,6 +532,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.Browser:
             if (typeof value === 'string') {
                 return <PropertyIcon.WithLabel property="$browser" value={value} />
+            }
+            return <NotSetBreakdownLabel />
+        case WebStatsBreakdown.InAppBrowser:
+            if (typeof value === 'string') {
+                return <>{value}</>
             }
             return <NotSetBreakdownLabel />
         case WebStatsBreakdown.OS:
@@ -674,7 +721,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         },
         cross_sell: {
             title: ' ',
-            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => {
+            render: ({ record, query }: { record: any; query: DataTableNode | VisualizationNode }) => {
                 const source = query.source as any
                 const dateRange = source?.dateRange
                 const breakdownBy = source?.breakdownBy
@@ -984,6 +1031,7 @@ export const WebStatsTableTile = ({
     headerSlot,
     uniqueKey,
     enablePagination,
+    tileId,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
@@ -1168,6 +1216,9 @@ export const WebStatsTableTile = ({
             >
                 <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
             </WebAnalyticsTileSkeletonGate>
+            {tileId === TileId.SOURCES &&
+                productTab === ProductTab.ANALYTICS &&
+                uniqueKey.startsWith('WebAnalytics.') && <MarketingAnalyticsCrossSell breakdown={breakdownBy} />}
         </div>
     )
 }

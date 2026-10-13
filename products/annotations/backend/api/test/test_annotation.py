@@ -35,6 +35,36 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "hello world!"
 
+    def test_paginated_list_is_stable_when_annotations_share_a_date_marker(self) -> None:
+        # Insertion order is the reverse of the order the endpoint must return, so a page walk that
+        # falls back to row order returns a different sequence.
+        earlier = [
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                content=f"earlier {index}",
+                date_marker=datetime(2024, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
+            for index in range(2)
+        ]
+        later = [
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                content=f"later {index}",
+                date_marker=datetime(2024, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
+            for index in range(2)
+        ]
+
+        paged_ids = []
+        for offset in (0, 2):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/?limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids += [result["id"] for result in response.json()["results"]]
+
+        assert paged_ids == [later[1].id, later[0].id, earlier[1].id, earlier[0].id]
+
     @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
         with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):

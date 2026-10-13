@@ -106,6 +106,28 @@ CHARTHOP_ENDPOINTS: dict[str, ChartHopEndpointConfig] = {
         name="time_off",
         path="/v1/org/{org_id}/timeoff",
     ),
+    "time_off_policies": ChartHopEndpointConfig(
+        name="time_off_policies",
+        path="/v1/org/{org_id}/timeoff/policy",
+    ),
+    "comp_bands": ChartHopEndpointConfig(
+        name="comp_bands",
+        path="/v1/org/{org_id}/band",
+        # Bands are a lookup: a job or job level can still reference a retired band, so keep
+        # deleted rows (they carry deleteAt/deleteDate) to leave those references resolvable.
+        extra_params={"includeDeleted": "true"},
+    ),
+    "compensation_history": ChartHopEndpointConfig(
+        name="compensation_history",
+        path="/v1/org/{org_id}/change/compensation-history",
+        # No ``id`` on the row. A change is scoped to a job, so pairing the two keeps the key
+        # unique even if one change ever emits a row per affected job.
+        primary_key=["changeId", "jobId"],
+        # Full refresh despite the endpoint's ``startDate`` filter: it only returns rows in
+        # descending date order (no ``desc`` param to flip it), and the vendor spec leaves the
+        # row's ``date`` type undeclared, so neither the watermark nor a datetime partition can
+        # be trusted here. One row per comp change keeps a full re-read cheap.
+    ),
 }
 
 ENDPOINTS = tuple(CHARTHOP_ENDPOINTS.keys())

@@ -4,6 +4,8 @@ import { Form } from 'kea-forms'
 import { IconBell, IconGraph, IconPulse, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
+import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
+
 import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertSummaryParts } from 'products/alerts/frontend/components/alertSummary'
 import { SnoozeButton } from 'products/alerts/frontend/components/SnoozeButton'
@@ -22,6 +24,7 @@ import { ScannerAlertStateTag } from './ScannerAlertStateTag'
 interface ScannerAlertEditModalProps {
     scannerId: string
     scannerType?: string
+    tagOptions?: LemonInputSelectOption[]
     alert: VisionAlertConfigurationApi | null
     onClose: () => void
 }
@@ -29,6 +32,7 @@ interface ScannerAlertEditModalProps {
 export function ScannerAlertEditModal({
     scannerId,
     scannerType,
+    tagOptions,
     alert,
     onClose,
 }: ScannerAlertEditModalProps): JSX.Element {
@@ -38,6 +42,7 @@ export function ScannerAlertEditModal({
                 <ScannerAlertEditModalContent
                     scannerId={scannerId}
                     scannerType={scannerType}
+                    tagOptions={tagOptions}
                     alert={alert}
                     onClose={onClose}
                 />
@@ -49,11 +54,13 @@ export function ScannerAlertEditModal({
 function ScannerAlertEditModalContent({
     scannerId,
     scannerType,
+    tagOptions,
     alert,
     onClose,
 }: {
     scannerId: string
     scannerType?: string
+    tagOptions?: LemonInputSelectOption[]
     alert: VisionAlertConfigurationApi
     onClose: () => void
 }): JSX.Element {
@@ -93,7 +100,7 @@ function ScannerAlertEditModalContent({
                 <div className="space-y-3 pt-3">
                     <AlertEditorFormDetails nameError={nameError} />
                     <div className="max-w-2xl space-y-6">
-                        <ScannerAlertSelectionFields scannerType={scannerType} />
+                        <ScannerAlertSelectionFields scannerType={scannerType} tagOptions={tagOptions} />
                     </div>
                 </div>
             ),

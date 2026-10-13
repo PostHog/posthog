@@ -9,6 +9,74 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Stores selected attachments and submits one response to the PostHog Desktop feedback survey.
+ * @summary Submit Desktop feedback
+ */
+export const desktopFeedbackCreateBodyResponseMax = 4000
+
+export const desktopFeedbackCreateBodyFeedbackViewMax = 100
+
+export const desktopFeedbackCreateBodyFeedbackTaskIdMax = 100
+
+export const desktopFeedbackCreateBodyFeedbackFolderIdMax = 100
+
+export const desktopFeedbackCreateBodyFeedbackAppLogsMax = 20000
+
+export const desktopFeedbackCreateBodyAppVersionMax = 100
+
+export const DesktopFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    response: zod.string().max(desktopFeedbackCreateBodyResponseMax).describe('Feedback text entered by the user.'),
+    source: zod
+        .enum(['Generic (Leave feedback button)', 'Visiting PostHog web'])
+        .describe('\* `Generic (Leave feedback button)` - Leave Feedback\n\* `Visiting PostHog web` - Posthog Web')
+        .describe(
+            'Desktop surface that opened the feedback form.\n\n\* `Generic (Leave feedback button)` - Leave Feedback\n\* `Visiting PostHog web` - Posthog Web'
+        ),
+    feedback_view: zod
+        .string()
+        .max(desktopFeedbackCreateBodyFeedbackViewMax)
+        .describe('Desktop view that was active when the feedback form opened.'),
+    feedback_type: zod
+        .enum(['bug', 'feature', 'general'])
+        .describe('\* `bug` - Bug\n\* `feature` - Feature\n\* `general` - General')
+        .optional()
+        .describe(
+            'Feedback type selected by the user: bug, feature, or general.\n\n\* `bug` - Bug\n\* `feature` - Feature\n\* `general` - General'
+        ),
+    feedback_task_id: zod
+        .string()
+        .max(desktopFeedbackCreateBodyFeedbackTaskIdMax)
+        .optional()
+        .describe('Task that was active when the feedback form opened.'),
+    feedback_folder_id: zod
+        .string()
+        .max(desktopFeedbackCreateBodyFeedbackFolderIdMax)
+        .optional()
+        .describe('Folder that was active when the feedback form opened.'),
+    feedback_app_logs: zod
+        .string()
+        .max(desktopFeedbackCreateBodyFeedbackAppLogsMax)
+        .optional()
+        .describe('Recent Desktop logs that the user chose to include.'),
+    app_version: zod
+        .string()
+        .max(desktopFeedbackCreateBodyAppVersionMax)
+        .optional()
+        .describe('Version of PostHog Desktop that submitted the feedback.'),
+    session_id: zod.uuid().optional().describe('PostHog session recording identifier for the Desktop session.'),
+    screenshot: zod.instanceof(File).optional().describe('Screenshot that the user chose to include.'),
+    image_1: zod.instanceof(File).optional().describe('First image that the user attached.'),
+    image_2: zod.instanceof(File).optional().describe('Second image that the user attached.'),
+})
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysCreateBodyNameMax = 400
 
 export const surveysCreateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -868,6 +936,13 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysUpdateBodyNameMax = 400
 
 export const surveysUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -1727,6 +1802,13 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysPartialUpdateBodyNameMax = 400
 
 export const surveysPartialUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -2696,6 +2778,13 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysGenerateTranslationsCreateBodyOverwriteDefault = false
 
 export const SurveysGenerateTranslationsCreateBody = /* @__PURE__ */ zod.object({
@@ -2938,6 +3027,13 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
         .describe('When true, bypass cached summaries and regenerate. Defaults to false.'),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysSummaryHeadlineCreateBodyNameMax = 400
 
 export const surveysSummaryHeadlineCreateBodyResponsesLimitMin = 0

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconChat } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -18,7 +19,7 @@ import type {
     SignalScoutConfigApi,
     SignalScoutCreateResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
-import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
+import { SKILL_DESCRIPTION_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
@@ -29,6 +30,7 @@ import {
 import {
     getScoutScheduleMode,
     getScoutScheduleOptions,
+    MAX_SCOUT_DISPLAY_NAME_LENGTH,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SCOUT_WEEKDAY_OPTIONS,
@@ -44,21 +46,34 @@ export interface ScoutCreateModalProps {
     isOpen: boolean
     onClose: () => void
     initialValues?: ScoutCreateInitialValues
+    /** Replaces the description of the restored draft, for example with the text the person edited in the chat. */
+    descriptionOverride?: string
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
     onEnabled?: (config: SignalScoutConfigApi) => void
+    /** Offers the chat instead, with the description typed so far. Not shown when turning a scout on. */
+    onSwitchToChat?: (description: string) => void
 }
 
 export function ScoutCreateModal({
     isOpen,
     onClose,
     initialValues,
+    descriptionOverride,
     onCreated,
     onEnabled,
+    onSwitchToChat,
 }: ScoutCreateModalProps): JSX.Element {
     const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
-    const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated, onEnabled }
+    const logicProps: ScoutCreateModalLogicProps = {
+        logicKey,
+        initialValues,
+        descriptionOverride,
+        onClose,
+        onCreated,
+        onEnabled,
+    }
     const logic = scoutCreateModalLogic(logicProps)
     const {
         isScoutCreateFormSubmitting,
@@ -103,8 +118,11 @@ export function ScoutCreateModal({
     // form has errors, so a name typo would otherwise surface only as the button's tooltip. Show the
     // name error in the help slot as soon as the field has been left, until the form shows it itself.
     const touchedNameError =
-        scoutCreateFormTouches.name && !showScoutCreateFormErrors ? scoutCreateFormValidationErrors.name : undefined
+        scoutCreateFormTouches.display_name && !showScoutCreateFormErrors
+            ? scoutCreateFormValidationErrors.display_name
+            : undefined
     const firstError = [
+        scoutCreateFormValidationErrors.display_name,
         scoutCreateFormValidationErrors.name,
         scoutCreateFormValidationErrors.description,
         scoutCreateFormValidationErrors.body,
@@ -127,6 +145,19 @@ export function ScoutCreateModal({
             hasUnsavedInput={scoutCreateFormChanged}
             footer={
                 <>
+                    {onSwitchToChat && !turningOn ? (
+                        <div className="flex-1">
+                            <LemonButton
+                                type="tertiary"
+                                icon={<IconChat />}
+                                disabledReason={busyReason}
+                                onClick={() => onSwitchToChat(scoutCreateForm.description?.trim() ?? '')}
+                                data-attr="scout-create-use-chat"
+                            >
+                                Chat with an agent instead
+                            </LemonButton>
+                        </div>
+                    ) : null}
                     <LemonButton type="secondary" disabledReason={busyReason} onClick={handleClose}>
                         Cancel
                     </LemonButton>
@@ -151,21 +182,21 @@ export function ScoutCreateModal({
             >
                 <div className="flex flex-col gap-4">
                     <LemonField
-                        name="name"
+                        name="display_name"
                         label="Name"
                         help={
                             touchedNameError ? (
                                 <span className="text-danger">{touchedNameError}</span>
                             ) : (
-                                'Lowercase letters, numbers, and hyphens.'
+                                'What this scout is called. You can change it later.'
                             )
                         }
                     >
                         <LemonInput
                             autoFocus={!turningOn}
                             disabledReason={turningOn ? 'This scout already has its name' : undefined}
-                            maxLength={SKILL_NAME_MAX_LENGTH}
-                            placeholder="checkout-failures"
+                            maxLength={MAX_SCOUT_DISPLAY_NAME_LENGTH}
+                            placeholder="Checkout failures"
                             data-attr="scout-create-name"
                         />
                     </LemonField>

@@ -93,13 +93,17 @@ def _get_headers(token: str) -> dict[str, str]:
     }
 
 
-def validate_credentials(token: str) -> bool:
-    ok, _status = validate_via_probe(
+def validate_credentials(token: str) -> tuple[bool, int | None]:
+    """Probe `/users/me` and report `(is_valid, status_code)`.
+
+    The caller needs the status to tell a rejected token (401) from one Calendly accepts but
+    scopes too narrowly (403), which are two different fixes for the user.
+    """
+    return validate_via_probe(
         lambda: make_tracked_session(redact_values=(token,)),
         f"{CALENDLY_BASE_URL}/users/me",
         headers=_get_headers(token),
     )
-    return ok
 
 
 def get_current_organization(token: str, base_url: str = CALENDLY_BASE_URL) -> str:

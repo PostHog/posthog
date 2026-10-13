@@ -58,7 +58,9 @@ export interface PatchedDAGApi {
 
 export interface EdgeApi {
     readonly id: string
+    /** ID of the upstream node. */
     readonly source_id: string
+    /** ID of the downstream node. */
     readonly target_id: string
     dag: string
     readonly dag_name: string
@@ -79,7 +81,9 @@ export interface PaginatedEdgeListApi {
 
 export interface PatchedEdgeApi {
     readonly id?: string
+    /** ID of the upstream node. */
     readonly source_id?: string
+    /** ID of the downstream node. */
     readonly target_id?: string
     dag?: string
     readonly dag_name?: string
@@ -94,6 +98,7 @@ export interface PatchedEdgeApi {
  * * `view` - View
  * * `matview` - Mat View
  * * `endpoint` - Endpoint
+ * * `metric` - Metric
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
@@ -102,6 +107,44 @@ export const NodeTypeEnumApi = {
     View: 'view',
     Matview: 'matview',
     Endpoint: 'endpoint',
+    Metric: 'metric',
+} as const
+
+/**
+ * * `sync_failed` - Sync Failed
+ * * `unresolved` - Unresolved
+ */
+export type LineageIssueKindEnumApi = (typeof LineageIssueKindEnumApi)[keyof typeof LineageIssueKindEnumApi]
+
+export const LineageIssueKindEnumApi = {
+    SyncFailed: 'sync_failed',
+    Unresolved: 'unresolved',
+} as const
+
+export interface LineageIssueApi {
+    /** sync_failed when the last attempt to rebuild this node's edges ended in an error. unresolved when the rebuild finished but some of the names this node reads matched no node in the DAG.
+     *
+     * * `sync_failed` - Sync Failed
+     * * `unresolved` - Unresolved */
+    kind: LineageIssueKindEnumApi
+    /** The error for sync_failed, or the comma-separated names that did not resolve for unresolved. */
+    detail: string
+    /**
+     * When the issue was recorded.
+     * @nullable
+     */
+    at: string | null
+}
+
+/**
+ * * `posthog` - posthog
+ * * `warehouse` - warehouse
+ */
+export type NodeOriginEnumApi = (typeof NodeOriginEnumApi)[keyof typeof NodeOriginEnumApi]
+
+export const NodeOriginEnumApi = {
+    Posthog: 'posthog',
+    Warehouse: 'warehouse',
 } as const
 
 export interface NodeSuspensionApi {
@@ -111,6 +154,13 @@ export interface NodeSuspensionApi {
     reason: string
     /** Materialization job that tripped suspension. */
     job_id: string
+}
+
+export interface NodeEndpointApi {
+    /** Name of the endpoint this node's materialization backs. */
+    name: string
+    /** Endpoint version this node's materialization backs. */
+    version: number
 }
 
 /**
@@ -129,6 +179,19 @@ export interface NodeApi {
     description?: string
     /** @nullable */
     readonly saved_query_id: string | null
+    /** @nullable */
+    readonly metric_id: string | null
+    readonly lineage_issue: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id: string | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -153,6 +216,8 @@ export interface NodeApi {
     readonly sync_interval: string | null
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended: NodeApiSuspended
+    /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+    readonly endpoint: NodeEndpointApi | null
 }
 
 export interface PaginatedNodeListApi {
@@ -180,6 +245,19 @@ export interface PatchedNodeApi {
     description?: string
     /** @nullable */
     readonly saved_query_id?: string | null
+    /** @nullable */
+    readonly metric_id?: string | null
+    readonly lineage_issue?: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin?: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
@@ -204,11 +282,20 @@ export interface PatchedNodeApi {
     readonly sync_interval?: string | null
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended?: PatchedNodeApiSuspended
+    /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+    readonly endpoint?: NodeEndpointApi | null
 }
 
 export interface NodeResumeApi {
     /** False when the node was not suspended to begin with. */
     resumed: boolean
+}
+
+export interface LineageResponseApi {
+    /** Every node reachable from the requested one, plus the node itself. */
+    nodes: NodeApi[]
+    /** Every edge between two of those nodes. */
+    edges: EdgeApi[]
 }
 
 export type DataModelingDagsListParams = {
@@ -224,6 +311,10 @@ export type DataModelingDagsListParams = {
 
 export type DataModelingEdgesListParams = {
     /**
+     * Return only the edges of this DAG.
+     */
+    dag?: string
+    /**
      * A page number within the paginated result set.
      */
     page?: number
@@ -235,6 +326,10 @@ export type DataModelingEdgesListParams = {
 
 export type DataModelingNodesListParams = {
     /**
+     * Scope the lineage counts to this DAG.
+     */
+    dag?: string
+    /**
      * A page number within the paginated result set.
      */
     page?: number
@@ -245,6 +340,10 @@ export type DataModelingNodesListParams = {
 }
 
 export type DataModelingNodesLineageRetrieveParams = {
+    /**
+     * Data catalog metric to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    metric_id?: string
     /**
      * Node to build lineage for.
      */

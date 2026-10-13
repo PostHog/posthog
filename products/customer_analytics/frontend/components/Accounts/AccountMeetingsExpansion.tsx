@@ -17,6 +17,7 @@ import {
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import gongIcon from 'public/services/gong.png'
@@ -24,14 +25,21 @@ import gongIcon from 'public/services/gong.png'
 import { MeetingApi, MeetingParticipantApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountMeetingsLogic, NOT_LOADED, PAGE_SIZE } from './accountMeetingsLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
 const COLLAPSED_ATTENDEE_COUNT = 3
 
-function MatchingEditor({ accountId }: { accountId: string }): JSX.Element {
-    const logic = accountMeetingsLogic({ accountId })
+function MatchingEditor({
+    accountId,
+    tileProps,
+}: {
+    accountId: string
+    tileProps: AccountViewTileLogicProps
+}): JSX.Element {
+    const logic = accountMeetingsLogic({ accountId, ...tileProps })
     const { domainsDraft, emailsDraft, savingMatching } = useValues(logic)
     const { closeMatchingEditor, setDomainsDraft, setEmailsDraft, saveMatching } = useActions(logic)
 
@@ -111,8 +119,16 @@ function AttendeeLink({ participant }: { participant: MeetingParticipantApi }): 
     )
 }
 
-function AttendeeList({ accountId, meeting }: { accountId: string; meeting: MeetingApi }): JSX.Element {
-    const logic = accountMeetingsLogic({ accountId })
+function AttendeeList({
+    accountId,
+    tileProps,
+    meeting,
+}: {
+    accountId: string
+    tileProps: AccountViewTileLogicProps
+    meeting: MeetingApi
+}): JSX.Element {
+    const logic = accountMeetingsLogic({ accountId, ...tileProps })
     const { expandedAttendeeMeetingIds } = useValues(logic)
     const { toggleAttendeesExpanded } = useActions(logic)
 
@@ -160,14 +176,17 @@ const STATUS_TAG_TYPE = {
     cancelled: 'danger',
 } as const
 
+interface AccountMeetingsExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
+
 export function AccountMeetingsExpansion({
     accountId,
     embedded = true,
-}: {
-    accountId: string
-    embedded?: boolean
-}): JSX.Element {
-    const logic = accountMeetingsLogic({ accountId })
+    ...tileProps
+}: AccountMeetingsExpansionProps): JSX.Element {
+    const logic = accountMeetingsLogic({ accountId, ...tileProps })
     const { canEditMeetingMatching, meetingsResult, meetingsResultLoading, searchTerm, page, matchingEditorOpen } =
         useValues(logic)
     const { setSearchTerm, setPage, openMatchingEditor } = useActions(logic)
@@ -210,14 +229,23 @@ export function AccountMeetingsExpansion({
         {
             title: 'When',
             key: 'start_time',
-            width: 140,
-            render: (_, meeting) => <TZLabel time={meeting.start_time} />,
+            width: 180,
+            render: (_, meeting) => (
+                <div className="flex items-center gap-1 whitespace-nowrap">
+                    <TZLabel time={meeting.start_time} />
+                    {meeting.is_recurring && dayjs(meeting.start_time).isAfter(dayjs()) && (
+                        <LemonTag type="muted" size="small" title="Later occurrences of this series are hidden">
+                            Recurring
+                        </LemonTag>
+                    )}
+                </div>
+            ),
             sorter: (a, b) => a.start_time.localeCompare(b.start_time),
         },
         {
             title: 'Attendees',
             key: 'participants',
-            render: (_, meeting) => <AttendeeList accountId={accountId} meeting={meeting} />,
+            render: (_, meeting) => <AttendeeList accountId={accountId} tileProps={tileProps} meeting={meeting} />,
         },
         {
             title: 'Status',
@@ -294,7 +322,7 @@ export function AccountMeetingsExpansion({
                     Edit matching
                 </LemonButton>
             </div>
-            {matchingEditorOpen && <MatchingEditor accountId={accountId} />}
+            {matchingEditorOpen && <MatchingEditor accountId={accountId} tileProps={tileProps} />}
             {content}
         </div>
     )

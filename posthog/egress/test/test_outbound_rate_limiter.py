@@ -149,9 +149,6 @@ async def test_github_search_resource_meter_is_independent_of_core():
     assert await limiter.acquire(core_key, 1, priority=Priority.CRITICAL) is True
 
 
-_RESERVE = {Priority.NORMAL: 0.1, Priority.BATCH: 0.3}
-
-
 @pytest.mark.parametrize(
     "priority,grantable",
     [
@@ -165,7 +162,7 @@ _RESERVE = {Priority.NORMAL: 0.1, Priority.BATCH: 0.3}
 async def test_reserved_floor_caps_each_priority(priority, grantable):
     # The whole point of the lane: a lower priority is denied while headroom is still owed to higher
     # ones, even though all three draw from the same counter.
-    register_policy("test-reserve", RatePolicy(limits=((10, 3600.0),), reserve=_RESERVE))
+    register_policy("test-reserve", RatePolicy(limits=((10, 3600.0),)))
     limiter = _fresh_limiter()
     # Distinct scope per case — parametrize cases share one Redis-backed counter otherwise.
     key = f"test-reserve:scope:{priority.value}"
@@ -186,12 +183,11 @@ async def test_batch_shed_before_critical_on_shared_counter():
 
 
 @pytest.mark.parametrize("priority", [Priority.CRITICAL, Priority.NORMAL, Priority.BATCH])
-async def test_no_reserve_policy_is_priority_blind(priority):
-    # An empty reserve must reproduce the pre-priority behavior for every lane — no headroom held back.
-    register_policy("test-noreserve", RatePolicy(limits=((2, 3600.0),)))
+async def test_explicitly_flat_policy_is_priority_blind(priority):
+    register_policy("test-flat", RatePolicy(limits=((10, 3600.0),), reserve={}))
     limiter = _fresh_limiter()
-    key = f"test-noreserve:scope:{priority.value}"
-    assert [await limiter.acquire(key, priority=priority) for _ in range(3)] == [True, True, False]
+    key = _unique_key("test-flat")
+    assert [await limiter.acquire(key, priority=priority) for _ in range(11)] == [True] * 10 + [False]
 
 
 def test_reserve_inflated_weight_validation():

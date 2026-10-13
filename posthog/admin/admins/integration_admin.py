@@ -51,6 +51,7 @@ class UserIntegrationAdmin(admin.ModelAdmin):
     search_fields = ("id", "integration_id", "user__email", "user__first_name", "user__last_name", "config")
     ordering = ("-created_at",)
     readonly_fields = ("id", "user", "created_at", "updated_at")
+    exclude = ("sensitive_config",)
 
 
 @admin.register(OrganizationIntegration)

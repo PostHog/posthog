@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "rule_type": "experiment",
+      "targeting": {
+        "properties": []
+      },
+      "experiment_id": 21,
+      "rollout_percentage": 100,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "missing-pause",
+      "variants": [
+        {
+          "key": "control",
+          "weight": 50,
+          "value": false
+        },
+        {
+          "key": "test",
+          "weight": 50,
+          "value": true
+        }
+      ]
+    }
+  ]
+}

@@ -32,7 +32,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.node import NodeType
+from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
 from products.data_modeling.backend.test.helpers import (
     no_existing_schedules,
@@ -486,29 +486,60 @@ class TestMaybeReconcileDag(BaseTest):
 
 @pytest.mark.django_db
 class TestPromoteDagViewNodesToMatview(BaseTest):
-    def _backed(self, dag, name, node_type):
+    def _backed(
+        self, dag: DAG, name: str, node_type: str, *, with_table: bool = True, origin: str | None = None
+    ) -> Node:
         node = _saved_query_node(self.team, dag, name, node_type)
         saved_query = node.saved_query
         assert saved_query is not None
-        saved_query.table = DataWarehouseTable.objects.create(team=self.team, name=f"{name}_tbl", format="Delta")
+        saved_query.is_materialized = True
+        if with_table:
+            saved_query.table = DataWarehouseTable.objects.create(team=self.team, name=f"{name}_tbl", format="Delta")
+        if origin is not None:
+            saved_query.origin = origin
         saved_query.save()
         return node
 
-    def test_retypes_only_table_backed_view_nodes(self):
+    def test_retypes_only_the_view_nodes_that_materialize(self) -> None:
         dag = DAG.get_or_create_default(self.team)
         stranded = self._backed(dag, "stranded", NodeType.VIEW)
         endpoint = self._backed(dag, "endpoint_backed", NodeType.ENDPOINT)
         ephemeral = _saved_query_node(self.team, dag, "ephemeral", NodeType.VIEW)
+        # A backing table that went away nulls table_id and leaves the intent behind. This is the
+        # node that used to stay a view forever, so it could never get its table back.
+        lost_its_table = self._backed(dag, "lost_its_table", NodeType.VIEW, with_table=False)
+
+        assert promote_dag_view_nodes_to_matview(dag) == 2
+
+        for node in (stranded, endpoint, ephemeral, lost_its_table):
+            node.refresh_from_db()
+        assert stranded.type == NodeType.MAT_VIEW
+        assert lost_its_table.type == NodeType.MAT_VIEW
+        # Nobody asked for this one to materialize, so it is a real ephemeral view.
+        assert ephemeral.type == NodeType.VIEW
+        assert endpoint.type == NodeType.ENDPOINT
+
+    def test_a_managed_view_is_promoted_on_its_table_not_its_flag(self) -> None:
+        # Revenue Analytics sets is_materialized when it provisions a view, before anything runs,
+        # so the flag there is not a request to materialize and many carry it untruthfully.
+        dag = DAG.get_or_create_default(self.team)
+        never_ran = self._backed(
+            dag,
+            "managed_never_ran",
+            NodeType.VIEW,
+            with_table=False,
+            origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+        )
+        has_run = self._backed(
+            dag, "managed_has_run", NodeType.VIEW, origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET
+        )
 
         assert promote_dag_view_nodes_to_matview(dag) == 1
 
-        for node in (stranded, endpoint, ephemeral):
-            node.refresh_from_db()
-        assert stranded.type == NodeType.MAT_VIEW
-        # A view with no backing table is a real ephemeral view; retyping it would schedule
-        # materializations for something that has nothing to materialize.
-        assert ephemeral.type == NodeType.VIEW
-        assert endpoint.type == NodeType.ENDPOINT
+        never_ran.refresh_from_db()
+        has_run.refresh_from_db()
+        assert never_ran.type == NodeType.VIEW
+        assert has_run.type == NodeType.MAT_VIEW
 
     def test_conversion_to_tiers_repairs_stranded_nodes(self):
         # The v1 sweep that follows conversion is what makes a view-typed node go dark, so the

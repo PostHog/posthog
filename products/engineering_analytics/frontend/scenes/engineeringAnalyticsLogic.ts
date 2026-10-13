@@ -12,6 +12,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -29,10 +30,14 @@ import {
 } from '../generated/api'
 import type { GitHubSourceApi, PullRequestListItemApi, PushCISampleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
+import { parsePullRequestReference, resolvePullRequestTarget } from '../lib/pullRequestReference'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
-import { scopeToValue } from '../lib/scope'
+import { scopeToValue, withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
+
+// pinned: analytics event name. Renaming it breaks the insights built on it.
+const EVENT_PULL_REQUEST_JUMP_SUBMITTED = 'pull request jump submitted'
 
 // Mirrors the endpoint's server-side limit.
 export const PR_TABLE_LIMIT = 1000
@@ -70,6 +75,8 @@ export interface PullRequestRow {
     passing: number
     failing: number
     pending: number
+    /** Runs that settled without a verdict: cancelled, skipped, neutral, action required. */
+    inconclusive: number
     /** Workflow names behind `failing`, sorted. */
     failingWorkflows: string[]
     /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
@@ -128,8 +135,6 @@ export interface WorkflowHealthRow {
     estimatedCostUsd?: number | null
     /** Runs in the window that were a 2nd+ attempt. */
     rerunCycles?: number
-    /** Success rate over the previous equal-length window. */
-    successRatePrev?: number | null
     /** Runs on merge-queue gate branches, counted regardless of the active scope. Above zero marks a
      *  workflow the queue runs before a merge lands, so the list can rank it first. */
     mergeQueueRunCount: number
@@ -216,6 +221,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         passing: it.ci.passing,
         failing: it.ci.failing,
         pending: it.ci.pending,
+        inconclusive: it.ci.inconclusive,
         failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
         pushHistory: it.push_history ?? [],
@@ -246,6 +252,10 @@ export const DEFAULT_FILTERS: PullRequestFilters = {
     readyOnly: false,
     thrashOnly: false,
 }
+
+/** Why the jump box could not open what it holds: the text names no pull request, or it is a bare number
+ *  with no repository to open in. */
+export type PullRequestJumpFailure = 'invalid' | 'needs_repository'
 
 export function isStuck(row: PullRequestRow, stuckCutoffMs: number): boolean {
     return row.state === 'open' && !row.isDraft && !row.isBot && Date.parse(row.createdAt) < stuckCutoffMs
@@ -377,6 +387,9 @@ export interface TrunkQuarantineData {
     trunkUrl: string | null
     teams: TrunkQuarantineTeamRow[]
     tests: TrunkQuarantinedTestRow[]
+    /** True when more tests are quarantined than `limit`; `tests` and the team counts are then lower bounds. */
+    truncated: boolean
+    limit: number
 }
 
 /**
@@ -414,12 +427,13 @@ export interface engineeringAnalyticsLogicValues {
     hasActiveWorkflowFilters: boolean
     hasMultipleSources: boolean
     notConnected: boolean
+    pullRequestJumpFailure: PullRequestJumpFailure | null
+    pullRequestJumpText: string
     pullRequests: PullRequestRow[]
     pullRequestsLoadError: boolean
     pullRequestsLoading: boolean
     pullRequestsStatus: LoaderStatus
     quarantine: QuarantineData | null
-    quarantineLoadFailed: boolean
     quarantineLoading: boolean
     readyCount: number
     readyOnly: boolean
@@ -455,6 +469,9 @@ export interface engineeringAnalyticsLogicValues {
 export interface engineeringAnalyticsLogicActions {
     applyCardFilter: (card: CardFilter) => {
         card: CardFilter
+    }
+    failPullRequestJump: (failure: PullRequestJumpFailure) => {
+        failure: PullRequestJumpFailure
     }
     loadCards: () => any
     loadCardsFailure: (
@@ -561,6 +578,9 @@ export interface engineeringAnalyticsLogicActions {
     setCiStatusFilter: (ciStatus: CIStatusFilter) => {
         ciStatus: CIStatusFilter
     }
+    setPullRequestJumpText: (text: string) => {
+        text: string
+    }
     setReadyOnly: (ready: boolean) => {
         ready: boolean
     }
@@ -594,6 +614,9 @@ export interface engineeringAnalyticsLogicActions {
     }
     setWorkflowStatusFilter: (status: WorkflowStatusFilter) => {
         status: WorkflowStatusFilter
+    }
+    submitPullRequestJump: () => {
+        value: true
     }
     toggleTrunkQuarantineTeam: (team: string) => {
         team: string
@@ -699,6 +722,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             // The picker selects a (source, repo) pair in one action, so both land before a single refresh.
             setScope: (sourceId: string | null, scopeRepo: string | null) => ({ sourceId, scopeRepo }),
+            setPullRequestJumpText: (text: string) => ({ text }),
+            submitPullRequestJump: true,
+            failPullRequestJump: (failure: PullRequestJumpFailure) => ({ failure }),
             resetFilters: true,
             toggleTrunkQuarantineTeam: (team: string) => ({ team }),
             refresh: true,
@@ -769,7 +795,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 billableMinutes: it.billable_minutes ?? null,
                                 estimatedCostUsd: it.estimated_cost_usd ?? null,
                                 rerunCycles: it.rerun_cycles ?? 0,
-                                successRatePrev: it.success_rate_prev ?? null,
                                 mergeQueueRunCount: it.merge_queue_run_count ?? 0,
                             })
                         )
@@ -823,6 +848,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             ttlDays: data.ttl_days,
                             repository: data.repository,
                             trunkUrl: data.trunk_url ?? null,
+                            truncated: data.truncated,
+                            limit: data.limit,
                             teams: data.teams.map(
                                 (it): TrunkQuarantineTeamRow => ({
                                     ownerTeam: it.owner_team,
@@ -923,21 +950,23 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Repo scope of a multi-repo source. Cleared when the source changes on its own (the old repo
             // belongs to the old source); the picker uses setScope to set both together.
             scopeRepo: [null as string | null, { setScope: (_, { scopeRepo }) => scopeRepo, setSourceId: () => null }],
+            pullRequestJumpText: ['', { setPullRequestJumpText: (_, { text }) => text }],
+            // A scope change clears the message because picking a repository is one of the fixes it asks for.
+            pullRequestJumpFailure: [
+                null as PullRequestJumpFailure | null,
+                {
+                    failPullRequestJump: (_, { failure }) => failure,
+                    setPullRequestJumpText: () => null,
+                    setScope: () => null,
+                    setSourceId: () => null,
+                },
+            ],
             cardsStatus: [
                 'ok' as LoaderStatus,
                 {
                     loadCards: () => 'ok',
                     loadCardsSuccess: () => 'ok',
                     loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
-                },
-            ],
-            // The quarantine endpoint only 400s when there's no GitHub source and no local checkout.
-            quarantineLoadFailed: [
-                false,
-                {
-                    loadQuarantine: () => false,
-                    loadQuarantineSuccess: () => false,
-                    loadQuarantineFailure: () => true,
                 },
             ],
             // Whole-row click toggles a team's slice open (controlled LemonTable expansion, like the
@@ -1227,6 +1256,37 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.setReadyOnly(target === 'ready')
                 actions.setThrashOnly(target === 'thrash')
             },
+            submitPullRequestJump: () => {
+                // The repository in scope comes from the sources, so do nothing until they load.
+                if (!values.pullRequestJumpText.trim() || values.githubSourcesLoading) {
+                    return
+                }
+                const reference = parsePullRequestReference(values.pullRequestJumpText)
+                const target = reference && resolvePullRequestTarget(reference, values.activeSource?.repo || null)
+                const capture = (outcome: 'opened' | PullRequestJumpFailure): void => {
+                    posthog.capture(EVENT_PULL_REQUEST_JUMP_SUBMITTED, {
+                        outcome,
+                        input_kind: reference?.kind ?? null,
+                    })
+                }
+                if (!target) {
+                    const failure = reference ? 'needs_repository' : 'invalid'
+                    capture(failure)
+                    actions.failPullRequestJump(failure)
+                    return
+                }
+                capture('opened')
+                // The next scene can take a moment to load. An empty box makes a second submit do nothing.
+                actions.setPullRequestJumpText('')
+                const explorerUrl = urls.engineeringAnalyticsCIExplorer(target.owner, target.repo, target.number)
+                router.actions.push(
+                    target.inScope
+                        ? withCurrentScope(explorerUrl, values.sourceId)
+                        : // The source and repo in scope belong to another repository. Without them the
+                          // explorer reads from the source that syncs the pull request's own repository.
+                          withScope(explorerUrl, { ...router.values.searchParams, repo: undefined }, null)
+                )
+            },
         })),
 
         actionToUrl(() => {
@@ -1268,13 +1328,19 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [urls.engineeringAnalytics()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
-                [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
-                [urls.engineeringAnalyticsHealth()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTests()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsDeploys()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTeams()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsAuthors()]: (_, s) => applyScope(s.source, s.repo),
+                '/engineering-analytics/teams/:ownerTeam': (_, s) => applyScope(s.source, s.repo),
             }
         }),
 
-        afterMount(({ actions }) => {
+        afterMount(({ actions, values }) => {
             actions.loadGithubSources()
-            actions.refresh()
+            // A scoped URL already refreshed through urlToAction, which runs before this hook.
+            if (!values.cardsLoading) {
+                actions.refresh()
+            }
         }),
     ])
