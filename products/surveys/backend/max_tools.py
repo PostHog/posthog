@@ -20,7 +20,7 @@ from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
-from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey
+from products.surveys.backend.models import MAX_ITERATION_COUNT, MAX_ITERATION_FREQUENCY_DAYS, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
@@ -258,6 +258,7 @@ SCHEDULE_PROMPT = """
     Do not invent other options or labels. When a user asks to show a survey every time or keep showing it,
     use "always". An "always" popover with no display conditions (URL, wait period) appears again and again,
     so suggest a URL target or wait_period_days.
+
 """
 
 
@@ -380,7 +381,10 @@ class CreateSurveyToolArgs(BaseModel):
         description="With schedule='recurring': how many times in total to show the survey (default 2, max 500)",
     )
     iteration_frequency_days: int | None = Field(
-        default=None, ge=1, le=365, description="With schedule='recurring': days between repeats (default 90)"
+        default=None,
+        ge=1,
+        le=MAX_ITERATION_FREQUENCY_DAYS,
+        description="With schedule='recurring': days between repeats (default 90)",
     )
 
 
@@ -600,7 +604,10 @@ class EditSurveyToolArgs(BaseModel):
         description="With schedule='recurring': how many times in total to show the survey (max 500)",
     )
     iteration_frequency_days: int | None = Field(
-        default=None, ge=1, le=365, description="With schedule='recurring': days between repeats"
+        default=None,
+        ge=1,
+        le=MAX_ITERATION_FREQUENCY_DAYS,
+        description="With schedule='recurring': days between repeats",
     )
     launch: bool | None = Field(default=None, description="Set to true to launch the survey")
     stop: bool | None = Field(default=None, description="Set to true to stop the survey")

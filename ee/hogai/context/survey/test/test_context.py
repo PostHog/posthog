@@ -90,6 +90,7 @@ class TestSurveyContext(BaseTest):
         [
             ("once_with_stale_iterations", "once", 3, 30, "once"),
             ("recurring", "recurring", 3, 30, "recurring (up to 3 times, every 30 days)"),
+            ("recurring_without_iterations", "recurring", None, None, "recurring"),
             ("always", "always", None, None, "always (every time the display conditions are met)"),
         ]
     )

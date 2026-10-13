@@ -25,6 +25,7 @@ from products.actions.backend.models.action import Action
 # and cause performance issues, so we are extra careful with this value
 # NB this is enforced in the UI too
 MAX_ITERATION_COUNT = 500
+MAX_ITERATION_FREQUENCY_DAYS = 365
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

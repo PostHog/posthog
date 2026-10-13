@@ -137,7 +137,9 @@ class SurveyContext:
         if survey.schedule == Survey.Schedule.ALWAYS:
             return "always (every time the display conditions are met)"
         if survey.schedule == Survey.Schedule.RECURRING:
-            return f"recurring (up to {survey.iteration_count} times, every {survey.iteration_frequency_days} days)"
+            if survey.iteration_count and survey.iteration_frequency_days:
+                return f"recurring (up to {survey.iteration_count} times, every {survey.iteration_frequency_days} days)"
+            return "recurring"
         return "once"
 
     def _get_status(self, survey: Survey) -> str:
