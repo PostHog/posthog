@@ -40,6 +40,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -647,8 +648,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         queryId,
         pollResponse,
     } = useValues(dataNodeLogic)
-    const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { queryCancelled, isChartSettingsPanelOpen, showAbsoluteTime } = useValues(dataVisualizationLogic)
+    const { toggleChartSettingsPanel, setShowAbsoluteTime } = useActions(dataVisualizationLogic)
     const visualizationLogic = useMountedLogic(dataVisualizationLogic)
     const chartRecommendationLogic = aiChartRecommendationLogic({
         visualizationProps: visualizationLogic.props,
@@ -676,6 +677,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
 
     const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
     const [selectedJson, setSelectedJson] = useState<object | null>(null)
+    const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const setProgress = useCallback((loadId: string, progress: number) => {
         setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
@@ -741,7 +743,55 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                     headerCellClass: 'cursor-pointer',
                     renderHeaderCell: ({ column: col, sortDirection }: RenderHeaderCellProps<any>) => (
                         <div className="flex items-center justify-between py-2">
-                            <span>{col.name}</span>
+                            <span className="flex items-center gap-1">
+                                <span>{col.name}</span>
+                                {isDateTimeColumn && (
+                                    // The grid sorts on any click or Enter/Space in the header cell
+                                    <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                                        <More
+                                            size="xsmall"
+                                            data-attr="sql-editor-results-column-more"
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        data-attr="sql-editor-results-toggle-absolute-time"
+                                                        onClick={() => setShowAbsoluteTime(!showAbsoluteTime)}
+                                                    >
+                                                        {showAbsoluteTime ? 'Show relative time' : 'Show absolute time'}
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                    <LemonButton
+                                                        fullWidth
+                                                        data-attr="sql-editor-results-sort-asc"
+                                                        onClick={() =>
+                                                            setSortColumns([{ columnKey: col.key, direction: 'ASC' }])
+                                                        }
+                                                    >
+                                                        Sort ascending
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        data-attr="sql-editor-results-sort-desc"
+                                                        onClick={() =>
+                                                            setSortColumns([{ columnKey: col.key, direction: 'DESC' }])
+                                                        }
+                                                    >
+                                                        Sort descending
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        data-attr="sql-editor-results-reset-sort"
+                                                        onClick={() => setSortColumns([])}
+                                                    >
+                                                        Reset sorting
+                                                    </LemonButton>
+                                                </>
+                                            }
+                                        />
+                                    </span>
+                                )}
+                            </span>
                             <div className="flex flex-col ml-1">
                                 <span
                                     className={`text-[7px] leading-none ${
@@ -792,7 +842,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                         }
 
                         if (isDateTimeColumn && typeof value === 'string' && value) {
-                            return <TZLabel time={value} timestampStyle="absolute" />
+                            return <TZLabel time={value} timestampStyle={showAbsoluteTime ? 'absolute' : 'relative'} />
                         }
 
                         const parsedJson: unknown =
@@ -818,7 +868,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         ]
 
         return baseColumns
-    }, [response, setSelectedRow])
+    }, [response, setSelectedRow, showAbsoluteTime, setShowAbsoluteTime])
 
     const rows = useMemo(() => {
         if (!response?.results) {
@@ -859,6 +909,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         queryCancelled,
         columns,
         rows,
+        sortColumns,
+        setSortColumns,
         isDarkModeOn,
         vizKey,
         setSourceQuery,
@@ -1276,6 +1328,8 @@ const Content = ({
     queryCancelled,
     columns,
     rows,
+    sortColumns,
+    setSortColumns,
     isDarkModeOn,
     vizKey,
     setSourceQuery,
@@ -1293,7 +1347,6 @@ const Content = ({
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
-    const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
 

@@ -41,6 +41,7 @@ import { OutputTab } from './outputPaneLogic'
 import { SELECTION_NOT_A_QUERY } from './saveCandidateProblems'
 import {
     activeTabMatchesUrlTarget,
+    getCurrentVisualizationQuery,
     getDisplayTypeToSaveInsight,
     sqlEditorLogic,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
@@ -1237,6 +1238,29 @@ describe('sqlEditorLogic', () => {
 
             expect(model.codeEditorLogic).toBeUndefined()
             expect(dispose).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('getCurrentVisualizationQuery', () => {
+        it.each([
+            { name: 'saves absolute time when nobody touched the toggle', toggleTo: undefined, expected: true },
+            { name: 'saves relative time after switching to it', toggleTo: false, expected: false },
+        ])('$name', ({ toggleTo, expected }) => {
+            const vizLogic = dataVisualizationLogic({
+                key: 'save-what-you-see',
+                query: MOCK_INSIGHT_QUERY,
+                dataNodeCollectionId: 'save-what-you-see',
+                sqlEditor: true,
+            })
+            vizLogic.mount()
+            if (toggleTo !== undefined) {
+                vizLogic.actions.setShowAbsoluteTime(toggleTo)
+            }
+
+            const saved = getCurrentVisualizationQuery('save-what-you-see', MOCK_INSIGHT_QUERY, null)
+            vizLogic.unmount()
+
+            expect(saved.tableSettings?.showAbsoluteTime).toBe(expected)
         })
     })
 

@@ -1599,6 +1599,8 @@ export interface TableSettings {
     conditionalFormatting?: ConditionalFormattingRule[]
     pinnedColumns?: string[]
     transpose?: boolean
+    /** Show datetime values as absolute timestamps instead of relative time */
+    showAbsoluteTime?: boolean
 }
 
 export interface SharingConfigurationSettings {

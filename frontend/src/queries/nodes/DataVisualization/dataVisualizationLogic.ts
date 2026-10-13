@@ -21,6 +21,7 @@ import posthog from 'posthog-js'
 import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { execHog } from 'lib/hog'
+import type { Sorting } from 'lib/lemon-ui/LemonTable'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
@@ -76,6 +77,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { humanizeEventColumnValue } from './eventColumnLabels'
+import { sqlEditorTimeFormatLogic } from './sqlEditorTimeFormatLogic'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -130,6 +132,8 @@ export interface DataVisualizationLogicProps {
     variablesOverride?: Record<string, HogQLVariable> | null
     filtersOverride?: DashboardFilter | null
     limitContext?: 'posthog_ai'
+    /** Set by the SQL editor, which shows absolute time by default and remembers the choice in this browser */
+    sqlEditor?: boolean
 }
 
 export interface SelectedYAxis {
@@ -685,6 +689,7 @@ export interface dataVisualizationLogicValues {
     responseError: string | null // dataNodeLogic
     responseLoading: boolean // dataNodeLogic
     activeSceneId: string | null // sceneLogic
+    sqlEditorShowAbsoluteTime: boolean | null // sqlEditorTimeFormatLogic
     currentTeamId: number | null // teamLogic
     isDarkModeOn: boolean // themeLogic
     activeSideBarTab: SideBarTab
@@ -716,12 +721,15 @@ export interface dataVisualizationLogicValues {
     response: AnyResponseType | null
     selectedXAxis: string | null
     selectedYAxis: (SelectedYAxis | null)[] | null
+    showAbsoluteTime: boolean
+    showAbsoluteTimeOverride: boolean | null
     showEditingUI: boolean
     showResultControls: boolean
     showTableSettings: boolean
     sourceFeatures: Set<QueryFeature>
     sourceTabularColumns: AxisSeries<any>[]
     sourceTabularData: TableDataCell<any>[][]
+    tableSorting: Sorting | null
     tabularColumnSettings: (SelectedYAxis | null)[] | null
     tabularColumns: AxisSeries<any>[]
     tabularData: TableDataCell<any>[][]
@@ -742,6 +750,9 @@ export interface dataVisualizationLogicActions {
         queryId: string
         refresh: RefreshType | undefined
     } // dataNodeLogic
+    setSqlEditorShowAbsoluteTime: (showAbsoluteTime: boolean) => {
+        showAbsoluteTime: boolean
+    } // sqlEditorTimeFormatLogic
     _setQuery: (node: VisualizationNode) => {
         node: VisualizationNode
     }
@@ -790,11 +801,17 @@ export interface dataVisualizationLogicActions {
     setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => {
         setter: (node: VisualizationNode) => VisualizationNode
     }
+    setShowAbsoluteTime: (showAbsoluteTime: boolean) => {
+        showAbsoluteTime: boolean
+    }
     setSideBarTab: (tab: SideBarTab) => {
         tab: SideBarTab
     }
     setTableSorted: () => {
         value: true
+    }
+    setTableSorting: (sorting: Sorting | null) => {
+        sorting: Sorting | null
     }
     setTransposeResults: (transpose: boolean) => {
         transpose: boolean
@@ -904,6 +921,12 @@ export interface dataVisualizationLogicMeta {
         sourceFeatures: (query: VisualizationNode) => Set<QueryFeature>
         isShowingCachedResults: (arg: any) => boolean
         isTransposed: (query: VisualizationNode) => boolean
+        showAbsoluteTime: (
+            showAbsoluteTimeOverride: boolean | null,
+            sqlEditorShowAbsoluteTime: boolean | null,
+            query: VisualizationNode,
+            sqlEditor: boolean | undefined
+        ) => boolean
         yData: (
             selectedYAxis: (SelectedYAxis | null)[] | null,
             response: AnyResponseType | null,
@@ -996,8 +1019,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['isDarkModeOn'],
             sceneLogic,
             ['activeSceneId'],
+            sqlEditorTimeFormatLogic,
+            ['showAbsoluteTime as sqlEditorShowAbsoluteTime'],
         ],
         actions: [
+            sqlEditorTimeFormatLogic,
+            ['setShowAbsoluteTime as setSqlEditorShowAbsoluteTime'],
             dataNodeLogic({
                 cachedResults: props.cachedResults,
                 key: props.key,
@@ -1073,7 +1100,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
         toggleColumnPin: (columnName: string) => ({ columnName }),
         setTableSorted: true,
+        setTableSorting: (sorting: Sorting | null) => ({ sorting }),
         setTransposeResults: (transpose: boolean) => ({ transpose }),
+        setShowAbsoluteTime: (showAbsoluteTime: boolean) => ({ showAbsoluteTime }),
         _setQuery: (node: VisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
@@ -1395,6 +1424,19 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 setTableSorted: () => true,
             },
         ],
+        // Lasts until reload, so a viewer who can't save the insight can still switch it for themselves
+        showAbsoluteTimeOverride: [
+            null as boolean | null,
+            {
+                setShowAbsoluteTime: (_, { showAbsoluteTime }) => showAbsoluteTime,
+            },
+        ],
+        tableSorting: [
+            null as Sorting | null,
+            {
+                setTableSorting: (_, { sorting }) => sorting,
+            },
+        ],
     })),
     selectors({
         response: [
@@ -1483,6 +1525,27 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
+        ],
+        showAbsoluteTime: [
+            (s) => [
+                s.showAbsoluteTimeOverride,
+                s.sqlEditorShowAbsoluteTime,
+                s.query,
+                (_, props: DataVisualizationLogicProps) => props.sqlEditor,
+            ],
+            (
+                showAbsoluteTimeOverride: boolean | null,
+                sqlEditorShowAbsoluteTime: boolean | null,
+                query: VisualizationNode,
+                sqlEditor: boolean | undefined
+            ): boolean => {
+                const saved = query.tableSettings?.showAbsoluteTime
+                // The SQL editor's results grid has always shown absolute time, so the editor defaults to it
+                if (sqlEditor) {
+                    return sqlEditorShowAbsoluteTime ?? saved ?? true
+                }
+                return showAbsoluteTimeOverride ?? saved ?? false
+            },
         ],
         isTransposed: [
             (s) => [s.query],
@@ -2016,6 +2079,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 tableSettings: {
                     ...query.tableSettings,
                     transpose,
+                },
+            }))
+        },
+        setShowAbsoluteTime: ({ showAbsoluteTime }) => {
+            if (props.sqlEditor) {
+                actions.setSqlEditorShowAbsoluteTime(showAbsoluteTime)
+            }
+            actions.setQuery((query) => ({
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    showAbsoluteTime,
                 },
             }))
         },
