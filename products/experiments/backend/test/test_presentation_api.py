@@ -58,7 +58,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.serializers import EXPERIMENT_HEALTH_FINDINGS_FLAG, ExperimentSerializer
+from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -709,22 +709,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, {}, None, None),
-            ("no_metric", True, {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
-            ("inline_primary_metric_counts", True, {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("inline_secondary_metric_counts", True, {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("shared_primary_metric_counts", True, {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
-            ("shared_secondary_metric_counts", True, {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
-            ("shared_metric_without_type_counts", True, {}, {}, [_HEALTH_PAUSED]),
+            ("no_metric", {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
+            ("inline_primary_metric_counts", {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("inline_secondary_metric_counts", {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("shared_primary_metric_counts", {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
+            ("shared_secondary_metric_counts", {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
+            ("shared_metric_without_type_counts", {}, {}, [_HEALTH_PAUSED]),
         ]
     )
-    def test_detail_reports_health_findings(
+    def test_health_reports_findings(
         self,
         _name: str,
-        flag_enabled: bool,
         inline_metrics: dict[str, list[dict[str, Any]]],
         shared_metric_link: dict[str, Any] | None,
-        expected: list[tuple[str, str | None]] | None,
+        expected: list[tuple[str, str | None]],
     ) -> None:
         experiment = Experiment.objects.create(
             team=self.team,
@@ -766,17 +764,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled and flag_key == EXPERIMENT_HEALTH_FINDINGS_FLAG
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        health = response.json()["health"]
-        if expected is None:
-            self.assertIsNone(health)
-            return
+        health = response.json()
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
