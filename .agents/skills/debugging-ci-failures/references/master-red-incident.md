@@ -58,6 +58,7 @@ Select the newest remaining run.
 Only `failure` and `timed_out` are failing conclusions for this alert.
 If the newest remaining run has another conclusion, find the first preceding run with either failing conclusion and take the recovered fast path below.
 Expand the page from 10 to 40 only when the first page does not contain that preceding failure or the evidence gate needs an older green/red boundary.
+When 40 runs do not hold that boundary, for example because most were cancelled, ask for each side directly: add `&status=success&per_page=1` for the newest green run and `&status=failure&per_page=5` for the newest failures.
 If no run remains, report the missing evidence instead of choosing a different lane.
 
 ## Read the failure through the PostHog MCP server
@@ -88,15 +89,34 @@ grep -n -A 30 '<failing test name>' /tmp/failed.log | head -n 120
 The first search names the failing tests, and the second search reads the assertion of one test.
 Save `gh run view <run-id> --repo PostHog/posthog --log --job <job-id>` the same way when `--log-failed` does not hold the error.
 
-When the failure names a test, read the test's Trunk record from the warehouse.
-Use the newest row for each name:
+When the failure names a test, read the Trunk records of that test and of the other tests in its file from the warehouse.
+Search with the part of the name that those tests share, and use the newest row for each name:
 
 ```text
-call execute-sql {"query": "SELECT name, quarantined, failure_rate_last_24h, failure_rate_last_7d, pull_requests_impacted_last_7d, status, synced_through FROM trunkio.failingtests WHERE name ILIKE '%<test name>%' ORDER BY synced_through DESC LIMIT 5"}
+call execute-sql {"query": "SELECT name, quarantined, failure_rate_last_24h, failure_rate_last_7d, pull_requests_impacted_last_7d, status, synced_through FROM trunkio.failingtests WHERE name ILIKE '%<shared part of the test names>%' ORDER BY synced_through DESC LIMIT 10"}
 ```
 
 `status` holds Trunk's classification (`broken`, `flaky`, or `healthy`) and the time it changed.
 Use it with the failure rates as corroboration for the flaky-test and real-regression gates.
+
+## Find the change that broke it
+
+A run list does not show when a test started to fail, because a test that passes on retry leaves its run green.
+Find the onset from the tests, then find the change from the onset.
+
+1. Take the earliest `status` time with the value `flaky` or `broken` among those Trunk records. That time is the onset.
+2. List the newest commits that touch the code under test, up to the onset:
+
+   ```bash
+   gh api "repos/PostHog/posthog/commits?sha=master&path=<directory of the failing code>&until=<onset>&per_page=5" \
+     --jq '.[] | {sha, date: .commit.committer.date, message: (.commit.message | split("\n")[0])}'
+   ```
+
+3. Read the diff of the newest commit with `gh api repos/PostHog/posthog/commits/<sha>`, and check that it changes what the error names.
+
+A commit that passes the check in step 3 is the candidate regression, and it satisfies the attribution part of the real-regression gate.
+If the newest commit does not pass, check the next one.
+When the tests have no Trunk record, use the newest green run and the first failing run after it as the boundary, and compare the two SHAs.
 
 Choose any further lookup from the verdict evidence you still need:
 
@@ -116,9 +136,9 @@ Do not inspect commit history for an infrastructure verdict.
 
 Stop as soon as the verdict gate and the next action are supported.
 Until then, continue: a path that fails is a reason to take the next path, not a verdict.
-The paths are the MCP failure logs, the filtered `gh` log, and the test's record.
+The paths are the MCP failure logs, the saved `gh` log, the Trunk records, and the search for the change that broke it.
 A missing CLI or credential is not an evidence gap when another path reads the same evidence.
-Say that you could not determine the cause only after each path failed to show the first causal error, and name what each path returned.
+Say that you could not determine the cause only after you tried each path, and name what each path returned.
 Do not ask for clarification during this run.
 
 ## Recovered fast path
@@ -203,6 +223,7 @@ Choose the first verdict whose evidence gate is satisfied:
 - **Infrastructure:** the evidence names a platform, runner, network, or external-service failure before application tests ran, or corroborating history shows the same infrastructure signature outside the code change.
 
 A pass on an older SHA does not prove flakiness.
+A test that started to fail after a commit changed the code it exercises is a real regression, even when it passes on retry.
 A single green run after a failure does not prove a fix.
 When no gate is satisfied, say that you could not determine the cause instead of forcing a verdict.
 Then name the smallest useful evidence a person can act on: the failing job and step or test, plus the commit or PR only when attribution is supported.
