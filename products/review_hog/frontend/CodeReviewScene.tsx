@@ -252,6 +252,7 @@ function TriggerReviewSection(): JSX.Element {
         : undefined
     return (
         <SceneSection
+            className="max-w-240"
             title="Review a pull request"
             description="PostHog Review runs a Deep review and posts it to the pull request."
             actions={
@@ -834,12 +835,13 @@ function ActivityTab(): JSX.Element {
 
 function SettingsTab(): JSX.Element {
     return (
-        <>
+        // Capped so a control stays close to the label it belongs to on a wide window.
+        <div className="flex max-w-240 flex-col gap-8">
             <StandardArea />
             <FullReviewSettingsSection />
             <ReviewSkillsPanel />
             <InboxSection />
-        </>
+        </div>
     )
 }
 

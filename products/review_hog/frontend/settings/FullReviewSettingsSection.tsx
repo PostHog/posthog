@@ -74,9 +74,8 @@ export function FullReviewSettingsSection(): JSX.Element {
             <SettingsTable>
                 <SettingRow
                     title="Resolve comments on my pull requests"
-                    description="After a Deep review, PostHog Review pushes fix commits to your branch."
+                    description="A Deep review can push fix commits to your branch."
                     info="Only your own setting counts, whoever starts the review. PostHog Review pushes nothing while the pull request is in the merge queue, has another pull request stacked on it, or has no PostHog account behind it."
-                    project={<span className="text-xs text-secondary">Personal only</span>}
                     mine={
                         <LemonSwitch
                             aria-label="Resolve comments on my pull requests"
@@ -121,7 +120,7 @@ export function FullReviewSettingsSection(): JSX.Element {
                 />
                 <SettingRow
                     title="Celebrate clean reviews"
-                    description="A review with no findings gets a small celebration in its status comment."
+                    description="A review with no findings gets a small celebration."
                     project={
                         <LemonSelect<OnOff>
                             size="small"

@@ -84,8 +84,7 @@ export function StandardSettingsSection(): JSX.Element {
             />
             <SettingRow
                 title="Draft pull requests"
-                description="When off, a draft gets its first automatic review when you mark it ready for review."
-                project={<span className="text-xs text-secondary">Personal only</span>}
+                description="When off, a draft is reviewed once you mark it ready."
                 mine={
                     <LemonSwitch
                         aria-label="Review my draft pull requests"
@@ -115,7 +114,6 @@ export function StandardSettingsSection(): JSX.Element {
                         data-attr="review-hog-project-bot-prs"
                     />
                 }
-                mine={<span className="text-xs text-secondary">Project only</span>}
             />
         </SettingsTable>
     )

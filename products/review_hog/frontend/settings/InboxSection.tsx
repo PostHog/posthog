@@ -21,12 +21,11 @@ export function InboxSection(): JSX.Element {
         >
             <SettingsTable>
                 <SettingRow
-                    title="Review PRs the agent opens for Inbox reports assigned to me"
+                    title="Review my Inbox PRs"
                     description="PostHog Review runs a Deep review on them."
-                    project={<span className="text-xs text-secondary">Personal only</span>}
                     mine={
                         <LemonSwitch
-                            aria-label="Review PRs the agent opens for Inbox reports assigned to me"
+                            aria-label="Review my Inbox PRs"
                             checked={settings?.review_inbox_prs ?? false}
                             onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
                             disabledReason={disabledReason}
@@ -37,7 +36,6 @@ export function InboxSection(): JSX.Element {
                 <SettingRow
                     title="Let Stamphog review my Inbox PRs"
                     description="Stamphog approves them when they pass."
-                    project={<span className="text-xs text-secondary">Personal only</span>}
                     mine={
                         <LemonSwitch
                             aria-label="Let Stamphog review my Inbox PRs"

@@ -38,6 +38,8 @@ export function RepositoryMyCell({ entry }: { entry: ReviewRepositoryOverviewEnt
         content = (
             <LemonSelect<MyChoiceValue>
                 size="small"
+                // A bordered select marks a choice the viewer made. An inherited value stays plain.
+                type={hasChoice ? 'secondary' : 'tertiary'}
                 className="max-w-full"
                 truncateText={{ maxWidthClass: 'max-w-full' }}
                 aria-label={`My choice for ${name}`}
