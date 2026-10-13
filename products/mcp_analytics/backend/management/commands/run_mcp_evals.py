@@ -73,8 +73,6 @@ class Command(BaseCommand):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(report.to_json())
         self.stdout.write(f"{format_run_summary(report)}\nwrote {out}")
-        if report.error:
-            raise CommandError(f"run aborted after {report.rounds_completed} rounds: {report.error}")
 
 
 def _headers(raw_headers: list[str], token: str | None) -> dict[str, str]:

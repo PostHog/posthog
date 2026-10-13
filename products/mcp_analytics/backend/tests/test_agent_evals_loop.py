@@ -143,3 +143,16 @@ class TestAgentTrialLoop(SimpleTestCase):
                 {"type": "tool_result", "tool_use_id": "t2", "content": "socket hang up", "is_error": True},
             ],
         }
+
+    def test_the_turn_limit_stops_before_running_tools_the_model_would_never_see(self) -> None:
+        called: list[str] = []
+
+        async def call_tool(name: str, tool_input: object) -> ToolOutcome:
+            called.append(name)
+            return ToolOutcome(text="[]", is_error=False)
+
+        trial = _run(
+            _Scripted([_message("tool_use", [_tool_use("t1", "feature-flag-get-all")])]), call_tool, max_turns=3
+        )
+
+        assert (trial.outcome, trial.turns, len(called), len(trial.tool_calls)) == ("turn_limit", 3, 2, 2)

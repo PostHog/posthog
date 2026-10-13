@@ -99,7 +99,7 @@ async def run_trial(scenario: Scenario, trial: int, max_turns: int, deps: TrialD
             error=error,
         )
 
-    while turns < max_turns:
+    while True:
         try:
             response = await deps.create_message(messages)
         except anthropic.APIError as error:
@@ -107,7 +107,7 @@ async def run_trial(scenario: Scenario, trial: int, max_turns: int, deps: TrialD
         turns += 1
         usage = usage.add(response.usage)
         last_text = "\n".join(block.text for block in response.content if block.type == "text")
-        # Append the whole content, thinking blocks included, so the history stays append-only.
+        # Append the content unchanged, so the cached prefix stays byte-identical.
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason != "tool_use":
@@ -115,6 +115,10 @@ async def run_trial(scenario: Scenario, trial: int, max_turns: int, deps: TrialD
             return (
                 finish(outcome) if outcome else finish("model_error", f"unexpected stop_reason {response.stop_reason}")
             )
+
+        if turns >= max_turns:
+            # The model would never see these results, so running the tools only changes server state.
+            return finish("turn_limit")
 
         tool_uses = [block for block in response.content if isinstance(block, ToolUseBlock)]
         records = await asyncio.gather(*(_call_recorded(deps, use) for use in tool_uses))
@@ -125,7 +129,6 @@ async def run_trial(scenario: Scenario, trial: int, max_turns: int, deps: TrialD
             for use, record in zip(tool_uses, records, strict=True)
         ]
         messages.append({"role": "user", "content": results})
-    return finish("turn_limit")
 
 
 async def _call_recorded(deps: TrialDeps, use: ToolUseBlock) -> ToolCallRecord:
