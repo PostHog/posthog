@@ -7,6 +7,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import (
+    SCRIPTED_REQUEST_LIMIT,
     FakeNetwork,
     RecordedRequest,
     fake_environment,
@@ -94,12 +95,19 @@ class ScriptedResponder:
         return answer.to_bytes()
 
 
-def always(response: ScriptedResponse) -> Callable[[RecordedRequest], ScriptedResponse]:
-    """Give every request the same answer.
+def always(answer: ScriptedResponse | BaseException) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Give every request the same answer, or fail every request with the same error.
 
-    The real stack retries a 429 and a 5xx, so a list with one such answer runs out on the first retry.
+    The real stack retries a 429, a 5xx and a dropped connection, so a list with one such answer runs
+    out on the first retry.
     """
-    return lambda _request: response
+
+    def respond(_request: RecordedRequest) -> ScriptedResponse:
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    return respond
 
 
 def route(table: Mapping[str, Sequence[ScriptedResponse]]) -> Callable[[RecordedRequest], ScriptedResponse]:
@@ -128,5 +136,5 @@ def scripted_network(script: Script) -> Iterator[FakeNetwork]:
     For code a source runs outside an extraction, such as a credential probe or a webhook call. An
     extraction goes through `SourceDriver`, which also stands in for the pipeline.
     """
-    with fake_environment(ScriptedResponder(script)) as network:
+    with fake_environment(ScriptedResponder(script), SCRIPTED_REQUEST_LIMIT) as network:
         yield network

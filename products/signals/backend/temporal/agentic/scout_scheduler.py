@@ -16,7 +16,6 @@ from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError, is_cancelled_exception
 
-from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -24,6 +23,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.cdp.backend.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,

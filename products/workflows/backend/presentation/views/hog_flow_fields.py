@@ -2,7 +2,7 @@ import json
 
 from rest_framework import serializers
 
-from posthog.cdp.validation import generate_template_bytecode
+from products.cdp.backend.presentation.hog_functions import generate_template_bytecode
 
 # Caps both the variable definitions on a workflow and the variable values a single run passes,
 # so the two share one number instead of drifting. The runtime also checks dynamically set

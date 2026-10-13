@@ -357,10 +357,10 @@ class RemoteConfig(UUIDTModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.cdp.site_functions import exposed_secret_input_keys, get_transpiled_function
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.site_functions import exposed_secret_input_keys, get_transpiled_function
 
         # Add in the site apps as an array of objects
         site_apps_js = []
