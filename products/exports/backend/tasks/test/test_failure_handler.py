@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.errors import CHQueryErrorS3FileChangedDuringRead
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 
 from products.exports.backend.tasks.failure_handler import (
@@ -113,6 +114,16 @@ class TestClassifyFailureType(TestCase):
     def test_name_string_classification_is_unchanged_for_backfill(self) -> None:
         # Stored rows only carry the class name, so the string path stays purely name-based.
         assert classify_failure_type("ValidationError") == FAILURE_TYPE_USER
+
+    @parameterized.expand(
+        [
+            (CHQueryErrorS3FileChangedDuringRead("A warehouse file changed during the read.", code=499),),
+            (ClickHouseClusterMemoryLimitExceeded(),),
+        ]
+    )
+    def test_transient_errors_that_subclass_user_errors_classify_as_system(self, exception: Exception) -> None:
+        assert classify_failure_type(exception) == FAILURE_TYPE_SYSTEM
+        assert classify_failure_type(type(exception).__name__) == FAILURE_TYPE_SYSTEM
 
 
 class TestExportSloFailureDetails(TestCase):

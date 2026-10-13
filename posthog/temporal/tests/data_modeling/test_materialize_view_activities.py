@@ -24,7 +24,7 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.clickhouse import ClickHouseError, ClickHouseTooManySimultaneousQueriesError
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -1837,7 +1837,8 @@ class _EmptyArrowClient:
         self.describe_settings: dict[str, str] | None = None
         self.describe_query: str | None = None
         self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
-        self.reject_describe_with_settings = False
+        self.describe_error: Exception | None = None
+        self.arrow_error: Exception | None = None
         self.arrow_query: str | None = None
 
     async def astream_query_as_arrow(
@@ -1851,6 +1852,8 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
+        if self.arrow_error is not None:
+            raise self.arrow_error
         if on_schema is not None:
             on_schema(self.schema)
         return
@@ -1868,8 +1871,8 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_calls.append((query, settings))
-            if self.reject_describe_with_settings and settings is not None:
-                raise ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream", query=query)
+            if self.describe_error is not None and settings is not None:
+                raise self.describe_error
             self.describe_settings = settings
             self.describe_query = query
             body = self.describe_body
@@ -2137,10 +2140,25 @@ class TestHogqlTableDescribeSettings:
         assert client.describe_query is not None and global_function not in client.describe_query
         assert client.arrow_query is not None and global_function in client.arrow_query
 
-    async def test_describe_probe_falls_back_to_the_untouched_query(self, ateam: Team) -> None:
+    @pytest.mark.parametrize(
+        "describe_error,should_fallback",
+        [
+            (
+                ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream"),
+                True,
+            ),
+            (
+                ClickHouseTooManySimultaneousQueriesError("Code: 202. DB::Exception: Too many simultaneous queries"),
+                False,
+            ),
+        ],
+    )
+    async def test_describe_probe_only_falls_back_for_planning_errors(
+        self, ateam: Team, describe_error: Exception, should_fallback: bool
+    ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
         client.describe_body = b"distinct_id\tString\n"
-        client.reject_describe_with_settings = True
+        client.describe_error = describe_error
         query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
 
         @contextlib.asynccontextmanager
@@ -2150,14 +2168,38 @@ class TestHogqlTableDescribeSettings:
         with unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
-            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+            if should_fallback:
+                batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+                assert batches[0][1] == [("distinct_id", "String")]
+            else:
+                with pytest.raises(type(describe_error)):
+                    _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
-        assert [settings for _, settings in client.describe_calls] == [
-            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"},
-            None,
+        expected_settings: list[dict[str, str] | None] = [
+            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
         ]
-        assert "globalIn(" in client.describe_calls[1][0]
-        assert batches[0][1] == [("distinct_id", "String")]
+        if should_fallback:
+            expected_settings.append(None)
+            assert "globalIn(" in client.describe_calls[1][0]
+        assert [settings for _, settings in client.describe_calls] == expected_settings
+
+    async def test_arrow_query_preserves_a_generic_column_error(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        client.arrow_error = ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream")
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(*args, **kwargs):
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            with pytest.raises(ClickHouseError) as error:
+                _ = [batch async for batch in hogql_table("SELECT distinct_id FROM events", ateam, LOGGER.bind())]
+
+        assert error.value is client.arrow_error
+        assert client.arrow_query_calls == 1
 
 
 class TestHogqlTableDuplicateOutputColumns:

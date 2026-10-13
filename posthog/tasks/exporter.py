@@ -14,7 +14,7 @@ from products.exports.backend.facade.exporters import get_export_format_handler
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks.failure_handler import (
-    USER_QUERY_ERRORS,
+    FAILURE_TYPE_USER,
     InvalidExportContext,
     classify_failure_type,
 )
@@ -154,7 +154,7 @@ def export_asset_direct(
         exported_asset.failure_type = None
         exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
     except Exception as e:
-        is_user_error = isinstance(e, USER_QUERY_ERRORS)
+        is_user_error = classify_failure_type(e) == FAILURE_TYPE_USER
 
         if is_user_error:
             logger.warning(
