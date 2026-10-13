@@ -19087,6 +19087,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `waiting_for_you` - waiting_for_you
+     * * `claimed` - claimed
+     * * `suggested_reviewer` - suggested_reviewer
+     * * `urgent_unowned` - urgent_unowned
+     */
+    export type BriefingReportRelationEnum = typeof BriefingReportRelationEnum[keyof typeof BriefingReportRelationEnum];
+
+
+    export const BriefingReportRelationEnum = {
+      WaitingForYou: 'waiting_for_you',
+      Claimed: 'claimed',
+      SuggestedReviewer: 'suggested_reviewer',
+      UrgentUnowned: 'urgent_unowned',
+    } as const;
+
+    /**
      * * `breaking_master` - Breaking Master
      * * `blocking_merge_queue` - Blocking Merge Queue
      * * `novel_burst` - Novel Burst
@@ -101236,6 +101252,134 @@ export namespace Schemas {
       forwarded: boolean;
     }
 
+    export interface SignalReportForYouRow {
+      readonly id: string;
+      /** @nullable */
+      readonly title: string | null;
+      /** @nullable */
+      readonly summary: string | null;
+      /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+      readonly summary_lead: string;
+      readonly status: SignalReportStatusEnum;
+      readonly total_weight: number;
+      readonly signal_count: number;
+      readonly signals_at_run: number;
+      /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+      readonly collapsed_note_count: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly artefact_count: number;
+      /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+      readonly charts: readonly ReportChart[];
+      /** Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint. */
+      readonly metrics: readonly ReportMetricList[];
+      /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+      readonly suggested_prompts: readonly string[];
+      /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
+      readonly source_suggestion: ReportSourceSuggestion | null;
+      /**
+         * P0–P4 from the latest priority judgment artefact (when present).
+         * @nullable
+         */
+      readonly priority: string | null;
+      /**
+         * Actionability choice from the latest actionability judgment artefact (when present).
+         * @nullable
+         */
+      readonly actionability: string | null;
+      /**
+         * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
+         * @nullable
+         */
+      readonly already_addressed: boolean | null;
+      /**
+         * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+         * @nullable
+         */
+      readonly dismissal_reason: string | null;
+      /**
+         * Free-form note captured alongside the dismissal reason (when present).
+         * @nullable
+         */
+      readonly dismissal_note: string | null;
+      /** Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view. */
+      readonly suppression_source: SignalReportSuppressionSourceEnum | null;
+      /**
+         * The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.
+         * @nullable
+         */
+      readonly suppression_explanation: string | null;
+      /**
+         * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+         * @nullable
+         */
+      readonly repo_slug: string | null;
+      readonly is_suggested_reviewer: boolean;
+      /** Distinct source products contributing signals to this report (from ClickHouse). */
+      readonly source_products: readonly string[];
+      /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+      /**
+         * Pull request attached to this report's claim, if available.
+         * @nullable
+         */
+      readonly implementation_pr_url: string | null;
+      /** All distinct PRs linked to this report across work attempts. */
+      readonly pull_requests: readonly SignalReportPullRequest[];
+      /** Latest known pull request state: unknown, draft, open, closed, or merged. */
+      readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+      readonly implementation_pr_merged: boolean;
+      /**
+         * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+         * @nullable
+         */
+      readonly tracker_issue_url: string | null;
+      /**
+         * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+         * @nullable
+         */
+      readonly tracker_issue_reference: string | null;
+      /**
+         * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+         * @nullable
+         */
+      readonly tracker_issue_error: string | null;
+      /** Derived remediation state: unclaimed, working, in_review, or done. */
+      readonly work_state: SignalReportWorkStateEnum;
+      /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
+      readonly assignee: SignalReportAssignee | null;
+      /** The report's PR refund, when one exists. One refund per report, ever. */
+      readonly refund: SignalReportRefund | null;
+      /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+      readonly refund_ineligibility_reason: RefundIneligibilityReasonEnum | null;
+      /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+       *
+       * * `posthog_health_check` - PostHog health check
+       * * `posthog_onboarding` - PostHog onboarding
+       * * `posthog_system` - PostHog system */
+      readonly billing_exempt_reason: SignalReportBillingExemptReasonEnum | null;
+      /**
+         * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+         * @nullable
+         */
+      readonly channel_id: string | null;
+      /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+      readonly ranking: ReportRanking | null;
+      /** The position of the report in the ranked list, from 1 for the report that matters most. */
+      readonly rank: number;
+      /** Why the report is in the list. `waiting_for_you`: the report waits for the user's input. `claimed`: the user claimed the report. `suggested_reviewer`: the report names the user as a reviewer. `urgent_unowned`: a P0 report that nobody owns. When more than one applies, the report shows the first in this order.
+       *
+       * * `waiting_for_you` - waiting_for_you
+       * * `claimed` - claimed
+       * * `suggested_reviewer` - suggested_reviewer
+       * * `urgent_unowned` - urgent_unowned */
+      readonly relation: BriefingReportRelationEnum;
+    }
+
     export interface SignalReportMergeRequest {
       /**
          * Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.
@@ -101565,7 +101709,7 @@ export namespace Schemas {
 
     export interface SignalReportsForYouResponse {
       /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
-      results: SignalReportList[];
+      results: SignalReportForYouRow[];
       /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
       count: number;
     }

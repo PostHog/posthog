@@ -2565,24 +2565,27 @@ class SignalReportViewSet(
     def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         user = cast(User, request.user)
         include_unowned = request.validated_query_data["include_unowned"]
-        ranked_ids = [
-            report.report_id
+        relations = {
+            report.report_id: report.relation
             for report in reports_for_briefing(
                 team_id=self.team_id,
                 user_id=user.id,
                 limit=request.validated_query_data["limit"],
                 include_unowned=include_unowned,
             )
-        ]
-        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
-        reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
+        }
+        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=relations)}
+        reports = [by_id[report_id] for report_id in relations if report_id in by_id]
         more = open_report_counts(
             team_id=self.team_id,
             user=user,
             exclude_report_ids=[str(report.id) for report in reports],
             include_unowned=include_unowned,
         )
-        rows = self._render_report_rows(reports, include_source_metadata=True)
+        rows = [
+            {**row, "rank": rank, "relation": relations[str(row["id"])]}
+            for rank, row in enumerate(self._render_report_rows(reports, include_source_metadata=True), start=1)
+        ]
         return Response({"results": rows, "count": len(rows) + more.for_person})
 
     @extend_schema(

@@ -57,7 +57,7 @@ from .artefact_schemas import (
     SourceSuggestion,
     priority_from_judgment,
 )
-from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
+from .briefing_reports import BRIEFING_REPORT_RELATION_VALUES, SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -1837,8 +1837,29 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
     )
 
 
+class SignalReportForYouRowSerializer(SignalReportListSerializer):
+    rank = serializers.IntegerField(
+        read_only=True,
+        help_text="The position of the report in the ranked list, from 1 for the report that matters most.",
+    )
+    relation = serializers.ChoiceField(
+        choices=BRIEFING_REPORT_RELATION_VALUES,
+        read_only=True,
+        help_text=(
+            "Why the report is in the list. `waiting_for_you`: the report waits for the user's input. "
+            "`claimed`: the user claimed the report. `suggested_reviewer`: the report names the user as a "
+            "reviewer. `urgent_unowned`: a P0 report that nobody owns. When more than one applies, the "
+            "report shows the first in this order."
+        ),
+    )
+
+    class Meta(SignalReportListSerializer.Meta):
+        fields = [*SignalReportListSerializer.Meta.fields, "rank", "relation"]
+        read_only_fields = fields
+
+
 class SignalReportsForYouResponseSerializer(serializers.Serializer):
-    results = SignalReportListSerializer(
+    results = SignalReportForYouRowSerializer(
         many=True,
         help_text=(
             "The open, actionable reports that matter most to the current user, best first: reports "

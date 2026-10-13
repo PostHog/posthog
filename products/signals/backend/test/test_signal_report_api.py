@@ -1400,7 +1400,9 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         # Neither report has a score or a priority, so the newest comes first.
-        assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
+        assert [(row["id"], row["rank"], row["relation"]) for row in body["results"]] == [
+            (str(reviewing.id), 1, "suggested_reviewer")
+        ]
         assert body["count"] == 2
 
     def test_for_you_excludes_unowned_p0_reports_when_asked(self):
@@ -1420,9 +1422,14 @@ class TestSignalReportListAPI(APIBaseTest):
         assert with_unowned.status_code == status.HTTP_200_OK
         assert without_unowned.status_code == status.HTTP_200_OK
         # The P0 leads by default, because priority is the first ranking key.
-        assert [row["id"] for row in with_unowned.json()["results"]] == [str(unowned.id), str(mine.id)]
+        assert [(row["id"], row["rank"], row["relation"]) for row in with_unowned.json()["results"]] == [
+            (str(unowned.id), 1, "urgent_unowned"),
+            (str(mine.id), 2, "suggested_reviewer"),
+        ]
         assert with_unowned.json()["count"] == 2
-        assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
+        assert [(row["id"], row["rank"], row["relation"]) for row in without_unowned.json()["results"]] == [
+            (str(mine.id), 1, "suggested_reviewer")
+        ]
         assert without_unowned.json()["count"] == 1
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):

@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "include_unowned": {
+            "default": true,
+            "description": "Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 5,
+            "description": "How many of the top reports to return, 1 to 20. Defaults to 5.",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

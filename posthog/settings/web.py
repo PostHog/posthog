@@ -662,6 +662,8 @@ SPECTACULAR_SETTINGS = {
             "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
             "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
             "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
+            # signals' briefing relation is a StrEnum on the generic field name `relation`.
+            "BriefingReportRelationEnum": "products.signals.backend.briefing_reports.BRIEFING_REPORT_RELATION_VALUES",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",

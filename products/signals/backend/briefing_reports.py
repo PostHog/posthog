@@ -62,6 +62,8 @@ class BriefingReportRelation(StrEnum):
     URGENT_UNOWNED = "urgent_unowned"
 
 
+BRIEFING_REPORT_RELATION_VALUES: tuple[str, ...] = tuple(relation.value for relation in BriefingReportRelation)
+
 _PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 
 

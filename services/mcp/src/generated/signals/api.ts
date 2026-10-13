@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 63 enabled ops
+ * PostHog API - MCP 64 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -739,6 +739,37 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
         .describe(
             'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.'
         ),
+})
+
+/**
+ * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 reports nobody owns, which belong to the project rather than to this person.
+ * @summary List the reports that matter most to the current user
+ */
+export const SignalsReportsForYouRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsForYouRetrieveQueryIncludeUnownedDefault = true
+export const signalsReportsForYouRetrieveQueryLimitDefault = 5
+export const signalsReportsForYouRetrieveQueryLimitMax = 20
+
+export const SignalsReportsForYouRetrieveQueryParams = () => zod.object({
+    include_unowned: zod
+        .boolean()
+        .default(signalsReportsForYouRetrieveQueryIncludeUnownedDefault)
+        .describe(
+            "Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsReportsForYouRetrieveQueryLimitMax)
+        .default(signalsReportsForYouRetrieveQueryLimitDefault)
+        .describe('How many of the top reports to return, 1 to 20. Defaults to 5.'),
 })
 
 /**

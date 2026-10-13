@@ -365,6 +365,40 @@ const inboxReportsClaim = (): ToolBase<
     },
 })
 
+const InboxReportsForYouSchema = () => {
+    const SignalsReportsForYouRetrieveQueryParams = orvalSchemas.SignalsReportsForYouRetrieveQueryParams()
+    return SignalsReportsForYouRetrieveQueryParams
+}
+
+const inboxReportsForYou = (): ToolBase<
+    ReturnType<typeof InboxReportsForYouSchema>,
+    WithPostHogUrl<Schemas.SignalReportsForYouResponse>
+> => ({
+    name: 'inbox-reports-for-you',
+    schema: InboxReportsForYouSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsForYouSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportsForYouResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/for_you/`,
+            query: {
+                include_unowned: params.include_unowned,
+                limit: params.limit,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
+        )
+    },
+})
+
 const InboxReportsLeaveReviewersSchema = () => {
     const SignalsReportsReviewersMeDestroyParams = orvalSchemas.SignalsReportsReviewersMeDestroyParams()
     return z.preprocess(
@@ -3041,6 +3075,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
+    'inbox-reports-for-you': inboxReportsForYou,
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
