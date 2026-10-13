@@ -7,6 +7,8 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS
+
 from ..facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
@@ -218,3 +220,33 @@ class AcceptWarehouseSuggestionSerializer(serializers.Serializer):
         max_value=MAX_REFRESH_INTERVAL_SECONDS,
         help_text="Materialize only: refresh interval to use instead of the proposed one, in seconds.",
     )
+    incremental_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Materialize only: replaces the suggested refresh mode. A date or datetime output column whose "
+        "advancing value marks new rows, so each refresh reads only those rows. Send null to rebuild the whole "
+        "table on each refresh instead. Omit to keep the suggested refresh mode.",
+    )
+    unique_key = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text="Materialize only: output columns that identify a row, so a refresh updates rows instead of "
+        "adding duplicates. Must include every GROUP BY column. Required when incremental_key is a column.",
+    )
+    lookback_seconds = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=MAX_LOOKBACK_SECONDS,
+        help_text="Materialize only: how far before the last refresh's highest incremental_key value to read "
+        "again, so late rows are picked up. Defaults to 0.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("incremental_key") is not None and not attrs.get("unique_key"):
+            raise serializers.ValidationError({"unique_key": "Set unique_key together with incremental_key."})
+        if attrs.get("incremental_key") is None and ("unique_key" in attrs or "lookback_seconds" in attrs):
+            raise serializers.ValidationError(
+                {"incremental_key": "Set incremental_key to use unique_key or lookback_seconds."}
+            )
+        return attrs

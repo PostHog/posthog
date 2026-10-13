@@ -4,6 +4,8 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -26,6 +28,7 @@ from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggest
 from products.warehouse_suggestions.backend.logic.accept import CertificationAcceptor
 from products.warehouse_suggestions.backend.logic.suggestions import HUMAN_TRANSITIONS, transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
+from products.warehouse_suggestions.backend.presentation.serializers import AcceptWarehouseSuggestionSerializer
 
 from .test_api import ingest_surfaced
 from .test_suggestions import make_draft
@@ -33,6 +36,8 @@ from .test_suggestions import make_draft
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+UNGROUPED = "SELECT timestamp, event FROM events"
+CHOSEN_DAY_KEY = {"incremental_key": "day", "unique_key": ["day"]}
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
 MATERIALIZE_PAYLOAD = MaterializePayload(
@@ -89,6 +94,10 @@ class TestAcceptSuggestion(APIBaseTest):
 
     def _accept(self, suggestion_id: UUID, body: dict | None = None) -> dict:
         response = self.client.post(f"{self.url}/{suggestion_id}/accept/", body or {})
+        return {**response.json(), "http_status": response.status_code}
+
+    def _accept_json(self, suggestion_id: UUID, body: dict) -> dict:
+        response = self.client.post(f"{self.url}/{suggestion_id}/accept/", body, content_type="application/json")
         return {**response.json(), "http_status": response.status_code}
 
     def _certification_status(self) -> str | None:
@@ -182,22 +191,41 @@ class TestAcceptSuggestion(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("query_still_groups_by_the_key", DAILY_COUNTS, "day", status.HTTP_200_OK, STORED_DAY_KEY),
+            ("suggested_keys", DAILY_COUNTS, "day", {}, status.HTTP_200_OK, STORED_DAY_KEY),
+            ("suggested_keys_after_the_query_changed", UNGROUPED, "day", {}, status.HTTP_409_CONFLICT, STORED_DAY_KEY),
+            ("suggested_full_refresh_clears_leftover_keys", DAILY_COUNTS, None, {}, status.HTTP_200_OK, None),
             (
-                "query_changed_since_the_suggestion",
-                "SELECT timestamp, event FROM events",
-                "day",
-                status.HTTP_409_CONFLICT,
+                "chosen_keys_replace_a_full_refresh",
+                DAILY_COUNTS,
+                None,
+                CHOSEN_DAY_KEY,
+                status.HTTP_200_OK,
                 STORED_DAY_KEY,
             ),
-            ("full_refresh_clears_leftover_keys", DAILY_COUNTS, None, status.HTTP_200_OK, None),
+            (
+                "chosen_full_refresh_replaces_keys",
+                DAILY_COUNTS,
+                "day",
+                {"incremental_key": None},
+                status.HTTP_200_OK,
+                None,
+            ),
+            (
+                "chosen_keys_the_query_refuses",
+                UNGROUPED,
+                None,
+                CHOSEN_DAY_KEY,
+                status.HTTP_400_BAD_REQUEST,
+                STORED_DAY_KEY,
+            ),
         ]
     )
-    def test_accepting_applies_the_refresh_mode_the_suggestion_shows(
+    def test_accepting_applies_the_suggested_or_chosen_refresh_mode(
         self,
         _name: str,
         hogql: str,
-        incremental_key: str | None,
+        suggested_key: str | None,
+        body: dict,
         expected_status: int,
         expected_config: dict | None,
     ) -> None:
@@ -206,15 +234,15 @@ class TestAcceptSuggestion(APIBaseTest):
         )
         payload = replace(
             MATERIALIZE_PAYLOAD,
-            incremental_key=incremental_key,
-            unique_key=("day",) if incremental_key else (),
+            incremental_key=suggested_key,
+            unique_key=("day",) if suggested_key else (),
         )
         draft = make_draft(fingerprint="materialize:orders", subject_id=self.view.id)
         suggestion = ingest_surfaced(
             self.team.id, replace(draft, kind=WarehouseSuggestionKind.MATERIALIZE, payload=payload)
         )
 
-        accepted = self._accept(suggestion.id)
+        accepted = self._accept_json(suggestion.id, body)
 
         self.view.refresh_from_db()
         assert (accepted["http_status"], self.view.incremental_config) == (expected_status, expected_config), accepted
@@ -327,3 +355,18 @@ class TestAcceptOutsideATransaction(NonAtomicAPIBaseTest):
             WarehouseSuggestionStatus.PROPOSED,
             NodeType.VIEW,
         )
+
+
+class TestAcceptRequestValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("keys_without_a_unique_key", {"incremental_key": "day"}, "unique_key"),
+            ("unique_key_without_keys", {"unique_key": ["day"]}, "incremental_key"),
+            ("lookback_with_a_full_refresh", {"incremental_key": None, "lookback_seconds": 60}, "incremental_key"),
+        ]
+    )
+    def test_incremental_fields_come_together(self, _name: str, body: dict, invalid_field: str) -> None:
+        serializer = AcceptWarehouseSuggestionSerializer(data=body)
+
+        assert not serializer.is_valid()
+        assert list(serializer.errors) == [invalid_field]

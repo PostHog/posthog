@@ -292,6 +292,42 @@ const viewDelete = (): ToolBase<ReturnType<typeof ViewDeleteSchema>, unknown> =>
     },
 })
 
+const ViewCheckIncrementalSchema = () => {
+    const WarehouseSavedQueriesCheckIncrementalCreateBody =
+        orvalSchemas.WarehouseSavedQueriesCheckIncrementalCreateBody()
+    return WarehouseSavedQueriesCheckIncrementalCreateBody
+}
+
+const viewCheckIncremental = (): ToolBase<
+    ReturnType<typeof ViewCheckIncrementalSchema>,
+    Schemas.IncrementalEligibility
+> => ({
+    name: 'view-check-incremental',
+    schema: ViewCheckIncrementalSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewCheckIncrementalSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.incremental_key !== undefined) {
+            body['incremental_key'] = params.incremental_key
+        }
+        if (params.unique_key !== undefined) {
+            body['unique_key'] = params.unique_key
+        }
+        if (params.lookback_seconds !== undefined) {
+            body['lookback_seconds'] = params.lookback_seconds
+        }
+        const result = await context.api.request<Schemas.IncrementalEligibility>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/check_incremental/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ViewGetSchema = () => {
     const WarehouseSavedQueriesRetrieveParams = orvalSchemas.WarehouseSavedQueriesRetrieveParams()
     return WarehouseSavedQueriesRetrieveParams.omit({ project_id: true })
@@ -734,6 +770,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'sql-variables-update': sqlVariablesUpdate,
     'view-create': viewCreate,
     'view-delete': viewDelete,
+    'view-check-incremental': viewCheckIncremental,
     'view-get': viewGet,
     'view-list': viewList,
     'view-materialize': viewMaterialize,

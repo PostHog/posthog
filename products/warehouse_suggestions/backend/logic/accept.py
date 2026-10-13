@@ -25,9 +25,11 @@ from ..facade.contracts import (
     AcceptFailedError,
     CertificationAsset,
     CreatedAsset,
+    IncrementalKeysRefusedError,
     MaterializationAsset,
     MaterializePayload,
     RefreshIntervalRefusedError,
+    RefreshOverride,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SuggestionAlreadyDecidedError,
@@ -54,6 +56,7 @@ class AcceptRequest:
     user: "User"
     refresh_interval: timedelta | None
     was_impersonated: bool
+    refresh_override: RefreshOverride | None = None
 
 
 class Acceptor(ABC):
@@ -117,13 +120,15 @@ class MaterializeAcceptor(Acceptor):
                 sync_frequency_interval=interval,
                 visible_blocker_names=_no_blocker_names,
                 was_impersonated=request.was_impersonated,
-                incremental_config=_incremental_config(payload),
+                incremental_config=_incremental_config(request.refresh_override or _suggested_refresh(payload)),
             )
         except SavedQueryNotFoundError:
             raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
         except MaterializationForbiddenError:
             raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
         except IncrementalConfigRefusedError as error:
+            if request.refresh_override is not None:
+                raise IncrementalKeysRefusedError(str(error))
             raise SuggestionOutdatedError(f"{VIEW_CHANGED_SINCE_SUGGESTED} {error}")
         except MaterializationRefusedError as error:
             raise RefreshIntervalRefusedError(str(error))
@@ -134,10 +139,18 @@ class MaterializeAcceptor(Acceptor):
         )
 
 
-def _incremental_config(payload: MaterializePayload) -> IncrementalConfig | None:
-    if payload.incremental_key is None:
+def _suggested_refresh(payload: MaterializePayload) -> RefreshOverride:
+    return RefreshOverride(incremental_key=payload.incremental_key, unique_key=payload.unique_key)
+
+
+def _incremental_config(refresh: RefreshOverride) -> IncrementalConfig | None:
+    if refresh.incremental_key is None:
         return None
-    return IncrementalConfig(incremental_key=payload.incremental_key, unique_key=payload.unique_key)
+    return IncrementalConfig(
+        incremental_key=refresh.incremental_key,
+        unique_key=refresh.unique_key,
+        lookback_seconds=refresh.lookback_seconds,
+    )
 
 
 ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {

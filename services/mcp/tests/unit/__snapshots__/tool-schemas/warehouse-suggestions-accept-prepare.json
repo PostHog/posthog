@@ -5,11 +5,35 @@
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
             "type": "string"
         },
+        "incremental_key": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Materialize only: replaces the suggested refresh mode. A date or datetime output column whose advancing value marks new rows, so each refresh reads only those rows. Send null to rebuild the whole table on each refresh instead. Omit to keep the suggested refresh mode."
+        },
+        "lookback_seconds": {
+            "description": "Materialize only: how far before the last refresh's highest incremental_key value to read again, so late rows are picked up. Defaults to 0.",
+            "maximum": 2592000,
+            "minimum": 0,
+            "type": "number"
+        },
         "refresh_interval_seconds": {
             "description": "Materialize only: refresh interval to use instead of the proposed one, in seconds.",
             "maximum": 2592000,
             "minimum": 1,
             "type": "number"
+        },
+        "unique_key": {
+            "description": "Materialize only: output columns that identify a row, so a refresh updates rows instead of adding duplicates. Must include every GROUP BY column. Required when incremental_key is a column.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
         }
     },
     "required": ["id"],

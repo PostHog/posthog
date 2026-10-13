@@ -25,7 +25,10 @@ tools:
             certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on
             the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another
             schedule. When the payload has an incremental_key, each refresh reads only new rows by that key and updates
-            rows by unique_key; otherwise each refresh rebuilds the whole table. Requires human typed confirmation.
+            rows by unique_key; otherwise each refresh rebuilds the whole table. The payload keys are a starting point:
+            to use other keys, or to make a full refresh suggestion incremental, pass incremental_key and unique_key
+            (check them first with view-check-incremental). Pass incremental_key null to rebuild the whole table on each
+            refresh instead. Requires human typed confirmation.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
