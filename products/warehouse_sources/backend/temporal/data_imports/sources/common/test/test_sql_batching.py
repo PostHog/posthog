@@ -218,6 +218,21 @@ class TestPageAlignedFlush:
 
         assert [len(batch) for batch in batches] == [100]
 
+    def test_a_driver_that_caps_its_own_pages_still_fills_batches_under_average_sizing(self) -> None:
+        cursor = _FakeCursor(_wide(2_000, value_bytes=84))
+
+        batches = list(
+            fetch_row_batches(
+                lambda requested_rows: cursor.fetchmany(min(requested_rows, 50)),
+                max_rows=10_000,
+                max_bytes=100_000,
+                max_page_rows=5_000,
+                size_pages_by_average=True,
+            )
+        )
+
+        assert [len(batch) for batch in batches] == [1_000, 1_000]
+
 
 class TestIterRowBatches:
     def test_batches_an_already_streaming_source(self) -> None:

@@ -162,7 +162,8 @@ def fetch_row_batches(
     page_rows = _page_rows(0, max_rows=max_rows, max_bytes=budget, max_page_rows=page_ceiling)
 
     while True:
-        page = fetch(page_rows)
+        requested_rows = page_rows
+        page = fetch(requested_rows)
         if not page:
             break
 
@@ -202,10 +203,13 @@ def fetch_row_batches(
         # page lands. A batch carried across a fetch is resident *alongside* it, so the two peak
         # together; flushing here makes residency one or the other. The widest-row estimate sizes
         # the next page like the one just read, so that page predicts it. The average can grow the
-        # next page, so there the prediction is the page it is about to ask for. Below that, a
+        # next page, so there the prediction is the page it is about to ask for. A driver that
+        # returned fewer rows than it was asked for has a limit of its own, and the prediction
+        # keeps to that limit, or every one of its short pages would become a batch. Below that, a
         # batch still spans as many fetches as it takes to fill — a driver reading 1000 rows at a
         # time would otherwise yield a batch per fetch.
-        next_page_bytes = page_rows * average_row_bytes if size_pages_by_average else page_bytes
+        next_page_rows = page_rows if len(page) >= requested_rows else min(page_rows, len(page))
+        next_page_bytes = next_page_rows * average_row_bytes if size_pages_by_average else page_bytes
         if batch and batch_bytes + next_page_bytes > budget:
             yield batch
             batch = []
