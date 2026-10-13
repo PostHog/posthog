@@ -87,6 +87,36 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
+    def test_hogql_binary_hash_results_are_json_safe_and_cached(self):
+        query = HogQLQuery(
+            query="""
+                SELECT SHA1('abc'), [SHA1('abc')], tuple(SHA1('abc'), 'plain text'),
+                    map('digest', SHA1('abc')), map(SHA1('abc'), 'digest'),
+                    lower(hex(SHA1('abc'))), length(SHA1('abc')), SHA1(NULL)
+            """
+        )
+        digest_base64 = "qZk+NkcGgWq6PiVxeFDCbJzQ2J0="
+        expected = [
+            [
+                digest_base64,
+                [digest_base64],
+                [digest_base64, "plain text"],
+                {"digest": digest_base64},
+                {digest_base64: "digest"},
+                "a9993e364706816aba3e25717850c26c9cd0d89d",
+                20,
+                None,
+            ]
+        ]
+        for refresh, is_cached in (("force_blocking", False), ("force_cache", True)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query.model_dump(), "refresh": refresh},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"], expected)
+            self.assertEqual(response.json()["is_cached"], is_cached)
+
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
         # which embeds the limiter's internal Redis key + task id and used to leak into the UI.

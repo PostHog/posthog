@@ -57,6 +57,8 @@ Queries that exceed these limits fail during expansion; reduce the number or siz
 
 `SHA1(value)` runs ClickHouse's native SHA-1 function and returns a 20-byte binary digest. Use `lower(hex(SHA1(value)))` for lowercase hexadecimal text. It accepts one string argument and propagates `NULL`.
 
+The HogQL query runner encodes binary result values returned as Python `bytes` as Base64 before JSON serialization and caching, including values inside arrays, tuples, and maps. This does not change the binary values used inside SQL expressions. Use an explicit `hex()` or `base64Encode()` call when you need a consistent textual digest format.
+
 `posthog/hogql/functions/test/test_hash_functions.py` checks feature flag hash parity against the shared Rust evaluator corpus, including the first 60 digest bits and the exact binary64 bucket value. These checks cover hash arithmetic, not identifier resolution or flag evaluation.
 
 ## Pattern matching during query preparation

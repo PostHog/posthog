@@ -1,3 +1,4 @@
+import base64
 from collections.abc import Callable
 from datetime import datetime
 from functools import cached_property
@@ -42,6 +43,20 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+
+
+def _encode_binary_results(value: Any) -> Any:
+    match value:
+        case bytes():
+            return base64.b64encode(value).decode("ascii")
+        case list():
+            return [_encode_binary_results(item) for item in value]
+        case tuple():
+            return tuple(_encode_binary_results(item) for item in value)
+        case dict():
+            return {_encode_binary_results(key): _encode_binary_results(item) for key, item in value.items()}
+        case _:
+            return value
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -314,6 +329,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
+        # Encode after SQL evaluation, before either the result cache or API renderer serializes bytes as UTF-8.
+        response.results = _encode_binary_results(response.results)
         return response
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
