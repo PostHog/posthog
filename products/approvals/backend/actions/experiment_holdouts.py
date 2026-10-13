@@ -38,8 +38,6 @@ class ExperimentHoldoutActionBase(BaseAction):
     """
 
     resource_type = "experiment_holdout"
-    # TODO(experiment-approval-policies): the policy that gates the flag writes a holdout change
-    # makes. See `fallback_policy_action_keys_for`.
     fallback_policy_action_keys = ("feature_flag.update",)
 
     @classmethod
