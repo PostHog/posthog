@@ -428,6 +428,27 @@ describe('handleToolError with API errors', () => {
         }
     )
 
+    it.each([
+        { body: '{"type":"server_error","code":"lighthouse_not_configured","detail":"Not configured."}', captured: 0 },
+        { body: '{"type":"server_error","code":"other_code","detail":"Not implemented."}', captured: 1 },
+        { body: 'Not Implemented', captured: 1 },
+    ])('captures a 501 only when its code is not a known absent capability: $body', ({ body, captured }) => {
+        const error = new PostHogApiError({
+            status: 501,
+            statusText: 'Not Implemented',
+            body,
+            url: 'https://us.posthog.com/api/environments/2/signal_scout_runs/abc/lighthouse_audit/',
+            method: 'POST',
+        })
+
+        const result = handleToolError(error, 'scout-lighthouse-audit')
+
+        expect(captureException).toHaveBeenCalledTimes(captured)
+        expect(result.isError).toBe(true)
+        const [content] = result.content as Array<{ type: string; text: string }>
+        expect(content?.text).toContain('Status Code: 501')
+    })
+
     it('short-circuits PostHogValidationError without capturing an exception', () => {
         const error = new PostHogValidationError({
             detail: 'invalid uuid',
