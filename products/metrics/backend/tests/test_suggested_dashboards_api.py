@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -17,8 +18,12 @@ from products.metrics.backend.models import (
     MetricsDashboardTemplate,
 )
 from products.metrics.backend.suggested_dashboards.analysis import analyze_team, bank_revision
-from products.metrics.backend.suggested_dashboards.discovery import teams_to_analyze
-from products.metrics.backend.suggested_dashboards.generation import finish_generation, generation_key
+from products.metrics.backend.suggested_dashboards.discovery import record_opened, teams_to_analyze
+from products.metrics.backend.suggested_dashboards.generation import (
+    fail_stale_generations,
+    finish_generation,
+    generation_key,
+)
 from products.metrics.backend.suggested_dashboards.spec import EvaluationAnswer
 
 QUEUE_METRICS = ["queue_depth", "queue_wait_seconds", "queue_dropped_total", "queue_retries_total"]
@@ -173,15 +178,14 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ready_for_review", "generating", ["queue_depth"], "pending_review", None),
-            ("no_panel_passed", "generating", [], "failed", "No drafted panel passed the query checks."),
-            ("rejected_while_generating", "rejected", ["queue_depth"], "rejected", None),
+            ("ready_for_review", ["queue_depth"], "pending_review", None),
+            ("no_panel_passed", [], "failed", "No drafted panel passed the query checks."),
         ]
     )
     def test_finishing_a_generation_sends_one_event_with_the_review_link(
-        self, _name: str, status_at_finish: str, metrics: list[str], expected_status: str, expected_error: str | None
+        self, _name: str, metrics: list[str], expected_status: str, expected_error: str | None
     ) -> None:
-        template = _template("generated-queue", status_at_finish, *metrics, source="generated")
+        template = _template("generated-queue", "generating", *metrics, source="generated")
         template.source_team_id = self.team.id
         template.save(update_fields=["source_team_id"])
 
@@ -197,24 +201,38 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         template.refresh_from_db()
         assert template.status == expected_status
 
-    def test_a_curated_template_cannot_be_rejected(self) -> None:
+    @parameterized.expand([("curated", "approved", "curated"), ("still_generating", "generating", "generated")])
+    def test_a_template_that_cannot_be_rejected(self, _name: str, template_status: str, source: str) -> None:
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
+        template = _template(f"reject-{_name}", template_status, "orders_total", source=source)
 
-        response = self.client.post(f"{self.base_url}/dashboard_templates/{self.orders.id}/reject/")
+        response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/reject/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        template.refresh_from_db()
+        assert template.status == template_status
 
-    @parameterized.expand([("flag_on", True, None), ("flag_off_after_suggestions_were_opened", False, "2026-01-01")])
-    def test_discovery_picks_only_teams_whose_names_or_bank_changed(
-        self, _name: str, flag_on: bool, analyzed_at: str | None
-    ) -> None:
+    def test_the_sweep_fails_a_generation_that_stopped(self) -> None:
+        stopped = _template("generated-stopped", "generating", "queue_depth", source="generated")
+        running = _template("generated-running", "generating", "queue_depth", source="generated")
+        MetricsDashboardTemplate.objects.filter(id=stopped.id).update(
+            updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=5)
+        )
+
+        with patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture"):
+            fail_stale_generations(dt.datetime.now(dt.UTC))
+
+        stopped.refresh_from_db()
+        running.refresh_from_db()
+        assert (stopped.status, running.status) == ("failed", "generating")
+
+    @parameterized.expand([("flag_on", True), ("flag_off_after_suggestions_were_opened", False)])
+    def test_discovery_picks_only_teams_whose_names_or_bank_changed(self, _name: str, flag_on: bool) -> None:
         if not flag_on:
+            # The flag can target people, so a team whose user opened its suggestions stays analyzed.
             self.flags.discard("metrics-suggested-dashboards")
-        if analyzed_at:
-            MetricsDashboardDiscovery.objects.for_team(self.team.id).create(
-                team_id=self.team.id, names_fingerprint=4, bank_revision=bank_revision(), analyzed_at=analyzed_at
-            )
+            record_opened(self.team.id)
         unchanged = Team.objects.create(organization=self.organization, name="Unchanged")
         MetricsDashboardDiscovery.objects.for_team(unchanged.id).create(
             team_id=unchanged.id, names_fingerprint=7, bank_revision=bank_revision()
@@ -226,8 +244,13 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
             picked = teams_to_analyze()
 
         assert picked == {self.team.id: 5}
-        # The analysis records the fingerprint, so a team whose analysis fails is picked again.
+        # The analysis records the fingerprint, so a team whose analysis fails is picked again, but not at once.
         assert not MetricsDashboardDiscovery.objects.for_team(self.team.id).filter(names_fingerprint=5).exists()
+        with patch(
+            "products.metrics.backend.suggested_dashboards.discovery.name_fingerprints",
+            return_value={self.team.id: 5, unchanged.id: 7},
+        ):
+            assert teams_to_analyze() == {}
         with patch("products.metrics.backend.suggested_dashboards.analysis.ask_model", return_value=self._answer()):
             analyze_team(self.team.id, names_fingerprint=5)
         assert MetricsDashboardDiscovery.objects.for_team(self.team.id).get().names_fingerprint == 5
@@ -260,10 +283,14 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert bank_revision() == revision
 
     def test_listing_suggestions_starts_the_first_analysis_of_a_team(self) -> None:
+        # The first start fails, so the next list tries again. After a start, more lists do not start another.
+        self.start_analysis.side_effect = [RuntimeError("Temporal is unavailable"), None]
+        self.client.get(f"{self.base_url}/suggested_dashboards/")
         self.client.get(f"{self.base_url}/suggested_dashboards/")
         self.client.get(f"{self.base_url}/suggested_dashboards/")
         MetricsDashboardDiscovery.objects.for_team(self.team.id).create(team_id=self.team.id, analyzed_at="2026-01-01")
         self.client.get(f"{self.base_url}/suggested_dashboards/")
 
         assert isinstance(self.start_analysis, MagicMock)
-        self.start_analysis.assert_called_once_with(self.team.id, force=True)
+        assert self.start_analysis.call_count == 2
+        self.start_analysis.assert_called_with(self.team.id, force=True)

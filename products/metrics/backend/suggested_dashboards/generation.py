@@ -59,6 +59,8 @@ MAX_ATTRIBUTES_PER_METRIC = 8
 MAX_LISTED_VALUES = 8
 CHECK_DEADLINE_SECONDS = 30.0
 PICTURE_TTL = dt.timedelta(days=90)
+# Longer than the generate workflow timeout, and longer than any one step of it.
+STALE_GENERATION = dt.timedelta(hours=4)
 # Vision models downscale a longer edge, so a tall dashboard goes in parts that keep its text readable.
 MAX_PICTURE_EDGE = 1568
 MAX_PICTURE_WIDTH = 1200
@@ -248,7 +250,7 @@ def _refresh_preview(context: _Context, round_number: int) -> int | None:
         return None
     if template.preview_dashboard_id and template.preview_team_id:
         delete_unlisted_dashboard(team_id=template.preview_team_id, dashboard_id=template.preview_dashboard_id)
-    created, _ = create_dashboard(
+    created, built = create_dashboard(
         team=context.team,
         user=user,
         name=template.name,
@@ -260,7 +262,8 @@ def _refresh_preview(context: _Context, round_number: int) -> int | None:
     )
     template.preview_team_id = context.team.id if created else None
     template.preview_dashboard_id = created.id if created else None
-    template.save(update_fields=["preview_team_id", "preview_dashboard_id", "updated_at"])
+    template.preview_unbuilt_keys = list(built.dropped_keys) if created else []
+    template.save(update_fields=["preview_team_id", "preview_dashboard_id", "preview_unbuilt_keys", "updated_at"])
     return created.id if created else None
 
 
@@ -363,13 +366,27 @@ def finish_generation(template_id: str, *, error: str | None = None) -> None:
         if error is None and not template.panels:
             error = "No drafted panel passed the query checks."
         record.error = error
-        # A reviewer can reject the template while it generates. That decision stays.
-        if template.status == MetricsDashboardTemplate.Status.GENERATING:
-            template.status = (
-                MetricsDashboardTemplate.Status.FAILED if error else MetricsDashboardTemplate.Status.PENDING_REVIEW
-            )
+        template.status = (
+            MetricsDashboardTemplate.Status.FAILED if error else MetricsDashboardTemplate.Status.PENDING_REVIEW
+        )
         _save_record(template, record, "status")
     _capture_generated(template, record)
+
+
+def fail_stale_generations(now: dt.datetime) -> int:
+    """Mark the generations that stopped without finishing as failed, so that their metric names can be proposed again.
+
+    Every step of a generation saves the template, so a template that has not changed for STALE_GENERATION
+    belongs to a workflow that timed out or was ended.
+    """
+    stale = MetricsDashboardTemplate.objects.filter(
+        status=MetricsDashboardTemplate.Status.GENERATING, updated_at__lt=now - STALE_GENERATION
+    ).values_list("id", flat=True)
+    count = 0
+    for template_id in list(stale):
+        finish_generation(str(template_id), error="The generation stopped before it finished.")
+        count += 1
+    return count
 
 
 def _capture_generated(template: MetricsDashboardTemplate, record: GenerationRecord) -> None:

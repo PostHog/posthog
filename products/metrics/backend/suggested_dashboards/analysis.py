@@ -14,6 +14,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.dashboards.backend.facade.api import unknown_dashboard_ids
 from products.metrics.backend.dashboard_import.catalog import CATALOG_LIMIT, MetricCatalog
 from products.metrics.backend.models import (
     MetricsDashboardDiscovery,
@@ -121,11 +122,13 @@ def _save_suggestions(team: Team, suggested: dict[str, str], matches: dict[str, 
             for field, value in values.items():
                 setattr(suggestion, field, value)
             suggestion.save(update_fields=[*values, "updated_at"])
-        # A suggestion that no longer fits goes away, unless the team acted on it.
+        # A suggestion that no longer fits goes away, unless the team still has its dashboard.
+        created = [suggestion.dashboard_id for suggestion in current.values() if suggestion.dashboard_id is not None]
+        deleted = set(unknown_dashboard_ids(created, team_id=team.id)) if created else set()
         stale = [
             suggestion.id
             for template_id, suggestion in current.items()
-            if template_id not in keep and suggestion.dashboard_id is None
+            if template_id not in keep and (suggestion.dashboard_id is None or suggestion.dashboard_id in deleted)
         ]
         MetricsDashboardSuggestion.objects.for_team(team.id).filter(id__in=stale).delete()
     return len(suggested)

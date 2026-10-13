@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar
 
+from django.utils import timezone
+
 import temporalio.activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -41,6 +43,7 @@ async def _run(fn: Callable[[], T], *, team_id: int | None = None) -> T:
 async def find_teams_to_analyze_activity(inputs: DiscoveryInputs) -> list[TeamToAnalyze]:
     def find() -> list[TeamToAnalyze]:
         sync_curated_templates()
+        generation.fail_stale_generations(timezone.now())
         return [
             TeamToAnalyze(team_id=team_id, names_fingerprint=fingerprint)
             for team_id, fingerprint in discovery.teams_to_analyze().items()

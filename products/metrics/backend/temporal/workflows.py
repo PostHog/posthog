@@ -42,7 +42,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
 MAX_ROUNDS = 3
 # Longer than the worst case of the activity timeouts and retries below (about 2 hours), so that
-# finish_generation always runs. A generation that times out would stay in "generating" for good.
+# finish_generation runs. The discovery sweep fails a generation that stopped without it.
 GENERATE_TIMEOUT = timedelta(hours=3)
 _SHORT = timedelta(minutes=2)
 _ANALYZE = timedelta(minutes=10)

@@ -57,6 +57,12 @@ class MetricsDashboardTemplate(UUIDModel):
     # The unlisted dashboard that shows the template with live data, for the AI checks and the staff review.
     preview_team_id = models.BigIntegerField(null=True, blank=True)
     preview_dashboard_id = models.BigIntegerField(null=True, blank=True)
+    preview_unbuilt_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=list,
+        blank=True,
+        help_text="The panels that the preview left out, because its project does not send their metrics.",
+    )
     # db_constraint=False keeps the migration off the locks on posthog_user.
     reviewed_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False

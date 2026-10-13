@@ -15,7 +15,7 @@ from products.dashboards.backend.facade.dashboard_creation import delete_unliste
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.spec import GridLayout
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
-from products.metrics.backend.suggested_dashboards.dashboards import build_tiles, create_dashboard, panels_from_tiles
+from products.metrics.backend.suggested_dashboards.dashboards import create_dashboard, panels_from_tiles
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import TemplatePanel, template_panels
 
@@ -41,6 +41,7 @@ def _drop_preview(template: MetricsDashboardTemplate) -> None:
         delete_unlisted_dashboard(team_id=template.preview_team_id, dashboard_id=template.preview_dashboard_id)
     template.preview_team_id = None
     template.preview_dashboard_id = None
+    template.preview_unbuilt_keys = []
 
 
 def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) -> int:
@@ -50,7 +51,7 @@ def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) 
             return template.preview_dashboard_id
     catalog = MetricCatalog.load(team)
     catalog.look_up(team, template.metric_names)
-    created, _ = create_dashboard(
+    created, built = create_dashboard(
         team=team,
         user=user,
         name=template.name,
@@ -67,20 +68,9 @@ def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) 
         _drop_preview(locked)
         locked.preview_team_id = team.id
         locked.preview_dashboard_id = created.id
-        locked.save(update_fields=["preview_team_id", "preview_dashboard_id", "updated_at"])
+        locked.preview_unbuilt_keys = list(built.dropped_keys)
+        locked.save(update_fields=["preview_team_id", "preview_dashboard_id", "preview_unbuilt_keys", "updated_at"])
     return created.id
-
-
-def _unbuilt_panel_keys(template: MetricsDashboardTemplate) -> set[str]:
-    """The panels that the preview left out, because its project does not send their metrics."""
-    if not template.preview_team_id:
-        return set()
-    team = Team.objects.filter(id=template.preview_team_id).first()
-    if team is None:
-        return set()
-    catalog = MetricCatalog.load(team)
-    catalog.look_up(team, template.metric_names)
-    return set(build_tiles(template_panels(template.panels), catalog).dropped_keys)
 
 
 def _restore_unbuilt(
@@ -92,25 +82,23 @@ def _restore_unbuilt(
     out. Such a panel stays in the template.
     """
     missing = [panel for panel in original if panel.key in unbuilt]
-    if not missing:
-        return edited
-    bottom = max((panel.layout.y + panel.layout.h for panel in edited), default=0)
-    shift = bottom - min(panel.layout.y for panel in missing)
-    restored = [
-        panel.model_copy(
-            update={
-                "key": f"p{len(edited) + index + 1}",
-                "layout": GridLayout(x=panel.layout.x, y=panel.layout.y + shift, w=panel.layout.w, h=panel.layout.h),
-            }
-        )
-        for index, panel in enumerate(missing)
-    ]
-    return [*edited, *restored]
+    if missing:
+        bottom = max((panel.layout.y + panel.layout.h for panel in edited), default=0)
+        shift = bottom - min(panel.layout.y for panel in missing)
+        missing = [
+            panel.model_copy(
+                update={
+                    "layout": GridLayout(x=panel.layout.x, y=panel.layout.y + shift, w=panel.layout.w, h=panel.layout.h)
+                }
+            )
+            for panel in missing
+        ]
+    # Keys must stay unique: panels_from_tiles numbers by tile position and skips tiles it cannot use.
+    return [panel.model_copy(update={"key": f"p{index + 1}"}) for index, panel in enumerate([*edited, *missing])]
 
 
 def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboardTemplate:
     """Approve the template. Changes made on its preview dashboard, by hand or with PostHog AI, become the template."""
-    unbuilt = _unbuilt_panel_keys(template)
     with transaction.atomic():
         locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
         if locked.status not in (
@@ -123,7 +111,7 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
                 read_dashboard_tiles(team_id=locked.preview_team_id, dashboard_id=locked.preview_dashboard_id)
             )
             if panels:
-                panels = _restore_unbuilt(panels, template_panels(locked.panels), unbuilt)
+                panels = _restore_unbuilt(panels, template_panels(locked.panels), set(locked.preview_unbuilt_keys))
                 locked.panels = [panel.model_dump(mode="json") for panel in panels]
                 locked.metric_names = template_metric_names(panels)
         _drop_preview(locked)
@@ -140,6 +128,8 @@ def reject(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboar
         locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
         if locked.source == MetricsDashboardTemplate.Source.CURATED:
             raise TemplateNotReviewable("A curated dashboard comes from the code. Remove its file to withdraw it.")
+        if locked.status == MetricsDashboardTemplate.Status.GENERATING:
+            raise TemplateNotReviewable("This dashboard is still being generated. Review it when it is ready.")
         _drop_preview(locked)
         locked.status = MetricsDashboardTemplate.Status.REJECTED
         locked.reviewed_by = user

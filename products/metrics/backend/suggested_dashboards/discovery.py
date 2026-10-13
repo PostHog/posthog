@@ -18,14 +18,18 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.metrics.backend.facade.contracts import METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG
 from products.metrics.backend.models import MetricsDashboardDiscovery
 from products.metrics.backend.suggested_dashboards.analysis import bank_revision
+from products.metrics.backend.temporal.inputs import SUGGEST_TIMEOUT
 
 logger = structlog.get_logger(__name__)
 
 NAMES_WINDOW = dt.timedelta(hours=24)
 MAX_TEAMS_PER_SWEEP = 25
 MAX_FINGERPRINT_TEAMS = 10_000
-# Matches the suggest workflow timeout: a first analysis that has not finished by then can start again.
-FIRST_ANALYSIS_INTERVAL = int(dt.timedelta(minutes=20).total_seconds())
+# A team is analyzed at most this often. A failed or slow analysis then cannot take a sweep slot every time.
+RETRY_AFTER = dt.timedelta(minutes=30)
+# A team whose users opened its suggestions this recently gets background analyses, whatever the flag
+# says for the team. The flag can target people, which the sweep cannot evaluate.
+OPENED_WINDOW = dt.timedelta(days=7)
 _NEVER = dt.datetime.min.replace(tzinfo=dt.UTC)
 
 # `metrics4_names` is the physical table behind the HogQL `metric_names` table: one row for each
@@ -80,9 +84,9 @@ def suggestions_enabled(team: Team) -> bool:
 def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
     """The teams to analyze, with their new name fingerprints, the longest-waiting first.
 
-    A team is analyzed when its names or the bank changed, and either the flag is on for the team or a
-    user already opened its suggestions. The flag can target people, which a background sweep cannot
-    evaluate. The analysis records the fingerprint when it finishes, so a failed one is picked again.
+    A team is analyzed when its names or the bank changed, and either the flag is on for the team or one of
+    its users opened its suggestions in the last week. The analysis records the fingerprint when it
+    finishes, so a failed one is picked again, after RETRY_AFTER.
     Any other team is recorded as seen, and its first analysis starts when someone opens its suggestions.
     """
     now = now or timezone.now()
@@ -113,7 +117,13 @@ def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
         if team is None:
             continue
         state = states.get(team_id)
-        if (state is not None and state.analyzed_at is not None) or suggestions_enabled(team):
+        if _recently_opened(team_id) or suggestions_enabled(team):
+            if state is not None and state.updated_at > now - RETRY_AFTER:
+                continue
+            # Marks the pick, so the team waits RETRY_AFTER before the next one.
+            MetricsDashboardDiscovery.objects.for_team(team_id).update_or_create(
+                team_id=team_id, defaults={"updated_at": now}
+            )
             picked[team_id] = fingerprints[team_id]
             continue
         MetricsDashboardDiscovery.objects.for_team(team_id).update_or_create(
@@ -122,12 +132,46 @@ def teams_to_analyze(now: dt.datetime | None = None) -> dict[int, int]:
     return picked
 
 
+def _first_analysis_key(team_id: int) -> str:
+    return f"metrics_suggested_dashboards_first_analysis:{team_id}"
+
+
+def _opened_key(team_id: int) -> str:
+    return f"metrics_suggested_dashboards_opened:{team_id}"
+
+
+def _recently_opened(team_id: int) -> bool:
+    try:
+        return bool(cache.get(_opened_key(team_id)))
+    except Exception:
+        return False
+
+
+def record_opened(team_id: int) -> None:
+    """Note that a user of the team, for whom the flag is on, listed its suggestions."""
+    try:
+        cache.set(_opened_key(team_id), True, timeout=int(OPENED_WINDOW.total_seconds()))
+    except Exception:
+        logger.warning("metrics_suggested_dashboards_opened_not_recorded", team_id=team_id)
+
+
 def needs_first_analysis(team_id: int) -> bool:
-    """True when the team was never analyzed and no first analysis started in the last few minutes.
+    """True when the team was never analyzed and no first analysis started recently.
 
     The menu lists suggestions on every open, so without the cache each open would start a workflow.
     """
     state = MetricsDashboardDiscovery.objects.for_team(team_id).only("analyzed_at").first()
     if state is not None and state.analyzed_at is not None:
         return False
-    return cache.add(f"metrics_suggested_dashboards_first_analysis:{team_id}", True, timeout=FIRST_ANALYSIS_INTERVAL)
+    try:
+        return cache.add(_first_analysis_key(team_id), True, timeout=int(SUGGEST_TIMEOUT.total_seconds()))
+    except Exception:
+        return True
+
+
+def forget_first_analysis(team_id: int) -> None:
+    """Let the next list start the first analysis again, after a start that failed."""
+    try:
+        cache.delete(_first_analysis_key(team_id))
+    except Exception:
+        logger.warning("metrics_suggested_dashboards_first_analysis_not_reset", team_id=team_id)
