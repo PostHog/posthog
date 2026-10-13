@@ -193,9 +193,9 @@ locals {
     kafka   = var.kafka != null && contains(var.objects, local.names.kafka)
     mv      = var.kafka != null && contains(var.objects, local.names.mv)
   }
-  keeper_path = coalesce(var.deployment.keeper_path,
+  keeper_path = replace(coalesce(var.deployment.keeper_path,
     var.layout == "sharded" ? "/clickhouse/tables/{shard}/${var.database}.${local.names.storage}" : "/clickhouse/tables/noshard/${var.database}.${local.names.storage}"
-  )
+  ), "{table}", local.names.storage)
   replica_name = coalesce(var.deployment.replica_name, var.layout == "sharded" ? "{replica}" : "{replica}-{shard}")
   engine_args  = length(var.storage.engine_args) == 0 ? "" : ", ${join(", ", var.storage.engine_args)}"
   read_cluster = coalesce(var.deployment.read_cluster, local.cluster)
