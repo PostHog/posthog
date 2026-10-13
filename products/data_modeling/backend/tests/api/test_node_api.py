@@ -1072,6 +1072,30 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
+            ("node_viewer", "node", "viewer", status.HTTP_403_FORBIDDEN),
+            ("node_editor", "node", "editor", status.HTTP_204_NO_CONTENT),
+            ("edge_viewer", "edge", "viewer", status.HTTP_403_FORBIDDEN),
+            ("edge_editor", "edge", "editor", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_deleting_requires_warehouse_write_access(self, _name, deleted, access_level, expected_status):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+        if deleted == "node":
+            url, model, pk = f"{self._list_url()}{self.node.id}/", Node, self.node.id
+        else:
+            url, model, pk = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/", Edge, edge.id
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(model.objects.filter(pk=pk).exists(), expected_status == status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
             ("list_granted", False, "viewer", status.HTTP_200_OK),
             ("list_denied", False, None, status.HTTP_403_FORBIDDEN),
             ("retrieve_granted", True, "viewer", status.HTTP_200_OK),

@@ -10,7 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
 from products.data_modeling.backend.facade.models import Edge, NodeType
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
 
 _METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
 
@@ -90,6 +90,7 @@ class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         return super().get_serializer_context()
 
     def perform_destroy(self, instance: Edge) -> None:
+        self._require_warehouse_access(level="editor", message=DELETE_DENIED)
         if instance.dag.is_managed:
             raise serializers.ValidationError("Edges belonging to a system-managed DAG cannot be deleted.")
         if _connects_a_metric(instance):
