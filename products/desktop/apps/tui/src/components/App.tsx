@@ -47,6 +47,7 @@ import { type PiControl, runModel } from "../models";
 import type { MouseEvents } from "../mouse";
 import { openUrl } from "../openUrl";
 import { loadPrefs, savePrefs } from "../prefs";
+import type { AgentPrompt } from "../prompts";
 import type { CloudRuns } from "../runs";
 import { startingOptions } from "../starting";
 import { repoLabel, statusChips } from "../status";
@@ -242,12 +243,25 @@ export function App({
   const settings = useSettings(session?.codexCloud, runSetup);
   const [helpOpen, setHelpOpen] = useState(false);
 
+  // A cloud run's own prompts, from the engine; a local chat's come from its agent.
+  const [cloudPrompts, setCloudPrompts] = useState<Map<string, AgentPrompt[]>>(
+    new Map(),
+  );
+  useEffect(() => runs?.watchPrompts(setCloudPrompts), [runs]);
   const { modalFor, openModal, closeModal, onModalKey } = useSheets({
     layout,
-    prompts,
+    prompts: useMemo(
+      () => new Map([...cloudPrompts, ...prompts]),
+      [cloudPrompts, prompts],
+    ),
     promptCursors,
     setPromptCursor,
-    localSessions,
+    answer: (taskId, prompt, reply) => {
+      const local = localSessions.get(taskId);
+      if (local) return local.answer(prompt, reply);
+      if (!runs) return Promise.reject(new Error("Sign in first: type /login"));
+      return runs.answer(reply);
+    },
     composerFor,
     flashNotice,
   });

@@ -25,6 +25,7 @@ import type {
 } from "@posthog/workspace-server/services/agent/ports";
 import { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
 import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy";
+import { McpRelayServiceImpl } from "@posthog/workspace-server/services/mcp-relay/mcp-relay";
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { PosthogPluginService } from "@posthog/workspace-server/services/posthog-plugin/posthog-plugin";
 import { ProcessTrackingService } from "@posthog/workspace-server/services/process-tracking/process-tracking";
@@ -39,7 +40,7 @@ import { LOG_PATH } from "./errors";
 import type { CodexCloudClient } from "./hooks/useSettings";
 import { type LocalAgent, LocalSession } from "./local";
 import { LocalChats } from "./localChats";
-import type { McpClient } from "./mcp";
+import { localMcpServers, type McpClient, relayedMcpServers } from "./mcp";
 import { type PiCommand, type PiControl, piControl } from "./models";
 import { loadPrefs } from "./prefs";
 import { CloudRuns } from "./runs";
@@ -260,6 +261,8 @@ export function createCloud(
         logger,
         transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
         claudeSubscriptionTokenStore: claudeTokenStore(),
+        // Answers a sandbox's calls to this machine's MCP servers, the desktop app's own executor.
+        mcpRelayExecutor: new McpRelayServiceImpl(logger),
       }),
   );
   const runs = new CloudRuns(
@@ -394,6 +397,12 @@ export function createCloud(
           artifacts.uploadRunAttachments(api, taskId, runId, filePaths),
       },
       (taskId, runId, since) => runs.agentRestarted(taskId, runId, since),
+      {
+        servers: () =>
+          loadPrefs().relayLocalMcp ? relayedMcpServers(localMcpServers()) : [],
+        designate: (runId, servers) =>
+          engine.designateRelayedMcpServers(runId, servers),
+      },
     ),
     control: (taskId, runId) => piControl(sendPi, taskId, runId),
     today: new TodayClient(authenticatedFetch(auth), auth.apiHost, async () => {

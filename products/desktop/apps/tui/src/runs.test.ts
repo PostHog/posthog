@@ -51,6 +51,7 @@ function setup(sessionLogs: SessionLogs = logOf(0)) {
     unwatch: vi.fn(),
     retry: vi.fn(async () => {}),
     isWatching: vi.fn(() => false),
+    sendCommand: vi.fn(async () => ({ success: true })),
   });
   const runs = new CloudRuns(
     engine as unknown as CloudTaskEngine,
@@ -453,6 +454,57 @@ describe("CloudRuns", () => {
     expect(seen[0]).toMatchObject({ loaded: true, windowStart: 200 });
     expect(ids(seen[0])).toHaveLength(300);
     expect(ids(seen[0]).at(-1)).toBe("e499");
+  });
+});
+
+describe("CloudRuns.watchPrompts", () => {
+  it("shows a run's permission request on its chat and answers it through the engine, as the relay's approvals need", async () => {
+    const { engine, runs } = setup();
+    const seen: Map<string, unknown[]>[] = [];
+    runs.watchPrompts((prompts) => seen.push(prompts));
+
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "permission_request",
+      requestId: "relay-1",
+      toolCall: {
+        toolCallId: "relay-1",
+        title:
+          "The agent wants to call browser_navigate (playwright) on your machine",
+        kind: "other",
+      },
+      options: [
+        { kind: "allow_once", name: "Yes", optionId: "allow" },
+        { kind: "reject_once", name: "No", optionId: "reject" },
+      ],
+    });
+
+    const prompt = seen.at(-1)?.get("t1")?.[0];
+    expect(prompt).toEqual({
+      kind: "acp",
+      request: expect.objectContaining({
+        taskRunId: "r1",
+        toolCallId: "relay-1",
+        title:
+          "The agent wants to call browser_navigate (playwright) on your machine",
+      }),
+    });
+
+    await runs.answer({
+      kind: "acp",
+      taskRunId: "r1",
+      toolCallId: "relay-1",
+      optionId: "allow",
+    });
+
+    expect(engine.sendCommand).toHaveBeenCalledWith({
+      ...base,
+      apiHost: "https://us.posthog.com",
+      teamId: 2,
+      method: "permission_response",
+      params: { requestId: "relay-1", optionId: "allow" },
+    });
+    expect(seen.at(-1)?.get("t1")).toEqual([]);
   });
 });
 

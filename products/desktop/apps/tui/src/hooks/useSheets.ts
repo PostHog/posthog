@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
 import { allPanes, findPane, type LayoutState } from "../layout";
-import type { LocalAgent } from "../local";
 import {
   type AgentPrompt,
   type PromptReply,
@@ -50,7 +49,7 @@ export function useSheets({
   prompts,
   promptCursors,
   setPromptCursor,
-  localSessions,
+  answer,
   composerFor,
   flashNotice,
 }: {
@@ -58,7 +57,12 @@ export function useSheets({
   prompts: Map<string, AgentPrompt[]>;
   promptCursors: Map<string, number>;
   setPromptCursor: (promptId: string, index: number) => void;
-  localSessions: Map<string, LocalAgent>;
+  // Sends a chat's answer to the agent that asked, on this machine or in the cloud.
+  answer: (
+    taskId: string,
+    prompt: AgentPrompt,
+    reply: PromptReply,
+  ) => Promise<void>;
   composerFor: (paneId: string) => Composer;
   flashNotice: FlashNotice;
 }): Sheets {
@@ -96,21 +100,18 @@ export function useSheets({
     changed();
   };
 
-  // A local chat's oldest waiting prompt shows in any pane that has the chat open.
+  // A chat's oldest waiting prompt shows in any pane that has the chat open.
   const promptModal = (taskId: string | null): OpenModal | undefined => {
     const prompt = taskId ? prompts.get(taskId)?.[0] : undefined;
-    const local = taskId ? localSessions.get(taskId) : undefined;
-    if (!prompt || !local) return undefined;
+    if (!prompt || !taskId) return undefined;
     const id = promptId(prompt);
     const picks = answered.get(id) ?? {};
     const draft = drafts.get(id) ?? "";
     const send = (next: PromptReply): void => {
       forget(id);
-      local
-        .answer(prompt, next)
-        .catch((error: unknown) =>
-          flashNotice(`Couldn't answer: ${messageOf(error)}`, { taskId }),
-        );
+      answer(taskId, prompt, next).catch((error: unknown) =>
+        flashNotice(`Couldn't answer: ${messageOf(error)}`, { taskId }),
+      );
     };
     const reply = (answer: number | string | null): void => {
       const typed =

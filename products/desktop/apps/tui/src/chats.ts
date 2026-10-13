@@ -15,6 +15,17 @@ export type SendMessage = (
 type ModelAccess = "posthog-gateway" | "own-subscription";
 
 // The model and effort picked before the chat started, if any.
+export interface McpRelay {
+  // The names of this machine's servers to relay, read as each run starts.
+  servers: () => string[];
+  designate: (runId: string, servers: string[]) => void;
+}
+
+const relayedOptions = (servers: string[]): object =>
+  servers.length > 0
+    ? { relayedMcpServers: servers.map((name) => ({ name })) }
+    : {};
+
 export interface StartPick {
   model?: string;
   effort?: string;
@@ -103,7 +114,19 @@ export class PiChats {
     private readonly repository: string | null,
     private readonly uploads: ImageUploads,
     private readonly agentRestarted?: AgentRestarted,
+    // This machine's MCP servers a cloud run reaches through the TUI: named on the run for the sandbox, and told to
+    // the engine, which only answers a run it designated. pi takes none, as the desktop app gives it none.
+    private readonly relay?: McpRelay,
   ) {}
+
+  private relayed(harness: CloudHarness): string[] {
+    return harness === "pi" ? [] : (this.relay?.servers() ?? []);
+  }
+
+  private designate(runId: string, harness: CloudHarness): void {
+    const servers = this.relayed(harness);
+    if (servers.length > 0) this.relay?.designate(runId, servers);
+  }
 
   // `repositories` are the ones the sandbox clones; by default, the repository of the folder the TUI started in.
   async start(
@@ -137,7 +160,9 @@ export class PiChats {
         pick.mode && {
           initialPermissionMode: pick.mode as ExecutionMode,
         }),
+      ...relayedOptions(this.relayed(harness)),
     });
+    this.designate(run.id, harness);
     // Uploaded to the run, not staged on the task: the server resolves a pending message's artifacts on the run.
     const artifactIds =
       images.length > 0
@@ -303,11 +328,14 @@ export class PiChats {
       images.length > 0
         ? await this.uploads.toTask(task.id, filesOf(images))
         : [];
-    return this.api.runTaskInCloud(task.id, null, {
+    const continued = await this.api.runTaskInCloud(task.id, null, {
       ...runOptions(harness, run),
+      ...relayedOptions(this.relayed(harness)),
       resumeFromRunId: run.id,
       pendingUserMessage: prompt,
       ...pendingArtifacts(artifactIds),
     });
+    if (continued.latest_run) this.designate(continued.latest_run.id, harness);
+    return continued;
   }
 }
