@@ -1440,6 +1440,13 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
                 ),
+            limit: zod
+                .number()
+                .min(1)
+                .nullish()
+                .describe(
+                    'Return at most this many pattern groups, highest volume first. Omit to return every group (up to 200). `omitted_pattern_count` reports the groups that this limit dropped.'
+                ),
         })
         .describe('The patterns query to execute.'),
 })

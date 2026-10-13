@@ -8,6 +8,8 @@ All parameters go inside `query` — top-level fields are rejected:
 
 This is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.
 
+This tool returns the 15 highest-volume pattern groups by default. `omitted_pattern_count` tells you how many lower-volume groups it left out. To see more, narrow the filters or raise `query.limit` (up to 200). Large limits can return more text than your context holds.
+
 # When to use
 
 - To triage an unfamiliar or noisy stream: mine the last hour, scan the top templates by `estimated_count`, and look for anything with a non-zero error share in `severity_counts`.
@@ -48,6 +50,10 @@ To fetch the lines behind a pattern, call `query-logs` with the appropriate filt
 For body-mined patterns, also pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.
 
 # Parameters
+
+## query.limit
+
+Return at most this many pattern groups, highest volume first. Defaults to 15. The tool never returns more than 200 groups. Raise the limit only when the top groups do not answer your question.
 
 ## query.dateRange
 

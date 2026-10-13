@@ -63,7 +63,7 @@ from products.logs.backend.logs_query_runner import (
     LogsQueryRunner,
 )
 from products.logs.backend.pattern_diff import run_patterns_diff
-from products.logs.backend.patterns_query_runner import PatternsQueryRunner
+from products.logs.backend.patterns_query_runner import PatternsQueryRunner, limit_patterns
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
@@ -892,8 +892,20 @@ class _LogsPatternsBodySerializer(serializers.Serializer):
     sessionId = _session_scope_field("mining")
 
 
+class _LogsPatternsQueryBodySerializer(_LogsPatternsBodySerializer):
+    limit = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text=(
+            "Return at most this many pattern groups, highest volume first. Omit to return every group "
+            "(up to 200). `omitted_pattern_count` reports the groups that this limit dropped."
+        ),
+    )
+
+
 class _LogsPatternsRequestSerializer(serializers.Serializer):
-    query = _LogsPatternsBodySerializer(help_text="The patterns query to execute.")
+    query = _LogsPatternsQueryBodySerializer(help_text="The patterns query to execute.")
 
 
 class _LogPatternExampleSerializer(serializers.Serializer):
@@ -1061,6 +1073,10 @@ class _LogsPatternsResponseSerializer(_LogsPatternsSourceSerializer):
     patterns = _LogPatternSerializer(
         many=True,
         help_text="Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample.",
+    )
+    omitted_pattern_count = serializers.IntegerField(
+        required=False,
+        help_text="Lowest-volume pattern groups that the request `limit` dropped from `patterns`. Zero when `patterns` holds every group.",
     )
     scanned_count = serializers.IntegerField(
         help_text="Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation.",
@@ -1778,6 +1794,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
         self._require_dict_query(query_data)
+        try:
+            limit = _LogsPatternsQueryBodySerializer().fields["limit"].run_validation(query_data.get("limit"))
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"limit": error.detail})
 
         query = self._filtered_logs_query(query_data)
 
@@ -1789,22 +1809,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             analytics_props=get_request_analytics_properties(request),
         )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        results = limit_patterns(response.results, limit)
 
         report_user_action(
             request.user,
             "logs patterns queried",
             {
-                "patterns_count": len(response.results.get("patterns", []))
-                if isinstance(response.results, dict)
-                else 0,
-                "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
-                "source": response.results.get("source") if isinstance(response.results, dict) else None,
-                "pattern_version": response.results.get("pattern_version")
-                if isinstance(response.results, dict)
-                else None,
-                "fallback_reason": response.results.get("fallback_reason")
-                if isinstance(response.results, dict)
-                else None,
+                "patterns_count": len(results["patterns"]),
+                "omitted_pattern_count": results["omitted_pattern_count"],
+                "limit": limit,
+                "sampled": results.get("sampled"),
+                "source": results.get("source"),
+                "pattern_version": results.get("pattern_version"),
+                "fallback_reason": results.get("fallback_reason"),
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "severity_levels_count": len(query_data.get("severityLevels") or []),
                 "service_names_count": len(query_data.get("serviceNames") or []),
@@ -1813,7 +1830,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             request=request,
         )
 
-        return Response(response.results, status=status.HTTP_200_OK)
+        return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsPatternsDiffRequestSerializer, responses={200: _LogsPatternsDiffResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="patterns_diff")

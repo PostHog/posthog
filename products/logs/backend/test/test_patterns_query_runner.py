@@ -7,6 +7,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
@@ -17,7 +19,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.logs.backend.patterns_query_runner import PatternsQueryRunner, _sample_divisor, _time_slices
+from products.logs.backend.patterns_query_runner import (
+    PatternsQueryRunner,
+    _sample_divisor,
+    _time_slices,
+    limit_patterns,
+)
 
 _FROZEN_NOW = "2026-06-23T13:00:00Z"
 _WINDOW = DateRange(date_from="2026-06-23T00:00:00Z", date_to="2026-06-23T13:00:00Z")
@@ -426,3 +433,48 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = PatternsQueryRunner(team=self.team, query=query)
         with self.assertRaises(UserAccessControlError):
             runner.validate_query_runner_access(self.user)
+
+
+class TestLimitPatterns(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_limit", None, [10, 5, 1], 0, 16, 4),
+            ("limit_above_size", 5, [10, 5, 1], 0, 16, 4),
+            ("limit_moves_dropped_rows_to_remainder", 1, [10], 2, 10, 10),
+        ]
+    )
+    def test_limit_patterns(
+        self,
+        _name: str,
+        limit: int | None,
+        expected_counts: list[int],
+        expected_omitted: int,
+        expected_represented: int,
+        expected_remainder: int,
+    ) -> None:
+        results = {
+            "patterns": [{"pattern": f"p{count}", "count": count} for count in (10, 5, 1)],
+            "total_count": 20,
+            "represented_count": 16,
+            "remainder_count": 4,
+        }
+
+        limited = limit_patterns(results, limit)
+
+        assert [pattern["count"] for pattern in limited["patterns"]] == expected_counts
+        assert limited["omitted_pattern_count"] == expected_omitted
+        assert limited["represented_count"] == expected_represented
+        assert limited["remainder_count"] == expected_remainder
+
+    def test_limit_patterns_keeps_null_coverage_for_body_mining(self) -> None:
+        results = {
+            "patterns": [{"pattern": "a", "count": 2}, {"pattern": "b", "count": 1}],
+            "total_count": 3,
+            "represented_count": None,
+            "remainder_count": None,
+        }
+
+        limited = limit_patterns(results, 1)
+
+        assert limited["represented_count"] is None
+        assert limited["remainder_count"] is None

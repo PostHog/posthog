@@ -2027,7 +2027,7 @@ export interface PatchedLogsMetricRuleApi {
     readonly updated_at?: string | null
 }
 
-export interface _LogsPatternsBodyApi {
+export interface _LogsPatternsQueryBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before mining. */
@@ -2042,11 +2042,17 @@ export interface _LogsPatternsBodyApi {
     personId?: string
     /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
     sessionId?: string
+    /**
+     * Return at most this many pattern groups, highest volume first. Omit to return every group (up to 200). `omitted_pattern_count` reports the groups that this limit dropped.
+     * @minimum 1
+     * @nullable
+     */
+    limit?: number | null
 }
 
 export interface _LogsPatternsRequestApi {
     /** The patterns query to execute. */
-    query: _LogsPatternsBodyApi
+    query: _LogsPatternsQueryBodyApi
 }
 
 /**
@@ -2177,6 +2183,8 @@ export interface _LogsPatternsResponseApi {
     remainder_count?: number | null
     /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
     patterns: _LogPatternApi[]
+    /** Lowest-volume pattern groups that the request `limit` dropped from `patterns`. Zero when `patterns` holds every group. */
+    omitted_pattern_count?: number
     /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
     scanned_count: number
     /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
@@ -2187,6 +2195,23 @@ export interface _LogsPatternsResponseApi {
     sample_coverage_pct: number
     /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
     sparkline_buckets: _LogsPatternsSparklineBucketApi[]
+}
+
+export interface _LogsPatternsBodyApi {
+    /** Date range to mine patterns from. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before mining. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict mining to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before mining. */
+    searchTerm?: string
+    /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsPatternsDiffRequestApi {

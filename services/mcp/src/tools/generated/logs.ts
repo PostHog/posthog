@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/logs/api'
+import hooks_logsPatterns from '@/tools/logs/logsPatternsHooks'
+import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -680,26 +682,29 @@ const LogsPatternsSchema = () => {
 const logsPatterns = (): ToolBase<ReturnType<typeof LogsPatternsSchema>, Schemas._LogsPatternsResponse> => ({
     name: 'logs-patterns',
     schema: LogsPatternsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_logsPatterns,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsPatternsSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._LogsPatternsResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
+                body,
+            })
+            const filtered = omitResponseFields(result, [
+                'patterns.*.examples',
+                'patterns.*.sparkline',
+                'patterns.*.count',
+                'patterns.*.error_count',
+                'sparkline_buckets',
+            ]) as typeof result
+            return filtered
         }
-        const result = await context.api.request<Schemas._LogsPatternsResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
-            body,
-        })
-        const filtered = omitResponseFields(result, [
-            'patterns.*.examples',
-            'patterns.*.sparkline',
-            'patterns.*.count',
-            'patterns.*.error_count',
-            'sparkline_buckets',
-        ]) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const LogsPatternsDiffSchema = () => {
