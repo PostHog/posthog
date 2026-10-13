@@ -3,7 +3,7 @@ name: clickhouse-migrations
 description: >
   Rules and workflow for changing the ClickHouse schema, which is declared as OpenTofu configuration in `posthog/clickhouse/schema/`.
   Use when changing the ClickHouse schema: adding or altering a table, column, index, projection, materialized view, Kafka table, or dictionary, or editing anything under `posthog/clickhouse/schema/`.
-  Covers where each object lives, how to pick the group and component for a new object, shared column lists, writing expressions in ClickHouse's canonical form, reading the plan for replacements that lose data, the cloud rollout from the infrastructure repository, and the safety rules (no `DROP COLUMN` without the ClickHouse team, the `events_json_ws` no-go zone, codecs, Kafka table settings, PR scope).
+  Covers where each object lives, how to pick the group and node placement for a new object, shared column lists, writing expressions in ClickHouse's canonical form, reading the plan for replacements that lose data, the cloud rollout from the infrastructure repository, and the safety rules (no `DROP COLUMN` without the ClickHouse team, the `events_json_ws` no-go zone, codecs, Kafka table settings, PR scope).
   Trigger terms: ClickHouse migration, ClickHouse schema, clickhouse-schema plan, add column, skip index, Kafka table, materialized view.
 ---
 
@@ -35,29 +35,19 @@ Preserve existing names, paths, consumer groups and settings during a conversion
 For custom schemas, each object is one `module` block that calls a low-level `lib` helper.
 `catalog/person/main.tf` is a global example. `catalog/events/main.tf` is the sharded equivalent.
 
-## Pick the group and the component
+## Pick the group and node placement
 
-A group is one table family.
-Add the object to the group of the table it stores, reads, or fills.
-Standard families go in the catalogue. Make a new catalogue group only when the schema needs custom objects, add its caller in `catalog/main.tf`, and select its local components in `local/modules.tf`.
+A group is one table family. Add an object to the group of the table it stores, reads, or fills.
+Standard families go in the catalogue. Add a custom group's caller in `catalog/main.tf` and select its object names in the local root.
 
-Keep every object in the group's `main.tf`. The component decides which nodes get the object in PostHog Cloud, so choose it by what the object does:
-
-| Object                                                          | Component |
-| --------------------------------------------------------------- | --------- |
-| MergeTree table, or a materialized view between storage tables  | `storage` |
-| Distributed table, view, or dictionary that queries read        | `read`    |
-| Distributed table that inserts go through (`writable_*`)        | `write`   |
-| Kafka table, or the materialized view that consumes it          | `ingest`  |
-| Object only the test suite uses, such as a view replacing Kafka | `test`    |
-
-Every object follows the same shape, for a custom writable table:
+Each catalogue call receives one `node`, a set of `objects`, and per-object `overrides`. Enable custom objects by name:
 
 ```hcl
 module "writable_person" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled  = local.write && !contains(local.deployment.exclude, "writable_person")
+  enabled  = contains(var.objects, "writable_person")
   database = var.database
   name     = "writable_person"
   engine   = "Distributed('posthog_single_shard', '${var.database}', 'person')"
@@ -66,12 +56,11 @@ module "writable_person" {
 }
 ```
 
-Keep the `enabled` and `override` lines exactly in this form. The infrastructure repository relies on them to leave an object out of a cluster or to change it there.
-Use `${var.database}` for the database name and supply complete replication paths. Preserve an existing database's Keeper identity with a full path override when its historical path differs.
-Add `depends_on` when an object reads from or writes to another one, as `person_mv` does.
+The infrastructure repository selects objects for each cluster and individual node. An object's name, rather than a component profile, controls its placement. Use `${var.database}` and preserve historical Keeper paths with full overrides. Add `depends_on` when an object reads from or writes to another one.
 
-A table that only exists in PostHog Cloud is not declared here. It belongs in the infrastructure repository.
-Everything declared here is created locally and in tests too.
+Before placing an object, check comparable objects in dev, prod-us and prod-eu using the ClickHouse MCP. Older declarations can trail live placement. Check where callers read and write it, and keep a materialized view with its source and target. Satellite rollups normally have storage on the satellite and Distributed readers on the query cluster. Do not branch on deployment names to give dev a different topology. State the target clusters and placement evidence in the PR description.
+
+Cloud-only objects belong in the infrastructure catalogue. Everything declared here must also have suitable local and test placement.
 
 ## Add a column
 
@@ -125,7 +114,7 @@ A cluster whose definition differs from this repository gets its difference thro
 - **Never drop or recreate `kafka_events_json_ws` or `events_json_ws_mv`.** They differ between US, EU, and dev, and they are not declared in this repository. Any change to them goes through the ClickHouse team.
 - **Do not put `ZSTD(1)` on a column.** The server already compresses every column with ZSTD. Declare a `codec` only where it beats that default. `Delta` and `DoubleDelta` need the column near-sorted in storage order, which means a leading `order_by` prefix. `T64` and `Gorilla` do not depend on the order. Pair a specialized codec with ZSTD as the second stage, for example `DoubleDelta, ZSTD(1)`.
 - **Put a new codec on the storage table only.** A codec on a Distributed or Kafka table does nothing.
-- **Never write a password in a dictionary source.** A dictionary that needs credentials takes them from the `dictionary_user` and `dictionary_password` variables, as `modules/dmat_slot_assignments` does.
+- **Never write a password in a dictionary source.** A dictionary that needs credentials takes them from the `dictionary_user` and `dictionary_password` variables, as `catalog/dmat_slot_assignments` does.
 
 ## Kafka tables
 
