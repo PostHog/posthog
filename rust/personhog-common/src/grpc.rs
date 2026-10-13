@@ -40,9 +40,9 @@ pub const SEMANTIC_REFUSAL_METADATA_KEY: &str = "x-semantic-refusal";
 /// Never set where the request may have been applied.
 pub const NOT_APPLIED_HEADER: &str = "x-not-applied";
 
-/// Marks a DEADLINE_EXCEEDED that a Postgres statement or lock timeout
-/// caused. The Python client does not retry a status with this key in
-/// process.
+/// Marks a DEADLINE_EXCEEDED that a Postgres timeout caused, rather than an
+/// expired gRPC deadline. The value names the setting that fired:
+/// `statement_timeout` or `lock_timeout`.
 pub const DB_TIMEOUT_METADATA_KEY: &str = "x-db-timeout";
 
 pub fn db_timeout_status(message: impl Into<String>, kind: TimeoutKind) -> tonic::Status {

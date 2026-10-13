@@ -33,6 +33,20 @@ pub enum StorageError {
     FailedPrecondition(String),
 }
 
+impl StorageError {
+    /// The `error_type` metric label.
+    pub fn error_type(&self) -> &'static str {
+        match self {
+            Self::Connection(_) => "connection",
+            Self::Query(_) => "query",
+            Self::Timeout { kind, .. } => kind.as_str(),
+            Self::PoolExhausted => "pool_exhausted",
+            Self::NotFound(_) => "not_found",
+            Self::FailedPrecondition(_) => "failed_precondition",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum TimeoutKind {
     Statement,
@@ -79,3 +93,64 @@ impl From<sqlx::Error> for StorageError {
 }
 
 pub type StorageResult<T> = Result<T, StorageError>;
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+    use std::fmt;
+
+    use rstest::rstest;
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct FakePgError(&'static str);
+
+    impl fmt::Display for FakePgError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "fake database error ({})", self.0)
+        }
+    }
+
+    impl std::error::Error for FakePgError {}
+
+    impl sqlx::error::DatabaseError for FakePgError {
+        fn message(&self) -> &str {
+            "fake database error"
+        }
+
+        fn code(&self) -> Option<Cow<'_, str>> {
+            Some(Cow::Borrowed(self.0))
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::Other
+        }
+    }
+
+    #[rstest]
+    #[case::statement_timeout("57014", "statement_timeout")]
+    #[case::lock_timeout("55P03", "lock_timeout")]
+    #[case::unique_violation("23505", "query")]
+    #[case::deadlock("40P01", "query")]
+    fn database_error_is_classified_by_sqlstate(
+        #[case] sqlstate: &'static str,
+        #[case] expected_error_type: &str,
+    ) {
+        let err = StorageError::from(sqlx::Error::Database(Box::new(FakePgError(sqlstate))));
+
+        assert_eq!(err.error_type(), expected_error_type);
+    }
+}

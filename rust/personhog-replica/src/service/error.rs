@@ -7,19 +7,11 @@ use crate::storage;
 const STORAGE_ERRORS_TOTAL: &str = "personhog_replica_storage_errors_total";
 
 pub fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Status {
-    let error_type = match &err {
-        storage::StorageError::Connection(_) => Some("connection"),
-        storage::StorageError::PoolExhausted => Some("pool_exhausted"),
-        storage::StorageError::Query(_) => Some("query"),
-        storage::StorageError::Timeout { kind, .. } => Some(kind.as_str()),
-        storage::StorageError::NotFound(_) => None,
-        storage::StorageError::FailedPrecondition(_) => Some("failed_precondition"),
-    };
-    if let Some(error_type) = error_type {
+    if !matches!(err, storage::StorageError::NotFound(_)) {
         common_metrics::inc(
             STORAGE_ERRORS_TOTAL,
             &[
-                ("error_type".to_string(), error_type.to_string()),
+                ("error_type".to_string(), err.error_type().to_string()),
                 ("operation".to_string(), operation.to_string()),
                 ("client".to_string(), current_client_name().to_string()),
             ],
