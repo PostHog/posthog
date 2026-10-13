@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import fakeredis
 from parameterized import parameterized
 
 from ee.billing.salesforce_enrichment.constants import (
@@ -29,6 +30,7 @@ from ee.billing.salesforce_enrichment.enrichment import (
     prepare_account_update,
     prepare_mirror_clearing_data,
     prepare_salesforce_update_data,
+    query_salesforce_accounts_chunk_async,
     transform_harmonic_data,
 )
 
@@ -678,6 +680,21 @@ class TestSalesforceAccountQuery(SimpleTestCase):
 
             # Verify it doesn't use the old %domain% pattern that would match unintended domains
             assert "LIKE '%example.com%'" not in actual_query
+
+    @pytest.mark.asyncio
+    async def test_chunk_reads_rebuild_a_missing_cache_once_and_page_through_it(self) -> None:
+        accounts = [{"Id": f"001SYN{i:03d}", "Website": f"https://company{i}.example.com"} for i in range(7)]
+        sf = MagicMock()
+        sf.query_all.return_value = {"records": accounts}
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=fakeredis.FakeAsyncRedis(),
+        ):
+            pages = [await query_salesforce_accounts_chunk_async(sf, offset, 3) for offset in (0, 3, 6, 9)]
+
+        assert pages == [accounts[0:3], accounts[3:6], accounts[6:7], []]
+        sf.query_all.assert_called_once()
 
 
 class TestSpecificDomainEnrichment(SimpleTestCase):
