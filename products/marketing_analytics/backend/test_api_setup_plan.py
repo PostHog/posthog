@@ -154,13 +154,21 @@ class TestSetupPlanFeatureFlag(APIBaseTest):
         cache.clear()
 
     @parameterized.expand(
-        [(False, False, False), (False, False, True), (False, True, False), (True, False, False), (True, True, True)]
+        [
+            (False, False, False, False),
+            (False, False, False, True),
+            (False, False, True, False),
+            (False, True, False, False),
+            (True, False, False, False),
+            (True, True, True, True),
+        ]
     )
-    def test_setup_availability(self, setup: bool, dashboard: bool, onboarding: bool) -> None:
+    def test_setup_availability(self, setup: bool, dashboard: bool, onboarding: bool, mcp: bool) -> None:
         flags = {
             "marketing-analytics-setup": setup,
             "new-marketing-analytics-dashboard": dashboard,
             "marketing-analytics-source-onboarding": onboarding,
+            "marketing-analytics-setup-plan-mcp": mcp,
         }
         with (
             patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]),
@@ -168,8 +176,8 @@ class TestSetupPlanFeatureFlag(APIBaseTest):
         ):
             response = self.client.get(self.url)
 
-        assert response.status_code == (200 if setup or dashboard or onboarding else 404)
-        assert build.call_count == int(setup or dashboard or onboarding)
+        assert response.status_code == (200 if setup or dashboard or onboarding or mcp else 404)
+        assert build.call_count == int(setup or dashboard or onboarding or mcp)
 
     def test_marketing_access_does_not_enable_source_onboarding(self) -> None:
         with (
