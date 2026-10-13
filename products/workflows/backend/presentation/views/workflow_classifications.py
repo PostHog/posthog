@@ -13,9 +13,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
-from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.models import Team
 
+from products.cdp.backend.presentation.hog_functions import gated_template_enabled
 from products.ml_inference.backend.facade.contracts import (
     DEFAULT_DECISION_MODEL,
     MAX_OPTIONS_PER_QUESTION,

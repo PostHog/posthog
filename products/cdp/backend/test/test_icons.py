@@ -13,8 +13,9 @@ from requests.structures import CaseInsensitiveDict
 from rest_framework import status
 from rest_framework.exceptions import APIException, NotFound
 
-from posthog.cdp.services.icons import CDPIconsService, LogoDevBadGateway, LogoDevUnavailable
 from posthog.egress.limiter.outbound import get_outbound_rate_limiter
+
+from products.cdp.backend.services.icons import CDPIconsService, LogoDevBadGateway, LogoDevUnavailable
 
 # Fresh team id per test (and per run) so consuming the real per-team budget never accumulates
 # into a denial across tests or repeated local runs against a persistent Redis.
@@ -308,7 +309,7 @@ class TestCDPIconsService(SimpleTestCase):
         # arbitrary-domain requests from blanking icons for every other team. Denial must be
         # charged to the calling team's own key, stay uncached, and never reach upstream.
         with (
-            patch("posthog.cdp.services.icons.get_outbound_rate_limiter") as limiter,
+            patch("products.cdp.backend.services.icons.get_outbound_rate_limiter") as limiter,
             patch("requests.request") as upstream,
         ):
             limiter.return_value.consume_sync.return_value = False
@@ -358,7 +359,7 @@ class TestCDPIconsService(SimpleTestCase):
         # Search queries are free text — the same per-team gate must cover them or a team could
         # drain the shared account budget through the search path instead.
         with (
-            patch("posthog.cdp.services.icons.get_outbound_rate_limiter") as limiter,
+            patch("products.cdp.backend.services.icons.get_outbound_rate_limiter") as limiter,
             patch("requests.request") as upstream,
         ):
             limiter.return_value.consume_sync.return_value = False
