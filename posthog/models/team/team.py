@@ -1,10 +1,7 @@
-from collections import defaultdict
-from collections.abc import Mapping
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache, partial
-from typing import TYPE_CHECKING, Any, Optional, cast
-from uuid import UUID
+from functools import lru_cache
+from typing import TYPE_CHECKING, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -1203,14 +1200,16 @@ class Team(UUIDTClassicModel):
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
-        from posthog.constants import AvailableFeature
-        from posthog.models.user import User
-        from posthog.user_permissions import (
-            UserTeamPermissions,  # noqa: PLC0415 - circular, user_permissions imports Team
-        )
+        from django.db.models import Prefetch  # noqa: PLC0415
 
-        from products.access_control.backend.models.access_control import AccessControl
-        from products.access_control.backend.models.role import RoleMembership
+        from posthog.constants import AvailableFeature  # noqa: PLC0415
+        from posthog.models.user import User  # noqa: PLC0415
+
+        from products.access_control.backend.facade.subject_access_control import (  # noqa: PLC0415 - circular
+            SubjectAccessControl,
+        )
+        from products.access_control.backend.models.access_control import AccessControl  # noqa: PLC0415
+        from products.access_control.backend.models.role import RoleMembership  # noqa: PLC0415
 
         organization = self.organization
         # An organization without ACCESS_CONTROL has no private projects, so every active member
@@ -1222,92 +1221,57 @@ class Team(UUIDTClassicModel):
             )
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 
-        project_rules = list(
-            AccessControl.objects.filter(team_id=self.id, resource="project", resource_id=str(self.id)).values(
-                "resource_id", "organization_member_id", "role_id", "access_level"
-            )
-        )
-        # A project with no rules resolves every active member to admin by default, so the
-        # per-member loop would do the same work the non-ACL fast path does — stay in SQL instead.
-        if not project_rules:
-            member_user_ids = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
-                "user_id", flat=True
-            )
-            return User.objects.filter(is_active=True, id__in=member_user_ids)
-
+        team_rows = list(AccessControl.objects.filter(team_id=self.id, resource="project", resource_id=str(self.id)))
         role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+        # A rule that can give one member a different answer than the next: an own-member rule,
+        # or (when the entitlement is on) a role rule.
+        has_discriminating_rules = any(
+            row.organization_member_id is not None or (row.role_id is not None and role_based_access_supported)
+            for row in team_rows
+        )
 
-        # Partition rules by member and role up front so each per-member resolve_membership_level
-        # call sees only its own candidates, rather than rescanning every rule for every member.
-        rules_by_member_id: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
-        rules_by_role_id: dict[UUID, list[Mapping[str, Any]]] = defaultdict(list)
-        default_rules: list[Mapping[str, Any]] = []
-        for rule in project_rules:
-            if rule["organization_member_id"] is not None:
-                rules_by_member_id[rule["organization_member_id"]].append(rule)
-            elif rule["role_id"] is not None:
-                rules_by_role_id[rule["role_id"]].append(rule)
-            else:
-                default_rules.append(rule)
-
-        # Only roles that can take effect — the resolver ignores role rules when the org lacks
-        # ROLE_BASED_ACCESS, so loading their memberships would allocate without changing an answer.
-        named_role_ids = set(rules_by_role_id) if role_based_access_supported else set()
-
-        # Fast path: without any rule that discriminates between members (no own-member rules,
-        # no effective role rules), every active member resolves to the same answer and the
-        # per-member loop below just reruns that one decision. Stay in SQL.
-        if not rules_by_member_id and not named_role_ids:
-            default_level = default_rules[0]["access_level"] if default_rules else None
+        # Fast path: without a discriminating rule, every active member resolves to the same
+        # answer and the per-member subject below just reruns that one decision. Stay in SQL.
+        if not has_discriminating_rules:
+            default_row = next(
+                (row for row in team_rows if row.organization_member_id is None and row.role_id is None), None
+            )
+            default_level = default_row.access_level if default_row else None
             if default_level in (None, "member", "admin"):
-                # No default rule falls through to the resolver's admin default; "member"/"admin"
+                # No default rule falls through to the facade's admin default; "member"/"admin"
                 # default rules grant access to every active org member.
                 member_user_ids = OrganizationMembership.objects.filter(
                     organization_id=self.organization_id
                 ).values_list("user_id", flat=True)
             else:
                 # Default "none" denies every member; only org admins and owners pass the
-                # resolver's admin bypass.
+                # subject's admin bypass.
                 member_user_ids = OrganizationMembership.objects.filter(
                     organization_id=self.organization_id,
                     level__gte=OrganizationMembership.Level.ADMIN,
                 ).values_list("user_id", flat=True)
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 
-        role_ids_by_user: dict[int, set[UUID]] = defaultdict(set)
-        if named_role_ids:
-            for user_id, role_id in (
-                RoleMembership.objects.filter(role_id__in=named_role_ids, role__organization_id=self.organization_id)
-                .valid_for_authorization()
-                .values_list("user_id", "role_id")
-            ):
-                role_ids_by_user[user_id].add(role_id)
-
-        def rules_for(membership_id: int, user_id: int) -> list[Mapping[str, Any]]:
-            rules = list(rules_by_member_id.get(membership_id, ()))
-            for role_id in role_ids_by_user.get(user_id, ()):
-                rules.extend(rules_by_role_id.get(role_id, ()))
-            rules.extend(default_rules)
-            return rules
-
-        def role_ids_for(user_id: int) -> set[UUID]:
-            return role_ids_by_user.get(user_id, set())
-
-        memberships = OrganizationMembership.objects.filter(
-            organization_id=self.organization_id, user__is_active=True
-        ).only("id", "user_id", "level")
-        user_ids = [
-            membership.user_id
-            for membership in memberships
-            if UserTeamPermissions.resolve_membership_level(
-                organization=organization,
-                organization_membership=membership,
-                team_id=self.id,
-                load_project_rules=partial(rules_for, membership.id, membership.user_id),
-                load_role_ids=partial(role_ids_for, membership.user_id),
+        # General case: resolve each active member through `SubjectAccessControl`, seeding its
+        # pool from the single team-rules fetch and from the prefetched role memberships so N
+        # subjects share one query of each rather than running N of them.
+        memberships = list(
+            OrganizationMembership.objects.filter(organization_id=self.organization_id, user__is_active=True)
+            .select_related("user")
+            .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
+        )
+        user_ids: list[int] = []
+        for membership in memberships:
+            subject = SubjectAccessControl(
+                user=membership.user,
+                team=self,
+                org_membership=membership,
+                member=membership,
             )
-            is not None
-        ]
+            subject_role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
+            subject.preload_access_controls(team_rows, subject_role_ids=subject_role_ids)
+            if subject.has_project_access:
+                user_ids.append(membership.user_id)
         return User.objects.filter(id__in=user_ids)
 
     def __str__(self):

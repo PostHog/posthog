@@ -1,6 +1,5 @@
-from collections.abc import Callable, Collection, Iterable, Mapping
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
@@ -11,6 +10,9 @@ from products.dashboards.backend.facade.enums import PrivilegeLevel, Restriction
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
+
+if TYPE_CHECKING:
+    from products.access_control.backend.models.access_control import AccessControl
 
 
 class UserPermissions:
@@ -112,13 +114,16 @@ class UserPermissions:
             return {}
 
     @cached_property
-    def _prefetched_access_controls(self) -> dict[int, list[dict[str, Any]]]:
-        """Project AccessControl rules that can change this user's answer, grouped by team_id.
+    def _prefetched_access_controls(self) -> dict[int, list["AccessControl"]]:
+        """Project AccessControl rows that can change this user's answer, grouped by team_id.
 
         Narrowed to the principal: a team's defaults, the user's own member rules, and rules
         of roles they hold. Rules naming another member or a role they do not hold cannot
-        change `resolve_membership_level`'s outcome for this user, so loading them would only
-        bloat the per-request working set.
+        change the subject's resolution for this user, so loading them would only bloat the
+        per-request working set.
+
+        Returns model instances so `SubjectAccessControl.preload_access_controls` can seed its
+        pool directly instead of reconstructing instances from dicts.
         """
         from django.db.models import Q  # noqa: PLC0415 - keeps the import local to the one caller
 
@@ -134,18 +139,13 @@ class UserPermissions:
         if user_role_ids:
             principal_filter |= Q(role_id__in=user_role_ids)
 
-        access_controls = (
-            AccessControl.objects.filter(team__organization_id__in=organization_ids, resource="project")
-            .filter(principal_filter)
-            .values("team_id", "resource_id", "organization_member_id", "role_id", "access_level")
-        )
+        access_controls = AccessControl.objects.filter(
+            team__organization_id__in=organization_ids, resource="project"
+        ).filter(principal_filter)
 
-        result: dict[int, list[dict[str, Any]]] = {}
+        result: dict[int, list[AccessControl]] = {}
         for ac in access_controls:
-            team_id = ac["team_id"]
-            if team_id not in result:
-                result[team_id] = []
-            result[team_id].append(dict(ac))
+            result.setdefault(ac.team_id, []).append(ac)
         return result
 
     @cached_property
@@ -219,12 +219,21 @@ class UserTeamPermissions:
         if organization_membership.user_id != self.p.user.pk:
             raise ValueError("organization_membership must belong to the UserPermissions principal")
 
+        # Admin/non-ACL bypasses happen here too so the caller skips the prefetch properties
+        # that would otherwise query for data a short-circuited answer does not need.
+        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return UserTeamPermissions._capped_at_admin(organization_membership.level)
+        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
+            return UserTeamPermissions._capped_at_admin(organization_membership.level)
+
+        role_ids = self.p._prefetched_role_ids_by_organization.get(self.team.organization_id, set())
         return self.resolve_membership_level(
             organization=organization,
             organization_membership=organization_membership,
-            team_id=self.team.id,
-            load_project_rules=lambda: self.p._prefetched_access_controls.get(self.team.id, []),
-            load_role_ids=lambda: self.p._prefetched_role_ids_by_organization.get(self.team.organization_id, set()),
+            team=self.team,
+            user=self.p.user,
+            preloaded_rows=self.p._prefetched_access_controls.get(self.team.id, []),
+            subject_role_ids=[str(role_id) for role_id in role_ids],
         )
 
     @staticmethod
@@ -232,72 +241,46 @@ class UserTeamPermissions:
         *,
         organization: Organization,
         organization_membership: OrganizationMembership,
-        team_id: int,
-        load_project_rules: Callable[[], Iterable[Mapping[str, Any]]],
-        load_role_ids: Callable[[], Collection[UUID]],
+        team: Team,
+        user: Optional[User] = None,
+        preloaded_rows: Optional[list["AccessControl"]] = None,
+        subject_role_ids: Optional[list[str]] = None,
     ) -> Optional["OrganizationMembership.Level"]:
-        """Project access of one member of the team's organization. Every project access resolver
-        calls this, so the per-user check and the bulk ones cannot disagree on precedence.
+        """Project access of one member of the team's organization, resolved through
+        `SubjectAccessControl`. Delegating here keeps this resolver and the enforced API gate
+        on one implementation instead of maintaining a parallel precedence rule for
+        most-specific organizations.
 
-        `load_project_rules` returns the team's `resource="project"` AccessControl rows as dicts with
-        `resource_id`, `organization_member_id`, `role_id` and `access_level`. `load_role_ids`
-        returns the ids of the roles the user holds in the team's organization. They are callables
-        so that a caller resolving one user skips the queries the answer does not need.
+        `preloaded_rows` and `subject_role_ids`, when given, seed the subject so the N
+        resolutions a bulk caller does share one query for the team's rules and one query for
+        the subject's roles rather than running N of each.
         """
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return UserTeamPermissions._capped_at_admin(organization_membership.level)
 
-        # Organization admins and owners always have access, so skip the rule fetch for them.
+        # Admins and owners always have access, so skip the facade construction entirely.
         if organization_membership.level >= OrganizationMembership.Level.ADMIN:
             return UserTeamPermissions._capped_at_admin(organization_membership.level)
 
-        access_controls = [ac for ac in load_project_rules() if ac["resource_id"] == str(team_id)]
-
-        # Role-backed project AccessControl rows only take effect if the organization has
-        # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
-        # project access settings page (and as resource-level role overrides).
-        role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-        user_roles = load_role_ids()
-
-        member_access_levels = [
-            ac["access_level"] for ac in access_controls if ac["organization_member_id"] == organization_membership.id
-        ]
-        role_access_levels = [
-            ac["access_level"]
-            for ac in access_controls
-            if role_based_access_supported and ac["role_id"] is not None and ac["role_id"] in user_roles
-        ]
-        default_access_level = next(
-            (
-                ac["access_level"]
-                for ac in access_controls
-                if ac["organization_member_id"] is None and ac["role_id"] is None
-            ),
-            None,
+        from products.access_control.backend.facade.subject_access_control import (  # noqa: PLC0415 - circular at module import
+            SubjectAccessControl,
         )
 
-        if organization.uses_most_specific_access_resolution:
-            # Member rows decide alone when any exist, then role rows, then the team default.
-            # Mirrors `_most_specific_rows_decision` in the enforced API gate so a member "none"
-            # denies even when a role would grant member — otherwise this resolver would list a
-            # user the API denies.
-            if member_access_levels:
-                return UserTeamPermissions._highest_membership_level(member_access_levels)
-            if role_access_levels:
-                return UserTeamPermissions._highest_membership_level(role_access_levels)
-        elif member_access_levels or role_access_levels:
-            # Legacy orgs: the highest of any explicit rule (member or role) wins, and an explicit
-            # "none" is a denial rather than a miss that falls through to the team default. Same
-            # explicit-wins precedence as `_object_access_level_from_rows` in
-            # `products/access_control/backend/facade/user_access_control.py`.
-            return UserTeamPermissions._highest_membership_level([*member_access_levels, *role_access_levels])
+        subject = SubjectAccessControl(
+            user=user if user is not None else organization_membership.user,
+            team=team,
+            org_membership=organization_membership,
+            member=organization_membership,
+        )
+        if preloaded_rows is not None or subject_role_ids is not None:
+            subject.preload_access_controls(preloaded_rows, subject_role_ids=subject_role_ids)
 
-        # Fall back to the default access level for this team (applies to all org members)
-        if default_access_level is not None:
-            return UserTeamPermissions._highest_membership_level([default_access_level])
-
-        # No access control row in the database, admin by default. See: `default_access_level()` in `products/access_control/backend/facade/user_access_control.py`
-        return OrganizationMembership.Level.ADMIN
+        level = subject.get_user_access_level(team)
+        if level == "admin":
+            return OrganizationMembership.Level.ADMIN
+        if level == "member":
+            return OrganizationMembership.Level.MEMBER
+        return None
 
     @staticmethod
     def _capped_at_admin(organization_level: int) -> "OrganizationMembership.Level":
@@ -305,16 +288,6 @@ class UserTeamPermissions:
         than leaking `OWNER` out of a project-level resolver. No call site distinguishes the two —
         they all gate on `is not None`, `>= MEMBER` or `>= ADMIN`."""
         return min(cast("OrganizationMembership.Level", organization_level), OrganizationMembership.Level.ADMIN)
-
-    @staticmethod
-    def _highest_membership_level(access_levels: list[str]) -> Optional["OrganizationMembership.Level"]:
-        """Highest of the given project access levels as a membership level. None for "none", which
-        is a denial — callers gate on `effective_membership_level is not None`."""
-        if "admin" in access_levels:
-            return OrganizationMembership.Level.ADMIN
-        if "member" in access_levels:
-            return OrganizationMembership.Level.MEMBER
-        return None
 
 
 def user_can_access_team(user: User, team: Team) -> bool:
