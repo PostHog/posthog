@@ -337,7 +337,14 @@ class _ProjectQualityViewSet(_QualityGatedViewSet):
             raise PermissionDenied("You need access to warehouse objects or the data catalog to work with checks.")
 
     def _report(self, event: _CheckEvent, properties: dict[str, Any]) -> None:
-        report_user_action(self.request.user, event, properties, team=self.team, request=self.request)
+        report_user_action(
+            self.request.user,
+            event,
+            properties,
+            team=self.team,
+            organization=self.team.organization,
+            request=self.request,
+        )
 
     def _report_run(self, scope: _RunScope, check_count: int | None = None) -> None:
         self._report(_CheckEvent.RUN, {"scope": scope, "check_count": check_count})
@@ -566,11 +573,14 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         serializer.context["authorize_check_edit"] = lambda current: self._authorize_check_edit(
             current, serializer.validated_data
         )
+        previous_check = cast(DataQualityCheck, serializer.instance)
         updated_check = cast(DataQualityCheck, serializer.save())
-        self._report(
-            _CheckEvent.UPDATED,
-            {**_event_properties(updated_check), "changed_fields": sorted(serializer.validated_data)},
+        changed_fields = sorted(
+            field
+            for field in serializer.validated_data
+            if getattr(previous_check, field, None) != getattr(updated_check, field, None)
         )
+        self._report(_CheckEvent.UPDATED, {**_event_properties(updated_check), "changed_fields": changed_fields})
         if self._last_run_is_hidden(updated_check):
             self._redact_last_run(updated_check)
 

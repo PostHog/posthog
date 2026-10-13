@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
+from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -653,7 +654,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
             ),
             (
                 "update",
-                lambda self, check: self.client.patch(f"{self.url}/{check.id}/", {"description": "why"}),
+                lambda self, check: self.client.patch(
+                    f"{self.url}/{check.id}/", {"description": "why", "severity": CheckSeverity.ERROR}
+                ),
                 "data quality check updated",
                 {"check_type": "not_null", "subject_type": "view", "changed_fields": ["description"]},
             ),
@@ -696,6 +699,13 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert report.call_args.args[1] == event
         properties = report.call_args.args[2]
         assert {key: properties.get(key) for key in expected_properties} == expected_properties
+
+    def test_check_events_belong_to_the_projects_organization(self) -> None:
+        Organization.objects.bootstrap(self.user)
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            self._create_check()
+
+        assert capture.call_args.kwargs["groups"]["organization"] == str(self.organization.id)
 
     def test_recreating_an_existing_check_reports_nothing(self) -> None:
         self._create_check()
