@@ -1,6 +1,9 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linearb import (
     LinearbSourceConfig,
 )
@@ -23,26 +26,22 @@ class TestLinearbSource:
         assert [s.name for s in schemas] == ["teams"]
 
     @pytest.mark.parametrize(
-        ("mock_return", "expected_valid", "expected_message"),
+        ("status_code", "expected_valid", "expected_message"),
         [
-            (True, True, None),
-            (False, False, "Invalid LinearB API key"),
+            (200, True, None),
+            (403, False, "Invalid LinearB API key"),
         ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.linearb.source.validate_linearb_credentials"
     )
     def test_validate_credentials(
         self,
-        mock_validate: mock.MagicMock,
-        mock_return: bool,
+        status_code: int,
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("test-key")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].headers["x-api-key"] == "test-key"

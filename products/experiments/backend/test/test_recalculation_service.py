@@ -15,8 +15,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -45,6 +44,12 @@ def _mean_metric(uuid: str) -> dict:
         "metric_type": "mean",
         "source": {"kind": "EventsNode", "event": "purchase"},
     }
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -373,14 +378,7 @@ class TestRecalculationService(BaseTest):
         # and we just set query_to on the recalc above.
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
 
         # The row from THIS run (recalc-fingerprinted) — must be returned.
         ExperimentMetricResult.objects.create(
@@ -414,16 +412,7 @@ class TestRecalculationService(BaseTest):
         exp = self._launched_experiment(flag_key="reuse-excluded")
         assert exp.start_date is not None  # _launched_experiment always sets it; narrow for the create below
         query_to = datetime(2026, 1, 10, tzinfo=UTC)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                _mean_metric("m1"),
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-                excluded_variants=exp.excluded_variants,
-            )
-        )
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -458,14 +447,7 @@ class TestRecalculationService(BaseTest):
         )
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -539,15 +521,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
         return exp
 
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
-        assert exp.metrics and exp.start_date is not None
-        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
-        return compute_metric_fingerprint(
-            metric_dict,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
+        return _calculation_key(exp, metric_uuid)
 
     def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict | None) -> None:
         assert exp.start_date is not None

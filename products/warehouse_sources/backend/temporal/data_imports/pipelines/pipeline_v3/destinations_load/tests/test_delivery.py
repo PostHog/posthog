@@ -1,7 +1,7 @@
 import uuid
 
 from posthog.test.base import BaseTest
-from unittest import mock
+from unittest import TestCase, mock
 
 from django.db import OperationalError
 
@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
     DestinationConfigurationError,
+    destination_named_in_failure,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -512,3 +513,19 @@ class TestDestinationHealth(DeliveryTestCase):
                     delivery.deliver_batch_to_destinations(signal, destinations=[destination])
             else:
                 assert delivery.deliver_batch_to_destinations(signal, destinations=[destination]) == 1
+
+
+class TestDestinationNamedInFailure(TestCase):
+    @parameterized.expand(
+        [
+            ("prefix", "Prod: boom", ["Prod"], "Prod"),
+            ("after_separator", "Charge: Prod: boom", ["Prod"], "Prod"),
+            ("longest_wins", "My Prod: boom", ["Prod", "My Prod"], "My Prod"),
+            ("substring_of_other_name", "My Prod: boom", ["Prod"], None),
+            ("no_separator", "Prod went away", ["Prod"], None),
+            ("no_destinations", "Prod: boom", [], None),
+            ("empty_name_ignored", "Charge: : boom", [""], None),
+        ]
+    )
+    def test_matches(self, _name, reason, names, expected):
+        assert destination_named_in_failure(reason, names) == expected

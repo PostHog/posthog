@@ -1,18 +1,21 @@
-import json
 import threading
 from typing import Any
 
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import (
     DEFAULT_BASE_URL,
     FlagsmithResponseTimeoutError,
     FlagsmithResponseTooLargeError,
     FlagsmithResumeConfig,
     _read_bounded,
-    flagsmith_source,
-    get_rows,
     normalize_base_url,
     validate_credentials,
 )
@@ -20,11 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.
     ENDPOINTS,
     FLAGSMITH_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source import FlagsmithSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
+    FlagsmithSourceConfig,
+)
 
 API_BASE = f"{DEFAULT_BASE_URL}/api/v1"
-SESSION_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.make_tracked_session"
-)
 BUDGET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_PAGES_PER_SYNC"
 PARENTS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith.MAX_FANOUT_PARENTS"
 KEY_LENGTH_PATH = (
@@ -32,38 +36,12 @@ KEY_LENGTH_PATH = (
 )
 
 
-def _make_manager(resume_state: FlagsmithResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(FlagsmithSource(), FlagsmithSourceConfig(api_key="key"))
 
 
 def _page(results: list[dict[str, Any]], next_url: str | None = None) -> dict[str, Any]:
     return {"count": len(results), "next": next_url, "previous": None, "results": results}
-
-
-def _resp(data: Any, status_code: int = 200) -> mock.MagicMock:
-    # `_fetch_page` streams the body (`with session.get(..., stream=True) as response`) and reads
-    # it via `_read_bounded`/`iter_content`, so the mock must act as its own context manager and
-    # expose the JSON-encoded body through `iter_content`.
-    resp = mock.MagicMock()
-    body = json.dumps(data).encode()
-    resp.iter_content.side_effect = lambda *args, **kwargs: iter([body])
-    resp.json.return_value = data
-    resp.status_code = status_code
-    resp.ok = 200 <= status_code < 300
-    resp.__enter__.return_value = resp
-    resp.__exit__.return_value = False
-    return resp
-
-
-def _probe_resp(status_code: int = 200) -> mock.MagicMock:
-    # validate_credentials reads the status via `with session.get(..., stream=True) as response`.
-    resp = mock.MagicMock(status_code=status_code)
-    resp.__enter__.return_value = resp
-    resp.__exit__.return_value = False
-    return resp
 
 
 class TestUrlHelpers:
@@ -101,121 +79,116 @@ class TestUrlHelpers:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
-    @mock.patch(SESSION_PATH)
-    def test_returns_status_code(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = _probe_resp(status_code)
-        assert validate_credentials("key", None) == status_code
+    def test_returns_status_code(self, status_code):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("key", None) == status_code
 
-    @mock.patch(SESSION_PATH)
-    def test_returns_none_on_exception(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", None) is None
+        assert network.requests_log[0].path == "/api/v1/organisations/"
+
+    def test_returns_none_on_exception(self):
+        with scripted_network([ConnectionError("boom")]) as network:
+            assert validate_credentials("key", None) is None
+
+        assert network.requests_log[0].path == "/api/v1/organisations/"
 
 
 class TestGetRowsTopLevel:
-    @mock.patch(SESSION_PATH)
-    def test_resume_url_repinned_to_configured_base(self, mock_session):
+    def test_resume_url_repinned_to_configured_base(self):
         # A resume URL persisted before the source was retargeted must be re-pinned onto the current
         # base, or the current API key would be replayed to the previously configured (attacker) host.
-        mock_session.return_value.get.return_value = _resp(_page([{"id": 9}], None))
         stale = "https://old-host.example.com/api/v1/organisations/?page=5"
-        manager = _make_manager(FlagsmithResumeConfig(next_url=stale))
+        result = _driver().run(
+            "organisations",
+            [ScriptedResponse(json=_page([{"id": 9}]))],
+            resume_state=FlagsmithResumeConfig(next_url=stale),
+        )
 
-        list(get_rows("key", None, "organisations", mock.MagicMock(), manager))
-
-        assert mock_session.return_value.get.call_args_list[0].args[0] == f"{API_BASE}/organisations/?page=5"
+        assert result.raised is None
+        assert result.urls[0] == f"{API_BASE}/organisations/?page=5"
+        assert result.rows == [{"id": 9}]
 
 
 class TestGetRowsFanout:
-    @mock.patch(SESSION_PATH)
-    def test_feature_states_enumerate_environments_via_projects(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 1}]),  # projects
-            _resp(_page([{"id": 10, "api_key": "env-a"}, {"id": 11, "api_key": "env-b"}], None)),  # environments
-            _resp(_page([{"id": 1000, "enabled": True}], None)),  # featurestates env-a
-            _resp(_page([{"id": 2000, "enabled": False}], None)),  # featurestates env-b
-        ]
+    def test_feature_states_enumerate_environments_via_projects(self):
+        result = _driver().run(
+            "feature_states",
+            [
+                ScriptedResponse(json=[{"id": 1}]),  # projects
+                ScriptedResponse(json=_page([{"id": 10, "api_key": "env-a"}, {"id": 11, "api_key": "env-b"}])),
+                ScriptedResponse(json=_page([{"id": 1000, "enabled": True}])),  # featurestates env-a
+                ScriptedResponse(json=_page([{"id": 2000, "enabled": False}])),  # featurestates env-b
+            ],
+        )
 
-        batches = list(get_rows("key", None, "feature_states", mock.MagicMock(), _make_manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": 1000, "enabled": True, "_environment_api_key": "env-a"},
             {"id": 2000, "enabled": False, "_environment_api_key": "env-b"},
         ]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[2] == f"{API_BASE}/environments/env-a/featurestates/"
-        assert urls[3] == f"{API_BASE}/environments/env-b/featurestates/"
-
-    @mock.patch(SESSION_PATH)
-    def test_users_fan_out_injects_organisation_id(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp(_page([{"id": 5}], None)),  # organisations
-            _resp([{"id": 500, "email": "a@example.com"}]),  # users (plain array)
+        assert result.urls[2:] == [
+            f"{API_BASE}/environments/env-a/featurestates/",
+            f"{API_BASE}/environments/env-b/featurestates/",
         ]
 
-        batches = list(get_rows("key", None, "users", mock.MagicMock(), _make_manager()))
+    def test_users_fan_out_injects_organisation_id(self):
+        result = _driver().run(
+            "users",
+            [
+                ScriptedResponse(json=_page([{"id": 5}])),  # organisations
+                ScriptedResponse(json=[{"id": 500, "email": "a@example.com"}]),  # users (plain array)
+            ],
+        )
 
-        assert [row for batch in batches for row in batch] == [
-            {"id": 500, "email": "a@example.com", "_organisation_id": "5"}
-        ]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[1] == f"{API_BASE}/organisations/5/users/"
+        assert result.raised is None
+        assert result.rows == [{"id": 500, "email": "a@example.com", "_organisation_id": "5"}]
+        assert result.urls[1] == f"{API_BASE}/organisations/5/users/"
 
-    @mock.patch(SESSION_PATH)
-    def test_resume_skips_completed_parent(self, mock_session):
+    def test_resume_skips_completed_parent(self):
         # Project 1 finished last run (empty next_url marker); resume must start at project 2.
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 1}, {"id": 2}]),
-            _resp(_page([{"id": 200}], None)),
-        ]
-        manager = _make_manager(FlagsmithResumeConfig(next_url="", parent_key="1"))
+        result = _driver().run(
+            "segments",
+            [ScriptedResponse(json=[{"id": 1}, {"id": 2}]), ScriptedResponse(json=_page([{"id": 200}]))],
+            resume_state=FlagsmithResumeConfig(next_url="", parent_key="1"),
+        )
 
-        batches = list(get_rows("key", None, "segments", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [200]
+        assert result.urls == [f"{API_BASE}/projects/", f"{API_BASE}/projects/2/segments/?page_size=100"]
 
-        assert [row["id"] for batch in batches for row in batch] == [200]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls == [f"{API_BASE}/projects/", f"{API_BASE}/projects/2/segments/?page_size=100"]
-
-    @mock.patch(SESSION_PATH)
-    def test_fan_out_resume_url_repinned_to_configured_base(self, mock_session):
+    def test_fan_out_resume_url_repinned_to_configured_base(self):
         # Same host-pinning guarantee on the fan-out resume path: a stale mid-parent URL must be
         # re-pinned to the current base rather than replayed to a since-changed host.
         stale = "https://old-host.example.com/api/v1/projects/1/segments/?page=3&page_size=100"
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 1}, {"id": 2}]),
-            _resp(_page([{"id": 150}], None)),
-            _resp(_page([{"id": 250}], None)),
-        ]
-        manager = _make_manager(FlagsmithResumeConfig(next_url=stale, parent_key="1"))
+        result = _driver().run(
+            "segments",
+            [
+                ScriptedResponse(json=[{"id": 1}, {"id": 2}]),
+                ScriptedResponse(json=_page([{"id": 150}])),
+                ScriptedResponse(json=_page([{"id": 250}])),
+            ],
+            resume_state=FlagsmithResumeConfig(next_url=stale, parent_key="1"),
+        )
 
-        list(get_rows("key", None, "segments", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert result.urls[1] == f"{API_BASE}/projects/1/segments/?page=3&page_size=100"
 
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[1] == f"{API_BASE}/projects/1/segments/?page=3&page_size=100"
+    def test_no_parents_yields_nothing(self):
+        result = _driver().run("features", [ScriptedResponse(json=[])])
 
-    @mock.patch(SESSION_PATH)
-    def test_no_parents_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _resp([])
-
-        assert list(get_rows("key", None, "features", mock.MagicMock(), _make_manager())) == []
+        assert result.raised is None
+        assert result.rows == []
 
     @mock.patch(KEY_LENGTH_PATH, 5)
-    @mock.patch(SESSION_PATH)
-    def test_oversized_parent_key_is_skipped(self, mock_session):
+    def test_oversized_parent_key_is_skipped(self):
         # A hostile host can return an arbitrarily long id/api_key; over-length keys must be dropped
         # so they can't balloon the retained list or be interpolated into a child request URL.
-        def _get(url, **kwargs):
-            if url.endswith("/projects/"):
-                return _resp([{"id": "x" * 50}, {"id": 2}])
-            return _resp(_page([{"id": 100}], None))
+        result = _driver().run(
+            "features",
+            [ScriptedResponse(json=[{"id": "x" * 50}, {"id": 2}]), ScriptedResponse(json=_page([{"id": 100}]))],
+        )
 
-        mock_session.return_value.get.side_effect = _get
-
-        list(get_rows("key", None, "features", mock.MagicMock(), _make_manager()))
-
-        child_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/features/" in c.args[0]]
-        assert child_urls == [
+        assert result.raised is None
+        assert [url for url in result.urls if "/features/" in url] == [
             f"{API_BASE}/projects/2/features/?page_size=100&sort_field=created_date&sort_direction=ASC"
         ]
 
@@ -224,134 +197,103 @@ class TestGetRowsTwoLevelFanout:
     # Identity traits and feature segments need two identifiers per request, so their parent
     # enumeration walks a second level and both identifiers are injected into each row.
 
-    @staticmethod
-    def _identity_dispatch() -> Any:
-        def _get(url, **kwargs):
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}])
-            if "/environments/?project=" in url:
-                return _resp(_page([{"id": 10, "api_key": "env-a"}], None))
-            if url.endswith("/identities/?page_size=100"):
-                return _resp(_page([{"id": 500}, {"id": 501}], None))
-            identity_id = url.split("/identities/")[1].split("/")[0]
-            return _resp(_page([{"id": 9000 + int(identity_id), "trait_key": "plan"}], None))
-
-        return _get
-
     @mock.patch(PARENTS_PATH, 2)
-    @mock.patch(SESSION_PATH)
-    def test_identity_parent_cap_spans_environments(self, mock_session):
+    def test_identity_parent_cap_spans_environments(self):
         # The cap bounds the identities retained across the whole fan-out; applied per environment
         # it would let the retained list grow with the environment count.
-        def _get(url, **kwargs):
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}])
-            if "/environments/?project=" in url:
-                return _resp(_page([{"id": 10, "api_key": "env-a"}, {"id": 11, "api_key": "env-b"}], None))
-            if url.endswith("/identities/?page_size=100"):
-                return _resp(_page([{"id": 500}, {"id": 501}], None))
-            return _resp(_page([{"id": 9000}], None))
+        result = _driver().run(
+            "identity_traits",
+            [
+                ScriptedResponse(json=[{"id": 1}]),
+                ScriptedResponse(json=_page([{"id": 10, "api_key": "env-a"}, {"id": 11, "api_key": "env-b"}])),
+                ScriptedResponse(json=_page([{"id": 500}, {"id": 501}])),
+                ScriptedResponse(json=_page([{"id": 9000}])),
+                ScriptedResponse(json=_page([{"id": 9000}])),
+            ],
+        )
 
-        mock_session.return_value.get.side_effect = _get
-
-        list(get_rows("key", None, "identity_traits", mock.MagicMock(), _make_manager()))
-
-        trait_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if c.args[0].endswith("/traits/")]
-        assert trait_urls == [
+        assert result.raised is None
+        assert [url for url in result.urls if url.endswith("/traits/")] == [
             f"{API_BASE}/environments/env-a/identities/500/traits/",
             f"{API_BASE}/environments/env-a/identities/501/traits/",
         ]
 
-    @mock.patch(SESSION_PATH)
-    def test_feature_segments_pair_environments_with_features(self, mock_session):
+    def test_feature_segments_pair_environments_with_features(self):
         # The listing requires both filters, and a pair only resolves inside the project that owns
         # both, so the cross product is built per project rather than globally.
-        def _get(url, **kwargs):
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}, {"id": 2}])
-            if "/environments/?project=1" in url:
-                return _resp(_page([{"id": 10}, {"id": 11}], None))
-            if "/environments/?project=2" in url:
-                return _resp(_page([{"id": 20}], None))
-            if "/projects/1/features/" in url:
-                return _resp(_page([{"id": 100}], None))
-            if "/projects/2/features/" in url:
-                return _resp(_page([{"id": 200}], None))
-            return _resp(_page([{"id": 7, "segment": 3}], None))
+        result = _driver().run(
+            "feature_segments",
+            [
+                ScriptedResponse(json=[{"id": 1}, {"id": 2}]),
+                ScriptedResponse(json=_page([{"id": 10}, {"id": 11}])),
+                ScriptedResponse(json=_page([{"id": 100}])),
+                ScriptedResponse(json=_page([{"id": 20}])),
+                ScriptedResponse(json=_page([{"id": 200}])),
+                *[ScriptedResponse(json=_page([{"id": 7, "segment": 3}])) for _ in range(3)],
+            ],
+        )
 
-        mock_session.return_value.get.side_effect = _get
-
-        batches = list(get_rows("key", None, "feature_segments", mock.MagicMock(), _make_manager()))
-
-        assert [row for batch in batches for row in batch] == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": 7, "segment": 3, "_environment_id": "10", "_feature_id": "100"},
             {"id": 7, "segment": 3, "_environment_id": "11", "_feature_id": "100"},
             {"id": 7, "segment": 3, "_environment_id": "20", "_feature_id": "200"},
         ]
-        pair_urls = [
-            c.args[0] for c in mock_session.return_value.get.call_args_list if "/feature-segments/" in c.args[0]
-        ]
-        assert pair_urls == [
+        assert [url for url in result.urls if "/feature-segments/" in url] == [
             f"{API_BASE}/features/feature-segments/?environment=10&feature=100",
             f"{API_BASE}/features/feature-segments/?environment=11&feature=100",
             f"{API_BASE}/features/feature-segments/?environment=20&feature=200",
         ]
 
-    @mock.patch(SESSION_PATH)
-    def test_versions_skip_environments_without_v2_versioning(self, mock_session):
+    def test_versions_skip_environments_without_v2_versioning(self):
         # Flagsmith rejects the version listing outright on an environment still using unversioned
         # feature states, so those environments must be dropped from the enumeration rather than
         # failing the whole sync on the first one.
-        def _get(url, **kwargs):
-            if "/versions/" in url:
-                return _resp(_page([{"uuid": "v-1", "created_at": "2026-09-01T00:00:00Z"}], None))
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}])
-            if "/environments/?project=1" in url:
-                return _resp(
-                    _page(
+        result = _driver().run(
+            "environment_feature_versions",
+            [
+                ScriptedResponse(json=[{"id": 1}]),
+                ScriptedResponse(
+                    json=_page(
                         [
                             {"id": 10, "use_v2_feature_versioning": True},
                             {"id": 11, "use_v2_feature_versioning": False},
                             {"id": 12},
-                        ],
-                        None,
+                        ]
                     )
-                )
-            return _resp(_page([{"id": 100}], None))  # features
+                ),
+                ScriptedResponse(json=_page([{"id": 100}])),
+                ScriptedResponse(json=_page([{"uuid": "v-1", "created_at": "2026-09-01T00:00:00Z"}])),
+            ],
+        )
 
-        mock_session.return_value.get.side_effect = _get
-
-        batches = list(get_rows("key", None, "environment_feature_versions", mock.MagicMock(), _make_manager()))
-
-        assert [row for batch in batches for row in batch] == [
+        assert result.raised is None
+        assert result.rows == [
             {"uuid": "v-1", "created_at": "2026-09-01T00:00:00Z", "_environment_id": "10", "_feature_id": "100"}
         ]
-        version_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/versions/" in c.args[0]]
-        assert version_urls == [f"{API_BASE}/environments/10/features/100/versions/?page_size=100"]
+        assert [url for url in result.urls if "/versions/" in url] == [
+            f"{API_BASE}/environments/10/features/100/versions/?page_size=100"
+        ]
 
 
 class TestGetRowsThreeLevelFanout:
     # Evaluation data and segment members each need three identifiers per request: a project and a
     # resource inside it in the path, plus an environment of that project as a required filter.
 
-    @mock.patch(SESSION_PATH)
-    def test_evaluation_data_pairs_features_with_environments_of_the_same_project(self, mock_session):
-        def _get(url, **kwargs):
-            if "/evaluation-data/" in url:
-                # The series arrives as a plain JSON array, one entry per day.
-                return _resp([{"day": "2026-09-01", "count": 5, "labels": None}])
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}])
-            if "/environments/?project=1" in url:
-                return _resp(_page([{"id": 10}, {"id": 11}], None))
-            return _resp(_page([{"id": 100}], None))  # features
+    def test_evaluation_data_pairs_features_with_environments_of_the_same_project(self):
+        result = _driver().run(
+            "evaluation_data",
+            [
+                ScriptedResponse(json=[{"id": 1}]),
+                ScriptedResponse(json=_page([{"id": 10}, {"id": 11}])),
+                ScriptedResponse(json=_page([{"id": 100}])),
+                ScriptedResponse(json=[{"day": "2026-09-01", "count": 5, "labels": None}]),
+                ScriptedResponse(json=[{"day": "2026-09-01", "count": 5, "labels": None}]),
+            ],
+        )
 
-        mock_session.return_value.get.side_effect = _get
-
-        batches = list(get_rows("key", None, "evaluation_data", mock.MagicMock(), _make_manager()))
-
-        assert [row for batch in batches for row in batch] == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "day": "2026-09-01",
                 "count": 5,
@@ -369,42 +311,36 @@ class TestGetRowsThreeLevelFanout:
                 "_environment_id": "11",
             },
         ]
-        urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/evaluation-data/" in c.args[0]]
-        assert urls == [
+        assert [url for url in result.urls if "/evaluation-data/" in url] == [
             f"{API_BASE}/projects/1/features/100/evaluation-data/?environment_id=10&period=30",
             f"{API_BASE}/projects/1/features/100/evaluation-data/?environment_id=11&period=30",
         ]
 
     @mock.patch(BUDGET_PATH, 4)
-    @mock.patch(SESSION_PATH)
-    def test_repeating_body_cursor_is_capped(self, mock_session):
+    def test_repeating_body_cursor_is_capped(self):
         # A host that keeps returning the same `next_cursor` would page forever; the shared budget
         # has to terminate it just as it does a cyclic `next` link.
-        def _get(url, **kwargs):
-            if "/members/" in url:
-                return _resp({"results": [{"identity_key": "k"}], "next_cursor": "same"})
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}])
-            if "/environments/?project=1" in url:
-                return _resp(_page([{"id": 10}], None))
-            return _resp(_page([{"id": 300}], None))
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if "/members/" in request.path:
+                return ScriptedResponse(json={"results": [{"identity_key": "k"}], "next_cursor": "same"})
+            if request.path.endswith("/projects/"):
+                return ScriptedResponse(json=[{"id": 1}])
+            if request.path.endswith("/environments/"):
+                return ScriptedResponse(json=_page([{"id": 10}]))
+            return ScriptedResponse(json=_page([{"id": 300}]))
 
-        mock_session.return_value.get.side_effect = _get
+        result = _driver().run("segment_members", answer)
 
-        list(get_rows("key", None, "segment_members", mock.MagicMock(), _make_manager()))
-
-        assert mock_session.return_value.get.call_count == 4
+        assert result.raised is None
+        assert len(result.requests) == 4
 
 
 class TestErrors:
-    @mock.patch(SESSION_PATH)
-    def test_4xx_raises(self, mock_session):
-        resp = _resp({}, status_code=403)
-        resp.raise_for_status.side_effect = Exception("403 Client Error")
-        mock_session.return_value.get.return_value = resp
+    def test_4xx_raises(self):
+        result = _driver().run("organisations", [ScriptedResponse(status=403, json={})])
 
-        with pytest.raises(Exception, match="403 Client Error"):
-            list(get_rows("key", None, "organisations", mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, Exception)
+        assert "403 Client Error" in str(result.raised)
 
 
 class TestReadBounded:
@@ -439,16 +375,18 @@ class TestFlagsmithSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = FLAGSMITH_ENDPOINTS[endpoint]
-        response = flagsmith_source("key", None, endpoint, mock.MagicMock(), _make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
 
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == config.primary_keys
         if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
+            assert result.response.partition_mode == "datetime"
+            assert result.response.partition_keys == [config.partition_key]
         else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
+            assert result.response.partition_mode is None
+            assert result.response.partition_keys is None
 
     def test_users_use_composite_primary_key(self):
         # A user can belong to more than one organisation, so `id` alone would collide.

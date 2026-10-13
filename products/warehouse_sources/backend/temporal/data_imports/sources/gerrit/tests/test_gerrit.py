@@ -2,60 +2,41 @@ import time
 import socket
 import threading
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gerrit import GerritSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit import gerrit as gerrit_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.gerrit import (
     HOST_NOT_ALLOWED_ERROR,
     GerritResumeConfig,
     build_changes_query,
     format_after_value,
-    gerrit_source,
-    get_rows,
     normalize_host,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.source import GerritSource
 
 
-def _response(*, status_code: int = 200, text: str = "", is_redirect: bool = False) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 400
-    response.is_redirect = is_redirect
-    response.is_permanent_redirect = False
-    response.text = text
-    response.encoding = "utf-8"
-    response.headers = {}
-    # The source reads bodies with stream=True via response.iter_content; hand back the body in one
-    # chunk (empty bodies yield nothing). A fresh iterator per call mirrors requests' behaviour.
-    body = text.encode("utf-8")
-    response.iter_content.side_effect = lambda chunk_size=None: iter([body] if body else [])
-    # Responses are used as context managers (with session.get(...) as response).
-    response.__enter__.return_value = response
-    response.__exit__.return_value = False
-    return response
+def _response(*, status_code: int = 200, text: str = "") -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, body=text.encode())
 
 
-class _FakeResumeManager(ResumableSourceManager[GerritResumeConfig]):
-    # In-memory stand-in — deliberately doesn't call super().__init__, so no Redis is touched.
-    def __init__(self, state: Optional[GerritResumeConfig] = None):
-        self._state = state
-        self.saved: list[GerritResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> Optional[GerritResumeConfig]:
-        return self._state
-
-    def save_state(self, state: GerritResumeConfig) -> None:
-        self.saved.append(state)
+def _driver(config: GerritSourceConfig | None = None) -> SourceDriver:
+    return SourceDriver(
+        GerritSource(),
+        config or GerritSourceConfig(host="https://gerrit.example.com", username="reviewbot", http_password="secret"),
+    )
 
 
 def _start_drip_server(byte_interval: float) -> int:
@@ -85,35 +66,6 @@ def _start_drip_server(byte_interval: float) -> int:
 
     threading.Thread(target=_serve, name="drip-server", daemon=True).start()
     return port
-
-
-def _patch_session(responses: list[mock.MagicMock]) -> tuple[mock.MagicMock, Any]:
-    session = mock.MagicMock()
-    session.get.side_effect = responses
-    patcher = mock.patch.object(gerrit_module, "make_tracked_session", return_value=session)
-    return session, patcher
-
-
-def _get_all_rows(endpoint: str, session_responses: list[mock.MagicMock], **kwargs: Any) -> list[list[dict[str, Any]]]:
-    session, session_patcher = _patch_session(session_responses)
-    manager = kwargs.pop("manager", _FakeResumeManager())
-    with (
-        session_patcher,
-        mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-    ):
-        batches = list(
-            get_rows(
-                host="https://gerrit.example.com",
-                username=kwargs.pop("username", "reviewbot"),
-                http_password=kwargs.pop("http_password", "secret"),
-                endpoint=endpoint,
-                team_id=1,
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager,
-                **kwargs,
-            )
-        )
-    return batches
 
 
 class TestNormalizeHost:
@@ -162,26 +114,10 @@ class TestChangesQuery:
 class TestGetRows:
     def test_resumes_from_saved_offset(self):
         page = ")]}'\n" + '[{"id": "p~51"}]'
-        session, session_patcher = _patch_session([_response(text=page)])
-        manager = _FakeResumeManager(state=GerritResumeConfig(offset=50))
+        result = _driver().run("changes", [_response(text=page)], resume_state=GerritResumeConfig(offset=50))
 
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            list(
-                get_rows(
-                    host="https://gerrit.example.com",
-                    username="reviewbot",
-                    http_password="secret",
-                    endpoint="changes",
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert "S=50" in session.get.call_args_list[0].args[0]
+        assert result.raised is None
+        assert result.requests[0].param("S") == "50"
 
     @pytest.mark.parametrize(
         "endpoint, parent_body, child_responses, expected_child_paths, expected_batches",
@@ -257,34 +193,17 @@ class TestGetRows:
     def test_fanout_fetches_children_per_parent(
         self, endpoint, parent_body, child_responses, expected_child_paths, expected_batches
     ):
-        session, session_patcher = _patch_session([_response(text=")]}'\n" + parent_body), *child_responses])
+        result = _driver().run(endpoint, [_response(text=")]}'\n" + parent_body), *child_responses])
 
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            batches = list(
-                get_rows(
-                    host="https://gerrit.example.com",
-                    username="reviewbot",
-                    http_password="secret",
-                    endpoint=endpoint,
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_FakeResumeManager(),
-                )
-            )
-
-        child_urls = [call.args[0] for call in session.get.call_args_list[1:]]
-        assert child_urls == [f"https://gerrit.example.com{path}" for path in expected_child_paths]
-        assert batches == expected_batches
+        assert result.raised is None
+        assert result.urls[1:] == [f"https://gerrit.example.com{path}" for path in expected_child_paths]
+        assert result.items == expected_batches
 
     def test_fanout_child_error_other_than_ignored_statuses_fails_the_sync(self):
         parent_body = ")]}'\n" + '{"gerrit": {"id": "gerrit"}}'
-        forbidden = _response(status_code=403)
-        forbidden.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden", response=forbidden)
-        with pytest.raises(requests.HTTPError):
-            _get_all_rows("project_branches", [_response(text=parent_body), forbidden])
+        result = _driver().run("project_branches", [_response(text=parent_body), _response(status_code=403)])
+
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_change_files_flattens_current_revision_files(self):
         body = (
@@ -297,27 +216,11 @@ class TestGetRows:
             ' "revisions": {"sha9": {"_number": 1}}, "_more_changes": true}]'
         )
         page_2 = ")]}'\n[]"
-        session, session_patcher = _patch_session([_response(text=body), _response(text=page_2)])
-        manager = _FakeResumeManager()
-
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            batches = list(
-                get_rows(
-                    host="https://gerrit.example.com",
-                    username="reviewbot",
-                    http_password="secret",
-                    endpoint="change_files",
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
+        result = _driver().run("change_files", [_response(text=body), _response(text=page_2)])
 
         parent = {"_change_number": 12, "project": "gerrit", "change_updated": "u", "change_created": "c"}
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [
                 {
                     "lines_inserted": 5,
@@ -330,19 +233,16 @@ class TestGetRows:
                 {"binary": True, "status": "A", "path": "img.png", "revision": "sha2", "_revision_number": 2, **parent},
             ]
         ]
-        first_url = session.get.call_args_list[0].args[0]
-        assert "o=CURRENT_REVISION&o=CURRENT_FILES" in first_url
+        assert result.requests[0].query["o"] == ("CURRENT_REVISION", "CURRENT_FILES")
         # The resume offset counts changes, not file rows, because `S` skips changes.
-        assert "S=2" in session.get.call_args_list[1].args[0]
-        assert [s.offset for s in manager.saved] == [2]
+        assert result.requests[1].param("S") == "2"
+        assert result.saved_states == [GerritResumeConfig(offset=2)]
 
     def test_oversized_response_body_is_rejected(self):
         body = ")]}'\n" + "[" + ",".join(f'{{"id": "p~{i}"}}' for i in range(50)) + "]"
-        with (
-            mock.patch.object(gerrit_module, "MAX_RESPONSE_BYTES", 8),
-            pytest.raises(gerrit_module.GerritResponseTooLargeError),
-        ):
-            _get_all_rows("changes", [_response(text=body)])
+        with mock.patch.object(gerrit_module, "MAX_RESPONSE_BYTES", 8):
+            result = _driver().run("changes", [_response(text=body)])
+        assert isinstance(result.raised, gerrit_module.GerritResponseTooLargeError)
 
     def test_slow_drip_body_returns_at_the_download_deadline(self):
         # A hostile host can drip one byte just under the socket read timeout, which keeps a single
@@ -365,40 +265,21 @@ class TestGetRows:
         assert time.monotonic() - start < 3.0
 
     def test_unsafe_host_is_rejected_before_any_request(self):
-        session, session_patcher = _patch_session([])
+        config = GerritSourceConfig(host="https://internal.example.com")
+        with mock.patch.object(gerrit_module, "_is_host_safe", return_value=(False, "internal IP")):
+            result = _driver(config).run("changes", [])
 
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(False, "internal IP")),
-            pytest.raises(gerrit_module.GerritHostNotAllowedError),
-        ):
-            list(
-                get_rows(
-                    host="https://internal.example.com",
-                    username=None,
-                    http_password=None,
-                    endpoint="changes",
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_FakeResumeManager(),
-                )
-            )
-
-        session.get.assert_not_called()
+        assert isinstance(result.raised, gerrit_module.GerritHostNotAllowedError)
+        assert result.requests == []
 
 
 class TestGerritSourceResponse:
     def test_changes_response_shape(self):
-        response = gerrit_source(
-            host="https://gerrit.example.com",
-            username="reviewbot",
-            http_password="secret",
-            endpoint="changes",
-            team_id=1,
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeResumeManager(),
-        )
+        result = _driver().run("changes", [_response(text=")]}'\n[]")])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == "changes"
         assert response.primary_keys == ["id"]
         # Gerrit returns changes newest-first, so the watermark must only persist at job end.
@@ -408,71 +289,65 @@ class TestGerritSourceResponse:
 
 
 class TestValidateCredentials:
-    def _validate(self, responses: list[mock.MagicMock], **kwargs: Any) -> tuple[bool, str | None]:
-        session, session_patcher = _patch_session(responses)
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            result = validate_credentials(
+    def _validate(
+        self, responses: list[ScriptedResponse], **kwargs: Any
+    ) -> tuple[bool, str | None, list[RecordedRequest]]:
+        with scripted_network(responses) as network:
+            valid, error = validate_credentials(
                 host=kwargs.pop("host", "https://gerrit.example.com"),
                 username=kwargs.pop("username", "reviewbot"),
                 http_password=kwargs.pop("http_password", "secret"),
                 team_id=kwargs.pop("team_id", 1),
                 **kwargs,
             )
-        self.session = session
-        return result
+        return valid, error, network.requests_log
 
     def test_anonymous_probe_uses_server_version(self):
-        valid, error = self._validate(
+        valid, error, requests_log = self._validate(
             [_response(text=')]}\'\n"3.10.0"')],
             username=None,
             http_password=None,
         )
         assert (valid, error) == (True, None)
-        assert self.session.get.call_args.args[0] == "https://gerrit.example.com/config/server/version"
+        assert requests_log[0].url == "https://gerrit.example.com/config/server/version"
 
     def test_401_is_invalid(self):
-        valid, error = self._validate([_response(status_code=401, text="Unauthorized")])
+        valid, error, _ = self._validate([_response(status_code=401, text="Unauthorized")])
         assert valid is False
         assert error is not None and "HTTP password" in error
 
     def test_403_passes_at_source_create_but_fails_per_schema(self):
         assert self._validate([_response(status_code=403)])[0] is True
-        valid, error = self._validate([_response(status_code=403)], schema_name="groups")
+        valid, error, _ = self._validate([_response(status_code=403)], schema_name="groups")
         assert valid is False
         assert error is not None and "permission" in error
 
     def test_redirect_is_rejected(self):
-        valid, error = self._validate([_response(status_code=302, is_redirect=True)])
+        redirect = ScriptedResponse(status=302, headers={"Location": "https://other.example.com"})
+        valid, error, _ = self._validate([redirect])
         assert (valid, error) == (False, HOST_NOT_ALLOWED_ERROR)
 
     def test_non_json_200_is_rejected(self):
-        valid, error = self._validate([_response(text="<html>a login page</html>")])
+        valid, error, _ = self._validate([_response(text="<html>a login page</html>")])
         assert valid is False
         assert error is not None and "valid API response" in error
 
     def test_oversized_response_body_is_rejected(self):
         with mock.patch.object(gerrit_module, "MAX_RESPONSE_BYTES", 8):
-            valid, error = self._validate([_response(text=')]}\'\n{"_account_id": 1, "padding": "xxxxxxxxxx"}')])
+            valid, error, _ = self._validate([_response(text=')]}\'\n{"_account_id": 1, "padding": "xxxxxxxxxx"}')])
         assert valid is False
         assert error is not None and "large" in error
 
     def test_username_without_password_is_rejected_without_a_request(self):
-        valid, error = self._validate([], http_password=None)
+        valid, error, requests_log = self._validate([], http_password=None)
         assert valid is False
         assert error is not None and "both" in error
-        self.session.get.assert_not_called()
+        assert requests_log == []
 
     def test_unsafe_host_is_rejected(self):
-        session, session_patcher = _patch_session([])
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(False, "internal IP")),
-        ):
-            valid, error = validate_credentials(
-                host="https://internal.example.com", username=None, http_password=None, team_id=1
+        with mock.patch.object(gerrit_module, "_is_host_safe", return_value=(False, "internal IP")):
+            valid, error, requests_log = self._validate(
+                [], host="https://internal.example.com", username=None, http_password=None
             )
         assert (valid, error) == (False, "internal IP")
-        session.get.assert_not_called()
+        assert requests_log == []

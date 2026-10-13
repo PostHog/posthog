@@ -5,6 +5,7 @@ import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 import type { ExperimentLogFilter } from '../agentSearch'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { ExperimentLogEntry } from './ExperimentLogEntry'
+import { SectionCard } from './SectionCard'
 import { TrainingRunRow } from './TrainingRunRow'
 
 const FILTER_OPTIONS: { value: ExperimentLogFilter; label: string }[] = [
@@ -19,9 +20,9 @@ export function ExperimentLog(): JSX.Element {
     const { experimentLogGroups, experimentLogFilter, expandedLogRunIds } = useValues(autoresearchPipelineLogic)
     const { setExperimentLogFilter, toggleLogRun } = useActions(autoresearchPipelineLogic)
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="text-sm font-semibold">Experiment log</div>
+        <SectionCard
+            title="Experiment log"
+            actions={
                 <LemonSegmentedButton
                     size="xsmall"
                     value={experimentLogFilter}
@@ -29,7 +30,8 @@ export function ExperimentLog(): JSX.Element {
                     options={FILTER_OPTIONS}
                     data-attr="autoresearch-experiment-log-filter"
                 />
-            </div>
+            }
+        >
             {experimentLogGroups.map((group, index) => {
                 const showEntries = index === 0 || expandedLogRunIds.includes(group.run.id)
                 return (
@@ -42,8 +44,12 @@ export function ExperimentLog(): JSX.Element {
                             )
                         ) : showEntries ? (
                             <div className="border-t">
-                                {group.entries.map((entry) => (
-                                    <ExperimentLogEntry key={entry.seq} entry={entry} />
+                                {group.entries.map((entry, entryIndex) => (
+                                    <ExperimentLogEntry
+                                        key={entry.seq}
+                                        entry={entry}
+                                        defaultOpen={index === 0 && entryIndex === 0}
+                                    />
                                 ))}
                             </div>
                         ) : (
@@ -60,6 +66,6 @@ export function ExperimentLog(): JSX.Element {
                     </TrainingRunRow>
                 )
             })}
-        </div>
+        </SectionCard>
     )
 }

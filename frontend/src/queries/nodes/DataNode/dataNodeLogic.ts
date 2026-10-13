@@ -110,12 +110,20 @@ import type {
     TraceSpansTreeQueryResponse,
 } from '../../schema/schema-general'
 import type { DataNodeRegisteredProps } from './dataNodeCollectionLogic'
+import {
+    forgetRetainedResponse,
+    getRetainedResponse,
+    isCompleteResponse,
+    responseCacheKey,
+    retainResponse,
+} from './responseCache'
 
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
+    retainResponseOnUnmount?: boolean
     /** Disabled data fetching and only allow cached results. */
     doNotLoad?: boolean
     /** Refresh behaviour for queries. */
@@ -959,7 +967,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -998,7 +1006,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
 
             actions.loadData(refreshType)
-        } else if (props.cachedResults) {
+        } else if (
+            props.cachedResults &&
+            !(
+                props.retainResponseOnUnmount &&
+                !hasQueryChanged &&
+                isCompleteResponse(values.response) &&
+                !isCompleteResponse(props.cachedResults)
+            )
+        ) {
             // Use cached results if available, otherwise this logic will load the data again
             actions.setResponse(props.cachedResults)
         }
@@ -2113,10 +2129,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.resetLoadingTimer()
         },
         loadData: ({ overrideQuery }) => {
+            cache.responseCacheKey = overrideQuery
+                ? null
+                : responseCacheKey(props, values.user?.id, values.currentTeamId)
+            forgetRetainedResponse(cache.responseCacheKey)
             actions.collectionNodeLoadData(props.key, (overrideQuery ?? props.query)?.kind)
             actions.resetLoadingTimer()
         },
         loadDataSuccess: ({ response }) => {
+            retainResponse(cache.responseCacheKey, response)
             props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key, {
                 isCached: !!response && typeof response === 'object' && 'is_cached' in response && !!response.is_cached,
@@ -2212,7 +2233,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props, cache }) => {
+    afterMount(({ actions, props, cache, values }) => {
         cache.localResults = {}
 
         actions.mountDataNode(props.key, {
@@ -2221,7 +2242,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
 
-        if (props.cachedResults) {
+        const retainedResponse = getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        if (retainedResponse) {
+            actions.setResponse(retainedResponse)
+        } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.

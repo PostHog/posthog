@@ -7,13 +7,15 @@ inbox_ranking/
 ├── common.py       # shared: S3 destination config, daily partition def, gating, Parquet IO
 ├── dataset/
 │   ├── dag.py      # the dataset assets + job + schedule
-│   └── queries.py  # HogQL label SQL, embeddings SQL, stream merging
+│   ├── queries.py  # HogQL label SQL, embeddings SQL, stream merging
+│   └── project_vectors.py  # per-team context vectors (pure function)
 ├── training/
 │   ├── dag.py        # examples → candidate → champion assets + job + schedule
 │   ├── examples.py   # birth-grain training examples over the snapshots
 │   ├── heads.py      # the v0 outcome heads
 │   ├── train.py      # per-head XGBoost fit + holdout/null metrics
 │   └── promotion.py  # the champion promotion rule
+├── multihead/        # dev-only: offline multi-head network prototype, no dag
 └── tests/
 ```
 
@@ -21,7 +23,7 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds eight assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds nine assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -34,7 +36,8 @@ s3://<bucket>/<prefix>/
 ├── inbox_signal_embeddings/v1/dt=YYYY-MM-DD/  # one row per signal emitted during the day (signal grain)
 ├── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
 ├── inbox_report_reviewers/v1/dt=YYYY-MM-DD/   # one row per suggested reviewer of each spine report
-└── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
+├── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
+└── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
@@ -46,6 +49,30 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - `user_distinct_id` comes from `user_uuid` when that uuid names a member of the report team's organization. Otherwise it comes from `github_login`, through the same GitHub identity mapping the `pr_merged` and `pr_closed` attribution uses. `identity_resolution` says which one matched (`user_uuid`, `github_login` or `unresolved`).
 - An entry that maps to no member stays as a row with a null `user_distinct_id`, so a reviewer with no history is counted and not dropped.
 - **The asset is current-state-only.** The index is rebuilt in full on every reviewer change, and reviewer artefacts can be edited in place or deleted, so no earlier set can be rebuilt. A forward-run partition holds the set at run time (at most a few hours after the cutoff). A backfilled partition holds today's set, flagged by `features_observed_at`. History starts on the day the asset first ran.
+
+### Project vectors
+
+`inbox_project_vectors` is a (team, kind) leaf with context vectors for a ranking model that reads a team's engagement history next to the report's own vector.
+`dataset/project_vectors.py` holds the pure function `project_vectors(labels, embeddings, as_of)`, and the asset calls it with `as_of` = the end of dt=D.
+
+| `kind`    | Mean of                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| `typical` | every report vector of the team                                                                  |
+| `open`    | the last 50 reports anyone on the team opened before `as_of`                                     |
+| `action`  | the last 50 reports anyone on the team acted on through a UI intent action (`UI_ACTION_COLUMNS`) |
+| `dismiss` | the last 50 reports anyone on the team dismissed from the UI                                     |
+
+- The columns are `team_id`, `kind`, `vector` (small-1536), `n_reports` and `as_of`.
+- The inputs are the dt=D `inbox_report_embeddings` and `inbox_report_labels` snapshots only. The engagement moments are the labels' first-event timestamps of the inbox app events, so MCP reads and agent actions never count. A project is a team, not an organization.
+- A kind with fewer than `MIN_HISTORY_REPORTS` reports keeps its row, with its real `n_reports` and an all-zero vector. A team with no report vector before `as_of` has no rows.
+- The asset filters the embeddings snapshot through `training_consent_team_ids()` again, so an opt-out after the snapshot was written takes effect.
+- **It is a leaf.** Nothing joins it, it is not in `inbox_report_model_data`'s deps, and its object carries its own `PROJECT_VECTORS_SCHEMA_VERSION`, so a failure here does not fail the training table. Its deps on the embeddings and labels assets keep it after the embeddings snapshot, so the two vector-heavy steps do not share the run pod's memory.
+
+Point-in-time contract:
+
+- A report born on day D uses the project vectors of dt=D−1. Their `as_of` is D 00:00 UTC, strictly before the birth, and that matches serving, where the sweep reads the newest snapshot.
+- A report enters a vector only when its vector landed and its engagement happened strictly before `as_of`. The snapshot holds only the latest vector per report, so a report re-embedded after `as_of` is left out rather than read with text it did not have yet.
+- The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
 
 ### Partition semantics
 
@@ -67,6 +94,7 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - **It has its own schema version**, `USER_INTERACTIONS_SCHEMA_VERSION`, stamped on the object. A change here does not set off `inbox_ranking_labels_refresh_sensor`. There is no refresh sensor for this table: after a schema change, backfill the training lookback by hand.
 - **The person key is `User.distinct_id`.** The app's events and the status stream's `actor_distinct_id` already carry it. `user_uuid` is null when the distinct id is not a user in this region.
 - **Only consented, local reports get rows.** A row is written only when its report exists in this region's Postgres before the cutoff and its team is in `training_consent_team_ids()`. This is stricter than the labels asset, which keeps label-only rows, because these rows describe a person.
+- **Only members of the report's organization get rows.** The person lookups read every `User` in the region, so after the merge the asset drops each pair whose `user_distinct_id` is not a member of the report team's organization. The `non_member_pairs` metadata value counts these pairs.
 
 | Columns                                                        | Source                                       | Person key                                                 |
 | -------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------- |
@@ -85,9 +113,9 @@ Point-in-time caveats, per source:
 
 - **The status and PR columns start when the actor keys shipped (2026-10-09).** Earlier events carry no actor, so they reach no row. A backfill before that date fills only the app-event and Postgres columns. Most transitions are `system` and name no person, so most rows come from impressions and opens.
 - **The PR closer and merger are set only when their GitHub login maps to an org member.**
-- **The status columns follow the `STATUS_SQL` tenant rule.** Each aggregate reads only the tenant of the report's latest transition, taken over every transition of the report, not only this person's.
+- **The status columns follow the `STATUS_SQL` tenant rule.** Each aggregate reads only the tenant of the report's latest transition, taken over every transition of the report, not only this person's. When that tenant is missing or is not the report's team, the pair keeps its other streams and gets default status columns, as `label_provenance_ok` does for the report grain. The `status_tenant_mismatch_pairs` metadata value counts these pairs.
 - **The Postgres columns read current rows**, with the report-grain caveats: a merge moves notes and linked PRs to the survivor, and a note can be deleted. Action rows give only `first_at`; their `count` and `last_at` keep moving after the cutoff. Bulk actions carry no `report_id` and stay out, and the desktop app sends no impressions.
-- **The client streams are claimed, not proven.** A `report_id` and a `distinct_id` on an app event are client-supplied. The report must exist in this region, but nothing checks that the person is a member of the report's organization.
+- **The client streams are claimed, not proven.** A `report_id` and a `distinct_id` on an app event are client-supplied. The report must exist in this region, and the person must be a member of the report's organization, but nothing proves that the person saw the report.
 - **Staff impersonation.** posthog-js opts out of capture in an impersonated session, so the client streams hold no impersonated events. The refund event carries `was_impersonated`, and those refunds are excluded. The status event and the Postgres rows carry no impersonation flag, so a transition, artefact or action row a staff member made while impersonating counts for the impersonated person.
 
 ### Signal-grain partitions
@@ -287,6 +315,22 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
    ```
 
 Nothing here touches the prod bucket: the reader credential is read-only and the dag writes only to the local bucket.
+
+### The multi-head prototype
+
+`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up:
+
+```bash
+DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead --output multihead.json
+```
+
+The run takes the newest day that has the state, labels and report embeddings cached, unless you pass `--partition`. It builds the `open`, `action` and `fixed` examples with the training dag's own `example_moments`, `cap_examples` and `holdout_mask`. Then it prints AUC, average precision and ECE per head for three models on each head's own holdout rows:
+
+- `champion_recipe` is the `XGB_PARAMS` booster, refit on the head's train rows.
+- `nn_report` is the network over the report vector only.
+- `nn_report_project` is the network over the report vector plus the `typical`, `open`, `action` and `dismiss` vectors from `project_vectors()`. A report born on day D reads them as of D 00:00 UTC.
+
+The network leaves out every report that is in any head's holdout, so the comparison is conservative for it. A run holds one embeddings snapshot: the title embeddings are never read, and the project vectors are computed from the same table as the report vectors. Results vary with `--seed`, so compare a few seeds before you read a small AUC gap as a result.
 
 ## Configuration
 

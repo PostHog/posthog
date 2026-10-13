@@ -942,6 +942,7 @@ WHERE event = 'signals_pr_refund_created'
 GROUP BY report_id, user_distinct_id
 """
 
+USER_STATUS_STREAM = "user_status_changes"
 USER_STATUS_COLUMNS = (
     "status_resolved_count",
     "first_status_resolved_at",
@@ -959,7 +960,9 @@ USER_STATUS_COLUMNS = (
 # The tenant rule is STATUS_SQL's: every aggregate reads only the tenant of the report's latest
 # transition. The window runs over every transition of the report, before the actor filter, so the
 # tenant is the one the report-grain stream and its provenance check use. Buckets also split by
-# actor, so one person's transition never dedupes into another's.
+# actor, so one person's transition never dedupes into another's. A trailing `status_event_team_id`
+# column carries that tenant, and `scoped_user_status_rows` strips it after it checks it against the
+# report's team.
 USER_STATUS_SQL = (
     """
 SELECT
@@ -977,7 +980,8 @@ SELECT
     ) AS first_status_dismissal_reason,
     nullIf(
         argMinIf(actor_kind, first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), ''
-    ) AS first_dismissal_actor_kind
+    ) AS first_dismissal_actor_kind,
+    toInt(any(latest_event_team_id)) AS status_event_team_id
 FROM (
     SELECT
         *,
@@ -1067,7 +1071,7 @@ USER_LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("user_actions", USER_ACTIONS_SQL, ACTIONS_COLUMNS),
     ("user_feedback", USER_FEEDBACK_SQL, USER_FEEDBACK_COLUMNS),
     ("user_refunds", USER_REFUNDS_SQL, USER_REFUNDS_COLUMNS),
-    ("user_status_changes", USER_STATUS_SQL, USER_STATUS_COLUMNS),
+    (USER_STATUS_STREAM, USER_STATUS_SQL, USER_STATUS_COLUMNS),
     ("user_pr_events", USER_PR_SQL, USER_PR_COLUMNS),
 )
 

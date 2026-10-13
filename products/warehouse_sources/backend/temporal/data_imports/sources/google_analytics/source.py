@@ -335,6 +335,19 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                         ),
                         secret=False,
                     ),
+                    SourceFieldInputConfig(
+                        name="history_days",
+                        label="Days of history to sync initially (optional)",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="730",
+                        caption=(
+                            "How far back the first sync of each report goes. The default is 730 days. "
+                            "If a large property runs out of Google Analytics API quota, set a lower "
+                            "value, for example 90 or 365."
+                        ),
+                        secret=False,
+                    ),
                 ],
             ),
         )

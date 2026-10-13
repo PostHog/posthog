@@ -1,4 +1,4 @@
-"""Hook inversion for skill archival, so another product can refuse one.
+"""Hook inversion for skill archival and rename, so another product can refuse one.
 
 Archiving is permanent — there is no unarchive endpoint — and a skill can be the definition
 another product runs. That product knows when removing it is not the caller's call to make, but
@@ -7,6 +7,10 @@ which siblings fill during ``django.setup()`` (in ``AppConfig.ready()``).
 
 Signals registers the only guard today: a scout that locked its lifecycle refuses to be archived
 by anyone but the person its runs act as, or a project admin.
+
+A rename gets the same treatment, because another product can key its rows on the skill name.
+A rename hook runs inside the rename transaction, before the skill rows move. It can refuse the
+rename, or move its own rows to the new name in the same transaction.
 """
 
 from collections.abc import Callable
@@ -47,3 +51,35 @@ def assert_skill_archive_allowed(
         return
     for guard in _archive_guards:
         guard(team, skill_name, user, authenticator)
+
+
+class SkillRenameRefused(Exception):
+    """A registered rename hook refused this rename. Carries the message to show the caller."""
+
+
+class SkillRenameConflict(Exception):
+    """A registered rename hook found its own rows already under the new name."""
+
+
+# (team, skill_name, new_name, user, authenticator) -> None, raising SkillRenameRefused or
+# SkillRenameConflict to stop the rename. `user` is None for a system path.
+SkillRenameHook = Callable[[Team, str, str, User | None, object], None]
+
+_rename_hooks: list[SkillRenameHook] = []
+
+
+def register_skill_rename_hook(fn: SkillRenameHook) -> None:
+    _rename_hooks.append(fn)
+
+
+def run_skill_rename_hooks(
+    *,
+    team: Team,
+    skill_name: str,
+    new_name: str,
+    user: User | None,
+    authenticator: object = None,
+) -> None:
+    """Run every registered rename hook. Call it inside the rename transaction."""
+    for hook in _rename_hooks:
+        hook(team, skill_name, new_name, user, authenticator)

@@ -22,7 +22,11 @@ from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, Projec
 
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.observations import ScannerResultSerializer
-from products.replay_vision.backend.api.scanners import BulkObserveResultSerializer, InlineScanConfigSerializer
+from products.replay_vision.backend.api.scanners import (
+    BulkObserveResultSerializer,
+    InlineScanConfigSerializer,
+    ScanOutcome,
+)
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
@@ -116,6 +120,15 @@ class CreateObservationRequestSerializer(serializers.Serializer):
 
 class ObservationRequestSessionSerializer(BulkObserveResultSerializer):
     """One session of a request: how it started and where it stands now."""
+
+    scan_outcome = serializers.ChoiceField(
+        choices=ScanOutcome.choices,
+        allow_null=True,
+        help_text=(
+            "How the session's scan started, with the same values as a bulk scan trigger. Null while the "
+            "request still waits for the session to end, or before its scan has started."
+        ),
+    )
 
     state = serializers.ChoiceField(
         choices=RequestSessionState.choices,

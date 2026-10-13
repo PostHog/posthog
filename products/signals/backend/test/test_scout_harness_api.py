@@ -1979,6 +1979,64 @@ class TestScoutHarnessConfigLifecycleLockAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
         assert not LLMSkill.objects.filter(name="not-a-scout", deleted=False).exists()
 
+    @parameterized.expand(
+        [
+            ("scout_author", True, status.HTTP_201_CREATED),
+            ("plain_member", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_registering_a_locked_config_needs_the_acting_user_or_an_admin(
+        self, _name: str, is_author: bool, expected: int
+    ) -> None:
+        self._authored_by(self.user if is_author else self._other_member())
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-hygiene", "enabled": False, "lifecycle_locked": True},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+        assert SignalScoutConfig.objects.filter(skill_name="signals-scout-hygiene").exists() is (
+            expected == status.HTTP_201_CREATED
+        )
+
+    @parameterized.expand(
+        [
+            ("scout_author", True, status.HTTP_200_OK),
+            ("plain_member", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_renaming_a_locked_scouts_skill_needs_the_acting_user_and_moves_the_config(
+        self, _name: str, is_author: bool, expected: int
+    ) -> None:
+        author = self.user if is_author else self._other_member()
+        LLMSkill.objects.create(team=self.team, name="custom-watch", description="", body="", created_by=author)
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="custom-watch", lifecycle_locked=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/llm_skills/name/custom-watch/rename",
+            data={"new_name": "custom-watch-renamed"},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.content
+        config.refresh_from_db()
+        renamed = expected == status.HTTP_200_OK
+        assert config.skill_name == ("custom-watch-renamed" if renamed else "custom-watch")
+        assert LLMSkill.objects.filter(name="custom-watch-renamed", deleted=False).exists() is renamed
+
+    def test_the_owner_deletes_a_locked_scout_after_archiving_its_skill(self) -> None:
+        config = self._config(lifecycle_locked=True, created_by=self._other_member())
+        self._authored_by(self.user)
+
+        archive = self.client.post(self._archive_url())
+        destroy = self.client.delete(self._detail_url(str(config.id)))
+
+        assert archive.status_code == status.HTTP_204_NO_CONTENT, archive.content
+        assert destroy.status_code == status.HTTP_204_NO_CONTENT, destroy.content
+        assert not SignalScoutConfig.objects.filter(id=config.id).exists()
+
     def test_the_owner_locks_the_scout_and_the_read_surfaces_it(self) -> None:
         # Wiring guard: the flag has to round-trip through the update serializer and the read
         # shape, or the settings UI cannot show or set the lock at all.

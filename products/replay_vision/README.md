@@ -51,7 +51,7 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 Observations have their own scene under `/replay-vision/observations/…`.
 An observation link carries the player's `?t=<seconds>` param, so a shared observation opens with its recording expanded and playing from the shared moment.
 
-Outside these scenes, the product also renders inside the session replay player: `ObservationsDock` shows what the team's scanners found about the recording being watched (standard players only — embedded, shared, and chromeless players skip every vision surface).
+Outside these scenes, the product also renders inside the session replay player: `SummarizeRecordingBar` under the player starts a summary, and the sidebar's Observations tab shows what the team's scanners found about the recording being watched. Summarizing switches the sidebar to that tab, and a recording that already has a summary lands there until the viewer picks another tab (standard players only — embedded, shared, and chromeless players skip every vision surface).
 
 ## Experiment-created scanners
 

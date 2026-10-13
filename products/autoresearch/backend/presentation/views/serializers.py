@@ -48,6 +48,10 @@ SUGGESTION_SOURCE_CHOICES = api.SUGGESTION_SOURCE_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
+ITERATION_SUMMARY_MAX_LENGTH = 300
+RUN_READER_SUMMARY_MAX_LENGTH = 600
+NEXT_STEPS_MAX_ITEMS = 5
+NEXT_STEP_MAX_LENGTH = 80
 OBJECT_JSON_MAX_BYTES = 64 * 1024
 MODEL_SPEC_MAX_BYTES = 4 * 1024
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
@@ -502,10 +506,22 @@ class LiveTrainingRunSerializer(DataclassSerializer):
     latest_agent_description = serializers.CharField(
         read_only=True, allow_blank=True, help_text="The agent's rationale for its newest experiment."
     )
+    latest_summary = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.",
+    )
 
     class Meta:
         dataclass = LiveTrainingRun
-        fields = ["id", "iteration_budget", "experiment_count", "best_holdout_score", "latest_agent_description"]
+        fields = [
+            "id",
+            "iteration_budget",
+            "experiment_count",
+            "best_holdout_score",
+            "latest_agent_description",
+            "latest_summary",
+        ]
 
 
 @extend_schema_serializer(component_name="AutoresearchPredictionCoverage")
@@ -1158,6 +1174,11 @@ class IterationTrailSerializer(DataclassSerializer):
         allow_blank=True,
         help_text="The agent's one-line rationale for what it tried and why.",
     )
+    summary = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.",
+    )
     model_spec = ModelSpecField(help_text="Model class and hyperparameters tried in this iteration.")
 
     class Meta:
@@ -1168,6 +1189,7 @@ class IterationTrailSerializer(DataclassSerializer):
             "holdout_score",
             "train_score",
             "agent_description",
+            "summary",
             "model_spec",
         ]
 
@@ -1223,6 +1245,17 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Distilled cross-run learning summary written on completion. Null until the run completes.",
     )
+    reader_summary = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="One or two plain sentences on what this run learned, for people. Null if not written.",
+    )
+    next_steps = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text="Short plain-language next steps for people, at most 5. Null if not written.",
+    )
     iterations = IterationTrailSerializer(
         many=True,
         read_only=True,
@@ -1251,6 +1284,8 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
             "iteration_count",
             "best_holdout_score",
             "summary",
+            "reader_summary",
+            "next_steps",
             "iterations",
             "error",
             "started_at",
@@ -1277,6 +1312,11 @@ class AutoresearchIterationSerializer(DataclassSerializer):
     holdout_score = serializers.FloatField(required=False, allow_null=True)
     status = serializers.ChoiceField(choices=ITERATION_STATUS_CHOICES)
     agent_description = serializers.CharField(required=False, allow_blank=True)
+    summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Plain-language sentence on what this experiment tried and what happened, for people.",
+    )
     agent_confidence = serializers.FloatField(
         required=False, allow_null=True, help_text="Agent's self-assessed confidence 0–1"
     )
@@ -1301,6 +1341,7 @@ class AutoresearchIterationSerializer(DataclassSerializer):
             "holdout_score",
             "status",
             "agent_description",
+            "summary",
             "agent_confidence",
             "parent_suggestion",
             "created_at",
@@ -1793,6 +1834,16 @@ class RecordIterationSerializer(serializers.Serializer):
         max_length=AGENT_DESCRIPTION_MAX_LENGTH,
         help_text=f"Agent's plain-English rationale for this iteration. Max {AGENT_DESCRIPTION_MAX_LENGTH} characters.",
     )
+    summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=ITERATION_SUMMARY_MAX_LENGTH,
+        help_text=(
+            "One plain sentence for people on what this experiment tried and what happened. "
+            f"Max {ITERATION_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
     agent_confidence = FiniteFloatField(
         required=False,
         allow_null=True,
@@ -1876,6 +1927,26 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         help_text=(
             "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
             "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
+        ),
+    )
+    reader_summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=RUN_READER_SUMMARY_MAX_LENGTH,
+        help_text=(
+            "One or two plain sentences for people on what this run learned. "
+            f"Max {RUN_READER_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
+    next_steps = serializers.ListField(
+        child=serializers.CharField(max_length=NEXT_STEP_MAX_LENGTH),
+        required=False,
+        allow_null=True,
+        max_length=NEXT_STEPS_MAX_ITEMS,
+        help_text=(
+            f"Short next steps for people, at most {NEXT_STEPS_MAX_ITEMS} items of a few words each "
+            f"(max {NEXT_STEP_MAX_LENGTH} characters per item)."
         ),
     )
     report_notebook_short_id = serializers.CharField(

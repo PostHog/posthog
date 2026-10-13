@@ -105,7 +105,12 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            models.Index(
+                fields=["team", "-created_at"],
+                name="et_issue_active_created_idx",
+                condition=models.Q(status="active"),
+            ),
         ]
 
     def merge(
@@ -986,7 +991,7 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
     enabled = models.BooleanField(default=True)
     triggers = models.JSONField(default=list)  # list of Trigger values
     # Same property-filter shape hog functions store, with the compiled HogQL bytecode
-    # embedded under "bytecode" (see posthog.cdp.filters.compile_filters_bytecode).
+    # embedded under "bytecode" (see products.cdp.backend.filters.compile_filters_bytecode).
     filters = models.JSONField(default=dict, blank=True)
     # Minimum seconds between thread-opening notifications per (alert, issue).
     # Replies into an existing thread are never throttled. 0 disables the throttle.
