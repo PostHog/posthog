@@ -5,11 +5,11 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.fixtures import template_slack
 from posthog.models import Organization, Team, User
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.templates import clear_template_cache, load_global_templates

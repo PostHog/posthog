@@ -17,8 +17,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -34,6 +32,8 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
