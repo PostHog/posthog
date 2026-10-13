@@ -2367,7 +2367,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         assert verification_counts() == expected_counts
 
 
-class TestSocialAuthExceptionMiddleware(APIBaseTest):
+class TestSocialAuthExceptionMiddleware(SimpleTestCase):
     CONFIG_AUTO_LOGIN = False
 
     def setUp(self):
@@ -2808,7 +2808,7 @@ def test_query_time_counting_middleware_should_instrument(path, expected) -> Non
     assert middleware._should_instrument(request) is expected
 
 
-class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
+class TestPerRequestLoggingContextMiddlewareMcpHeaders(SimpleTestCase):
     """Covers MCP session header binding inside `per_request_logging_context_middleware`."""
 
     def _run_middleware(self, **headers):

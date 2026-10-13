@@ -82,7 +82,7 @@ class TestDeniedTableMatcher(SimpleTestCase):
         assert references_denied_table(references, set(denied)) is expected
 
 
-class TestInformationSchemaPushdown(APIBaseTest):
+class TestInformationSchemaPushdown(SimpleTestCase):
     @parameterized.expand(
         [
             ("eq", _eq("table_name", "events"), {"events"}),
