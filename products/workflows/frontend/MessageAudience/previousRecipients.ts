@@ -73,19 +73,25 @@ export async function checkPreviousRecipients(
         if (!measureOverlap) {
             return { kind: 'some', audience: narrowed, skipped: null }
         }
-        const [before, after] = await Promise.all(
-            [audience, narrowed].map((target) =>
-                hogFlowsUserBlastRadiusCreate(projectId, {
-                    filters: { properties: [...target.properties, HAS_EMAIL] },
-                    dedupe_key: 'email',
-                })
+        let before, after
+        try {
+            ;[before, after] = await Promise.all(
+                [audience, narrowed].map((target) =>
+                    hogFlowsUserBlastRadiusCreate(projectId, {
+                        filters: { properties: [...target.properties, HAS_EMAIL] },
+                        dedupe_key: 'email',
+                    })
+                )
             )
-        )
-        const skipped = Math.max(before.affected - after.affected, 0)
-        if (skipped === 0) {
-            return { kind: 'none' }
+        } catch {
+            // The exclusion is saved, so keep it even when the count to show could not be made.
+            return { kind: 'some', audience: narrowed, skipped: null }
         }
-        return after.affected === 0 ? { kind: 'everyone', skipped } : { kind: 'some', audience: narrowed, skipped }
+        // The counts dedupe by email and can sample, so equal counts do not prove nobody overlaps. Keep the exclusion.
+        const skipped = Math.max(before.affected - after.affected, 0)
+        return after.affected === 0 && skipped > 0
+            ? { kind: 'everyone', skipped }
+            : { kind: 'some', audience: narrowed, skipped }
     } catch (error: any) {
         return {
             kind: 'failed',
@@ -95,21 +101,34 @@ export async function checkPreviousRecipients(
 }
 
 /** Opens the broadcast after the check, asking first when the check leaves nobody or could not run. */
-export function openBroadcastAfterCheck(audience: MessageAudience, check: PreviousRecipientsCheck): void {
+export async function openBroadcastAfterCheck(
+    audience: MessageAudience,
+    check: PreviousRecipientsCheck
+): Promise<void> {
     const open = (target: MessageAudience): void => router.actions.push(messageAudienceUrl(target, 'broadcast'))
     if (check.kind === 'none') {
         open(audience)
         return
     }
     if (check.kind === 'some') {
-        lemonToast.info(
-            check.skipped === null
-                ? 'People who already got an email about this are left out of the broadcast.'
-                : `${pluralize(check.skipped, 'person', 'people')} in this audience already got an email about this, so the broadcast leaves them out.`
-        )
+        if (check.skipped === null) {
+            lemonToast.info('People who already got an email about this are left out of the broadcast.')
+        } else if (check.skipped > 0) {
+            lemonToast.info(
+                `${pluralize(check.skipped, 'person', 'people')} in this audience already got an email about this, so the broadcast leaves them out.`
+            )
+        }
         open(check.audience)
         return
     }
+    askBeforeOpening(audience, check, open)
+}
+
+function askBeforeOpening(
+    audience: MessageAudience,
+    check: Extract<PreviousRecipientsCheck, { kind: 'everyone' | 'failed' }>,
+    open: (target: MessageAudience) => void
+): void {
     if (check.kind === 'everyone') {
         LemonDialog.open({
             title: 'Everyone here already got this email',

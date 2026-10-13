@@ -15,7 +15,12 @@ jest.mock('products/cohorts/frontend/generated/api', () => ({
 jest.mock('products/workflows/frontend/generated/api', () => ({
     workflowPreviousRecipientsCreate: jest.fn(),
     hogFlowsUserBlastRadiusCreate: jest.fn(),
+    hogFlowsEmailSendingSuspensionRetrieve: jest.fn().mockResolvedValue({ email_sending_suspended: false }),
 }))
+jest.mock('products/integrations/frontend/generated/api', () => ({
+    integrationsList: jest.fn().mockResolvedValue({ results: [{ kind: 'email', config: { verified: true } }] }),
+}))
+jest.mock('~/queries/query', () => ({ hogqlQuery: jest.fn().mockResolvedValue({ results: [[1, 1]] }) }))
 
 const mockCohortsCreate = jest.mocked(cohortsCreate)
 const mockPreviousRecipients = jest.mocked(workflowPreviousRecipientsCreate)
@@ -45,6 +50,7 @@ describe('issueAffectedBroadcastLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
+                logic.actions.openModal()
                 logic.actions.createAudience()
             })
                 .toDispatchActions(['createAudienceSuccess'])
@@ -77,4 +83,23 @@ describe('issueAffectedBroadcastLogic', () => {
             logic.unmount()
         }
     )
+
+    it('stays on the issue when the modal is cancelled while the check runs', async () => {
+        let answer: (value: unknown) => void = () => {}
+        mockPreviousRecipients.mockReturnValue(new Promise((resolve) => (answer = resolve)) as never)
+        const logic = issueAffectedBroadcastLogic({ issueId: 'issue-1', issueName: 'Checkout timeout' })
+        logic.mount()
+        router.actions.push('/project/1/error_tracking/issue-1')
+
+        await expectLogic(logic, () => {
+            logic.actions.openModal()
+            logic.actions.createAudience()
+        }).toDispatchActions(['createAudienceSuccess'])
+        logic.actions.closeModal()
+        answer({ cohort_id: null, people: 0 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.currentLocation.pathname).toEqual('/project/1/error_tracking/issue-1')
+        logic.unmount()
+    })
 })

@@ -234,8 +234,12 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
             const check = await checkPreviousRecipients(String(values.currentProjectId), audience, {
                 measureOverlap: false,
             })
+            if (!values.isModalOpen) {
+                // Cancelled while the check ran.
+                return
+            }
             actions.closeModal()
-            openBroadcastAfterCheck(audience, check)
+            void openBroadcastAfterCheck(audience, check)
         },
         createAudienceFailure: () => {
             lemonToast.error("Couldn't save the people affected. Try again.")

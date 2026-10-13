@@ -57,10 +57,13 @@ class WorkflowPreviousRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         if not self.user_access_control.check_access_level_for_resource("cohort", "editor"):
             raise exceptions.PermissionDenied("You need editor access to cohorts to skip people who got this email.")
+        if not self.user_access_control.check_access_level_for_resource("person", "viewer"):
+            raise exceptions.PermissionDenied("You need access to persons to skip people who got this email.")
         try:
             result = build_previous_recipients_cohort(
                 team=self.team,
                 user=cast(User, request.user),
+                user_access_control=self.user_access_control,
                 source_record=request.validated_data["source_record"],
                 cohort_name=request.validated_data["cohort_name"],
             )
