@@ -9,7 +9,7 @@ A scanner is a standing LLM probe over session recordings. Once created and enab
 **Temporal schedule that sweeps every 5 minutes**, applying its prompt to each new matching recording and
 recording the result as an observation (a queryable `$recording_observed` event). Each observation spends
 **credits** (1 credit = $0.01) from the org's budget for the current billing period, and an observation's
-price depends on the scanner's `model` — so budget in credits, not in observation counts.
+price depends on the scanner's `model` — so size spend in credits, and convert any observation count a user gives you into credits at that model's price.
 
 That schedule is exactly why creation needs a gut-check: a scanner with a permissive query and full sampling
 starts spending automatically and can drain the whole period's budget within its first few sweeps.
@@ -131,6 +131,11 @@ Then decide on `rest_of_period` against `remaining`:
   per-scanner cap: set `credit_limit` on create so this scanner can only ever spend that many credits per
   billing period. It stops scanning once the credits left can't cover another observation, then resumes
   when the period resets. Sessions it skipped while capped are not scanned later.
+- If the user states the cap as an observation count ("stop after 200 observations"), there is no count
+  field. Set `credit_limit` to the count times `credits_per_observation` for the scanner's `model` (the
+  estimate and scanner responses both return it), and tell the user the credit figure you set.
+  The cap stays in credits, so a later model change keeps the credits and changes how many observations
+  they cover.
 
 Confirmation here is a conversation step, not an API capability — surface the trade-off and let the user
 choose. When the projected volume is clearly small relative to the budget, you don't need to ask.
@@ -186,7 +191,10 @@ observations they have to go read.
 `vision-scanners-update` is a partial update — send only changed fields. **Re-run the Step 3 gut-check
 whenever you widen scope or raise the price**: a broader `query`, a higher `sampling_rate`, a looser
 `sampling_mode`, or a pricier `model` all raise the monthly spend just like a fresh broad scanner would.
-Toggling `enabled`, tweaking the prompt, or narrowing the query don't need a re-estimate. Editing config bumps
+Toggling `enabled`, tweaking the prompt, or narrowing the query don't need a re-estimate.
+Changing the `model` of a scanner with a `credit_limit` leaves the credits as they are, so the cap covers a
+different number of observations. Tell the user the new count, and offer to change `credit_limit` if they
+want to keep the old one. Editing config bumps
 `scanner_version`; past observations keep a snapshot of the old config.
 
 ## Gotchas
