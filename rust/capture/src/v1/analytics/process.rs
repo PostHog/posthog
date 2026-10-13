@@ -556,6 +556,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Validat
                             uuid,
                             options: Options::default(),
                             adjusted_timestamp: None,
+                            client_capture: Some(raw_ts),
                             result: EventResult::Drop,
                             details: Some(err.detail()),
                             force_disable_person_processing: false,
@@ -579,6 +580,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Validat
                     uuid,
                     options,
                     adjusted_timestamp: Some(adjusted),
+                    client_capture: Some(raw_ts),
                     result: EventResult::Ok,
                     details: if illegal {
                         Some(DETAIL_PERSON_PROCESSING_DISABLED)
@@ -594,6 +596,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Validat
                     uuid,
                     options: Options::default(),
                     adjusted_timestamp: None,
+                    client_capture: None,
                     result: EventResult::Drop,
                     details: Some(err.tag()),
                     force_disable_person_processing: false,
