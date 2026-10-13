@@ -475,20 +475,25 @@ class TestSignalSpend(BaseTest):
         assert scout.metadata is not None
         assert scout.metadata["spend_accounting_failed_stages"] == []
 
-    @parameterized.expand([("generation",), ("task",)])
-    def test_accounting_database_failure_does_not_abort_pipeline_transaction(self, source: str) -> None:
+    @parameterized.expand([("generation", "actionability"), ("task", "research"), ("task_cost", "task_cost_update")])
+    def test_accounting_database_failure_does_not_abort_pipeline_transaction(self, source: str, stage: str) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        existing_run = self._run(report=report) if source == "task_cost" else None
 
-        def fail_spend_insert(
+        def fail_spend_query(
             execute: Callable[..., object], sql: str, params: object, many: bool, context: object
         ) -> object:
-            if sql.startswith('INSERT INTO "signals_signalspend"'):
+            if sql.startswith('INSERT INTO "signals_signalspend"') or (
+                source == "task_cost" and sql.startswith("SELECT") and '"signals_signalspend"' in sql
+            ):
                 return execute("SELECT 1 / 0", (), False, context)
             return execute(sql, params, many, context)
 
-        with capture_logs() as logs, connection.execute_wrapper(fail_spend_insert):
-            if source == "task":
+        with capture_logs() as logs, connection.execute_wrapper(fail_spend_query):
+            if existing_run is not None:
+                task_run_cost_updated.send(sender=TaskRun, run_id=existing_run.id, team_id=self.team.id)
+            elif source == "task":
                 run = self._run(report=report)
                 assert TaskRun.objects.filter(id=run.id).exists()
             else:
@@ -500,8 +505,4 @@ class TestSignalSpend(BaseTest):
                     stage="actionability",
                 )
         assert SignalReport.objects.filter(id=report.id).exists()
-        assert any(
-            log["event"] == "signals.spend.accounting_failed"
-            and log["stage"] == ("research" if source == "task" else "actionability")
-            for log in logs
-        )
+        assert any(log["event"] == "signals.spend.accounting_failed" and log["stage"] == stage for log in logs)

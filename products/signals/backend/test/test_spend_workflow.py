@@ -9,7 +9,7 @@ from django.test import override_settings
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.signals.backend.spend import SignalSpendUpdate, schedule_signal_spend_update
 from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow
@@ -39,7 +39,11 @@ async def test_spend_updates_retry_and_serialize_updates_arriving_during_and_aft
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
-            env.client, task_queue=queue, workflows=[UpdateSignalSpendWorkflow], activities=[write_metadata]
+            env.client,
+            task_queue=queue,
+            workflows=[UpdateSignalSpendWorkflow],
+            activities=[write_metadata],
+            workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with (
                 override_settings(VIDEO_EXPORT_TASK_QUEUE=queue),

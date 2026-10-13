@@ -78,14 +78,15 @@ def scout_run_created(*, instance: SignalScoutRun, created: bool, **kwargs: obje
 
 def task_cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
     try:
-        spend_id = (
-            SignalSpend.objects.for_team(team_id)
-            .filter(source_id=str(run_id), is_task=True)
-            .values_list("id", flat=True)
-            .first()
-        )
-        if spend_id is not None:
-            transaction.on_commit(partial(refresh_task_spend, spend_id=spend_id, team_id=team_id))
+        with transaction.atomic():
+            spend_id = (
+                SignalSpend.objects.for_team(team_id)
+                .filter(source_id=str(run_id), is_task=True)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if spend_id is not None:
+                transaction.on_commit(partial(refresh_task_spend, spend_id=spend_id, team_id=team_id))
     except Exception:
         logger.exception(
             "signals.spend.accounting_failed", stage="task_cost_update", team_id=team_id, run_id=str(run_id)
