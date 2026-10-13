@@ -6,7 +6,11 @@ from posthog.dataclasses import frozen
 
 from products.data_catalog.backend.facade.api import certifications_for_team
 from products.data_catalog.backend.facade.enums import CertificationStatus
-from products.data_modeling.backend.facade.api import backing_table_ids_by_saved_query, saved_query_definitions
+from products.data_modeling.backend.facade.api import (
+    all_saved_query_columns,
+    backing_table_ids_by_saved_query,
+    saved_query_definitions,
+)
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.warehouse_sources.backend.facade.api import all_queryable_table_names, direct_access_table_ids
 
@@ -23,6 +27,7 @@ class TeamInventory:
     table_names: Mapping[UUID, str]
     certifications: Mapping[Subject, CertificationStatus]
     direct_table_ids: frozenset[UUID]
+    saved_query_columns: Mapping[str, Mapping[str, str]]
 
     def name_of(self, subject: Subject) -> str | None:
         if subject.kind == WarehouseSuggestionSubjectKind.SAVED_QUERY:
@@ -39,6 +44,7 @@ def load_inventory(team: "Team") -> TeamInventory:
         table_names={table_id: name for table_id, name in table_names.items() if table_id not in backing_table_ids},
         certifications=_certifications(team),
         direct_table_ids=frozenset(direct_access_table_ids(team.pk)),
+        saved_query_columns=all_saved_query_columns(team.pk),
     )
 
 

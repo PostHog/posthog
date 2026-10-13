@@ -32,22 +32,25 @@ from .test_suggestions import make_draft
 
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
+DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 REPORT = "products.warehouse_suggestions.backend.logic.analytics.report_user_or_team_action"
+MATERIALIZE_PAYLOAD = MaterializePayload(
+    subject_name="orders",
+    refresh_interval_seconds=DAY_SECONDS,
+    saves_seconds_per_month=900,
+    saves_bytes_per_month=0,
+    freshness_today_seconds=None,
+    freshness_after_seconds=DAY_SECONDS,
+    live_sources=(),
+    unknown_sources=(),
+)
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
     WarehouseSuggestionKind.DEPRECATE: DeprecatePayload(
         subject_name="orders", refresh_seconds_per_month=0, refresh_bytes_per_month=0
     ),
-    WarehouseSuggestionKind.MATERIALIZE: MaterializePayload(
-        subject_name="orders",
-        refresh_interval_seconds=DAY_SECONDS,
-        saves_seconds_per_month=900,
-        saves_bytes_per_month=0,
-        freshness_today_seconds=None,
-        freshness_after_seconds=DAY_SECONDS,
-        live_sources=(),
-        unknown_sources=(),
-    ),
+    WarehouseSuggestionKind.MATERIALIZE: MATERIALIZE_PAYLOAD,
 }
 
 
@@ -176,6 +179,45 @@ class TestAcceptSuggestion(APIBaseTest):
             NodeType.MAT_VIEW,
             12 * 60 * 60,
         )
+
+    @parameterized.expand(
+        [
+            ("query_still_groups_by_the_key", DAILY_COUNTS, "day", status.HTTP_200_OK, STORED_DAY_KEY),
+            (
+                "query_changed_since_the_suggestion",
+                "SELECT timestamp, event FROM events",
+                "day",
+                status.HTTP_409_CONFLICT,
+                STORED_DAY_KEY,
+            ),
+            ("full_refresh_clears_leftover_keys", DAILY_COUNTS, None, status.HTTP_200_OK, None),
+        ]
+    )
+    def test_accepting_applies_the_refresh_mode_the_suggestion_shows(
+        self,
+        _name: str,
+        hogql: str,
+        incremental_key: str | None,
+        expected_status: int,
+        expected_config: dict | None,
+    ) -> None:
+        DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(
+            query={"kind": "HogQLQuery", "query": hogql}, incremental_config=STORED_DAY_KEY
+        )
+        payload = replace(
+            MATERIALIZE_PAYLOAD,
+            incremental_key=incremental_key,
+            unique_key=("day",) if incremental_key else (),
+        )
+        draft = make_draft(fingerprint="materialize:orders", subject_id=self.view.id)
+        suggestion = ingest_surfaced(
+            self.team.id, replace(draft, kind=WarehouseSuggestionKind.MATERIALIZE, payload=payload)
+        )
+
+        accepted = self._accept(suggestion.id)
+
+        self.view.refresh_from_db()
+        assert (accepted["http_status"], self.view.incremental_config) == (expected_status, expected_config), accepted
 
     @parameterized.expand([("not_a_schedulable_interval", 7), ("past_the_largest_interval", 10**14)])
     def test_a_refused_interval_is_a_field_error_and_keeps_the_suggestion_open(

@@ -35,7 +35,7 @@ def payload_from_json(
     if kind == WarehouseSuggestionKind.DEPRECATE:
         return DeprecatePayload(**data)
     sources = {field: tuple(_source_ref(source) for source in data[field]) for field in SOURCE_FIELDS}
-    return MaterializePayload(**{**data, **sources})
+    return MaterializePayload(**{**data, **sources, "unique_key": tuple(data.get("unique_key", ()))})
 
 
 def source_table_ids(payloads: Iterable[SuggestionPayload]) -> set[UUID]:
@@ -60,6 +60,8 @@ def payload_view(payload: SuggestionPayload, readable_table_ids: Collection[UUID
         freshness_after_seconds=payload.freshness_after_seconds,
         live_sources=_visible_sources(payload.live_sources, readable_table_ids),
         unknown_sources=_visible_sources(payload.unknown_sources, readable_table_ids),
+        incremental_key=payload.incremental_key,
+        unique_key=payload.unique_key,
     )
 
 

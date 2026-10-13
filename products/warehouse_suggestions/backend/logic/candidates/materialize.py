@@ -1,14 +1,19 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
+from functools import cached_property
 from uuid import UUID
+
+from posthog.hogql.database.database import Database
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.data_modeling.backend.facade.api import (
+    IncrementalConfig,
     MissingDagNodeError,
     SavedQueryFrequencyBounds,
-    check_incremental_eligibility,
+    incremental_enabled,
+    propose_incremental_config,
     saved_query_target_bounds,
     upstream_table_refs,
 )
@@ -43,18 +48,45 @@ class _Proposal:
     estimate: SavingsEstimate
 
 
+class _IncrementalProposer:
+    """Proposes incremental keys for one team run, reading the flag and building the team database at most once."""
+
+    def __init__(self, team_id: int) -> None:
+        self._team_id = team_id
+
+    @cached_property
+    def _enabled(self) -> bool:
+        return incremental_enabled(self._team_id)
+
+    @cached_property
+    def _database(self) -> Database | None:
+        try:
+            return Database.create_for(team_id=self._team_id, bypass_warehouse_access_control=True)
+        except Exception as error:
+            capture_exception(error)
+            return None
+
+    def config_for(self, hogql: str, column_types: Mapping[str, str]) -> IncrementalConfig | None:
+        if not self._enabled or propose_incremental_config(hogql, column_types) is None:
+            return None
+        if self._database is None:
+            return None
+        return propose_incremental_config(hogql, column_types, database=self._database)
+
+
 class MaterializeCandidate(Candidate):
     kind = WarehouseSuggestionKind.MATERIALIZE
 
     def evaluate(self, context: CandidateContext) -> CandidateResult:
         drafts = []
         rejections = []
+        incremental = _IncrementalProposer(context.team_id)
         for saved_query in context.inventory.saved_queries.values():
             subject = Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=saved_query.id)
             reads = context.reads.reads_of(subject)
             if reads is None or reads.human_requests == 0 or not self._is_unmaterialized(context, saved_query):
                 continue
-            outcome = self._propose(context, saved_query, reads)
+            outcome = self._propose(context, saved_query, reads, incremental)
             if isinstance(outcome, str):
                 rejections.append(Rejection(subject=subject, reason=outcome))
                 continue
@@ -92,15 +124,15 @@ class MaterializeCandidate(Candidate):
         return not saved_query.materializes and context.is_suggestible_view(saved_query)
 
     def _propose(
-        self, context: CandidateContext, saved_query: SavedQueryDefinition, reads: SubjectReads
+        self,
+        context: CandidateContext,
+        saved_query: SavedQueryDefinition,
+        reads: SubjectReads,
+        incremental: _IncrementalProposer,
     ) -> _Proposal | str:
         rejection = self._read_floor_rejection(context, reads)
         if rejection is not None:
             return rejection
-        if context.rules.materialize.require_incremental_eligibility and not _can_refresh_incrementally(
-            saved_query.hogql
-        ):
-            return "its query cannot refresh incrementally"
         frequency = saved_query_target_bounds(context.team_id, saved_query.id)
         if frequency is None:
             capture_exception(MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node"))
@@ -121,6 +153,9 @@ class MaterializeCandidate(Candidate):
         sources = _classify_sources(context, saved_query.id, frequency)
         freshness_today = int(frequency.max_data_age.total_seconds()) or None
         interval_seconds = int(estimate.interval.total_seconds())
+        incremental_config = incremental.config_for(
+            saved_query.hogql, context.inventory.saved_query_columns.get(str(saved_query.id), {})
+        )
         return _Proposal(
             payload=MaterializePayload(
                 subject_name=saved_query.name,
@@ -131,6 +166,8 @@ class MaterializeCandidate(Candidate):
                 freshness_after_seconds=interval_seconds + (freshness_today or 0),
                 live_sources=sources.live,
                 unknown_sources=sources.unknown,
+                incremental_key=incremental_config.incremental_key if incremental_config else None,
+                unique_key=incremental_config.unique_key if incremental_config else (),
             ),
             estimate=estimate,
         )
@@ -148,11 +185,6 @@ class MaterializeCandidate(Candidate):
         if reads.alone_reads < rules.min_alone_reads:
             return f"read on its own {reads.alone_reads} times, needs {rules.min_alone_reads} to know its cost"
         return None
-
-
-def _can_refresh_incrementally(hogql: str) -> bool:
-    eligibility = check_incremental_eligibility(hogql, None)
-    return eligibility.eligible and bool(eligibility.key_candidates) and bool(eligibility.unique_key_candidates)
 
 
 def allowed_intervals(context: CandidateContext, allowed: Iterable[timedelta], reads: SubjectReads) -> list[timedelta]:

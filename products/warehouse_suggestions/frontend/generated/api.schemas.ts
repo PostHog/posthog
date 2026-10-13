@@ -48,6 +48,13 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     freshness_today_seconds: number | null
     /** How old the data can be once materialized, in seconds. */
     freshness_after_seconds: number
+    /**
+     * Column whose advancing value marks new rows, so each refresh reads only those rows. Null when each refresh rebuilds the whole table.
+     * @nullable
+     */
+    incremental_key?: string | null
+    /** Columns that identify a row, so a refresh updates rows instead of adding duplicates. Empty when each refresh rebuilds the whole table. */
+    unique_key?: string[]
 }
 
 export type WarehouseSuggestionPayloadApi =

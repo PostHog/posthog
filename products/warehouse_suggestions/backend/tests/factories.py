@@ -89,6 +89,7 @@ def context(
     table_names: Mapping[UUID, str] | None = None,
     certifications: Mapping[Subject, CertificationStatus] | None = None,
     direct_table_ids: frozenset[UUID] = frozenset(),
+    saved_query_columns: Mapping[str, Mapping[str, str]] | None = None,
     team_id: int = 1,
     rules: Rules = RULES,
 ) -> CandidateContext:
@@ -100,6 +101,7 @@ def context(
             table_names=table_names or {},
             certifications=certifications or {},
             direct_table_ids=direct_table_ids,
+            saved_query_columns=saved_query_columns or {},
         ),
         rules=rules,
         run_id="run-1",
