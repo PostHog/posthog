@@ -70,7 +70,7 @@ def partitioning_state(schema: ExternalDataSchema) -> dict[str, Any]:
     return {
         "mode": mode,
         "columns": schema.partitioning_keys or [],
-        "date_granularity": schema.partition_format if mode == PartitionMode.DATETIME else None,
+        "date_granularity": schema.partition_format if mode == PartitionMode.DATETIME.value else None,
         "change_pending": any(isinstance(config.get(key), dict) for key in _BUSY_KEYS),
         "available_columns": sorted(date_columns(schema)),
     }
@@ -94,7 +94,7 @@ def stage_datetime_partitioning(schema: ExternalDataSchema, column: str, granula
         raise PartitioningNotAllowed(f"'{column}' has no time of day. Choose day, week or month.")
 
     if (
-        schema.partition_mode == PartitionMode.DATETIME
+        schema.partition_mode == PartitionMode.DATETIME.value
         and schema.partitioning_keys == [column]
         and schema.partition_format == granularity
     ):

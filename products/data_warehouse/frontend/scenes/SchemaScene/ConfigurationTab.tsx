@@ -60,6 +60,7 @@ import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
 import { DestinationsSection } from './DestinationsSection'
+import { PartitioningSection } from './PartitioningSection'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -147,6 +148,8 @@ export function ConfigurationTab({
                     setIsProjectTime={setIsProjectTime}
                 />
             )
+        case 'partitioning':
+            return <PartitioningSection schemaId={schema.id} />
         case 'descriptions':
             return <DescriptionsSection schema={schema} />
         case 'danger-zone':

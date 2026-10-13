@@ -47,6 +47,7 @@ const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     descriptions: 'Descriptions',
     destinations: 'Destinations',
     schedule: 'Schedule',
+    partitioning: 'Partitioning',
     'danger-zone': 'Danger zone',
 }
 
@@ -74,8 +75,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     // Same gate as the source's Destinations tab. Without it a table offers a destination set that
     // the sync ignores, because a run only snapshots destinations when the flag is on.
     const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
+    const showPartitioning = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_TABLE_PARTITIONING]
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
-        (key) => (key !== 'columns' || showColumnsSection) && (key !== 'destinations' || showDestinations)
+        (key) =>
+            (key !== 'columns' || showColumnsSection) &&
+            (key !== 'destinations' || showDestinations) &&
+            (key !== 'partitioning' || showPartitioning)
     )
 
     useEffect(() => {
