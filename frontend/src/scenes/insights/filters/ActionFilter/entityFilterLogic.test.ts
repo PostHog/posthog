@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import * as libUtils from 'lib/utils/dom'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { SeriesEntityUpdate, entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -303,17 +303,71 @@ describe('entityFilterLogic', () => {
             }
         )
 
-        it('drops the event when an event becomes a data warehouse series', () => {
-            logic.actions.setLocalSeries([{ uuid: 'uuid-0', node: eventNode }])
-            logic.actions.updateSeriesEntity(0, { kind: NodeKind.DataWarehouseNode, key: 'payments', name: 'payments' })
+        const sourcedDataWarehouseNode = {
+            kind: NodeKind.DataWarehouseNode,
+            id: 'payments',
+            name: 'payments',
+            table_name: 'payments',
+            id_field: 'id',
+            timestamp_field: 'created_at',
+            distinct_id_field: 'customer_id',
+            dw_source_type: 'Stripe',
+        } as SeriesNode
 
-            expect(logic.values.series[0]).toMatchObject({
-                kind: NodeKind.DataWarehouseNode,
-                id: 'payments',
-                table_name: 'payments',
-            })
-            expect(logic.values.series[0]).not.toHaveProperty('event')
-        })
+        it.each([
+            [
+                'drops the event when an event becomes a data warehouse series',
+                eventNode,
+                { kind: NodeKind.DataWarehouseNode, key: 'payments', name: 'payments' },
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'payments',
+                    name: 'payments',
+                    table_name: 'payments',
+                    properties: [hogqlProperty],
+                },
+            ],
+            [
+                'drops the warehouse fields when a data warehouse series becomes an event',
+                sourcedDataWarehouseNode,
+                { kind: NodeKind.EventsNode, key: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+            ],
+            [
+                'drops the warehouse fields when a data warehouse series becomes an action',
+                sourcedDataWarehouseNode,
+                { kind: NodeKind.ActionsNode, key: 7, name: 'Sign up' },
+                { kind: NodeKind.ActionsNode, id: 7, name: 'Sign up' },
+            ],
+            [
+                'drops the source type when the data warehouse table changes',
+                sourcedDataWarehouseNode,
+                { kind: NodeKind.DataWarehouseNode, key: 'orders', name: 'orders' },
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'orders',
+                    name: 'orders',
+                    table_name: 'orders',
+                    id_field: 'id',
+                    timestamp_field: 'created_at',
+                    distinct_id_field: 'customer_id',
+                },
+            ],
+            [
+                'keeps the source type when the data warehouse table is unchanged',
+                sourcedDataWarehouseNode,
+                { kind: NodeKind.DataWarehouseNode, key: 'payments', name: 'payments', timestamp_field: 'paid_at' },
+                { ...sourcedDataWarehouseNode, timestamp_field: 'paid_at' },
+            ],
+        ] as [string, SeriesNode, SeriesEntityUpdate, Record<string, any>][])(
+            '%s',
+            (_name, initialNode, update, expectedNode) => {
+                logic.actions.setLocalSeries([{ uuid: 'uuid-0', node: initialNode }])
+                logic.actions.updateSeriesEntity(0, update)
+
+                expect(logic.values.series[0]).toEqual(expectedNode)
+            }
+        )
 
         const eventPropertyMath = {
             ...eventNode,

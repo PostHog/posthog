@@ -67,6 +67,20 @@ export interface SelectedSeries {
 
 const PROPERTY_VALUE_MATHS = new Set<string>(Object.values(PropertyMathType))
 
+// Fields that only the data warehouse node kinds define. The events and actions node schemas
+// forbid unknown keys, so a query fails when one of these is left on an event or action series.
+const WAREHOUSE_ONLY_FIELDS = [
+    'table_name',
+    'timestamp_field',
+    'id_field',
+    'distinct_id_field',
+    'aggregation_target_field',
+    'created_at_field',
+    'dw_source_type',
+    'events_join_key',
+    'data_warehouse_join_key',
+] as const
+
 // math_property names a column or property on the entity the series aggregates, so it cannot
 // survive an entity switch. Property-value math (sum, avg, percentiles) is dropped with it —
 // the backend errors out on that math without a math_property.
@@ -391,6 +405,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
 
                         if (!isWarehouseSeriesNode(current) || next.table_name !== (current as any).table_name) {
                             dropStaleMath(next)
+                            // The source type describes the previous table.
+                            delete next.dw_source_type
                         }
 
                         return withLatestVersion(next as SeriesNode)
@@ -400,12 +416,14 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                         return withLatestVersion({ ...next, ...extra } as SeriesNode)
                     }
 
-                    // Leaving the warehouse: its popover fields and column filters name a table
-                    // an event or action series does not select from, so neither can carry over.
+                    // Leaving the warehouse: its fields, popover fields and column filters name a
+                    // table an event or action series does not select from, so none can carry over.
+                    WAREHOUSE_ONLY_FIELDS.forEach((field) => {
+                        delete next[field]
+                    })
                     dataWarehousePopoverFields.forEach(({ key: fieldKey }) => {
                         delete next[fieldKey]
                     })
-                    delete next.table_name
                     if (Array.isArray(current.properties)) {
                         next.properties = current.properties.filter(
                             (property: AnyPropertyFilter) => property.type !== PropertyFilterType.DataWarehouse
