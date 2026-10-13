@@ -7,7 +7,7 @@ for that reason while every service test passed, because they assert on the data
 
 from dataclasses import fields as dataclass_fields
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -34,7 +34,7 @@ from products.marketing_analytics.backend.services.types import (
 _INTENTIONALLY_UNSERIALIZED: dict[str, set[str]] = {}
 
 
-class TestSerializerFieldParity(BaseTest):
+class TestSerializerFieldParity(SimpleTestCase):
     @parameterized.expand(
         [
             ("UtmIssue", UtmIssue, UtmIssueSerializer),
