@@ -36,7 +36,7 @@ export function TodayAccountMenu(): JSX.Element {
                         size="icon"
                         aria-label="Account menu"
                         className="size-10 rounded-md data-[popup-open]:bg-[var(--fill-selected)]"
-                        data-attr="today-rail-account-menu"
+                        data-attr="new-account-menu-button"
                     >
                         <ProfilePicture user={user} size="md" />
                     </Button>
@@ -95,7 +95,7 @@ export function TodayAccountMenu(): JSX.Element {
                     </>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => logout()} data-attr="today-rail-logout">
+                <DropdownMenuItem onClick={() => logout()} data-attr="new-account-menu-logout-button">
                     <IconLeave />
                     Log out
                 </DropdownMenuItem>

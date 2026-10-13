@@ -59,17 +59,7 @@ export function TodayOrgMenu(): JSX.Element {
     )
 
     return (
-        <DropdownMenu
-            open={isOrgSwitcherOpen}
-            onOpenChange={(open) => {
-                if (open) {
-                    setSwitching(false)
-                    openOrgSwitcher()
-                } else {
-                    closeOrgSwitcher()
-                }
-            }}
-        >
+        <DropdownMenu open={isOrgSwitcherOpen} onOpenChange={(open) => (open ? openOrgSwitcher() : closeOrgSwitcher())}>
             <Tooltip>
                 <TooltipTrigger
                     delay={0}
