@@ -28,6 +28,24 @@ describe("droppedImage", () => {
     ]);
   });
 
+  it("reads a drop the terminal sends unbracketed, with only some spaces escaped, as macOS Terminal does", () => {
+    const second = join(folder, "second shot.jpg");
+    writeFileSync(second, "yo");
+    // The space before "shot" comes through bare; only the folder's own space is escaped.
+    const half = (path: string) =>
+      path.replace(
+        /^(.*)\/second shot\.jpg$/,
+        (_, dir: string) => `${dir.replaceAll(" ", "\\ ")}/second shot.jpg`,
+      );
+    const dropped = droppedImages(
+      `${png.replaceAll(" ", "\\ ")} ${half(second)}`,
+    );
+    expect(dropped.map((image) => image.mimeType)).toEqual([
+      "image/png",
+      "image/jpeg",
+    ]);
+  });
+
   it.each([
     [
       "a path with escaped spaces",
