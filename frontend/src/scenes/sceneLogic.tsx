@@ -58,6 +58,7 @@ import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
+import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'
 import type { SceneProps } from './sceneTypes'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
@@ -907,6 +908,15 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (!leaveBlockedOrganizationPath()) {
                         actions.loadScene(sceneId, sceneKey, params, method)
                     }
+                    return
+                }
+
+                if (
+                    projectLogic.findMounted()?.values.currentProject?.is_pending_deletion &&
+                    !isPathOpenWhileProjectPendingDeletion(router.values.location.pathname)
+                ) {
+                    // Decide the project lockout here too, for the same reason as the organization block above.
+                    router.actions.replace(urls.projectPendingDeletion())
                     return
                 }
 

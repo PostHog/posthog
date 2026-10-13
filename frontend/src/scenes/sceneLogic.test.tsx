@@ -54,6 +54,8 @@ const testScenes: Record<string, () => any> = {
     [Scene.OrganizationPendingDeletion]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
+    [Scene.ProjectPendingDeletion]: sceneImport,
+    MyTickets: sceneImport,
     [Scene.Settings]: sceneImport,
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
@@ -698,6 +700,31 @@ describe('sceneLogic', () => {
                 expect(router.values.hashParams).toEqual(expectedHash)
             }
         )
+    })
+
+    describe('a project pending deletion', () => {
+        it.each([
+            [
+                'locks out a page reached by a client-side link',
+                urls.eventDefinitions(),
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            ['keeps my tickets open', urls.myTickets(), urls.myTickets(), 'MyTickets'],
+        ])('%s', async (_name, target, expectedRoute, expectedScene) => {
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
+        })
     })
 
     describe('a blocked organization', () => {
