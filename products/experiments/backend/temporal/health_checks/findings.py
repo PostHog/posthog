@@ -13,15 +13,12 @@ import posthoganalytics
 from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.ph_client import get_feature_flag_or_none
-from posthog.temporal.health_checks.framework import _SEVERITY_WEIGHT, AlertContent, SignalContent, build_signal_extra
+from posthog.temporal.health_checks.framework import AlertContent
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.health.context import HealthContext, load_health_context
-from products.experiments.backend.health.registry import (
-    HealthCheck as ExperimentHealthCheck,
-    evaluate,
-)
+from products.experiments.backend.health.registry import HealthCheck as ExperimentHealthCheck
 from products.experiments.backend.models.experiment import Experiment
 
 logger = structlog.get_logger(__name__)
@@ -90,21 +87,23 @@ def detect_experiment_findings(
 
     The framework resolves the open issues of a team that this result does not hold, so the result must
     cover every experiment of each team. Archived and deleted experiments are left out, so their issues
-    resolve.
+    resolve. A check error fails the batch, because a missing finding would resolve the open issue.
     """
     results: dict[int, list[HealthCheckResult]] = {}
     for experiment in _experiments(team_ids):
         ctx = load_health_context(experiment)
         if not scope(ctx):
             continue
-        for finding in evaluate(ctx, (check,)):
+        finding = check(ctx)
+        if finding is not None:
             results.setdefault(experiment.team_id, []).append(_health_check_result(experiment, finding))
     return results
 
 
 def _experiments(team_ids: list[int]) -> Iterator[Experiment]:
     return (
-        Experiment.objects.filter(team_id__in=team_ids, deleted=False, archived=False)
+        Experiment.objects.filter(team_id__in=team_ids, archived=False)
+        .exclude(deleted=True)
         .select_related("feature_flag")
         # `load_health_context` counts the shared metrics, so prefetch them to avoid one query per experiment.
         .prefetch_related("experimenttosavedmetric_set")
@@ -120,7 +119,7 @@ def _health_check_result(experiment: Experiment, finding: ExperimentHealthFindin
         payload={
             "experiment_id": experiment.id,
             "experiment_name": (experiment.name or "")[:_MAX_EXPERIMENT_NAME_LENGTH],
-            # The health page links the "open_feature_flag" and "edit_release_conditions" actions to the flag.
+            # The health page links the "open_feature_flag" action to the flag.
             "feature_flag_id": experiment.feature_flag_id,
             "code": finding.code.value,
             "subcode": finding.subcode,
@@ -140,15 +139,6 @@ def render_finding_alert(issue: HealthIssue) -> AlertContent:
         title=str(payload.get("title") or "Experiment health issue"),
         summary=f"{_experiment_label(payload)}: {payload.get('detail') or ''}".strip(),
         link=_experiment_link(payload),
-    )
-
-
-def render_finding_signal(issue: HealthIssue) -> SignalContent:
-    alert = render_finding_alert(issue)
-    return SignalContent(
-        description=f"{_experiment_label(issue.payload)}: {alert.title}. {issue.payload.get('detail') or ''}".strip(),
-        weight=_SEVERITY_WEIGHT[issue.severity],
-        extra=build_signal_extra(issue, title=alert.title, summary=alert.summary, link=alert.link),
     )
 
 

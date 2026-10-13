@@ -50,8 +50,9 @@ class TestExperimentHealthFindings(BaseTest):
         }
         return Experiment.objects.create(team=team, feature_flag=flag, **{**defaults, **fields})
 
-    def test_a_finding_becomes_one_issue_per_experiment_and_subcode(self) -> None:
-        experiment = self._experiment(flag_active=False)
+    @parameterized.expand([("not_deleted", False), ("deleted_unset", None)])
+    def test_a_finding_becomes_one_issue_per_experiment_and_subcode(self, _name: str, deleted: bool | None) -> None:
+        experiment = self._experiment(flag_active=False, deleted=deleted)
 
         results = detect_experiment_findings([self.team.id], flag_state)
 
@@ -78,6 +79,15 @@ class TestExperimentHealthFindings(BaseTest):
         self._experiment(flag_active=False, **fields)
 
         assert detect_experiment_findings([self.team.id], flag_state) == {}
+
+    def test_a_failing_check_fails_the_batch_so_open_issues_stay_open(self) -> None:
+        self._experiment()
+
+        def failing_check(_ctx: Any) -> None:
+            raise ValueError("broken check")
+
+        with self.assertRaises(ValueError):
+            detect_experiment_findings([self.team.id], failing_check)
 
     def test_experiments_of_teams_outside_the_batch_are_not_read(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
