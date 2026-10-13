@@ -22,11 +22,14 @@ export function useTurns({
   runs,
   taskOf,
   localSessions,
+  pending,
 }: {
   layout: LayoutState;
   runs: CloudRuns | null;
   taskOf: (taskId: string | null) => Task | undefined;
   localSessions: Map<string, LocalAgent>;
+  // Chats with a message on its way: a turn has begun before the run's log can say so.
+  pending: Set<string>;
 }): Turns {
   const [turns, setTurns] = useState(noTurns);
   const workspace = activeWorkspace(layout);
@@ -39,10 +42,37 @@ export function useTurns({
   }, [focusedTaskId]);
 
   const subscriptions = useRef(new Map<string, () => void>());
-  // Each watched chat's latest view, until the next check reads it.
+  // Each watched chat's latest view, until the next check reads it, and the last one read.
   const unread = useRef(
     new Map<string, { view: RunView; runtime: AgentRuntime | undefined }>(),
   );
+  const latest = useRef(
+    new Map<string, { view: RunView; runtime: AgentRuntime | undefined }>(),
+  );
+  // A sent message opens a turn at once; the view says the rest once the run has echoed it. A message that
+  // never got through leaves the view as it was, so the chat settles back to what the view says.
+  const pendingIds = [...pending].sort().join(",");
+  const wasPending = useRef(new Set<string>());
+  useEffect(() => {
+    const now = new Set(pendingIds ? pendingIds.split(",") : []);
+    for (const taskId of now)
+      setTurns((state) =>
+        settle(state, taskId, true, taskId === focused.current),
+      );
+    for (const taskId of wasPending.current) {
+      if (now.has(taskId)) continue;
+      const last = latest.current.get(taskId);
+      setTurns((state) =>
+        settle(
+          state,
+          taskId,
+          last ? midTurn(last.view, last.runtime) : false,
+          taskId === focused.current,
+        ),
+      );
+    }
+    wasPending.current = now;
+  }, [pendingIds]);
   // Subscriptions stay open across renders: a new one starts from the run's saved snapshot and would miss what came since.
   useEffect(() => {
     const onScreen = panes(workspace.root).flatMap((pane) =>
@@ -55,6 +85,7 @@ export function useTurns({
       const runtime = local?.runtime ?? task?.runtime ?? "pi";
       const onView = (view: RunView): void => {
         unread.current.set(taskId, { view, runtime });
+        latest.current.set(taskId, { view, runtime });
       };
       const run = task?.latest_run;
       if (local) wanted.set(`${taskId}:local`, () => local.watch(onView));
@@ -78,7 +109,9 @@ export function useTurns({
     const open = subscriptions.current;
     const timer = setInterval(() => {
       for (const [taskId, { view, runtime }] of unread.current) {
-        const working = midTurn(view, runtime);
+        // A message still on its way keeps the turn open whatever the log says so far.
+        const working =
+          midTurn(view, runtime) || wasPending.current.has(taskId);
         setTurns((state) =>
           settle(state, taskId, working, taskId === focused.current),
         );
