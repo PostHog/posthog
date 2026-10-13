@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OpenExchangeRatesSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
+    INVALID_APP_ID_ERROR,
     OpenExchangeRatesResumeConfig,
     open_exchange_rates_source,
     validate_credentials as validate_open_exchange_rates_credentials,
@@ -96,7 +97,7 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
             # An invalid, missing, or revoked App ID surfaces as a 401 when `_request` raises. Retrying
             # can never fix a credential problem, so stop the sync. Match the stable status text and
             # base host, not the per-request path.
-            "401 Client Error: Unauthorized for url: https://openexchangerates.org/api": "Your Open Exchange Rates App ID is invalid or has been revoked. Create a new App ID in your Open Exchange Rates dashboard, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://openexchangerates.org/api": INVALID_APP_ID_ERROR,
             "403 Client Error: Forbidden for url: https://openexchangerates.org/api": "Your Open Exchange Rates App ID is missing or your account is restricted. Check the App ID and your account status, then reconnect.",
             # Open Exchange Rates returns 429 `not_allowed` for plan-gated features (e.g. a non-USD base
             # currency on the free plan), not a transient throttle — so it is permanent, not retryable.
@@ -137,15 +138,7 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_open_exchange_rates_credentials(config.app_id):
-            return True, None
-
-        # The probe also returns False on transient network/timeout errors, so don't claim the App ID
-        # is definitively invalid — point at both possibilities.
-        return (
-            False,
-            "Unable to verify your Open Exchange Rates App ID. Check that the App ID is correct and that openexchangerates.org is reachable.",
-        )
+        return validate_open_exchange_rates_credentials(config.app_id)
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs

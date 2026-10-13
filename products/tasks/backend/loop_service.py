@@ -110,8 +110,7 @@ def sync_loop_trigger_schedule(trigger: LoopTrigger) -> None:
     """Create or update the Temporal Schedule backing a schedule-type loop trigger.
 
     Never lets a Temporal error propagate to the caller: failures are logged and
-    recorded on `trigger.schedule_sync_status` instead, per the Lifecycle section of
-    products/tasks/docs/LOOPS.md.
+    recorded on `trigger.schedule_sync_status` instead.
     """
     if trigger.type != LoopTrigger.TriggerType.SCHEDULE:
         return

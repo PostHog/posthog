@@ -1,8 +1,12 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource
 
@@ -51,20 +55,31 @@ class TestPayFitSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source.check_schema_access")
-    def test_validate_credentials_probes_endpoint_scope_for_schema(self, mock_check: mock.MagicMock) -> None:
+    def test_validate_credentials_probes_endpoint_scope_for_schema(self) -> None:
         # PayFit keys carry per-endpoint scopes, so per-schema validation must probe that endpoint
         # rather than only introspecting the token.
-        mock_check.return_value = (True, None)
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="absences")
-        mock_check.assert_called_once_with("payfit-key", "absences")
+        with scripted_network(
+            [
+                ScriptedResponse(json={"active": True, "company_id": "company-1"}),
+                ScriptedResponse(json={}),
+            ]
+        ) as network:
+            result = self.source.validate_credentials(self.config, self.team_id, schema_name="absences")
+
+        assert [request.path for request in network.requests_log] == [
+            "/introspect",
+            "/companies/company-1/absences",
+        ]
+        assert network.requests_log[1].param("status") == "all"
+        assert network.requests_log[1].param("maxResults") == "1"
         assert result == (True, None)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source.validate_credentials")
-    def test_validate_credentials_falls_back_for_unknown_schema(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
-        mock_validate.assert_called_once_with("payfit-key")
+    def test_validate_credentials_falls_back_for_unknown_schema(self) -> None:
+        with scripted_network([ScriptedResponse(json={"active": True, "company_id": "company-1"})]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
+
+        assert [request.path for request in network.requests_log] == ["/introspect"]
+        assert network.requests_log[0].json() == {"token": "payfit-key"}
         assert result == (True, None)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source.payfit_source")
@@ -82,7 +97,8 @@ class TestPayFitSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown PayFit schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown PayFit schema 'not_a_table'"
+        assert result.requests == []

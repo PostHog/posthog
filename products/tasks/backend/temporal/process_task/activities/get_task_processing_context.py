@@ -1109,8 +1109,7 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
 
 def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
     """Loop runs opt into the CI/review-comment follow-up loop when the loop's
-    snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
-    `watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
+    snapshotted behaviors ask for it (`watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
     the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
     already-queued run.
     """

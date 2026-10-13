@@ -180,6 +180,7 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
                 owner_team: params.owner_team,
+                repo: params.repo,
                 source_id: params.source_id,
             },
         })

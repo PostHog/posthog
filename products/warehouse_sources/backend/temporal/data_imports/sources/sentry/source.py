@@ -72,8 +72,11 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             caption=(
                 "Enter a Sentry auth token and your organization slug to sync Sentry organization, "
                 "project, issue, and monitor datasets.\n\n"
-                "Create a token in Sentry and make sure it includes the scopes below if you want to "
-                "sync all datasets:\n" + "\n".join(f"- `{scope}`" for scope in REQUIRED_SENTRY_SCOPES) + "\n"
+                "Create a personal token in your "
+                "[Sentry account settings](https://sentry.io/settings/account/api/auth-tokens/) and make sure "
+                "it includes the scopes below if you want to sync all datasets:\n"
+                + "\n".join(f"- `{scope}`" for scope in REQUIRED_SENTRY_SCOPES)
+                + "\n"
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/sentry",
             fields=cast(
@@ -84,7 +87,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
                         label="Auth token",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="324587...",
+                        placeholder="sntryu_...",
                         secret=True,
                     ),
                     SourceFieldInputConfig(
@@ -151,7 +154,13 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
         # of error tracking; every other path still reaches `raise_for_status()`, which raises
         # `HTTPError: 429 Client Error: Too Many Requests`. Match both so persistent rate-limiting
         # lets Temporal retry instead of being reported to error tracking as a bug.
-        return {"Max retries exceeded with url", SENTRY_RATE_LIMITED_MESSAGE, "429 Client Error"}
+        #
+        # A persistent 5xx is retried the same way and, for endpoints with no per-request skip
+        # handler (e.g. the projects listing `_iter_projects` feeds project_ownership and
+        # project_stats from), reaches the same `raise_for_status()` once that budget is
+        # exhausted. `raise_for_status()` derives the "<code> Server Error" prefix from the status
+        # code alone, so it's stable to match on (see mailchimp/impact for the same pattern).
+        return {"Max retries exceeded with url", SENTRY_RATE_LIMITED_MESSAGE, "429 Client Error", "Server Error"}
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         # issue_tag_values fans out over issues through its custom two-level iterator, so it

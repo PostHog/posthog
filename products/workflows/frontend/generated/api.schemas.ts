@@ -1249,9 +1249,32 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+/**
+ * * `running` - Running
+ * * `paused_by_user` - Paused By User
+ * * `paused_by_system` - Paused By System
+ * * `not_running` - Not Running
+ */
+export type SuggestionsScoutStatusEnumApi =
+    (typeof SuggestionsScoutStatusEnumApi)[keyof typeof SuggestionsScoutStatusEnumApi]
+
+export const SuggestionsScoutStatusEnumApi = {
+    Running: 'running',
+    PausedByUser: 'paused_by_user',
+    PausedBySystem: 'paused_by_system',
+    NotRunning: 'not_running',
+} as const
+
 export interface HogFlowOptimizationApi {
     /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
+    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+     *
+     * * `running` - Running
+     * * `paused_by_user` - Paused By User
+     * * `paused_by_system` - Paused By System
+     * * `not_running` - Not Running */
+    readonly scout_status: SuggestionsScoutStatusEnumApi
 }
 
 /**
@@ -2033,6 +2056,130 @@ export interface BlastRadiusApi {
     dedupe_key: DedupeKeyEnumApi | null
     /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
     confirm_token: string
+}
+
+/**
+ * * `error_tracking` - Error tracking issue
+ * * `early_access` - Early access feature
+ * * `survey` - Survey
+ * * `feature_flag` - Feature flag
+ * * `cohort` - Cohort
+ */
+export type EmailDraftSourceEnumApi = (typeof EmailDraftSourceEnumApi)[keyof typeof EmailDraftSourceEnumApi]
+
+export const EmailDraftSourceEnumApi = {
+    ErrorTracking: 'error_tracking',
+    EarlyAccess: 'early_access',
+    Survey: 'survey',
+    FeatureFlag: 'feature_flag',
+    Cohort: 'cohort',
+} as const
+
+export interface EmailDraftRequestApi {
+    /** The kind of entity the email is about.
+     *
+     * * `error_tracking` - Error tracking issue
+     * * `early_access` - Early access feature
+     * * `survey` - Survey
+     * * `feature_flag` - Feature flag
+     * * `cohort` - Cohort */
+    source: EmailDraftSourceEnumApi
+    /**
+     * ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.
+     * @maxLength 200
+     */
+    source_id: string
+}
+
+/**
+ * * `ai` - AI
+ * * `template` - Template
+ */
+export type EmailDraftOriginEnumApi = (typeof EmailDraftOriginEnumApi)[keyof typeof EmailDraftOriginEnumApi]
+
+export const EmailDraftOriginEnumApi = {
+    Ai: 'ai',
+    Template: 'template',
+} as const
+
+/**
+ * * `flag_off` - AI drafts are not enabled for this project
+ * * `ai_not_approved` - The organization has not approved AI data processing
+ * * `gateway_unconfigured` - The AI gateway is not configured
+ * * `rate_limited` - The project used its hourly AI drafts
+ * * `timeout` - The model took too long
+ * * `model_error` - The model call failed
+ * * `invalid_output` - The model returned an unusable draft
+ */
+export type EmailDraftFallbackReasonEnumApi =
+    (typeof EmailDraftFallbackReasonEnumApi)[keyof typeof EmailDraftFallbackReasonEnumApi]
+
+export const EmailDraftFallbackReasonEnumApi = {
+    FlagOff: 'flag_off',
+    AiNotApproved: 'ai_not_approved',
+    GatewayUnconfigured: 'gateway_unconfigured',
+    RateLimited: 'rate_limited',
+    Timeout: 'timeout',
+    ModelError: 'model_error',
+    InvalidOutput: 'invalid_output',
+} as const
+
+export interface EmailDraftApi {
+    /** Email subject line. Empty when there is nothing to draft from. */
+    subject: string
+    /** Preview text shown after the subject in most inboxes. */
+    preheader: string
+    /** Email body as HTML paragraphs. */
+    html: string
+    /** Plain-text version of the body. */
+    text: string
+    /** Whether a model wrote the draft or it came from the fixed template for this source.
+     *
+     * * `ai` - AI
+     * * `template` - Template */
+    generated_by: EmailDraftOriginEnumApi
+    /** Why the template was used instead of a model draft. Null for a model draft.
+     *
+     * * `flag_off` - AI drafts are not enabled for this project
+     * * `ai_not_approved` - The organization has not approved AI data processing
+     * * `gateway_unconfigured` - The AI gateway is not configured
+     * * `rate_limited` - The project used its hourly AI drafts
+     * * `timeout` - The model took too long
+     * * `model_error` - The model call failed
+     * * `invalid_output` - The model returned an unusable draft */
+    template_reason: EmailDraftFallbackReasonEnumApi | null
+}
+
+export type PeopleImportCreateApiRowsItem = { [key: string]: string }
+
+export interface PeopleImportCreateApi {
+    /**
+     * Name of the static cohort that holds the imported people.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
+     * @maxItems 50000
+     */
+    rows: PeopleImportCreateApiRowsItem[]
+}
+
+export interface PeopleImportApi {
+    /** The static cohort that fills with the imported people. */
+    cohort_id: number
+    /** People created or updated. */
+    row_count: number
+    /** Rows that create a person who isn't in PostHog yet. */
+    new_people: number
+    /** Person properties the rows set. */
+    columns: string[]
+    /** Rows dropped for a missing or invalid email. */
+    dropped_invalid_email: number
+    /** Rows dropped because an earlier row had the email or distinct ID. */
+    dropped_duplicate_email: number
+    /** Rows dropped for holding more than 4KB of data. */
+    dropped_too_large: number
 }
 
 export type HogFlowTemplatesListParams = {

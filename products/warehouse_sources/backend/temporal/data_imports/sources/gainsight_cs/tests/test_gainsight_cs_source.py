@@ -1,14 +1,11 @@
-import pytest
-from unittest import mock
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.source import GainsightCsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightcs import (
     GainsightCsSourceConfig,
-)
-
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_cs.source."
-    "validate_gainsight_cs_credentials"
 )
 
 
@@ -22,30 +19,36 @@ def _config(custom_objects: str | None = None) -> GainsightCsSourceConfig:
 
 class TestGainsightCsSourceCredentials:
     def test_probes_the_object_behind_the_schema_being_checked(self) -> None:
-        with mock.patch(VALIDATE_PATCH, return_value=(True, None)) as validate:
-            GainsightCsSource().validate_credentials(_config("health__gc"), team_id=1, schema_name="health__gc")
+        fields = {"result": True, "data": [{"objectName": "health__gc", "fields": [{"fieldName": "Gsid"}]}]}
+        with scripted_network([ScriptedResponse(json=fields)]) as network:
+            result = GainsightCsSource().validate_credentials(
+                _config("health__gc"), team_id=1, schema_name="health__gc"
+            )
 
-        assert validate.call_args.args[2] == "health__gc"
+        assert result == (True, None)
+        assert [request.path for request in network.requests_log] == ["/v1/meta/services/objects/health__gc/describe"]
 
     def test_probes_company_when_no_schema_is_named(self) -> None:
-        with mock.patch(VALIDATE_PATCH, return_value=(True, None)) as validate:
-            GainsightCsSource().validate_credentials(_config(), team_id=1)
+        fields = {"result": True, "data": [{"objectName": "company", "fields": [{"fieldName": "Gsid"}]}]}
+        with scripted_network([ScriptedResponse(json=fields)]) as network:
+            result = GainsightCsSource().validate_credentials(_config(), team_id=1)
 
-        assert validate.call_args.args[2] == "company"
+        assert result == (True, None)
+        assert [request.path for request in network.requests_log] == ["/v1/meta/services/objects/company/describe"]
 
     def test_reports_an_unknown_schema_without_calling_gainsight(self) -> None:
-        with mock.patch(VALIDATE_PATCH) as validate:
+        with scripted_network([]) as network:
             ok, error = GainsightCsSource().validate_credentials(_config(), team_id=1, schema_name="not_an_object")
 
         assert ok is False
         assert error is not None and "Unknown Gainsight object" in error
-        validate.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestGainsightCsSourcePipeline:
     def test_refuses_a_schema_that_is_neither_standard_nor_declared_custom(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "dropped_by_validation"
+        result = SourceDriver(GainsightCsSource(), _config()).run("dropped_by_validation", [])
 
-        with pytest.raises(ValueError, match="Unknown Gainsight object"):
-            GainsightCsSource().source_for_pipeline(_config(), mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Gainsight object" in str(result.raised)
+        assert result.requests == []

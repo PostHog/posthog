@@ -509,6 +509,8 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `approval_requested` - approval_requested
+ * * `approval_resolved` - approval_resolved
  * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -524,6 +526,8 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    ApprovalRequested: 'approval_requested',
+    ApprovalResolved: 'approval_resolved',
     DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
@@ -540,6 +544,8 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -582,6 +588,8 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -1740,6 +1748,20 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     default_email_integration_id?: number | null
+    /**
+     * Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    marketing_frequency_cap_max_messages?: number | null
+    /**
+     * Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    marketing_frequency_cap_window_days?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {

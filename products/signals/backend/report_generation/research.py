@@ -1427,7 +1427,7 @@ async def run_multi_turn_research(
     """
     own_pr_url = "\n".join(target.pr_url for target in implementation_context.candidates) or None
     from products.tasks.backend.facade import api as tasks_facade
-    from products.tasks.backend.facade.agents import MultiTurnSession
+    from products.tasks.backend.facade.agents import MultiTurnSession, turn_failure_error_type
 
     total = len(signals)
     if total == 0:
@@ -1702,7 +1702,7 @@ async def run_multi_turn_research(
         await session.end()
     except (Exception, asyncio.CancelledError) as e:
         # Shield so the session ending cannot itself be canceled - must complete
-        await asyncio.shield(session.end(status="failed", error=str(e)))
+        await asyncio.shield(session.end(status="failed", error=str(e), error_type=turn_failure_error_type(e)))
         raise
 
     new_finding_count = sum(1 for artefact in new_artefacts if isinstance(artefact, SignalFinding))

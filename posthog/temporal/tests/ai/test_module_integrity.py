@@ -179,6 +179,7 @@ class TestSignalsProductModuleIntegrity:
             "run_due_signal_report_checks_activity",
             "evaluate_signals_scout_precheck_activity",
             "run_signals_scout_activity",
+            "cancel_failed_scout_trial_activity",
             "load_scout_trial_evaluation_activity",
             "dispatch_scout_trial_comparison_activity",
             "fail_scout_trial_comparison_activity",
@@ -205,11 +206,11 @@ class TestSignalsProductModuleIntegrity:
 
     def test_every_scout_coordinator_activity_is_registered(self):
         """A name list cannot catch an activity nobody added, and the worker rejects an unknown one."""
-        from products.signals.backend.temporal.agentic import scout_coordinator, scout_trial_evaluation
+        from products.signals.backend.temporal.agentic import scout_coordinator, scout_scheduler, scout_trial_evaluation
 
         defined = {
             name
-            for module in (scout_coordinator, scout_trial_evaluation)
+            for module in (scout_coordinator, scout_scheduler, scout_trial_evaluation)
             for name, value in vars(module).items()
             if callable(value) and getattr(value, "__temporal_activity_definition", None) is not None
         }
