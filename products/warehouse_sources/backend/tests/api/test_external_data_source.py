@@ -9293,6 +9293,39 @@ class TestExternalDataSource(APIBaseTest):
         else:
             assert response.json()["message"] != limit_message
 
+    @parameterized.expand(
+        [
+            ("create_without_flag", "", False),
+            ("create_with_flag", "", True),
+            ("database_schema_without_flag", "database_schema/", False),
+            ("database_schema_with_flag", "database_schema/", True),
+            ("setup_without_flag", "setup/", False),
+            ("setup_with_flag", "setup/", True),
+        ]
+    )
+    def test_source_behind_a_team_feature_flag(self, _name: str, path: str, flag_enabled: bool) -> None:
+        payload = {
+            "bucket": "Not A Bucket",
+            "region": "us-east-1",
+            "access_key_id": "AKIAEXAMPLE",
+            "secret_access_key": "secret",
+        }
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.helpers.feature_enabled_or_false",
+            return_value=flag_enabled,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{path}",
+                data={"source_type": "AmazonS3", "prefix": "s3_", "payload": payload, **payload},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # With the flag the request reaches credential validation, which rejects the bucket name
+        # before any network call.
+        expected = "The storage settings are invalid" if flag_enabled else "isn't available to connect yet"
+        assert expected in response.json()["message"]
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk, source_type="AmazonS3").exists()
+
     def test_revenue_analytics_config_created_automatically(self):
         source = self._create_external_data_source()
 
@@ -12954,10 +12987,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
-        # AmazonS3 doesn't implement get_schemas, so the base raises NotImplementedError.
+        # AmazonCloudWatch doesn't implement get_schemas, so the base raises NotImplementedError.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
+            data={"source_type": "AmazonCloudWatch", "prefix": "scaffold_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "isn't available to connect yet" in response.json()["message"]
