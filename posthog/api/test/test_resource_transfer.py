@@ -909,3 +909,27 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
         url, payload = self._endpoint_params(endpoint)
         response = self.client.post(url, payload)
         assert response.status_code == expected_status
+
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_search_hides_objects_the_user_cannot_view(self) -> None:
+        visible = Dashboard.objects.create(team=self.dest_team, name="Visible dashboard", created_by=self.user)
+        restricted = Dashboard.objects.create(team=self.dest_team, name="Restricted dashboard", created_by=self.user)
+        AccessControl.objects.create(
+            team=self.dest_team,
+            resource="dashboard",
+            resource_id=str(restricted.id),
+            access_level="none",
+        )
+
+        self.client.force_login(self.other_user)
+        response = self.client.post(
+            self._search_url(),
+            {"team_id": self.dest_team.pk, "resource_kind": "Dashboard"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["resource_id"] for r in response.json()["results"]}
+        assert str(visible.id) in ids
+        assert str(restricted.id) not in ids
