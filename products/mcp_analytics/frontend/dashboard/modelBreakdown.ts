@@ -71,9 +71,14 @@ export function buildModelExplorationQuery(filters: HogQLFilters): InsightVizNod
     }
 }
 
+const ABSOLUTE_DATETIME = /^\d{4}-\d{2}-\d{2}[T ]\d/
+
 export function freezeModelDateRange(dateRange: DateRange | undefined, timezone: string): DateRange {
     if (dateRange?.date_to) {
-        return dateRange
+        // An end with a time of day stops there in the leaderboard's own query, but the model query
+        // extends it to the end of that day unless explicitDate is set. Date-only and relative ends
+        // snap to the end of the day in both, so they stay as they are.
+        return ABSOLUTE_DATETIME.test(dateRange.date_to) ? { ...dateRange, explicitDate: true } : dateRange
     }
     const dateFrom = dateRange?.date_from ?? '-7d'
     const components = dateStringToComponents(dateFrom)

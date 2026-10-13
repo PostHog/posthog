@@ -147,8 +147,15 @@ describe('model breakdown', () => {
         })
     })
 
-    it('preserves a fixed date range', () => {
-        const dateRange = { date_from: '2026-09-01', date_to: '2026-09-05' }
-        expect(freezeModelDateRange(dateRange, 'America/Los_Angeles')).toEqual(dateRange)
+    it.each([
+        ['a date-only end', { date_from: '2026-09-01', date_to: '2026-09-05' }, {}],
+        ['a relative end', { date_from: '-14d', date_to: '-7d' }, {}],
+        [
+            'an end with a time of day',
+            { date_from: '2026-09-01T00:00:00Z', date_to: '2026-09-05T15:00:00Z' },
+            { explicitDate: true },
+        ],
+    ])('keeps a fixed range with %s, marking exact times explicit', (_, dateRange, extra) => {
+        expect(freezeModelDateRange(dateRange, 'America/Los_Angeles')).toEqual({ ...dateRange, ...extra })
     })
 })
