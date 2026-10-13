@@ -9,7 +9,7 @@ import dataclasses
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -48,11 +48,15 @@ EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 # the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
-SIGNALS_START_TO_CLOSE = dt.timedelta(seconds=5)
-SIGNALS_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=6)
-# What the source needs from its binding's `evaluation_timeout`, which has to hold the activities
-# and still leave room to start the delivery children.
-EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE + SIGNALS_SCHEDULE_TO_CLOSE
+# What the source needs from its binding's `evaluation_timeout`, which has to hold both
+# activities and still leave room to start the delivery and signal children.
+EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
+
+SIGNALS_WORKFLOW_NAME = "logs-alert-platform-signals"
+# A child workflow with its own budget, so a large batch of signals never competes with the
+# evaluation's.
+SIGNALS_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+SIGNALS_START_TO_CLOSE = dt.timedelta(minutes=4)
 
 # Workflows started before the signal step replay without it.
 SIGNALS_PATCH = "logs-alert-evaluate-platform-signals"
@@ -119,6 +123,24 @@ async def emit_platform_alert_signals_activity(inputs: PlatformSignalInputs) -> 
     return await emit_notified_alert_signals(notified)
 
 
+@workflow.defn(name=SIGNALS_WORKFLOW_NAME)
+class LogsPlatformAlertSignalsWorkflow(PostHogWorkflow):
+    """Emits one evaluation's Self-driving signals, apart from the evaluation itself."""
+
+    inputs_cls = PlatformSignalInputs
+
+    @workflow.run
+    async def run(self, inputs: PlatformSignalInputs) -> int:
+        # One attempt. `emit_signal` names its workflows by fresh uuids, so a retry would send
+        # every signal the first attempt already sent a second time.
+        return await workflow.execute_activity(
+            emit_platform_alert_signals_activity,
+            inputs,
+            start_to_close_timeout=SIGNALS_START_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
 @workflow.defn(name=WORKFLOW_NAME)
 class LogsAlertEvaluateWorkflow(PostHogWorkflow):
     """Evaluates one batch key, records what it decided, then previews one delivery per
@@ -158,19 +180,20 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
         signals = platform_signals(evaluation)
         if signals and workflow.patched(SIGNALS_PATCH):
             try:
-                await workflow.execute_activity(
-                    emit_platform_alert_signals_activity,
+                await workflow.start_child_workflow(
+                    LogsPlatformAlertSignalsWorkflow.run,
                     PlatformSignalInputs(team_id=inputs.batch_key.team_id, signals=signals),
-                    start_to_close_timeout=SIGNALS_START_TO_CLOSE,
-                    schedule_to_close_timeout=SIGNALS_SCHEDULE_TO_CLOSE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    id=f"{SIGNALS_WORKFLOW_NAME}-{inputs.batch_key.team_id}:{inputs.batch_key.slot}:{inputs.cutoff}",
+                    task_queue=workflow.info().task_queue,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=SIGNALS_EXECUTION_TIMEOUT,
                 )
-            except ActivityError:
-                # A lost signal never fails an evaluation that already recorded and delivered.
-                workflow.logger.warning("Failed to emit platform logs alert signals")
+            except WorkflowAlreadyStartedError:
+                # A re-run of the same evaluation already started its signals.
+                pass
 
         return started
 
 
-SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]
+SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow, LogsPlatformAlertSignalsWorkflow]
 SOURCE_EVALUATION_ACTIVITIES = [evaluate_logs_alerts_activity, emit_platform_alert_signals_activity]
