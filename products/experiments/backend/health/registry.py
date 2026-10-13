@@ -8,6 +8,7 @@ from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
 from products.experiments.backend.health.checks.no_metric import no_metric
+from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures
 from products.experiments.backend.health.context import HealthContext
@@ -16,6 +17,7 @@ HealthCheck = Callable[[HealthContext], ExperimentHealthFinding | None]
 
 EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     flag_state,
+    split_changed_mid_run,
     flag_variants_mismatch,
     forced_variant_release_condition,
     no_metric,
