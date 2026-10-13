@@ -878,7 +878,13 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 return
             }
             actions.rememberRepo(repo.team_id, repo.repo_full_name)
-            if (props.repoFullName && props.repoFullName.toLowerCase() !== repo.repo_full_name.toLowerCase()) {
+            // The repo request can finish after the user moved on while this logic is still mounted.
+            const stillOnThisRun = router.values.location.pathname.endsWith(`/runs/${props.runId}`)
+            if (
+                stillOnThisRun &&
+                props.repoFullName &&
+                props.repoFullName.toLowerCase() !== repo.repo_full_name.toLowerCase()
+            ) {
                 router.actions.replace(
                     runPath(props.runId, repo.repo_full_name),
                     router.values.searchParams,

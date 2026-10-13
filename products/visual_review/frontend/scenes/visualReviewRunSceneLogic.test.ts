@@ -273,14 +273,22 @@ describe('visualReviewRunSceneLogic', () => {
         {
             name: 'moves a renamed repo path to the run repo',
             pathName: 'PostHog/old-name',
-            expectedPath: 'PostHog/posthog',
+            leaveTo: null,
+            expectedPath: '/visual_review/repos/PostHog/posthog/runs/',
         },
         {
             name: 'keeps a path that differs only in case',
             pathName: 'posthog/POSTHOG',
-            expectedPath: 'posthog/POSTHOG',
+            leaveTo: null,
+            expectedPath: '/visual_review/repos/posthog/POSTHOG/runs/',
         },
-    ])('$name', async ({ pathName, expectedPath }) => {
+        {
+            name: 'stays on the page the user moved to before the repo loaded',
+            pathName: 'PostHog/old-name',
+            leaveTo: '/insights',
+            expectedPath: '/insights',
+        },
+    ])('$name', async ({ pathName, leaveTo, expectedPath }) => {
         // A run of its own, because the shared logic already loaded the run without a repo name.
         const NAMED_RUN_ID = '00000000-0000-0000-0000-0000000000bb'
         useMocks({
@@ -299,10 +307,13 @@ describe('visualReviewRunSceneLogic', () => {
         router.actions.push(`/visual_review/repos/${owner}/${name}/runs/${NAMED_RUN_ID}`, {}, { snapshot: 'kept' })
         const namedLogic = visualReviewRunSceneLogic({ runId: NAMED_RUN_ID, repoFullName: pathName })
         namedLogic.mount()
+        if (leaveTo) {
+            router.actions.push(leaveTo, {}, { snapshot: 'kept' })
+        }
 
         await expectLogic(namedLogic).toDispatchActions(['loadRepoSuccess'])
         await expectLogic(namedLogic).toMatchValues({ repoFullName: 'PostHog/posthog' })
-        expect(router.values.location.pathname).toContain(`/visual_review/repos/${expectedPath}/runs/${NAMED_RUN_ID}`)
+        expect(router.values.location.pathname).toContain(expectedPath)
         expect(router.values.hashParams).toEqual({ snapshot: 'kept' })
         namedLogic.unmount()
     })
