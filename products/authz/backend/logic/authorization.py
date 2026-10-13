@@ -80,15 +80,15 @@ def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
         if resource.id is None:
             raise ValueError("Provide a role id")
         return f"role:{org_id}/{UUID(resource.id)}"
-    if resource.type != ResourceType.DASHBOARD:
+    if resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
         raise NotImplementedError(f"OpenFGA synchronization does not yet support {resource.type}")
     if resource.project_id is None:
-        raise ValueError("Provide a project id for dashboard authorization")
+        raise ValueError(f"Provide a project id for {resource.type} authorization")
     if resource.id is None:
-        return f"resource:{org_id}/{resource.project_id}/dashboard"
+        return f"resource:{org_id}/{resource.project_id}/{resource.type}"
     if not resource.id.isdecimal() or int(resource.id) <= 0:
-        raise ValueError("Provide the dashboard's numeric id")
-    return f"dashboard:{org_id}/{resource.project_id}/{int(resource.id)}"
+        raise ValueError(f"Provide the {resource.type}'s numeric id")
+    return f"{resource.type}:{org_id}/{resource.project_id}/{int(resource.id)}"
 
 
 def actor_key(subject: Subject | None) -> str:
@@ -159,12 +159,14 @@ def list_resources(
     resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
 ) -> ResourceIds:
     validate_context(context)
-    if resource.id is not None or resource.type != ResourceType.DASHBOARD or resource.project_id is None:
-        raise ValueError("List resources requires the dashboard resource of a project, without an object id")
+    if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
+        raise ValueError("List resources requires a supported resource type")
+    if resource.project_id is None:
+        raise ValueError("List resources requires a project")
     if limit is not None and limit < 1:
         raise ValueError("Resource limit must be positive")
     org_id = organization_id(resource)
-    prefix = f"dashboard:{org_id}/{resource.project_id}/"
+    prefix = f"{resource.type}:{org_id}/{resource.project_id}/"
     relation = action_relation(f"{prefix}0", action)
     user = actor_key(subject)
     revision = ready_state(org_id)
@@ -176,7 +178,7 @@ def list_resources(
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
         ids: set[str] = set()
         stream = client.streamed_list_objects(
-            ClientListObjectsRequest(user=user, type="dashboard", relation=relation),
+            ClientListObjectsRequest(user=user, type=str(resource.type), relation=relation),
             {"consistency": "HIGHER_CONSISTENCY"},
         )
         try:
@@ -184,12 +186,27 @@ def list_resources(
                 if result.object.startswith(prefix):
                     ids.add(result.object.removeprefix(prefix))
                     if limit is not None and len(ids) > limit:
-                        ids = set(active_authorization_dashboard_ids(resource.project_id, ids))
+                        if resource.type == ResourceType.DASHBOARD:
+                            active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+                        else:
+                            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
+                                active_authorization_insight_ids,
+                            )
+
+                            active_ids = active_authorization_insight_ids(resource.project_id, ids)
+                        ids = set(active_ids)
                         if len(ids) > limit:
                             return ResourceIds(ids=frozenset(), complete=False)
         finally:
             stream.close()
-        active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+        if resource.type == ResourceType.DASHBOARD:
+            active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+        else:
+            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
+                active_authorization_insight_ids,
+            )
+
+            active_ids = active_authorization_insight_ids(resource.project_id, ids)
         if limit is not None and len(active_ids) > limit:
             return ResourceIds(ids=frozenset(), complete=False)
         if ready_state(org_id) != revision:

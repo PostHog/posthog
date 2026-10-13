@@ -6,9 +6,9 @@ from products.access_control.backend.models.role import Role
 
 
 def authorization_rules(team_id: int, organization_id: UUID) -> tuple[AuthorizationRule, ...]:
-    rows = AccessControl.objects.filter(team_id=team_id, resource__in=["project", "dashboard"]).select_related(
-        "organization_member", "role"
-    )
+    rows = AccessControl.objects.filter(
+        team_id=team_id, resource__in=["project", "dashboard", "insight"]
+    ).select_related("organization_member", "role")
     return tuple(
         AuthorizationRule(
             resource=row.resource,

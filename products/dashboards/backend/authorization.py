@@ -7,6 +7,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.dashboards.backend.facade.authorization_contracts import AuthorizationDashboard
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
 class LegacyDashboardAuthorization:
@@ -54,6 +55,17 @@ def active_authorization_dashboard_ids(team_id: int, ids: Collection[str]) -> fr
     return frozenset(
         str(id) for id in Dashboard.objects.filter(team_id=team_id, id__in=ids).values_list("id", flat=True)
     )
+
+
+def insight_dashboard_ids(team_id: int, insight_ids: Collection[int] | None = None) -> dict[int, tuple[int, ...]]:
+    tiles = DashboardTile.objects.filter(team_id=team_id, insight__isnull=False)
+    if insight_ids is not None:
+        tiles = tiles.filter(insight_id__in=insight_ids)
+    result: dict[int, list[int]] = {}
+    for insight_id, dashboard_id in tiles.values_list("insight_id", "dashboard_id"):
+        if insight_id is not None:
+            result.setdefault(insight_id, []).append(dashboard_id)
+    return {insight_id: tuple(dashboard_ids) for insight_id, dashboard_ids in result.items()}
 
 
 def authorization_dashboards(team_id: int) -> tuple[AuthorizationDashboard, ...]:

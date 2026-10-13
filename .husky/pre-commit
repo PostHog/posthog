@@ -57,13 +57,19 @@ if [ -f .github/scripts/check-comment-density.sh ]; then
     bash .github/scripts/check-comment-density.sh || true
 fi
 
+LINT_STAGED_CONCURRENCY=""
+if ! git diff --cached --quiet -- products/authz/model products/authz/model.fga; then
+    # Model generation writes a JSON artifact and runs Go tests; avoid racing staged formatters.
+    LINT_STAGED_CONCURRENCY="--concurrent false"
+fi
+
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
 if command -v flox > /dev/null 2>&1 && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then
     # CI=true so pnpm in flox's on-activate hook doesn't ask for a TTY when
     # cleaning stale node_modules. Pre-commit has no TTY, same as real CI.
-    exec env CI=true "$(command -v flox)" activate -- bash -c "POSTHOG_TELEMETRY_OPT_OUT=1 NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged"
+    exec env CI=true "$(command -v flox)" activate -- bash -c "POSTHOG_TELEMETRY_OPT_OUT=1 NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged $LINT_STAGED_CONCURRENCY"
 else
     # Fallback: run without Flox (for non-Flox users or if already activated)
-    NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged
+    NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged $LINT_STAGED_CONCURRENCY
 fi

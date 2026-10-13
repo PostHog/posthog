@@ -192,6 +192,7 @@ tests:
     - name: One editable dashboard permits editing an attached insight
       tuples:
           - { user: 'project:project', relation: project, object: 'dashboard:editable' }
+          - { user: 'resource:dashboards', relation: resource, object: 'dashboard:editable' }
           - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
           - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
           - { user: 'dashboard:editable', relation: dashboard, object: 'insight:insight' }

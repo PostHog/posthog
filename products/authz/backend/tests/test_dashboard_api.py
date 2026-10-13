@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestDashboardAuthorizationAPI(APIBaseTest):
@@ -14,6 +15,7 @@ class TestDashboardAuthorizationAPI(APIBaseTest):
         self.allowed_relations = {"can_view", "can_edit", "can_delete", "can_manage_access", "can_share"}
         self.allow_resource = True
         self.listed_ids = [self.dashboard.pk]
+        self.listed_insight_ids: list[int] = []
         self.client_fga = MagicMock()
         self.client_fga.client_batch_check.side_effect = lambda checks, options: [
             MagicMock(
@@ -35,8 +37,9 @@ class TestDashboardAuthorizationAPI(APIBaseTest):
 
     def list_objects(self, request, options) -> MagicMock:
         stream = MagicMock()
+        resource_ids = self.listed_ids if request.type == "dashboard" else self.listed_insight_ids
         stream.__iter__.return_value = iter(
-            MagicMock(object=f"dashboard:{self.organization.pk}/{self.team.pk}/{id}") for id in self.listed_ids
+            MagicMock(object=f"{request.type}:{self.organization.pk}/{self.team.pk}/{id}") for id in resource_ids
         )
         return stream
 
@@ -117,6 +120,42 @@ class TestDashboardAuthorizationAPI(APIBaseTest):
         with patch("products.authz.backend.logic.authorization.ready_state", return_value=None):
             response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
         assert response.status_code == 403, response.data
+
+    def test_v2_denial_is_enforced_for_insight_retrieve_and_update(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Insight authorization test", created_by=self.user)
+        self.allowed_relations.remove("can_view")
+        response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.pk}/")
+        assert response.status_code == 403, response.data
+
+        self.allowed_relations.add("can_view")
+        self.allowed_relations.remove("can_edit")
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/insights/{insight.pk}/", {"name": "Changed"}, format="json"
+        )
+        assert response.status_code == 403, response.data
+        insight.refresh_from_db()
+        assert insight.name == "Insight authorization test"
+
+    def test_insight_access_control_write_uses_v2_manager_permission(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Insight access rules", created_by=self.user)
+        self.allowed_relations = {"can_manage_access"}
+        response = self.client.put(
+            f"/api/projects/{self.team.pk}/insights/{insight.pk}/access_controls/",
+            {"access_level": "viewer"},
+            format="json",
+        )
+        assert response.status_code == 200, response.data
+        assert response.data["access_level"] == "viewer"
+
+    def test_insight_list_uses_v2_visible_ids(self) -> None:
+        visible = Insight.objects.create(team=self.team, name="Visible insight", created_by=self.user)
+        hidden = Insight.objects.create(team=self.team, name="Hidden insight", created_by=self.user)
+        self.allowed_relations = {"can_view"}
+        self.listed_insight_ids = [visible.pk]
+        response = self.client.get(f"/api/projects/{self.team.pk}/insights/")
+        assert response.status_code == 200, response.data
+        assert [item["id"] for item in response.data["results"]] == [visible.pk]
+        assert hidden.pk not in [item["id"] for item in response.data["results"]]
 
     def test_bulk_tag_update_does_not_bypass_v2(self) -> None:
         self.allowed_relations = {"can_view", "can_manage_access"}

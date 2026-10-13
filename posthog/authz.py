@@ -52,7 +52,9 @@ def object_access_level(user: User | SyntheticUser | AnonymousUser, obj: Model |
     return "manager" if Action.MANAGE_ACCESS in permissions else "editor"
 
 
-def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, queryset: QuerySet[M]) -> QuerySet[M]:
+def filter_resource_queryset(
+    user: User | SyntheticUser | AnonymousUser, queryset: QuerySet[M], resource_type: ResourceType
+) -> QuerySet[M]:
     if isinstance(user, SyntheticUser):
         return queryset
     if not user.is_authenticated:
@@ -60,7 +62,7 @@ def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, querys
     allowed = Q(pk__in=[])
     for team_id in queryset.order_by().values_list("team_id", flat=True).distinct():
         result = api.list_resources(
-            resource=Resource(type=ResourceType.DASHBOARD, project_id=team_id),
+            resource=Resource(type=resource_type, project_id=team_id),
             action=Action.VIEW,
             subject=Subject(user_id=user.pk),
         )
@@ -69,13 +71,28 @@ def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, querys
     return queryset.filter(allowed)
 
 
-def check_dashboard_category_access(user: User, team: Team, action: Action, *, require_category: bool) -> bool:
-    resource = Resource(type=ResourceType.DASHBOARD, project_id=team.pk)
+def filter_dashboard_queryset(user: User | SyntheticUser | AnonymousUser, queryset: QuerySet[M]) -> QuerySet[M]:
+    return filter_resource_queryset(user, queryset, ResourceType.DASHBOARD)
+
+
+def check_resource_category_access(
+    user: User,
+    team: Team,
+    resource_type: ResourceType,
+    action: Action,
+    *,
+    require_category: bool,
+) -> bool:
     subject = Subject(user_id=user.pk)
     category_action = Action.CREATE if action in (Action.EDIT, Action.DELETE, Action.SHARE) else action
+    resource = Resource(type=resource_type, project_id=team.pk)
     if api.check(resource=resource, action=category_action, subject=subject):
         return True
     if require_category:
         return False
     result = api.list_resources(resource=resource, action=action, subject=subject)
     return result.complete and bool(result.ids)
+
+
+def check_dashboard_category_access(user: User, team: Team, action: Action, *, require_category: bool) -> bool:
+    return check_resource_category_access(user, team, ResourceType.DASHBOARD, action, require_category=require_category)

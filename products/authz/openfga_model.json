@@ -2676,6 +2676,7 @@
                             }
                         ]
                     },
+                    "dashboard_editor": {},
                     "editor": {},
                     "has_dashboard": {
                         "directly_related_user_types": [
@@ -2686,7 +2687,6 @@
                         ]
                     },
                     "has_rule": {},
-                    "legacy_editor": {},
                     "manager": {},
                     "policy": {
                         "directly_related_user_types": [
@@ -2728,7 +2728,7 @@
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "legacy_editor"
+                                    "relation": "dashboard_editor"
                                 }
                             }
                         ]
@@ -2770,6 +2770,41 @@
                 },
                 "dashboard": {
                     "this": {}
+                },
+                "dashboard_editor": {
+                    "union": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "can_edit"
+                                    },
+                                    "tupleset": {
+                                        "relation": "dashboard"
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "member"
+                                            },
+                                            "tupleset": {
+                                                "relation": "project"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_dashboard"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
                 },
                 "editor": {
                     "intersection": {
@@ -2848,41 +2883,6 @@
                         "tupleset": {
                             "relation": "policy"
                         }
-                    }
-                },
-                "legacy_editor": {
-                    "union": {
-                        "child": [
-                            {
-                                "tupleToUserset": {
-                                    "computedUserset": {
-                                        "relation": "legacy_editor"
-                                    },
-                                    "tupleset": {
-                                        "relation": "dashboard"
-                                    }
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "tupleToUserset": {
-                                            "computedUserset": {
-                                                "relation": "member"
-                                            },
-                                            "tupleset": {
-                                                "relation": "project"
-                                            }
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "has_dashboard"
-                                        }
-                                    }
-                                }
-                            }
-                        ]
                     }
                 },
                 "manager": {

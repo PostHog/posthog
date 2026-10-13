@@ -28,7 +28,12 @@ from posthog.auth import (
     TeamSecretTokenAuthentication,
     is_mcp_request,
 )
-from posthog.authz import RESOURCE_ACTIONS, check_dashboard_category_access, check_object_access
+from posthog.authz import (
+    RESOURCE_ACTIONS,
+    check_dashboard_category_access,
+    check_object_access,
+    check_resource_category_access,
+)
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
@@ -55,7 +60,7 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
     ordered_access_levels,
 )
-from products.authz.backend.facade.enums import Action
+from products.authz.backend.facade.enums import Action, ResourceType
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -1134,7 +1139,7 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         resource = object.resource if isinstance(object, ObjectAccessRef) else model_to_resource(object)
-        if resource == "dashboard":
+        if resource in ("dashboard", "insight"):
             if isinstance(object, ObjectAccessRef) and object.team_id != view.team.pk:
                 return False
             if view.action == "access_controls" and request.method not in SAFE_METHODS:
@@ -1212,6 +1217,21 @@ class AccessControlPermission(ScopeBasePermission):
             return check_dashboard_category_access(
                 request.user,
                 team,
+                Action.CREATE if view.action == "create" else RESOURCE_ACTIONS[required_level],
+                require_category=getattr(view, "requires_resource_level_access", False) or view.action == "create",
+            )
+
+        if scope_object == "insight":
+            if not check_object_access(request.user, team, Action.VIEW):
+                return False
+            if not required_level:
+                return True
+            if view.kwargs.get("pk") is not None and not getattr(view, "requires_resource_level_access", False):
+                return True
+            return check_resource_category_access(
+                request.user,
+                team,
+                ResourceType.INSIGHT,
                 Action.CREATE if view.action == "create" else RESOURCE_ACTIONS[required_level],
                 require_category=getattr(view, "requires_resource_level_access", False) or view.action == "create",
             )

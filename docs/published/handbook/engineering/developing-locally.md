@@ -247,7 +247,7 @@ If retries run out, bulk writes bypass model signals, or Redis loses the readine
 This is a development/pilot integration, not a production authorization rollout.
 It reconciles the whole organization and scans the store to compute its tuple diff.
 Use incremental projections before enabling it broadly.
-Dashboard API permissions, list filtering, access-rule editing, sharing, and tile mutations use the authorization facade.
+Dashboard and insight API permissions, list filtering, and access-rule editing use the authorization facade.
 Dashboard checks in insight placement, subscriptions, and AI tools use it too.
 Other resource types keep their existing authorization paths.
 Post-commit task publishing is not a transactional outbox.
@@ -265,31 +265,31 @@ Missing, disabled, boolean, or unknown flag values use `v1`.
 The flag evaluates locally with the organization ID as its distinct ID and organization group key.
 Only the organization's `id` property is supplied, so use organization-ID targeting for the pilot.
 Only resource types in `V2_RESOURCES` in `products/authz/backend/logic/rollout.py` can use OpenFGA, including shadow comparisons.
-The allowlist contains dashboards; project, organization, and role checks always use `v1`.
+The allowlist contains dashboards and insights; project, organization, and role checks always use `v1`.
 Each organization and resource type in a batch gets its own routing decision; results retain the input order.
 Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
 - `permissions` uses the same routed checks to return the supported actions the user can take.
-- `list_resources` returns authorized dashboard IDs scoped to the requested project.
-  Legacy mode evaluates the project's dashboards with the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
+- `list_resources` returns authorized dashboard or insight IDs scoped to the requested project.
+  Legacy mode evaluates the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
   A supplied limit returns an empty, incomplete result if exceeded.
 - `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
 
-The pilot supports dashboard objects, the dashboard resource, projects, organizations, and roles.
+The pilot supports dashboard and insight objects, their resource types, projects, organizations, and roles.
 It does not replace API scope checks, reauthentication, or other request-specific enforcement.
 Shadow comparisons run synchronously after the authoritative check.
 `authz_decision_comparison` logs both decisions, whether they match, the rollout mode, and the user/resource identifiers.
 `authz_resource_list_comparison` logs counts, completeness, and whether the results match, without logging the returned IDs.
 A failed comparison logs an error type and a comparison with `matches=null`; it does not change the authoritative result.
 An authoritative error propagates without falling back to the other engine.
-Optimize the legacy dashboard scan and shadow-check latency before using this path broadly.
+Optimize the legacy dashboard and insight scans and shadow-check latency before using this path broadly.
 
 These methods require an explicit `Subject(user_id=...)`.
 `posthog/authz.py` adapts Django users, objects, and querysets to these contracts.
 Django viewsets bind an `authorization_session` to reuse legacy lookups within each request.
 Authorization-related model writes invalidate this lookup state; the session never caches OpenFGA decisions.
-Authenticated dashboard requests still enforce API scopes, project membership, and reauthentication through Django permissions.
+Authenticated dashboard and insight requests still enforce API scopes, project membership, and reauthentication through Django permissions.
 Public sharing and export authentication retain their existing read-only paths.
 Service credentials retain project-wide access within their API scopes because the facade does not support their principals yet.
 Request-context overrides and non-user principals are not wired yet and raise rather than being ignored.

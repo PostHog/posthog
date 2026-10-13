@@ -25,6 +25,8 @@ from products.authz.backend.facade.contracts import CheckRequest, Resource, Subj
 from products.authz.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade import testing as dashboard_testing
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.models import Insight
 
 DASHBOARD_PERMISSIONS = {
     "none": frozenset(),
@@ -93,13 +95,21 @@ class TestOpenFgaDashboardMirror(BaseTest):
             project_id=team_id or self.team.id,
         )
 
-    def _grant(self, level: str | None, dashboard_id: int | None = None, role_id: UUID | None = None) -> None:
+    def _grant(
+        self,
+        level: str | None,
+        dashboard_id: int | None = None,
+        role_id: UUID | None = None,
+        *,
+        resource: str = "dashboard",
+        resource_id: int | None = None,
+    ) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             set_object_access_control(
                 team_id=self.team.id,
                 input=SetObjectAccessControlInput(
-                    resource="dashboard",
-                    resource_id=str(dashboard_id or self.dashboard_id),
+                    resource=resource,
+                    resource_id=str(resource_id or dashboard_id or self.dashboard_id),
                     access_level=level,
                     organization_member_id=self.membership.id if role_id is None else None,
                     role_id=role_id,
@@ -178,6 +188,58 @@ class TestOpenFgaDashboardMirror(BaseTest):
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"])
         editable = api.list_resources(resource=self._resource(), action=Action.EDIT, subject=self.subject)
         assert editable.complete and not editable.ids
+
+    def test_insight_access_uses_its_rules_and_attached_dashboard_permissions(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            self.creator_user = User.objects.create_and_join(
+                self.organization, "insight-creator@example.com", "test-password"
+            )
+            access_control_testing.create_access_control(
+                team_id=self.team.id,
+                resource="project",
+                resource_id=str(self.team.id),
+                access_level="member",
+            )
+            access_control_testing.create_access_control(team_id=self.team.id, resource="insight", access_level="none")
+        with self.captureOnCommitCallbacks(execute=True):
+            insight = Insight.objects.create(team=self.team, created_by=self.creator_user, name="Insight")
+        resource = Resource(type=ResourceType.INSIGHT, id=str(insight.id), project_id=self.team.id)
+        category = Resource(type=ResourceType.INSIGHT, project_id=self.team.id)
+        assert api.check(resource=resource, action=Action.EDIT, subject=Subject(user_id=self.creator_user.id))
+        self._grant("viewer", resource="insight", resource_id=insight.id)
+        assert api.check(resource=resource, action=Action.VIEW, subject=self.subject)
+        assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        listed = api.list_resources(resource=category, action=Action.VIEW, subject=self.subject)
+        assert listed.complete and listed.ids == frozenset({str(insight.id)})
+
+        self._grant("editor", resource="insight", resource_id=insight.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            access_control_testing.set_access_control_level(
+                team_id=self.team.id, rule_id=self.resource_rule_id, access_level="editor"
+            )
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            dashboard_testing.set_dashboard_restriction(
+                team_id=self.team.id,
+                dashboard_id=self.dashboard_id,
+                level=RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+            )
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            DashboardTile.objects.create(
+                dashboard_id=self.dashboard_id,
+                insight_id=insight.id,
+                team_id=self.team.id,
+            )
+        assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            dashboard_testing.set_dashboard_collaborator(
+                team_id=self.team.id,
+                dashboard_id=self.dashboard_id,
+                user_id=self.other_user.id,
+                level=PrivilegeLevel.CAN_EDIT,
+            )
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
 
     def test_rule_crud_dashboard_lifecycle_and_scoped_listing(self) -> None:
         assert not self._check(Action.VIEW)

@@ -81,14 +81,21 @@ class OrganizationProjection:
                 if role_member is not None:
                     self.add(f"{self.key('organization_member', str(role_member.id))}#user", "assignee", role_key)
 
+        from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- defer product analytics models
+            authorization_insights,
+        )
+
         for team in Team.objects.filter(organization_id=self.organization_id):
             project_key = self.key("project", team.id)
-            resource_key = self.key("resource", f"{team.id}/dashboard")
-            resource_policy_key = self.key("access_policy", f"{team.id}/dashboard/default")
             self.add(self.organization_key, "organization", project_key)
-            self.add(project_key, "project", resource_key)
-            self.add(resource_policy_key, "policy", resource_key)
-            self.add(self.organization_key, "organization", resource_policy_key)
+            resource_keys = {}
+            for resource_type in ("dashboard", "insight"):
+                resource_key = self.key("resource", f"{team.id}/{resource_type}")
+                resource_policy_key = self.key("access_policy", f"{team.id}/{resource_type}/default")
+                resource_keys[resource_type] = resource_key
+                self.add(project_key, "project", resource_key)
+                self.add(resource_policy_key, "policy", resource_key)
+                self.add(self.organization_key, "organization", resource_policy_key)
 
             dashboards = authorization_dashboards(team.id)
             dashboard_ids = {str(dashboard.id) for dashboard in dashboards}
@@ -96,7 +103,7 @@ class OrganizationProjection:
                 object_key = self.key("dashboard", f"{team.id}/{dashboard.id}")
                 policy_key = self.key("access_policy", f"{team.id}/dashboard/{dashboard.id}")
                 self.add(project_key, "project", object_key)
-                self.add(resource_key, "resource", object_key)
+                self.add(resource_keys["dashboard"], "resource", object_key)
                 self.add(policy_key, "policy", object_key)
                 self.add(self.organization_key, "organization", policy_key)
                 creator_membership = (
@@ -115,6 +122,27 @@ class OrganizationProjection:
                             f"{self.key('organization_member', str(collaborator.id))}#user", "collaborator", object_key
                         )
 
+            insights = authorization_insights(team.id)
+            insight_ids = {str(insight.id) for insight in insights}
+            for insight in insights:
+                object_key = self.key("insight", f"{team.id}/{insight.id}")
+                policy_key = self.key("access_policy", f"{team.id}/insight/{insight.id}")
+                self.add(project_key, "project", object_key)
+                self.add(resource_keys["insight"], "resource", object_key)
+                self.add(policy_key, "policy", object_key)
+                self.add(self.organization_key, "organization", policy_key)
+                creator_membership = (
+                    membership_by_user.get(insight.created_by_id) if insight.created_by_id is not None else None
+                )
+                if creator_membership is not None:
+                    self.add(
+                        f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
+                    )
+                for dashboard_id in insight.dashboard_ids:
+                    self.add(self.key("dashboard", f"{team.id}/{dashboard_id}"), "dashboard", object_key)
+                if insight.dashboard_ids:
+                    self.add("user:*", "has_dashboard", object_key)
+
             for rule in authorization_rules(team.id, self.organization_id):
                 if rule.resource == "project":
                     if rule.resource_id != str(team.id):
@@ -122,9 +150,13 @@ class OrganizationProjection:
                     policy_key = project_key
                     levels = {"none", "member", "admin"}
                 else:
-                    if rule.resource_id is not None and rule.resource_id not in dashboard_ids:
+                    resource_type = rule.resource
+                    resource_ids = dashboard_ids if resource_type == "dashboard" else insight_ids
+                    if resource_type not in ("dashboard", "insight") or (
+                        rule.resource_id is not None and rule.resource_id not in resource_ids
+                    ):
                         continue
-                    policy_key = self.key("access_policy", f"{team.id}/dashboard/{rule.resource_id or 'default'}")
+                    policy_key = self.key("access_policy", f"{team.id}/{resource_type}/{rule.resource_id or 'default'}")
                     levels = {"none", "viewer", "editor", "manager"}
                 if rule.access_level not in levels:
                     raise ValueError("Cannot mirror an unsupported access level")

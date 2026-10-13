@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: 331c370af3c276e5
+# Content digest: 355f1c0041a624ef
 model
   schema 1.1
 
@@ -177,11 +177,11 @@ type insight
     define dashboard: [dashboard]
     # This marker distinguishes an unattached insight from one with no editable dashboards.
     define has_dashboard: [user:*]
-    # An insight on a dashboard is editable by the dashboard's legacy editors; an unattached insight is editable by project members.
-    define legacy_editor: legacy_editor from dashboard or ((member from project) but not has_dashboard)
+    # An attached insight follows the dashboard's full edit decision; an unattached insight follows project membership.
+    define dashboard_editor: can_edit from dashboard or ((member from project) but not has_dashboard)
     define can_view: viewer
-    # An edit must pass both the access rules and the legacy dashboard rule.
-    define can_edit: editor and legacy_editor
+    # An edit must pass both the insight access rules and its dashboard's edit decision.
+    define can_edit: editor and dashboard_editor
     define can_delete: can_edit
     define can_manage_access: manager or can_manage_access from project
     define can_share: can_edit

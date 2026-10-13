@@ -1,11 +1,18 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.authorization import authorization_roles
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import AccessControlLevelResource, UserAccessControl
 from products.dashboards.backend.facade.authorization import LegacyDashboardAuthorization
+
+if TYPE_CHECKING:
+    from products.product_analytics.backend.facade.contracts import AuthorizationInsight
 
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, ResourceType
@@ -51,6 +58,26 @@ class LegacyAuthorization:
             self.dashboards[key] = LegacyDashboardAuthorization(access)
         return self.dashboards[key]
 
+    def check_insight(self, access: UserAccessControl, action: Action, insight: AuthorizationInsight) -> bool:
+        assert access.team is not None
+        level = dashboard_level(action)
+        ref = ObjectAccessRef(
+            resource="insight",
+            id=str(insight.id),
+            team_id=access.team.id,
+            created_by_id=insight.created_by_id,
+        )
+        if not access.check_access_level_for_ref(ref, level):
+            return False
+        return (
+            level != "editor"
+            or not insight.dashboard_ids
+            or any(
+                self.dashboard_access(access).check(str(dashboard_id), "editor")
+                for dashboard_id in insight.dashboard_ids
+            )
+        )
+
     def check(self, request: CheckRequest) -> bool:
         resource, action = request.resource, request.action
         object = authorization.object_key(resource)
@@ -84,6 +111,23 @@ class LegacyAuthorization:
                 access.team, "member" if action == Action.VIEW else "admin"
             )
         level = dashboard_level(action)
+        if resource.type == ResourceType.INSIGHT:
+            if not access.has_project_access:
+                return False
+            assert access.team is not None
+            if resource.id is None:
+                if action == Action.MANAGE_ACCESS:
+                    assert access.team is not None
+                    return access.check_can_modify_access_levels_for_object(
+                        access.team
+                    ) or access.check_access_level_for_resource("insight", "manager")
+                return access.check_access_level_for_resource("insight", level)
+            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- defer product analytics models
+                authorization_insights,
+            )
+
+            insight = next(iter(authorization_insights(access.team.id, (int(resource.id),))), None)
+            return insight is not None and self.check_insight(access, action, insight)
         if resource.id is not None:
             return self.dashboard_access(access).check(resource.id, level)
         if not access.has_project_access:
@@ -98,18 +142,39 @@ class LegacyAuthorization:
     def list_resources(
         self, resource: Resource, action: Action, subject: Subject | None, limit: int | None
     ) -> ResourceIds:
-        if resource.id is not None or resource.type != ResourceType.DASHBOARD or resource.project_id is None:
-            raise ValueError("List resources requires the dashboard resource of a project, without an object id")
+        if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
+            raise ValueError("List resources requires a supported resource type")
+        if resource.project_id is None:
+            raise ValueError("List resources requires a project")
         if limit is not None and limit < 1:
             raise ValueError("Resource limit must be positive")
-        authorization.action_relation("dashboard:0", action)
+        authorization.action_relation(f"{resource.type}:0", action)
         authorization.organization_id(resource)
         user = self.user(subject)
         if user is None:
             return ResourceIds(ids=frozenset(), complete=True)
         access = self.user_access(user, resource)
-        ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
-        return ResourceIds(ids=ids or frozenset(), complete=ids is not None)
+        if not access.has_project_access:
+            return ResourceIds(ids=frozenset(), complete=True)
+        if resource.type == ResourceType.DASHBOARD:
+            ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
+            return ResourceIds(ids=ids or frozenset(), complete=ids is not None)
+
+        assert access.team is not None
+        ids: set[str] = set()
+        from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- defer product analytics models
+            authorization_insights,
+        )
+
+        insight_ids = authorization_insights(access.team.id)
+        for insight in insight_ids:
+            if insight.deleted:
+                continue
+            if self.check_insight(access, action, insight):
+                ids.add(str(insight.id))
+                if limit is not None and len(ids) > limit:
+                    return ResourceIds(ids=frozenset(), complete=False)
+        return ResourceIds(ids=frozenset(ids), complete=True)
 
 
 def evaluator() -> LegacyAuthorization:
