@@ -198,6 +198,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-13 — Flash follow-ups drop only P3 findings on unchanged code (`reviewhog-flash-2-3`)
+
+- **What.** The `old_code` rule from `reviewhog-flash-2-1` now drops only P3 findings on code unchanged since the last
+  reviewed head. A P2 on old code goes through dedup like any other finding, so it posts unless it repeats a finding
+  an earlier turn posted.
+- **Why.** A sample of 40 recent turns found the rule dropped 29 P2 findings on follow-ups and no other rule dropped a
+  real finding; about two thirds of those 29 named a specific bug (a 500 on a request path, a missing API scope, a
+  race on a shared reaction). Other review bots on the same PRs raised issues in old code that authors then fixed.
+  The rule existed to stop repeats, and dedup against earlier turns' findings already does that for a finding that
+  posted; what it also dropped were bugs the earlier turn had missed.
+- **Kept.** P3 findings on old code still drop: they are the trickle the rule was built for, and Flash posts P3s
+  rarely.
+- **Supersedes** the idea of letting an old-code finding through only when two turns raise it independently, which
+  would have kept most of these bugs dropped.
+
 ### ✅ DECIDED 2026-10-09 — the `review-hog-internal` gate is gone
 
 - **What.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger, resolution, manual
