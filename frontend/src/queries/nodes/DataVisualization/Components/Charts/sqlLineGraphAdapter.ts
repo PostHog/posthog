@@ -210,8 +210,7 @@ export interface SqlLineSeriesMeta {
     settings?: AxisSeriesSettings
 }
 
-/** A percent-styled column doesn't sum meaningfully with the other columns, so it always stays out
- *  of the tooltip's total row (matches the legacy renderer). Other columns opt out per series. */
+// A percent column doesn't sum meaningfully with the other columns.
 const isExcludedFromTotal = (settings: AxisSeriesSettings | undefined): boolean =>
     settings?.formatting?.style === 'percent' || !!settings?.display?.excludeFromTotal
 
@@ -220,10 +219,6 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
         const settings = series.settings
         const color = settings?.display?.color
         const type = seriesDisplayType(visualizationType, settings)
-        const visibility = {
-            ...(isExcludedFromTotal(settings) ? { total: false } : {}),
-            ...(settings?.display?.hideValueLabel ? { valueLabel: false } : {}),
-        }
 
         return {
             key: getSeriesKey(series, index),
@@ -233,7 +228,10 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             meta: { settings },
             // Per-series type; ignored by the single-type line/bar charts, read by ComboChart.
             type,
-            ...(Object.keys(visibility).length > 0 ? { visibility } : {}),
+            visibility: {
+                total: isExcludedFromTotal(settings) ? false : undefined,
+                valueLabel: settings?.display?.hideValueLabel ? false : undefined,
+            },
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
             ...(visualizationType !== ChartDisplayType.ActionsBarValue && settings?.display?.yAxisPosition === 'right'

@@ -522,6 +522,18 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
             " chart-level display type."
         ),
     )
+    excludeFromTotal: bool | None = Field(
+        default=None,
+        description=(
+            "Keep this series out of the tooltip's total row, e.g. a target line over"
+            " stacked bars. A bar series still stacks, so set `displayType` to `line`"
+            " for a series drawn over the stack."
+        ),
+    )
+    hideValueLabel: bool | None = Field(
+        default=None,
+        description=("Hide this series' value labels when chart-level `showValuesOnSeries` is on."),
+    )
     label: str | None = Field(
         default=None,
         description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),

@@ -340,7 +340,7 @@ describe('sqlLineGraphAdapter', () => {
                 ChartDisplayType.ActionsLineGraph
             )
             expect(percent.visibility).toEqual({ total: false })
-            expect(plain.visibility).toBeUndefined()
+            expect(plain.visibility).toEqual({})
         })
 
         it.each<[string, AxisSeries<number | null>['settings'], Series['visibility']]>([
