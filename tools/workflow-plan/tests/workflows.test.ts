@@ -499,10 +499,11 @@ const E2E_DISPATCH: Scenario = {
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
     ...[
-        { name: 'known fallback', selective: '', fork: false },
-        { name: 'selective PR', selective: 'true', fork: false },
-        { name: 'selective fork PR', selective: 'true', fork: true },
-    ].flatMap(({ name, selective, fork }) =>
+        { name: 'known fallback', selective: '', changedFiles: '', fork: false },
+        { name: 'empty source selection', selective: 'true', changedFiles: '', fork: false },
+        { name: 'selective PR', selective: 'true', changedFiles: 'src/example.ts', fork: false },
+        { name: 'selective fork PR', selective: 'true', changedFiles: 'src/example.ts', fork: true },
+    ].flatMap(({ name, selective, changedFiles, fork }) =>
         ['setup-gh-token', 'selector-install'].map((step) => ({
             file: 'ci-frontend.yml',
             job: 'select-jest-tests',
@@ -512,10 +513,10 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
                 github: pullRequest({ fork }),
                 steps: {
                     ...allFiltersChanged(workflow('ci-frontend.yml')),
-                    'select-jest-tests': { prepare: { outputs: { selective } } },
+                    'select-jest-tests': { prepare: { outputs: { selective, changed_files: changedFiles } } },
                 },
             },
-            runs: selective === 'true' && (step === 'selector-install' || !fork),
+            runs: selective === 'true' && changedFiles !== '' && (step === 'selector-install' || !fork),
         }))
     ),
     {

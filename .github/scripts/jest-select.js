@@ -25,6 +25,7 @@ function listRelatedTests(changedFiles) {
     const output = execFileSync('pnpm', args, {
         cwd: FRONTEND_DIR,
         encoding: 'utf8',
+        timeout: 2 * 60 * 1000,
         maxBuffer: 256 * 1024 * 1024,
         stdio: ['ignore', 'pipe', 'inherit'],
     })
