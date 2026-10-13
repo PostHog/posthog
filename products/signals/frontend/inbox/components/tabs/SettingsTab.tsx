@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { AgentSteeringSection } from '../config/AgentSteeringSection'
 import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
@@ -40,6 +41,9 @@ export function SettingsTab(): JSX.Element {
                 description="How much agents do on their own: opening pull requests, and how many reports arrive each day."
             >
                 <SelfDrivingSection />
+            </SettingsSection>
+            <SettingsSection title="Steering" description="Guide what agents look for and how they work.">
+                <AgentSteeringSection />
             </SettingsSection>
             <SettingsSection
                 title="Code access"

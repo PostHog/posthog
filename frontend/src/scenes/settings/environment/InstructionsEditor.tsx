@@ -13,6 +13,7 @@ interface InstructionsEditorProps {
     onSave: () => void
     restrictionReason?: string | null
     dataAttr: string
+    ariaLabel?: string
 }
 
 export function InstructionsEditor({
@@ -25,6 +26,7 @@ export function InstructionsEditor({
     onSave,
     restrictionReason,
     dataAttr,
+    ariaLabel,
 }: InstructionsEditorProps): JSX.Element {
     if (stored === null) {
         return loading ? (
@@ -45,6 +47,7 @@ export function InstructionsEditor({
                 maxLength={MAX_LENGTH}
                 disabled={!!restrictionReason || loading}
                 data-attr={`${dataAttr}-input`}
+                aria-label={ariaLabel}
             />
             <div className="flex flex-wrap gap-2">
                 <LemonButton

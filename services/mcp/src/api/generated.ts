@@ -101745,6 +101745,21 @@ export namespace Schemas {
       /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
       autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
       /**
+         * Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only.
+         * @maxLength 20000
+         */
+      scout_instructions?: string;
+      /**
+         * Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.
+         * @maxLength 20000
+         */
+      research_instructions?: string;
+      /**
+         * Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.
+         * @maxLength 20000
+         */
+      implementation_instructions?: string;
+      /**
          * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
          * @nullable
          */
