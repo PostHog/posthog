@@ -148,25 +148,29 @@ class TestMetricAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unfiltered", "", ["mine", "unrelated"], False),
-            ("search", "activation revenue", ["mine"], False),
-            ("natural_language", "what is our activation", ["mine"], False),
-            ("stop_words", "what is our", [], False),
-            ("definition", "what is activation", ["mine"], True),
+            ("unfiltered", "", ["mine", "unrelated"], "description"),
+            ("search", "activation revenue", ["mine"], "description"),
+            ("natural_language", "what is our activation", ["mine"], "description"),
+            ("stop_words", "what is our", [], "description"),
+            ("display_name", "what is activation", ["mine"], "display_name"),
+            ("definition", "what is activation", ["mine"], "definition"),
+            ("query", "what is count", ["mine"], "query"),
         ]
     )
-    def test_list_is_team_scoped(self, name: str, search: str, expected: list[str], match_definition: bool) -> None:
+    def test_list_is_team_scoped(self, name: str, search: str, expected: list[str], match_field: str) -> None:
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
-        description = "retention" if match_definition else "activation"
-        definition = {"kind": "MarkdownDefinition", "markdown": "activation"} if match_definition else None
-        self.client.post(
-            self.url, {"name": "mine", "description": description, "definition": definition}, format="json"
-        )
-        Metric.objects.for_team(other_team.id).create(
-            team=other_team, name="theirs", description=description, definition=definition
-        )
+        fields: dict[str, object] = {"description": "retention"}
+        if match_field == "definition":
+            fields["definition"] = {"kind": "MarkdownDefinition", "markdown": "Overview\nactivation"}
+        elif match_field == "query":
+            fields["definition"] = {"kind": "HogQLQuery", "query": "SELECT\ncount() FROM events"}
+        else:
+            fields[match_field] = "activation"
+        created = self.client.post(self.url, {"name": "mine", **fields}, format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", **fields)
 
         self.client.post(self.url, {"name": "unrelated", "description": "retention"}, format="json")
         names = [row["name"] for row in self.client.get(self.url, {"search": search}).json()["results"]]

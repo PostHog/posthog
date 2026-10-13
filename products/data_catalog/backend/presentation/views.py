@@ -8,8 +8,10 @@ from functools import reduce
 from operator import or_
 from typing import cast
 
-from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import QuerySet
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVectorField
+from django.db.models import Func, QuerySet, Value
+from django.db.models.expressions import CombinedExpression
+from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -67,16 +69,41 @@ def _resolve_bulk_metrics(
 
 
 class CatalogSearchFilter(SearchFilter):
+    def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
+        return build_search_vector(dict.fromkeys(self.get_search_fields(view, request) or [], "A"), config="english")
+
     def filter_queryset(self, request: Request, queryset: QuerySet, view: APIView) -> QuerySet:
         terms = self.get_search_terms(request)
         if not terms:
             return queryset
-        vector = build_search_vector(dict.fromkeys(self.get_search_fields(view, request) or [], "A"), config="english")
+        vector = self.get_search_vector(request, view)
         query = reduce(or_, [SearchQuery(term, config="english") for term in terms[:60]])
         return (
-            queryset.annotate(_search_vector=vector, _search_rank=SearchRank(vector, query))
+            queryset.alias(_search_vector=vector, _search_rank=SearchRank(vector, query))
             .filter(_search_vector=query)
             .order_by("-_search_rank", "pk")
+        )
+
+
+class MetricSearchFilter(CatalogSearchFilter):
+    def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
+        definition = Func(
+            Value("english"),
+            "definition",
+            Value('["string"]'),
+            function="jsonb_to_tsvector",
+            output_field=SearchVectorField(),
+        )
+        return CombinedExpression(
+            super().get_search_vector(request, view),
+            "||",
+            Func(
+                Coalesce(definition, Value("", output_field=SearchVectorField())),
+                Value("A"),
+                function="setweight",
+                output_field=SearchVectorField(),
+            ),
+            output_field=SearchVectorField(),
         )
 
 
@@ -85,8 +112,8 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "data_catalog"
     lookup_field = "name"
-    filter_backends = [CatalogSearchFilter]
-    search_fields = ["name", "description", "definition"]
+    filter_backends = [MetricSearchFilter]
+    search_fields = ["name", "display_name", "description"]
     serializer_class = MetricSerializer
     queryset = Metric.objects.unscoped()
 
