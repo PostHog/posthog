@@ -3,6 +3,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { CostModelSource } from './costs/cost-model-matching'
 import type { ModelCost, ModelCostRow } from './costs/providers/types'
+import { aiCostTotalOutcomeCounter } from './metrics'
 import { normalizeTraceProperties, processAiEvent } from './process-ai-event'
 
 jest.mock('~/common/utils/logger', () => ({
@@ -643,33 +644,96 @@ describe('processAiEvent()', () => {
         // these. Iterating the lists themselves would only drop the case. Neither
         // catches the opposite drift: a calculator that starts reading a token
         // property nobody added to its list.
-        it.each([
-            '$ai_cache_read_input_tokens',
-            '$ai_audio_input_tokens',
-            '$ai_reasoning_tokens',
-            '$ai_cache_read_image_tokens',
-        ])('treats %s on its own as a usage report', (property) => {
+        it.each(['$ai_cache_read_input_tokens', '$ai_audio_input_tokens', '$ai_reasoning_tokens'])(
+            'treats %s on its own as a usage report',
+            (property) => {
+                delete event.properties!.$ai_input_tokens
+                delete event.properties!.$ai_output_tokens
+                event.properties![property] = 100
+
+                const result = processAiEvent(event)
+
+                expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+            }
+        )
+
+        it.each(['image', 'audio'] as const)(
+            'keeps orphan cached %s usage unknown without inventing parent counts',
+            async (modality) => {
+                aiCostTotalOutcomeCounter.reset()
+                delete event.properties!.$ai_input_tokens
+                delete event.properties!.$ai_output_tokens
+                event.properties![`$ai_cache_read_${modality}_tokens`] = '100'
+
+                const result = processAiEvent(event)
+
+                expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+                expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+                expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+                expect(result.properties![`$ai_${modality}_input_tokens`]).toBeUndefined()
+                expect(result.properties!.$ai_cache_read_input_tokens).toBeUndefined()
+                expect((await aiCostTotalOutcomeCounter.get()).values).toEqual([
+                    { labels: { outcome: 'unknown' }, value: 1 },
+                ])
+            }
+        )
+
+        it.each(['image', 'audio'] as const)('preserves explicit zero cached %s usage', async (modality) => {
+            aiCostTotalOutcomeCounter.reset()
             delete event.properties!.$ai_input_tokens
             delete event.properties!.$ai_output_tokens
-            event.properties![property] = 100
+            event.properties![`$ai_cache_read_${modality}_tokens`] = '0'
 
             const result = processAiEvent(event)
 
-            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-        })
-
-        it('recognizes cached-image usage without inventing missing parent counts or output usage', () => {
-            delete event.properties!.$ai_input_tokens
-            delete event.properties!.$ai_output_tokens
-            event.properties!.$ai_cache_read_image_tokens = 100
-
-            const result = processAiEvent(event)
-
-            // Cached images are bounded by both the image and cache totals, which
-            // remain absent. Recognizing the report does not reconstruct those totals.
             expect(result.properties!.$ai_input_cost_usd).toBe(0)
             expect(result.properties!.$ai_total_cost_usd).toBe(0)
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+            expect((await aiCostTotalOutcomeCounter.get()).values).toEqual([{ labels: { outcome: 'zero' }, value: 1 }])
+        })
+
+        it.each(['image', 'audio'] as const)(
+            'ignores unusable parent counts when cached %s usage is the only valid report',
+            (modality) => {
+                event.properties!.$ai_input_tokens = 'invalid'
+                event.properties![`$ai_${modality}_input_tokens`] = NaN
+                event.properties!.$ai_cache_read_input_tokens = Infinity
+                event.properties![`$ai_cache_read_${modality}_tokens`] = 100
+                delete event.properties!.$ai_output_tokens
+
+                const result = processAiEvent(event)
+
+                expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+                expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+            }
+        )
+
+        it.each([
+            { properties: { $ai_input_tokens: 100 }, costProperty: '$ai_input_cost_usd', expected: 20 },
+            { properties: { $ai_output_tokens: 50 }, costProperty: '$ai_output_cost_usd', expected: 10 },
+            { properties: { $ai_input_cost_usd: 3 }, costProperty: '$ai_input_cost_usd', expected: 3 },
+            {
+                properties: { $ai_model: 'model-with-request-only', $ai_provider: 'custom' },
+                costProperty: '$ai_request_cost_usd',
+                expected: 0.002,
+            },
+            {
+                properties: { $ai_model: 'perplexity/sonar-pro', $ai_provider: 'perplexity', $ai_web_search_count: 3 },
+                costProperty: '$ai_web_search_cost_usd',
+                expected: 0.015,
+            },
+        ])('preserves known $costProperty alongside orphan cached images', ({ properties, costProperty, expected }) => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            Object.assign(event.properties!, properties, { $ai_cache_read_image_tokens: 100 })
+
+            const result = processAiEvent(event)
+
+            expect(result.properties![costProperty]).toBeCloseTo(expected)
+            expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
+            if (costProperty !== '$ai_input_cost_usd') {
+                expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            }
         })
 
         // Each side is a rate times its own counts, so one reported side must
