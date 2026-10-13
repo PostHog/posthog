@@ -17,13 +17,16 @@ class TestInstantlySource:
         self.team_id = 123
         self.config = InstantlySourceConfig(api_key="test-key")
 
-    def test_get_schemas_only_emails_supports_incremental(self):
+    def test_get_schemas_only_server_filtered_endpoints_support_incremental(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == {*ENDPOINTS, WEBHOOK_EVENTS_ENDPOINT}
-        # Only /emails exposes a server-side timestamp filter (min_timestamp_created); everything
-        # else must ship full refresh.
-        assert {schema.name for schema in schemas if schema.supports_incremental} == {"emails"}
+        # Only /emails (min_timestamp_created) and /accounts/analytics/daily (start_date) expose a
+        # server-side filter; everything else must ship full refresh.
+        assert {schema.name for schema in schemas if schema.supports_incremental} == {
+            "emails",
+            "account_daily_analytics",
+        }
 
     def test_get_schemas_webhook_events_is_webhook_only(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

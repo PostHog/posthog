@@ -52,14 +52,17 @@ import {
     CUSTOMER_TASK_FILTER_URL_KEYS,
     CUSTOMER_TASK_ORDERINGS,
     CUSTOMER_TASK_URL_KEYS,
+    customerTaskAssigneeMode,
     customerTaskSearchParams,
     CustomerTaskEvents,
+    isRoleAssigneeFilter,
     customerTasksQuery,
     DEFAULT_CUSTOMER_TASK_ORDERING,
     defaultCustomerTaskFilters,
     hasCustomerTaskFilters,
     parseCustomerTaskSearchParams,
     type CustomerTaskAccountFilter,
+    type CustomerTaskAssigneeFilter,
     type CustomerTaskFilters,
     type CustomerTaskOrdering,
     type CustomerTasksContext,
@@ -112,6 +115,7 @@ export interface customerTasksLogicActions {
     createTask: (task: CustomerTaskCreateApi) => { task: CustomerTaskCreateApi }
     loadAccountOptions: (payload: { query: string }) => { query: string }
     loadTaskPage: () => { value: true }
+    loadTaskPageFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
     mutationFinished: (key: string) => { key: string }
     mutationStarted: (key: string) => { key: string }
     openCreateModal: () => void
@@ -121,6 +125,7 @@ export interface customerTasksLogicActions {
     archiveTask: (taskId: string) => { taskId: string }
     setAccountFilter: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
     setAccountFilterOpen: (open: boolean) => { open: boolean }
+    setAssignee: (assignee: CustomerTaskAssigneeFilter) => { assignee: CustomerTaskAssigneeFilter }
     setFilters: (filters: Partial<CustomerTaskFilters>) => { filters: Partial<CustomerTaskFilters> }
     setFiltersFromUrl: (state: CustomerTaskUrlState) => { state: CustomerTaskUrlState }
     setAccountFilterName: (name: string) => { name: string }
@@ -195,6 +200,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         openTaskFromUrl: (taskId: string) => ({ taskId }),
         loadTaskPage: true,
         loadAccountOptions: (payload: { query: string }) => payload,
+        setAssignee: (assignee: CustomerTaskAssigneeFilter) => ({ assignee }),
         setFilters: (filters: Partial<CustomerTaskFilters>) => ({ filters }),
         setFiltersFromUrl: (state: CustomerTaskUrlState) => ({ state }),
         setAccountFilterName: (name: string) => ({ name }),
@@ -230,21 +236,27 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     if (values.currentTeamId === null) {
                         return null
                     }
-                    const result = await customerTasksList(
-                        String(values.currentTeamId),
-                        customerTasksQuery(
-                            values.filters,
-                            props.context,
-                            props.accountId,
-                            values.page,
-                            values.pageSize,
-                            values.timezone,
-                            props.canViewAll,
-                            values.ordering
+                    try {
+                        const result = await customerTasksList(
+                            String(values.currentTeamId),
+                            customerTasksQuery(
+                                values.filters,
+                                props.context,
+                                props.accountId,
+                                values.page,
+                                values.pageSize,
+                                values.timezone,
+                                props.canViewAll,
+                                values.ordering
+                            )
                         )
-                    )
-                    breakpoint()
-                    return result
+                        breakpoint()
+                        return result
+                    } catch (error) {
+                        // A superseded request must not reach loadTaskPageFailure, which would act on newer filters.
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -434,9 +446,21 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 )
             }
         },
+        setAssignee: ({ assignee }) => {
+            posthog.capture(CustomerTaskEvents.AssigneeFilterChanged, { mode: customerTaskAssigneeMode(assignee) })
+            actions.setFilters({ assignee })
+        },
         setFilters: () => {
             props.onConfigChange?.(taskConfig(values))
             actions.loadTaskPage()
+        },
+        loadTaskPageFailure: ({ errorObject }) => {
+            // A role deleted after someone saved or shared the filter makes every request fail,
+            // so fall back to the default view instead of an error that never clears.
+            const body = errorObject instanceof ApiError ? (errorObject.data as Record<string, unknown> | null) : null
+            if (body?.assigned_to && isRoleAssigneeFilter(values.filters.assignee)) {
+                actions.setFilters({ assignee: defaultCustomerTaskFilters(props.context).assignee })
+            }
         },
         setFiltersFromUrl: async () => {
             actions.loadTaskPage()

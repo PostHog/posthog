@@ -26,6 +26,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "modified": "Timestamp when the activity event was last modified.",
         },
     },
+    "comments": {
+        "description": "Comments left by users on projects and tasks.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the comment.",
+            "author": "User who wrote the comment.",
+            "task": "Task the comment was left on, if any.",
+            "project": "Project the comment belongs to.",
+            "content": "Plain-text body of the comment.",
+            "content_html": "HTML body of the comment.",
+            "is_internal": "Whether the comment is visible to internal team members only.",
+            "created": "Timestamp when the comment was created.",
+            "modified": "Timestamp when the comment was last modified.",
+        },
+    },
     "companies": {
         "description": "Companies (customer accounts) tracked in Baton.",
         "docs_url": _DOCS_URL,
@@ -58,6 +73,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "modified": "Timestamp when the custom field was last modified.",
         },
     },
+    "custom_field_options": {
+        "description": "Selectable options of picklist custom fields. Join `field` to custom_fields for the field it belongs to.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the custom field option.",
+            "field": "Custom field the option belongs to.",
+            "value": "Display value of the option.",
+            "default": "Whether the option is selected by default.",
+            "archived": "Whether the option is archived.",
+            "created_by": "User who created the option.",
+            "created": "Timestamp when the option was created.",
+            "modified": "Timestamp when the option was last modified.",
+        },
+    },
     "custom_field_values": {
         "description": "Custom field values set on projects. Join `field` to custom_fields for the field name and type.",
         "docs_url": _DOCS_URL,
@@ -71,6 +100,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "selected_option": "Selected option of a picklist custom field.",
             "created": "Timestamp when the value was created.",
             "modified": "Timestamp when the value was last modified.",
+        },
+    },
+    "departments": {
+        "description": "Departments that users can be assigned to.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the department.",
+            "title": "Department name.",
+            "created_by": "User who created the department.",
+            "created": "Timestamp when the department was created.",
+            "modified": "Timestamp when the department was last modified.",
         },
     },
     "milestones": {
@@ -217,6 +257,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_by": "User who uploaded the attachment.",
             "created": "Timestamp when the attachment was created.",
             "modified": "Timestamp when the attachment was last modified.",
+        },
+    },
+    "task_deliverables": {
+        "description": "Deliverables attached to tasks.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the task deliverable.",
+            "task": "Task the deliverable belongs to.",
+            "created_by": "User who created the deliverable.",
+            "type": "Kind of deliverable.",
         },
     },
     "templates": {

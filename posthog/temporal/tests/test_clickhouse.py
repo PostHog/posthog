@@ -1,3 +1,4 @@
+import json
 import uuid
 import asyncio
 import datetime as dt
@@ -557,3 +558,36 @@ async def test_stream_query_as_jsonl_handles_whitespace_only_lines(clickhouse_cl
     assert results[0] == {"id": 1}
     assert results[1] == {"id": 2}
     assert results[2] == {"id": 3}
+
+
+async def test_apost_query_sends_external_tables(clickhouse_client, django_db_setup):
+    table = {
+        "name": "_jev_result",
+        "structure": [
+            ("my `text`", "String"),
+            ("at", "DateTime64(6, 'America/New_York')"),
+            (
+                "decision",
+                "Tuple(choice Nullable(String), probabilities Array(Tuple(value String, probability Float64)), "
+                "confidence Nullable(Float64))",
+            ),
+        ],
+        "data": [
+            {
+                "my `text`": 'say "refund"',
+                "at": dt.datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=dt.UTC),
+                "decision": ["billing", [["billing", 0.9], ["other", 0.1]], 0.9],
+            }
+        ],
+    }
+    query = (
+        "SELECT `my \\`text\\`` AS text, toString(toTimeZone(at, 'UTC')) AS at, decision.choice AS choice, "
+        "decision.probabilities[1].probability AS p FROM _jev_result FORMAT JSONEachRow"
+    )
+
+    async with clickhouse_client.apost_query(
+        query, query_parameters={}, query_id=str(uuid.uuid4()), external_tables=[table]
+    ) as response:
+        row = json.loads(await response.content.read())
+
+    assert row == {"text": 'say "refund"', "at": "2026-01-02 03:04:05.123456", "choice": "billing", "p": 0.9}

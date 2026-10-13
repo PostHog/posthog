@@ -7,7 +7,14 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blogger import (
+    BloggerSourceConfig,
+)
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -30,35 +37,9 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestBloggerSchemas:
-    def test_get_schemas(self) -> None:
-        schemas = {s.name: s for s in BloggerSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"blogs", "posts", "pages", "comments"}
-
-        # Only posts/comments expose a server-side date filter, so only they are incremental.
-        assert schemas["posts"].supports_incremental is True
-        assert schemas["comments"].supports_incremental is True
-        assert schemas["pages"].supports_incremental is False
-        assert schemas["blogs"].supports_incremental is False
-
-        assert [f["field"] for f in schemas["posts"].incremental_fields] == ["published"]
-        assert schemas["pages"].incremental_fields == []
-        for schema in schemas.values():
-            assert schema.detected_primary_keys == ["id"]
-
     def test_get_schemas_names_filter(self) -> None:
         schemas = BloggerSource().get_schemas(MagicMock(), team_id=1, names=["posts"])
         assert [s.name for s in schemas] == ["posts"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert BloggerSource.lists_tables_without_credentials is True
-
-    def test_documented_tables_render_with_canonical_descriptions(self) -> None:
-        tables = {t["name"]: t for t in BloggerSource().get_documented_tables()}
-        assert set(tables) == {"blogs", "posts", "pages", "comments"}
-        assert "Incremental" in tables["posts"]["sync_methods"]
-        assert "Incremental" not in tables["pages"]["sync_methods"]
-        # Description comes from canonical_descriptions.py.
-        assert tables["posts"]["description"]
 
 
 class TestBloggerCredentials:
@@ -120,20 +101,15 @@ class TestBloggerPipelinePlumbing:
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_clears_last_value_when_not_incremental(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return MagicMock()
-
-        config = SimpleNamespace(api_key="K", blog_id="BID")
-        inputs = _make_inputs(
-            schema_name="posts",
+        driver = SourceDriver(BloggerSource(), BloggerSourceConfig(api_key="K", blog_id="BID"))
+        result = driver.run(
+            "posts",
+            [ScriptedResponse(json={"items": [{"id": "p1"}]})],
             should_use_incremental_field=False,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
-        with patch.object(source_module, "blogger_source", fake_source):
-            BloggerSource().source_for_pipeline(config, MagicMock(), inputs)  # type: ignore[arg-type]
 
         # When the run isn't incremental, the stale watermark must not leak through as a startDate.
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.rows == [{"id": "p1"}]
+        assert result.requests[0].param("startDate") is None

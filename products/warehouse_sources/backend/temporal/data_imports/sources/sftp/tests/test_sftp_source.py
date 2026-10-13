@@ -5,16 +5,18 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
+    DELIMITER_ERROR,
+    FILE_PATH_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sftp import (
     SFTPAuthTypeConfig,
     SFTPCombineFilesConfig,
     SFTPSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.settings import FILE_PATH_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
-    DELIMITER_ERROR,
     DIRECTORY_ERROR,
     SFTPAuth,
     SFTPCredentialsError,

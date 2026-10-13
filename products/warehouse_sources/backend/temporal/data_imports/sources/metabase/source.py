@@ -9,11 +9,12 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
@@ -22,18 +23,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     HOST_NOT_ALLOWED_ERROR,
+    QUERY_LOGS_UNAVAILABLE_ERROR,
     SESSION_AUTH,
     SESSION_RESPONSE_NOT_JSON_ERROR,
     MetabaseAuth,
+    MetabaseResumeConfig,
     metabase_source,
     validate_credentials as validate_metabase_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import (
+    ENDPOINTS,
+    METABASE_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class MetabaseSource(SimpleSource[MetabaseSourceConfig]):
+class MetabaseSource(ResumableSource[MetabaseSourceConfig, MetabaseResumeConfig]):
     api_docs_url = "https://www.metabase.com/docs/latest/api"
 
     @property
@@ -127,6 +133,7 @@ The API key (or user) needs read access to the data you want to sync.""",
             "401 Client Error": "Your Metabase credentials are invalid or expired. Update them and reconnect.",
             "403 Client Error": "Your Metabase credentials lack the permissions needed to sync this data. Grant read access and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The Metabase host is not allowed. Please use your instance's public URL.",
+            QUERY_LOGS_UNAVAILABLE_ERROR: "The query_executions table needs Metabase Pro or Enterprise. Deselect it, or upgrade your Metabase plan and reconnect.",
             SESSION_RESPONSE_NOT_JSON_ERROR: "Metabase didn't return a valid session response. Check that the Instance URL points to your Metabase instance, then reconnect.",
             # `_is_host_safe` raises this when the Instance URL doesn't resolve via DNS — a
             # hostname the customer typed wrong or one that's no longer publicly reachable.
@@ -156,14 +163,14 @@ The API key (or user) needs read access to the data you want to sync.""",
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Metabase exposes no server-side timestamp filter or pagination cursor, so every endpoint
-        # is full refresh only.
+        # Only the query log has a server-side time filter (its month window); every other
+        # endpoint is full refresh only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(METABASE_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=METABASE_ENDPOINTS[endpoint].incremental_fields,
             )
             for endpoint in ENDPOINTS
         ]
@@ -181,14 +188,25 @@ The API key (or user) needs read access to the data you want to sync.""",
     ) -> tuple[bool, str | None]:
         return validate_metabase_credentials(config.host, self._build_auth(config), team_id, schema_name)
 
-    def source_for_pipeline(self, config: MetabaseSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MetabaseResumeConfig]:
+        return ResumableSourceManager[MetabaseResumeConfig](inputs, MetabaseResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: MetabaseSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MetabaseResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return metabase_source(
             host=config.host,
             auth=self._build_auth(config),
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             team_id=inputs.team_id,
+            resumable_source_manager=resumable_source_manager,
             job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

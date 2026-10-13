@@ -65,7 +65,7 @@ export const SummaryInProgress: Story = {
     args: { observations: [summary({ status: 'running' }), checkoutMonitor(214_000)] },
 }
 
-export const SummaryFromBeforeBreakdowns: Story = {
+export const SummaryFromBeforeTimelines: Story = {
     render,
     args: { observations: [summary({}), checkoutMonitor(214_000)] },
 }

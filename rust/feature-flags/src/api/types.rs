@@ -5,14 +5,18 @@ use crate::flags::evaluate_v2::EvaluationDetail;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
-use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
+use crate::flags::flag_matching_utils::{failed_flag_dependency, match_flag_value_to_flag_filter};
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FlagFilters, Holdout};
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
 use chrono_tz::Tz;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, fmt, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    str::FromStr,
+};
 use uuid::Uuid;
 
 fn format_operator_explanation(key: &str, op_label: &str, value: &Option<Value>) -> String {
@@ -639,6 +643,7 @@ pub trait FromFeatureAndMatch {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
         cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Self;
@@ -657,6 +662,7 @@ impl FromFeatureAndMatch for FlagDetails {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(Tz::UTC, false),
         )
     }
@@ -668,6 +674,7 @@ impl FromFeatureAndMatch for FlagDetails {
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
         cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Self {
@@ -699,6 +706,7 @@ impl FromFeatureAndMatch for FlagDetails {
                         property_values,
                         group_property_values,
                         flag_evaluation_results,
+                        failed_flag_ids,
                         cohort_matches,
                         matching_context,
                     )
@@ -765,12 +773,14 @@ impl FromFeatureAndMatch for FlagDetails {
 }
 
 impl FlagDetails {
+    #[allow(clippy::too_many_arguments)]
     fn build_condition_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
         group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        failed_flag_ids: Option<&HashSet<FeatureFlagId>>,
         cohort_matches: Option<&HashMap<CohortId, CohortMembership>>,
         matching_context: PropertyMatchingContext,
     ) -> Vec<ConditionAnalysis> {
@@ -824,16 +834,21 @@ impl FlagDetails {
                     // Resolve them against the actual flag evaluation results instead.
                     if property.depends_on_feature_flag() {
                         let empty = HashMap::new();
-                        let property_matched = match_flag_value_to_flag_filter(
-                            property,
-                            flag_evaluation_results.unwrap_or(&empty),
-                        );
+                        let results = flag_evaluation_results.unwrap_or(&empty);
+                        let property_matched = match_flag_value_to_flag_filter(property, results);
                         // Do not expose the dependency flag's evaluated value here. The caller is
                         // only authorized for the flag under test, not necessarily the dependency
                         // flag, so serializing its raw value would leak it. `matched` reflects the
                         // tested flag's own condition outcome, which the caller may already see.
                         let expected = property.value.clone().unwrap_or(Value::Null);
-                        let explanation = if property_matched {
+                        // A failed dependency has no entry in `results`.
+                        // `match_flag_value_to_flag_filter` returns false for a missing entry.
+                        let dependency_failed = failed_flag_ids
+                            .and_then(|failed| failed_flag_dependency(property, results, failed))
+                            .is_some();
+                        let explanation = if dependency_failed {
+                            format!("Flag dependency '{}' failed to evaluate", property.key)
+                        } else if property_matched {
                             format!(
                                 "Flag dependency '{}' satisfied the required value {}",
                                 property.key, expected
@@ -1701,6 +1716,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1806,6 +1822,7 @@ mod tests {
             Some(&group_props),
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1889,6 +1906,7 @@ mod tests {
             Some(&group_props),
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1954,6 +1972,7 @@ mod tests {
             None,
             Some(&flag_results),
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -1988,6 +2007,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             Some(&flag_results),
+            None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -2024,6 +2044,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             None, // empty — dependency flag 42 absent
+            None,
             None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -2089,6 +2110,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             None,
             None,
             None, // membership never resolved
@@ -2172,6 +2194,7 @@ mod tests {
             Some(&HashMap::new()),
             None,
             None,
+            None,
             Some(&HashMap::from([(12345, membership)])),
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
@@ -2241,6 +2264,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             None,
@@ -2321,6 +2345,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
         );
 
@@ -2363,6 +2388,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             None,
@@ -2411,6 +2437,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             None,
@@ -2470,6 +2497,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
+            None,
             None,
             None,
             None,

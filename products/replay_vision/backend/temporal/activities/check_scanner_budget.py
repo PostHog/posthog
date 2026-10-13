@@ -3,8 +3,10 @@ from temporalio import activity
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, initial_watermark
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds
+from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_types import CheckScannerBudgetInputs, CheckScannerBudgetOutput
 
 
@@ -109,7 +111,8 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decision and the notification stamp cannot straddle a rollover.
     period = current_period_bounds(scanner.team.organization_id)
-    budget = compute_scanner_budget(scanner, period)
+    with bounded_queries(CHECK_SCANNER_BUDGET_TIMEOUT):
+        budget = compute_scanner_budget(scanner, period)
     if not budget.blocked:
         return CheckScannerBudgetOutput(capped=False)
     if not budget.blocked_by_settled_spend:

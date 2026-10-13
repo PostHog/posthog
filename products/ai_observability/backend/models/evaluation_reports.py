@@ -111,6 +111,13 @@ class EvaluationReport(UUIDTModel):
         default=10,
         help_text="Maximum count-triggered report runs per calendar day (UTC)",
     )
+    # Running count for count-triggered reports. `counted_results` covers results from
+    # `count_anchor_at` up to, but not including, `count_cursor_at`, and holds only for the
+    # count predicates hashed in `count_predicates_hash`.
+    count_anchor_at = models.DateTimeField(null=True, blank=True)
+    count_cursor_at = models.DateTimeField(null=True, blank=True)
+    counted_results = models.IntegerField(null=True, blank=True)
+    count_predicates_hash = models.CharField(max_length=64, null=True, blank=True)
 
     # Optional per-report custom guidance appended to the agent's system prompt.
     # Lets users steer focus/scope/section choices without touching the base prompt.

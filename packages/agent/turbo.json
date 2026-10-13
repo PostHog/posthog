@@ -4,6 +4,7 @@
     "build": {
       "dependsOn": ["^build"],
       "env": ["SKIP_PRODUCT_ENGINEER_SKILLS_DOWNLOAD"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.platform-stamp"],
       "outputs": ["dist/**"]
     },
     "typecheck": {

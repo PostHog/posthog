@@ -117,7 +117,13 @@ function AnchoredThreadRow({ thread, onOpen }: { thread: ArtifactCommentThread; 
     )
 }
 
-function ThreadList({ logicProps }: { logicProps: TaskArtifactCommentsLogicProps }): JSX.Element {
+export function ArtifactCommentThreadList({
+    logicProps,
+    cardsOnly = false,
+}: {
+    logicProps: TaskArtifactCommentsLogicProps
+    cardsOnly?: boolean
+}): JSX.Element {
     const { visibleThreads, threads, commentsLoadFailed, commentsLoading } = useValues(
         taskArtifactCommentsLogic(logicProps)
     )
@@ -166,7 +172,11 @@ function ThreadList({ logicProps }: { logicProps: TaskArtifactCommentsLogicProps
                         <IconComment />
                     </EmptyMedia>
                     <EmptyTitle>{threads.length > 0 ? 'No open comments' : 'No comments yet'}</EmptyTitle>
-                    <EmptyDescription>{emptyHint(logicProps.kind)}</EmptyDescription>
+                    <EmptyDescription>
+                        {cardsOnly
+                            ? 'To add a comment, open this file on a larger screen.'
+                            : emptyHint(logicProps.kind)}
+                    </EmptyDescription>
                 </EmptyHeader>
             </Empty>
         )
@@ -176,7 +186,7 @@ function ThreadList({ logicProps }: { logicProps: TaskArtifactCommentsLogicProps
             {visibleThreads.map((thread, index) => (
                 <Fragment key={thread.root.id}>
                     {index > 0 && <Separator />}
-                    {thread.anchor && thread.anchor.kind !== 'document' ? (
+                    {!cardsOnly && thread.anchor && thread.anchor.kind !== 'document' ? (
                         <AnchoredThreadRow
                             thread={thread}
                             onOpen={() => {
@@ -259,7 +269,7 @@ export function ArtifactCommentsMenu({ logicProps }: { logicProps: TaskArtifactC
                         dataAttr="task-artifact-comment-document"
                     />
                 </div>
-                <ThreadList logicProps={logicProps} />
+                <ArtifactCommentThreadList logicProps={logicProps} />
             </PopoverContent>
         </Popover>
     )

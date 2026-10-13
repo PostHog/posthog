@@ -59,6 +59,41 @@ impl Op {
     }
 }
 
+/// Work to run before the first matching PUT under a table root, so a test can make
+/// another writer land at an exact point of an upsert.
+type Hook = Box<dyn FnOnce() -> futures::future::BoxFuture<'static, ()> + Send>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PutKind {
+    DataFile,
+    Commit,
+}
+
+static PUT_HOOKS: LazyLock<Mutex<Vec<(String, PutKind, Hook)>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+fn before_first_put(root: &str, kind: PutKind, hook: Hook) {
+    PUT_HOOKS
+        .lock()
+        .unwrap()
+        .push((root.to_string(), kind, hook));
+}
+
+fn take_put_hook(location: &str) -> Option<Hook> {
+    let kind = if !location.contains("/_delta_log/") {
+        PutKind::DataFile
+    } else if location.ends_with(".json") {
+        PutKind::Commit
+    } else {
+        return None;
+    };
+    let mut hooks = PUT_HOOKS.lock().unwrap();
+    let at = hooks
+        .iter()
+        .position(|(root, k, _)| *k == kind && location.starts_with(root.as_str()))?;
+    Some(hooks.remove(at).2)
+}
+
 fn record_read(target: String, n: usize) {
     *READS.lock().unwrap().entry(target).or_default() += n;
 }
@@ -171,6 +206,9 @@ impl ObjectStore for CountingStore {
         payload: PutPayload,
         opts: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if let Some(hook) = take_put_hook(location.as_ref()) {
+            hook().await;
+        }
         record_op(Op::Put, location.as_ref());
         self.inner.put_opts(location, payload, opts).await
     }
@@ -1075,4 +1113,376 @@ async fn commit_state_includes_a_writer_that_landed_first() {
     adopted.sort();
     assert_eq!(adopted.len(), 3, "seed file, external file, own file");
     assert_eq!(adopted, live_paths_from_the_log(&uri).await);
+}
+
+// ---- log probe, commit probe, small files -------------------------------------------
+
+fn count(ops: &[(Op, String)], op: Op, suffix: &str) -> usize {
+    ops.iter()
+        .filter(|(o, path)| *o == op && path.ends_with(suffix))
+        .count()
+}
+
+fn commit_name(version: i64) -> String {
+    format!("_delta_log/{version:020}.json")
+}
+
+async fn create_table_with_retention(uri: &str, retention: &str) -> SchemaRef {
+    CreateBuilder::new()
+        .with_location(uri)
+        .with_columns(vec![
+            StructField::new("pk", KernelType::STRING, false),
+            StructField::new("v", KernelType::LONG, true),
+        ])
+        .with_configuration_property(
+            TableProperty::LogRetentionDuration,
+            Some(retention.to_string()),
+        )
+        .await
+        .expect("create table");
+    let s = schema(true);
+    TableHandle::open(uri.to_string(), HashMap::new())
+        .await
+        .expect("open for seeding")
+        .upsert(
+            vec![batch(&s, &["a"], vec![Some(1)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("seed upsert");
+    s
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Shape {
+    /// The load reads commits after no checkpoint.
+    Plain,
+    /// The loaded version is a checkpoint version, so the load reads no commit file.
+    EndsOnCheckpoint,
+    /// Log cleanup may remove a commit as soon as it is written.
+    NoRetention,
+}
+
+/// A refresh with nothing to apply costs one GET and one HEAD while the probe is proof,
+/// and lists the log in every case where it is not.
+#[tokio::test]
+async fn a_refresh_lists_the_log_only_when_the_probe_is_not_proof() {
+    register_counting_scheme();
+    for (shape, probe, lists) in [
+        (Shape::Plain, true, false),
+        (Shape::Plain, false, true),
+        (Shape::EndsOnCheckpoint, true, true),
+        (Shape::NoRetention, true, true),
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("t");
+        let uri = format!("dltest://{}", path.to_string_lossy());
+        match shape {
+            Shape::Plain => drop(create_seeded_table(&uri, true).await),
+            Shape::EndsOnCheckpoint => drop(create_seeded_table_with(&uri, true, Some(2), 3).await),
+            Shape::NoRetention => {
+                drop(create_table_with_retention(&uri, "interval 0 seconds").await)
+            }
+        }
+        let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+            .await
+            .expect("open");
+        handle.set_probe_refresh(probe);
+        let version = handle.version();
+
+        let start = ops_len();
+        handle.refresh().await.expect("refresh");
+        let ops = ops_since(start, &table_root(&path));
+
+        let case = format!("{shape:?} probe={probe}: {ops:?}");
+        assert_eq!(handle.version(), version, "{case}");
+        assert_eq!(count(&ops, Op::List, "_delta_log") > 0, lists, "{case}");
+        if !lists {
+            assert_eq!(ops.len(), 2, "{case}");
+            assert_eq!(count(&ops, Op::Get, &commit_name(version + 1)), 1, "{case}");
+            assert_eq!(count(&ops, Op::Head, ".json"), 1, "{case}");
+        }
+    }
+}
+
+/// Commits by another writer, with or without a checkpoint among them, are all applied
+/// by one refresh, and the probe is proof again afterwards.
+#[tokio::test]
+async fn a_refresh_applies_every_commit_made_elsewhere() {
+    register_counting_scheme();
+    for (interval, external) in [(None, 1), (None, 3), (Some(2), 3), (Some(2), 4)] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("t");
+        let uri = format!("dltest://{}", path.to_string_lossy());
+        let s = create_seeded_table_with(&uri, true, interval, 2).await;
+        let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+            .await
+            .expect("open");
+        let version = handle.version();
+
+        for i in 0..external {
+            TableHandle::open(uri.clone(), HashMap::new())
+                .await
+                .expect("open external handle")
+                .upsert(
+                    vec![batch(&s, &[format!("k{i}").as_str()], vec![Some(i)])],
+                    s.clone(),
+                    opts(),
+                    MultipartConfig::default(),
+                )
+                .await
+                .expect("external upsert");
+        }
+
+        let case = format!("interval={interval:?} external={external}");
+        handle.refresh().await.expect("refresh");
+        assert_eq!(handle.version(), version + external, "{case}");
+        assert_eq!(
+            sorted_paths(&handle),
+            live_paths_from_the_log(&uri).await,
+            "{case}"
+        );
+
+        let stats = handle
+            .upsert(
+                vec![batch(&s, &["z"], vec![Some(9)])],
+                s.clone(),
+                opts(),
+                MultipartConfig::default(),
+            )
+            .await
+            .expect("upsert after the refresh");
+        assert_eq!(stats.version, version + external + 1, "{case}");
+        assert_eq!(
+            sorted_paths(&handle),
+            live_paths_from_the_log(&uri).await,
+            "{case}"
+        );
+    }
+}
+
+/// A table that was deleted and created again at the same path answers 404 for the next
+/// commit of the old table. The handle must load the new table, whatever its version.
+#[tokio::test]
+async fn a_replaced_table_is_loaded_again() {
+    register_counting_scheme();
+    for new_commits in [1, 4, 6] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("t");
+        let uri = format!("dltest://{}", path.to_string_lossy());
+        create_seeded_table_with(&uri, true, None, 4).await;
+        let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+            .await
+            .expect("open");
+        let old_id = handle.table_id().expect("table id");
+        assert_eq!(handle.version(), 4);
+
+        std::fs::remove_dir_all(&path).expect("delete the table");
+        let s = create_seeded_table_with(&uri, true, None, new_commits).await;
+
+        let case = format!("new table at version {new_commits}");
+        handle.refresh().await.expect("refresh");
+        assert_ne!(handle.table_id().expect("table id"), old_id, "{case}");
+        assert_eq!(handle.version(), new_commits, "{case}");
+        assert_eq!(
+            sorted_paths(&handle),
+            live_paths_from_the_log(&uri).await,
+            "{case}"
+        );
+
+        let stats = handle
+            .upsert(
+                vec![batch(&s, &["z"], vec![Some(9)])],
+                s.clone(),
+                opts(),
+                MultipartConfig::default(),
+            )
+            .await
+            .expect("upsert into the new table");
+        assert_eq!(stats.version, new_commits + 1, "{case}");
+        assert_eq!(
+            sorted_paths(&handle),
+            live_paths_from_the_log(&uri).await,
+            "{case}"
+        );
+    }
+}
+
+/// When the table is replaced by one with fewer versions after the upsert read its
+/// snapshot, the commit file after the old version does not exist, so a create-only put
+/// of it would succeed and leave a gap in the new table's log. The commit must write
+/// nothing, and the upsert must run again on the new table.
+#[tokio::test]
+async fn a_table_replaced_during_an_upsert_gets_no_commit_of_the_old_version() {
+    register_counting_scheme();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("t");
+    let uri = format!("dltest://{}", path.to_string_lossy());
+    let s = create_seeded_table_with(&uri, true, None, 4).await;
+    let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open");
+
+    let (new_uri, old_path) = (uri.clone(), path.clone());
+    before_first_put(
+        &table_root(&path),
+        PutKind::DataFile,
+        Box::new(move || {
+            Box::pin(async move {
+                std::fs::remove_dir_all(&old_path).expect("delete the table");
+                create_seeded_table_with(&new_uri, true, None, 1).await;
+            })
+        }),
+    );
+
+    let stats = handle
+        .upsert(
+            vec![batch(&s, &["z"], vec![Some(9)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("upsert");
+
+    assert!(!path.join(commit_name(5)).exists());
+    assert_eq!(stats.version, 2);
+    assert_eq!(handle.version(), 2);
+    assert_eq!(sorted_paths(&handle), live_paths_from_the_log(&uri).await);
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Race {
+    /// Where in the first writer's upsert the second writer commits.
+    at: PutKind,
+    /// Whether the second writer rewrites the file that the first one read.
+    overlap: bool,
+}
+
+/// A second writer that commits during an upsert is never overwritten: before the
+/// commit put the probe finds its commit, and after the probe the create-only put is
+/// rejected. In the two cases the upsert lands on top of the other commit.
+#[tokio::test]
+async fn a_writer_that_lands_during_an_upsert_is_not_overwritten() {
+    register_counting_scheme();
+    for race in [
+        Race {
+            at: PutKind::DataFile,
+            overlap: false,
+        },
+        Race {
+            at: PutKind::DataFile,
+            overlap: true,
+        },
+        Race {
+            at: PutKind::Commit,
+            overlap: false,
+        },
+        Race {
+            at: PutKind::Commit,
+            overlap: true,
+        },
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("t");
+        let uri = format!("dltest://{}", path.to_string_lossy());
+        let root = table_root(&path);
+        let s = create_disjoint_files_table(&uri, &[&["a0", "a1"]]).await;
+        let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+            .await
+            .expect("open");
+        let base = handle.version();
+
+        let (other_uri, other_schema) = (uri.clone(), s.clone());
+        let other_key = if race.overlap { "a0" } else { "m0" };
+        before_first_put(
+            &root,
+            race.at,
+            Box::new(move || {
+                Box::pin(async move {
+                    TableHandle::open(other_uri, HashMap::new())
+                        .await
+                        .expect("open second writer")
+                        .upsert(
+                            vec![batch(&other_schema, &[other_key], vec![Some(7)])],
+                            other_schema.clone(),
+                            opts(),
+                            MultipartConfig::default(),
+                        )
+                        .await
+                        .expect("second writer");
+                })
+            }),
+        );
+
+        let key = if race.overlap { "a1" } else { "x0" };
+        let start = ops_len();
+        let stats = handle
+            .upsert(
+                vec![batch(&s, &[key], vec![Some(8)])],
+                s.clone(),
+                opts(),
+                MultipartConfig::default(),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{race:?}: {e}"));
+        let ops = ops_since(start, &root);
+
+        assert_eq!(stats.version, base + 2, "{race:?}");
+        assert_eq!(handle.version(), base + 2, "{race:?}");
+        assert_eq!(
+            sorted_paths(&handle),
+            live_paths_from_the_log(&uri).await,
+            "{race:?}"
+        );
+        assert_eq!(
+            handle.num_files().expect("num_files"),
+            if race.overlap { 1 } else { 3 },
+            "{race:?}"
+        );
+        assert_eq!(
+            count(&ops, Op::Put, &commit_name(base + 1)),
+            if race.at == PutKind::Commit { 2 } else { 1 },
+            "{race:?}: a put of the taken version happens only after a probe that saw it free"
+        );
+    }
+}
+
+/// A small file is read with one request when it is opened, and that request serves the
+/// probe. With the switch off the open and the probe are two requests.
+#[tokio::test]
+async fn a_probed_small_file_costs_one_request() {
+    register_counting_scheme();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("t");
+    let uri = format!("dltest://{}", path.to_string_lossy());
+    let s = create_disjoint_files_table(&uri, &[&["a0", "a9"], &["m0", "m9"]]).await;
+    let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open");
+
+    // Inside the key range of the first file but not in it: the stats keep the file,
+    // the probe reads it and finds no match.
+    let start = ops_len();
+    let stats = handle
+        .upsert(
+            vec![batch(&s, &["a5"], vec![Some(1)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("upsert");
+    let ops = ops_since(start, &table_root(&path));
+
+    assert_eq!(stats.files_probed, 1);
+    assert_eq!(stats.files_removed, 0);
+    let data_reads: Vec<_> = ops
+        .iter()
+        .filter(|(op, p)| op.is_read() && p.ends_with(".parquet") && !p.contains("_delta_log"))
+        .collect();
+    assert_eq!(data_reads.len(), 1, "{data_reads:?}");
+    assert_eq!(data_reads[0].0, Op::Get);
 }

@@ -5,12 +5,14 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     ConversionGoalFilter,
     MARKETING_INTEGRATION_CONFIGS,
@@ -21,6 +23,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsSearchRow,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
@@ -29,7 +32,18 @@ import {
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSchemaStatus, ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
+
+import { SEARCH_PERFORMANCE_QUERY_KEY } from 'products/marketing_analytics/frontend/search/searchPerformance'
+import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/search/searchPerformanceLogic'
 
 import {
     MarketingAnalyticsTab,
@@ -61,6 +75,128 @@ describe('marketingAnalyticsLogic', () => {
             logic.unmount()
         }
         localStorage.clear()
+    })
+
+    it('keeps the search date range in the URL when restoring a tab', async () => {
+        router.actions.push(urls.marketingAnalyticsApp(), {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            date_from: '-28d',
+            compare: 'true',
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dateFilter.dateFrom).toBe('-28d')
+        expect(router.values.searchParams).toMatchObject({
+            date_from: '-28d',
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+        })
+    })
+
+    it('keeps a connected Search Console integration selected after refreshing sources', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIntegrationFilter({
+            integrationSourceIds: ['organic', 'deleted'],
+            includeNonIntegrated: false,
+        })
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({
+                count: 1,
+                next: null,
+                previous: null,
+                results: [
+                    {
+                        id: 'organic',
+                        source_id: 'example.com',
+                        connection_id: 'example-organic',
+                        source_type: 'GoogleSearchConsole',
+                        schemas: [
+                            {
+                                name: 'search_analytics_by_query_page',
+                                should_sync: true,
+                                last_synced_at: dayjs(),
+                                sync_frequency: '24hour',
+                                table: { name: 'organic_query_pages', hogql_name: 'organic_query_pages' },
+                            } as ExternalDataSourceSchema,
+                        ],
+                        status: ExternalDataJobStatus.Completed,
+                        prefix: null,
+                        description: 'example.com',
+                        created_via: 'web',
+                        latest_error: null,
+                        sync_frequency: '24hour',
+                        job_inputs: {},
+                        user_access_level: AccessControlLevel.Admin,
+                        revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                    },
+                ],
+            })
+        ).toFinishAllListeners()
+        expect(logic.values.integrationFilter.integrationSourceIds).toEqual(['organic'])
+        const searchLogic = searchPerformanceLogic()
+        const unmountSearch = searchLogic.mount()
+        try {
+            expect(searchLogic.values.missingSources).toEqual(['GoogleAds'])
+            logic.actions.setCompareFilter({ compare: true })
+            logic.actions.setDates('-28d', null)
+            searchLogic.actions.setChannel('paid')
+            searchLogic.actions.setQuerySearch('missing query')
+            expect(searchLogic.values.hasActiveFilters).toBe(true)
+            expect(searchLogic.values.sources).toEqual([])
+
+            searchLogic.actions.clearFilters()
+            expect(searchLogic.values.hasActiveFilters).toBe(false)
+            expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
+            expect(searchLogic.values.query.search).toBe('')
+            expect(logic.values.compareFilter).toEqual({ compare: true })
+            const organicSource = logic.values.dataWarehouseSources!.results[0]
+            await expectLogic(logic, () =>
+                logic.actions.loadSourcesSuccess({
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        organicSource,
+                        {
+                            ...organicSource,
+                            id: 'organic-other',
+                            schemas: [
+                                {
+                                    ...organicSource.schemas[0],
+                                    table: {
+                                        ...organicSource.schemas[0].table!,
+                                        name: 'other_query_pages',
+                                        hogql_name: 'other_query_pages',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                })
+            ).toFinishAllListeners()
+            logic.actions.setIntegrationFilter({ integrationSourceIds: ['organic'] })
+            searchLogic.actions.selectRow({
+                platform: 'GoogleSearchConsole',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+            ])
+            searchLogic.actions.selectRow({
+                platform: 'GoogleAds',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+                'other_query_pages',
+            ])
+        } finally {
+            unmountSearch()
+        }
     })
 
     it.each<{
@@ -212,6 +348,8 @@ describe('marketingAnalyticsLogic', () => {
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
         tiles.mount()
+        const search = searchPerformanceLogic()
+        search.mount()
         try {
             await expectLogic(logic).toFinishAllListeners()
             const goal: ConversionGoalFilter = {
@@ -230,6 +368,52 @@ describe('marketingAnalyticsLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
             logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
+            search.actions.setMetrics('conversions')
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            search.actions.setBreakdown('page')
+            expect(search.values.query.includePostHogConversions).toBe(true)
+            search.actions.selectRow({
+                page: 'https://example.com/pricing',
+                keyword: null,
+                platform: 'GoogleSearchConsole',
+                matchType: null,
+                currency: null,
+                clicks: 10,
+                impressions: 100,
+                cost: null,
+                conversions: null,
+                ctr: 0.1,
+                cpc: null,
+                cpa: null,
+            })
+            expect(search.values.detailQuery).toMatchObject({
+                page: 'https://example.com/pricing',
+                normalizePageUrls: true,
+                includePostHogConversions: false,
+            })
+            const searchNode = dataNodeLogic({
+                key: SEARCH_PERFORMANCE_QUERY_KEY,
+                query: search.values.query,
+                autoLoad: false,
+            })
+            searchNode.mount()
+            const reloadSearch = jest.spyOn(searchNode.actions, 'loadData')
+            const saveSetting = (config: Record<string, unknown>): void => {
+                teamLogic.actions.updateCurrentTeamSuccess(teamLogic.values.currentTeam!, {
+                    marketing_analytics_config: config,
+                })
+            }
+            saveSetting({ attribution_window_days: 30 })
+            expect(reloadSearch).not.toHaveBeenCalled()
+            saveSetting({ filter_test_accounts: true })
+            expect(reloadSearch).toHaveBeenCalledWith('force_async')
+            search.actions.setMetrics('traffic')
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            saveSetting({ filter_test_accounts: false })
+            expect(reloadSearch).toHaveBeenCalledTimes(1)
+            await expectLogic(searchNode).toFinishAllListeners()
+            searchNode.unmount()
+            search.actions.setMetrics('conversions')
             const savedQuery: DataTableNode = {
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -290,8 +474,14 @@ describe('marketingAnalyticsLogic', () => {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
                 logic.actions.setAdPerformanceConversionGoals(true)
+                expect(search.values.query.includePostHogConversions).toBe(true)
                 const chartBefore = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 logic.actions.setAdPerformanceConversionGoals(false)
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                expect(search.values.detailQuery).toMatchObject({
+                    normalizePageUrls: false,
+                    includePostHogConversions: false,
+                })
                 const chartAfter = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 expect(chartAfter).toEqual(chartBefore)
                 expect(chartAfter.series).toHaveLength(1)
@@ -331,6 +521,7 @@ describe('marketingAnalyticsLogic', () => {
                 expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
             }
         } finally {
+            search.unmount()
             tiles.unmount()
         }
     })
@@ -343,6 +534,12 @@ describe('marketingAnalyticsLogic', () => {
         logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
         expect(logic.values.includeConversionGoals).toBe(false)
         expect(logic.values.adPerformanceConversionGoals).toBe(true)
+        const search = searchPerformanceLogic()
+        search.mount()
+        search.actions.setBreakdown('page')
+        search.actions.setMetrics('conversions')
+        expect(search.values.displayMetrics).toBe('traffic')
+        expect(search.values.conversionsDisabledReason).toContain('Configure a conversion goal')
         await expectLogic(logic, () =>
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...teamLogic.values.currentTeam!,
@@ -360,6 +557,12 @@ describe('marketingAnalyticsLogic', () => {
             })
         ).toFinishAllListeners()
         expect(logic.values.includeConversionGoals).toBe(true)
+        expect(search.values.displayMetrics).toBe('conversions')
+        expect(search.values.conversionsDisabledReason).toBeNull()
+        logic.actions.setAdPerformanceConversionGoals(false)
+        expect(search.values.displayMetrics).toBe('traffic')
+        expect(search.values.conversionsDisabledReason).toContain('Include conversion goals')
+        search.unmount()
     })
 
     it('separates an ad source missing its required tables from having no source at all', async () => {
@@ -390,6 +593,80 @@ describe('marketingAnalyticsLogic', () => {
         ).toFinishAllListeners()
 
         expect(logic.values.unconfiguredNativeSources).toEqual([])
+    })
+
+    it.each([
+        [false, false, true, false],
+        [true, false, true, false],
+        [false, true, true, false],
+        [true, true, false, false],
+        [true, true, true, true],
+    ])(
+        'requires both enabled marketing schemas to finish their first sync (%s, %s, %s)',
+        async (campaignSynced, statsSynced, enabled, ready) => {
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const source = {
+                id: 'meta-first-sync',
+                source_type: 'MetaAds',
+                schemas: [
+                    {
+                        id: 'campaigns',
+                        name: 'campaigns',
+                        should_sync: enabled,
+                        last_synced_at: campaignSynced ? dayjs() : null,
+                    },
+                    {
+                        id: 'campaign_stats',
+                        name: 'campaign_stats',
+                        should_sync: enabled,
+                        last_synced_at: statsSynced ? dayjs() : null,
+                    },
+                    { id: 'other', name: 'other', should_sync: true, last_synced_at: dayjs() },
+                ],
+            } as ExternalDataSource
+            await expectLogic(logic, () =>
+                logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [source] })
+            ).toFinishAllListeners()
+            expect(logic.values.hasSyncedMarketingSources).toBe(ready)
+        }
+    )
+
+    it('does not reload analytics queries when polling only changes sync status', async () => {
+        const source = {
+            id: 'meta-health',
+            source_type: 'MetaAds',
+            status: ExternalDataJobStatus.Running,
+            schemas: ['campaigns', 'campaign_stats'].map((name) => ({
+                id: name,
+                name,
+                should_sync: true,
+                last_synced_at: dayjs(),
+            })),
+        } as ExternalDataSource
+        let results = [source]
+        useMocks({
+            get: {
+                '/api/projects/:team_id/external_data_sources/': () => [
+                    200,
+                    { count: results.length, next: null, previous: null, results },
+                ],
+            },
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['reloadAll']).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.loadSources()).toFinishAllListeners()
+        results = [{ ...source, status: ExternalDataJobStatus.Completed }]
+        await expectLogic(logic, () => logic.actions.loadSources())
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['reloadAll'])
+            .toDispatchActions(['loadDatabase', 'loadSourceValidation'])
+        results = []
+        await expectLogic(logic, () => logic.actions.loadSources())
+            .toFinishAllListeners()
+            .toDispatchActions(['reloadAll'])
     })
 
     it('shows validation errors for the affected connection and clears them after reload', async () => {
@@ -546,10 +823,7 @@ describe('marketingAnalyticsLogic', () => {
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({ integrationSourceIds: ['source-1'], includeNonIntegrated: true })
-        )
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ integrationSourceIds: ['source-1'], removedOption: true }))
 
         logic = marketingAnalyticsLogic()
         logic.mount()

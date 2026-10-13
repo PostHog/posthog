@@ -1,7 +1,8 @@
 # Legend
 
-Every multi-series chart (`LineChart`, `BarChart`, `TimeSeriesLineChart`, `TimeSeriesBarChart`, `TimeSeriesComboChart`, `SlopeChart`, `PieChart`) takes `config.legend: ChartLegendConfig`.
+Every multi-series chart (`LineChart`, `BarChart`, `TimeSeriesLineChart`, `TimeSeriesBarChart`, `TimeSeriesComboChart`, `SlopeChart`, `PieChart`, `ProportionBar`) takes `config.legend: ChartLegendConfig`.
 Hidden by default; `show: true` renders the built-in legend.
+`ProportionBar` is the exception: its legend shows by default, below the bar, because the bar has no axis to read a size from.
 The fields are documented on `ChartLegendConfig` in `core/types.ts`.
 
 ## Click model

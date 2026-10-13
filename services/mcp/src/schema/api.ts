@@ -43,6 +43,7 @@ export interface ApiUser {
 // the post-normalization shape that the rest of the codebase consumes.
 export interface ApiRedactedPersonalApiKey {
     is_impersonated?: boolean
+    suppress_analytics?: boolean
     scopes: string[]
     scoped_teams: number[]
     scoped_organizations: string[]

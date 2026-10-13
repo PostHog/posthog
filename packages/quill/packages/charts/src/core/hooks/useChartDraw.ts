@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 
+import { markPaintDone, markPaintPending } from '../paint-state'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -56,9 +57,15 @@ export function useChartDraw({
             cancelAnimationFrame(staticRafRef.current)
             staticRafRef.current = null
         }
-        if (!ctx || !dimensions || !scales || theme.skipDraw) {
+        if (!ctx) {
             return
         }
+        // Nothing to paint is a settled state too, or a snapshot runner would wait on it.
+        if (!dimensions || !scales || theme.skipDraw) {
+            markPaintDone(ctx.canvas)
+            return
+        }
+        markPaintPending(ctx.canvas)
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
@@ -77,6 +84,7 @@ export function useChartDraw({
                 })
             } finally {
                 ctx.restore()
+                markPaintDone(ctx.canvas)
             }
         })
         return () => {

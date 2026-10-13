@@ -219,6 +219,9 @@ export GOTOOLCHAIN=local
 export GOPATH="$FLOX_ENV_CACHE/go"
 export GOCACHE="$FLOX_ENV_CACHE/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
+# Go creates the module cache read-only by default, and `rm -rf` on a worktree
+# cannot delete a read-only directory tree.
+export GOFLAGS=-modcacherw
 
 # uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.

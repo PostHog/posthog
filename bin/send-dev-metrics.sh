@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Smoke-test the metrics ingest chain by POSTing a synthetic OTLP payload to
-# capture-apm-metrics. Same shape as nodejs/src/logs-ingestion/sampling-seed-services-curl.sh.
+# capture-apm-metrics. Same shape as nodejs/src/logs/sampling-seed-services-curl.sh.
 #
 # Usage:
 #   # Local dev (default — same path logs scripts use):

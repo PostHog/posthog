@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -75,6 +76,11 @@ export const manifest: ProductManifest = {
             iconType: 'skill',
             iconColor: ['var(--color-product-skills-light)', 'var(--color-product-skills-dark)'],
             href: urls.skills(),
+            searchKeywords: ['agent instructions', 'playbooks'],
+            searchTabs: [
+                { name: 'Scouts', href: urls.skillsCategoryTab('scouts') },
+                { name: 'Community', href: urls.communitySkills(), flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS },
+            ],
             sceneKey: 'Skills',
         },
     ],

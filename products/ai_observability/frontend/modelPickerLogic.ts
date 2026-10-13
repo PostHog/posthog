@@ -20,6 +20,7 @@ export interface ModelOption {
     description: string
     providerKeyId?: string
     isRecommended?: boolean
+    supportsDecisions?: boolean
 }
 
 export interface ProviderModelGroup {
@@ -265,6 +266,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
                             )) as (Omit<ModelOption, 'providerKeyId' | 'isRecommended'> & {
                                 is_recommended?: boolean
+                                supports_decisions?: boolean
                             })[]
                             return rawModels.map((m) => ({
                                 id: m.id,
@@ -272,6 +274,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 provider: m.provider,
                                 description: m.description,
                                 isRecommended: m.is_recommended ?? false,
+                                supportsDecisions: m.supports_decisions ?? false,
                                 providerKeyId: key.id,
                             }))
                         } catch {
@@ -353,7 +356,9 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
             (s) => [s.byokModels, s.providerKeys],
             (models: ModelOption[], keys: LLMProviderKey[]): ModelOption[] =>
                 models.filter(
-                    (model) => !keys.some((key) => key.id === model.providerKeyId && key.provider === 'system_one')
+                    (model) =>
+                        !model.supportsDecisions &&
+                        !keys.some((key) => key.id === model.providerKeyId && key.provider === 'system_one')
                 ),
         ],
         playgroundProviderModelGroups: [
@@ -421,7 +426,10 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         providerModelGroups: [
             (s) => [s.evaluationProviderModelGroups],
             (groups: ProviderModelGroup[]): ProviderModelGroup[] =>
-                groups.filter((group) => group.provider !== 'system_one'),
+                groups
+                    .filter((group) => group.provider !== 'system_one')
+                    .map((group) => ({ ...group, models: group.models.filter((model) => !model.supportsDecisions) }))
+                    .filter((group) => group.models.length > 0 || group.disabledReason),
         ],
         evaluationModelNotice: [
             (s) => [

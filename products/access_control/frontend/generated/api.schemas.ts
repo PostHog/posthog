@@ -62,6 +62,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
+ * * `cross_project_dashboard` - cross_project_dashboard
  * * `customer_analytics` - customer_analytics
  * * `customer_task` - customer_task
  * * `customer_journey` - customer_journey
@@ -181,6 +182,7 @@ export const ScopeObjectEnumApi = {
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
+    CrossProjectDashboard: 'cross_project_dashboard',
     CustomerAnalytics: 'customer_analytics',
     CustomerTask: 'customer_task',
     CustomerJourney: 'customer_journey',
@@ -323,6 +325,7 @@ export interface ProjectAccessSourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -485,6 +488,7 @@ export interface AccessControlObjectRuleApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -872,6 +876,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -1137,6 +1142,7 @@ export interface ResolvedAccessApi {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey

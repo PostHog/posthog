@@ -115,20 +115,28 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
             total_mib = _live_delta_size_mib(_delta_table_uri(schema, table))
         if total_mib is None:
             total_mib = get_size_of_folder(s3_folder)
-    except OSError as e:
+    except Exception as e:
+        import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this activity module's import path
+
+        if not isinstance(e, OSError | deltalake.exceptions.DeltaError):
+            raise
+
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this activity module's import path
             TransientObjectStoreError,
+            is_transient_delta_maintenance_error,
             is_transient_object_store_error,
         )
 
-        if not is_transient_object_store_error(e):
+        if not (is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e)):
             raise
         # Covers this worker's own fd pressure (EMFILE/ENFILE, e.g. botocore loading a data file
-        # while building the S3 client) and known-transient S3/object-store blips (IMDS/STS hiccups,
-        # dropped connections) hit opening the Delta log (_live_delta_size_mib) or listing the query
-        # folder (get_size_of_folder) — see is_transient_object_store_error. A retry recovers on its
-        # own, so it shouldn't page anyone.
-        logger.warning("Transient object-store error calculating table size in S3", exc_info=e)
+        # while building the S3 client), known-transient S3/object-store blips (IMDS/STS hiccups,
+        # dropped connections), and a concurrent reset/maintenance pass purging `_delta_log` out from
+        # under this read (is_transient_delta_maintenance_error, e.g. a full refresh racing this
+        # activity's own DeltaTable() open in _live_delta_size_mib) — all hit opening the Delta log
+        # or listing the query folder (get_size_of_folder). A retry recovers on its own, so it
+        # shouldn't page anyone.
+        logger.warning("Transient error calculating table size in S3", exc_info=e)
         raise TransientObjectStoreError(str(e)) from e
 
     logger.debug(f"Total size in MiB = {total_mib:.2f}")

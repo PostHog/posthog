@@ -997,6 +997,22 @@ export interface InboxReportActionResultProperties {
 }
 
 /**
+ * A report's product suggestion was rendered under its evidence, or its link
+ * to the product was followed. Mirrors cloud's `Inbox report source
+ * suggestion shown` / `clicked`, so the clients are comparable in one PostHog
+ * project.
+ */
+export interface InboxReportSourceSuggestionProperties {
+  report_id: string;
+  report_age_hours: number;
+  priority: string | null;
+  actionability: string | null;
+  /** Whether the report already has an implementation PR. */
+  has_pr: boolean;
+  product: string;
+}
+
+/**
  * Thumbs-up/down verdict on a report's usefulness, fired from the feedback
  * footer at the end of the report body. Feedback-only: unlike a dismiss, the
  * report keeps its state. The sentiment is the label ranking work trains
@@ -1352,6 +1368,12 @@ export interface CanvasViewedProperties {
   template_id: string;
 }
 
+export interface CanvasUnavailableProperties {
+  dashboard_id: string;
+  /** `no_access`: the canvas is in a space not shared with the viewer. `missing`: any other miss. */
+  reason: "no_access" | "missing";
+}
+
 export interface CanvasRuntimeErrorProperties {
   channel_id?: string;
   dashboard_id?: string;
@@ -1426,7 +1448,11 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-type UpgradePromptCause = "model_gate" | "model_unavailable" | "org_limit";
+type UpgradePromptCause =
+  | "model_gate"
+  | "model_unavailable"
+  | "org_limit"
+  | "user_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
@@ -1813,6 +1839,9 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_REPORT_SOURCE_SUGGESTION_SHOWN: "Inbox report source suggestion shown",
+  INBOX_REPORT_SOURCE_SUGGESTION_CLICKED:
+    "Inbox report source suggestion clicked",
   INBOX_TRIAGE_STARTED: "Inbox triage started",
   INBOX_TRIAGE_ENDED: "Inbox triage ended",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
@@ -1848,6 +1877,7 @@ export const ANALYTICS_EVENTS = {
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_VIEWED: "Canvas viewed",
+  CANVAS_UNAVAILABLE: "Canvas unavailable",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CANVAS_DATA_REQUEST_REJECTED: "Canvas data request rejected",
@@ -2037,6 +2067,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN]: InboxReportSourceSuggestionProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_CLICKED]: InboxReportSourceSuggestionProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
@@ -2072,6 +2104,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
+  [ANALYTICS_EVENTS.CANVAS_UNAVAILABLE]: CanvasUnavailableProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED]: CanvasDataRequestRejectedProperties;
@@ -2129,6 +2162,8 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN,
+  ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_CLICKED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,

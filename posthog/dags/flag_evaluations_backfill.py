@@ -50,8 +50,14 @@ _FINISHED_RUN_STATUSES = (
 # The nine DEFAULT columns are left out so the shard computes them from properties, the same way
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
 # that keeps every copied row inside the deletion sweep's `inserted_at <= request.created_at` bound,
-# and it keeps copied rows out of the consumer-lag query below.
+# and it keeps copied rows out of the consumer-lag query below. _partition and _offset are left out
+# so that both are 0 on a copied row. _COPIED_ROW_FILTER relies on that.
 _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp"
+
+# A row from Kafka also has inserted_at = timestamp when its timestamp has no sub-second part and
+# falls in the second that Kafka received it. Kafka gives offset 0 only to the first message in a
+# partition, so the only Kafka row this filter can match is the first message in partition 0.
+_COPIED_ROW_FILTER = "_partition = 0 AND _offset = 0 AND inserted_at = timestamp"
 
 # A copied row's inserted_at is its timestamp, so the inserted_at != timestamp filter limits this
 # query to rows that arrived through the Kafka path.
@@ -59,16 +65,25 @@ _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, cre
 # consumer's position. The lookback spans several days so that a partition that stops delivering
 # stays in the query and reports its real lag. A partition that has delivered nothing for the whole
 # lookback drops out of this query.
+# Lag comes from _timestamp, the Kafka message time. A consumer that works through a backlog writes
+# rows now, so the time a row is written does not show how far the consumer is behind.
+# The lookback filters on inserted_at because only inserted_at has a skip index.
 _KAFKA_LOOKBACK_DAYS = 7
 _KAFKA_POSITION_QUERY = f"""
 SELECT count(), max(lag_seconds)
 FROM (
-    SELECT _partition, dateDiff('second', max(inserted_at), now64(6)) AS lag_seconds
+    SELECT _partition, dateDiff('second', max(_timestamp), now()) AS lag_seconds
     FROM {FLAG_EVALUATIONS_DATA_TABLE}
     WHERE inserted_at >= now() - INTERVAL {_KAFKA_LOOKBACK_DAYS} DAY AND inserted_at != timestamp
     GROUP BY _partition
 )
 """
+
+# Ingestion's producer sets each message's Kafka create time when it calls produce.
+# librdkafka retries a failed produce until message.timeout.ms, which defaults to five minutes.
+# A retried row keeps the create time of its first attempt, so it can reach flag_evaluations after rows
+# with a later create time.
+_KAFKA_DELIVERY_TIMEOUT = timedelta(minutes=5)
 
 _STORAGE_POLICY_DISKS_QUERY = f"""
 SELECT policy.volume_priority, policy.move_factor, disk.free_space, disk.total_space
@@ -101,7 +116,8 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
         default=None,
         description=(
             "Day after the last day to copy (YYYY-MM-DD, UTC, exclusive). Defaults to yesterday, which is also "
-            "the latest allowed value: the Kafka path must have delivered every row before it."
+            "the latest allowed value. Every copied day therefore ended at least a day before the run. That gives "
+            "late Kafka rows a day to reach flag_evaluations, so the job does not copy their calls a second time."
         ),
     )
     team_ids: list[int] | None = pydantic.Field(
@@ -235,6 +251,10 @@ def build_copy_query(*, dry_run: bool, filter_team_ids: bool, chunked: bool) -> 
     if chunked:
         team_filter += " AND modulo(team_id, %(team_id_chunks)s) = %(chunk)s"
     # The eligibility filter is the ingestion fork's rule, in the form PARITY_CHECK.md uses.
+    # Ingestion queues a call's fork row before its events row, so the fork row's Kafka create time is never
+    # later than the events row's _timestamp. A source row whose _timestamp is at or after created_before can
+    # still have its fork row in Kafka. Copying it would store the call twice, so the job skips it. Kafka then
+    # delivers its fork row, or a later run copies it.
     select = f"""
 SELECT {"count()" if dry_run else _COPIED_COLUMNS}
 FROM {EVENTS_DATA_TABLE()}
@@ -244,7 +264,8 @@ PREWHERE event = %(event)s
         SELECT team_id, uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
         WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
     )
-WHERE JSONType(properties, '$feature_flag') = 'String'
+WHERE _timestamp < %(created_before)s
+    AND JSONType(properties, '$feature_flag') = 'String'
     AND JSONExtractString(properties, '$feature_flag') != ''
 """
     if dry_run:
@@ -321,12 +342,12 @@ class ShardBackfill:
                 break
             self.wait_for_parts_to_merge(day)
             blocking_run_check = self._wait_for_disk_and_blocking_runs()
-            self.check_consumer_lag()
+            created_before = self.consumer_cutoff()
             # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             try:
-                rows = self.copy_day(day, copy_query, settings)
+                rows = self.copy_day(day, copy_query, settings, created_before)
             finally:
                 if not self.config.dry_run:
                     self.check_no_blocking_run_started(blocking_run_check, day=day)
@@ -431,7 +452,7 @@ class ShardBackfill:
                 "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
                 f"After that run finishes, delete the rows this job copied for {day} on shard {self.shard_num} "
                 f"(`DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '{day}' "
-                f"AND inserted_at = timestamp{team_filter}`), then run the backfill again for the same teams."
+                f"AND {_COPIED_ROW_FILTER}{team_filter}`), then run the backfill again for the same teams."
             )
 
     def wait_for_disk_headroom(self) -> None:
@@ -478,7 +499,13 @@ class ShardBackfill:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
         return hosts_moving_parts
 
-    def check_consumer_lag(self) -> None:
+    def consumer_cutoff(self) -> datetime:
+        """Stop the shard when the Kafka path to flag_evaluations is too far behind.
+
+        Otherwise return a cutoff such that flag_evaluations holds every fork row whose Kafka create time is
+        before it.
+        """
+        checked_at = datetime.now(UTC)
         kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
         if kafka_partitions == 0:
             raise dagster.Failure(
@@ -491,12 +518,17 @@ class ShardBackfill:
                 f"over the limit of {self.config.max_consumer_lag_seconds}s. Copying now would insert rows "
                 "that Kafka then delivers a second time."
             )
+        # A part can reach the copy host after newer parts, through a postponed replication fetch or a queued
+        # Distributed send. The anti-join reads only local parts. The cutoff therefore subtracts the whole lag
+        # limit rather than the measured lag, which leaves that much slack for a late part.
+        return checked_at - timedelta(seconds=self.config.max_consumer_lag_seconds) - _KAFKA_DELIVERY_TIMEOUT
 
-    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any]) -> int:
+    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any], created_before: datetime) -> int:
         day_args = {
             "event": FLAG_EVALUATIONS_SOURCE_EVENT,
             "day_start": f"{day:%Y-%m-%d} 00:00:00",
             "day_end": f"{day + timedelta(days=1):%Y-%m-%d} 00:00:00",
+            "created_before": f"{created_before:%Y-%m-%d %H:%M:%S}",
             "team_ids": tuple(self.config.team_ids or ()),
             "team_id_chunks": self.config.team_id_chunks,
         }

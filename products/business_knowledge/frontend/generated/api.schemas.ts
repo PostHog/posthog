@@ -334,6 +334,8 @@ export interface RepositoryCacheStateApi {
      * * `ready` - Ready
      * * `warming` - Warming */
     cache_status: RepositoryCacheStatusEnumApi
+    /** GitHub description for this repository. Empty when GitHub has none or the cache has not loaded it. */
+    description: string
 }
 
 export interface RepositorySearchResponseApi {

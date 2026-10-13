@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.exceptions_capture import capture_exception
 
 from . import common, model, oauth
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed, ReconnectRequired
 
 logger = structlog.get_logger(__name__)
 
@@ -157,6 +158,41 @@ class JiraIntegration:
         projects = body.get("values", [])
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
 
+    def list_assignees(self, project_key: str, search: str = "") -> list[Assignee]:
+        """Active users who can be assigned issues in the project, matching ``search``.
+
+        Raises ReconnectRequired for a connection made before PostHog requested read:jira-user.
+        """
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise AssigneeLookupFailed("Jira integration missing cloud_id")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/user/assignable/search",
+            params={
+                "project": project_key,
+                "maxResults": str(MAX_ASSIGNEES),
+                **({"query": search.strip()} if search.strip() else {}),
+            },
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+            timeout=10,
+        )
+        # Jira answers 401 or 403 when the connection's grant lacks read:jira-user.
+        if response.status_code in (401, 403):
+            raise ReconnectRequired()
+        if response.status_code != 200:
+            raise AssigneeLookupFailed("Could not list the Jira project's assignable users")
+        return [
+            Assignee(id=user["accountId"], name=user.get("displayName") or user["accountId"])
+            for user in response.json()
+            if user.get("active", True)
+        ]
+
     def create_issue(self, config: dict[str, str]) -> dict[str, str]:
         """Create a Jira issue and return the issue key"""
         cloud_id = self.cloud_id()
@@ -168,15 +204,17 @@ class JiraIntegration:
         title = config.get("title")
         description = config.get("description")
         project_key = config.get("project_key")
+        assignee = config.get("assignee")
 
-        payload = {
-            "fields": {
-                "project": {"key": project_key},
-                "summary": title,
-                "description": description_to_adf(description or ""),
-                "issuetype": {"name": "Task"},
-            }
+        fields: dict[str, Any] = {
+            "project": {"key": project_key},
+            "summary": title,
+            "description": description_to_adf(description or ""),
+            "issuetype": {"name": "Task"},
         }
+        if assignee:
+            fields["assignee"] = {"accountId": assignee}
+        payload = {"fields": fields}
 
         response = requests.post(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",

@@ -204,7 +204,7 @@ SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
         )
     },
     tags={
-        "owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value,
+        "owner": JobOwners.TEAM_QUERY_PERFORMANCE.value,
         "query_log_archive_backfill_concurrency": "query_log_archive_v1",
     },
 )

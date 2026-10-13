@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -8,15 +9,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import LEMLIST_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import (
+    LEMLIST_ENDPOINTS,
+    LemlistEndpointConfig,
+)
 
 LEMLIST_BASE_URL = "https://api.lemlist.com/api"
 # lemlist caps list pages at 100 rows and rate-limits to 20 requests / 2s per API key.
@@ -69,6 +80,74 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": LEMLIST_BASE_URL,
+        # lemlist uses HTTP Basic auth with an empty username and the API key as the password.
+        # Supplied via the framework auth config so the key is redacted from logs and errors.
+        "auth": {"type": "http_basic", "username": "", "password": api_key},
+    }
+
+
+def _request_params(config: LemlistEndpointConfig, api_version: str) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if config.requires_version_v2 or (config.version_v2_enriches and api_version == LEMLIST_API_VERSION_V2):
+        params["version"] = LEMLIST_API_VERSION_V2
+    if config.request_sort_by:
+        params["sortBy"] = config.request_sort_by
+    if config.request_sort_order:
+        params["sortOrder"] = config.request_sort_order
+    return params
+
+
+def _campaign_fanout_source(
+    api_key: str,
+    endpoint: str,
+    config: LemlistEndpointConfig,
+    team_id: int,
+    job_id: str,
+    api_version: str,
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = LEMLIST_ENDPOINTS[config.fanout.parent_name]
+    fanout = dataclasses.replace(config.fanout, parent_params=_request_params(parent_config, api_version))
+
+    child_endpoint_extra: Endpoint = {"paginator": SinglePagePaginator()}
+    if config.data_selector:
+        child_endpoint_extra["data_selector"] = config.data_selector
+
+    resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=LEMLIST_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            # None of the per-campaign endpoints has a server-side time filter.
+            db_incremental_field_last_value=None,
+            # The parent's OffsetPaginator sends `limit`; the child endpoints take no page size.
+            page_size_param=None,
+            parent_endpoint_extra={"paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None)},
+            child_endpoint_extra=child_endpoint_extra,
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode=config.sort_mode,
+    )
+
+
 def lemlist_source(
     api_key: str,
     endpoint: str,
@@ -80,14 +159,10 @@ def lemlist_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = LEMLIST_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _campaign_fanout_source(api_key, endpoint, config, team_id, job_id, api_version)
 
-    params: dict[str, Any] = {}
-    if config.requires_version_v2 or (config.version_v2_enriches and api_version == LEMLIST_API_VERSION_V2):
-        params["version"] = LEMLIST_API_VERSION_V2
-    if config.request_sort_by:
-        params["sortBy"] = config.request_sort_by
-    if config.request_sort_order:
-        params["sortOrder"] = config.request_sort_order
+    params = _request_params(config, api_version)
 
     # lemlist has no top-level `total`; the OffsetPaginator terminates on a short/empty page.
     # Non-paginated endpoints (team, team/senders) return their whole result in one response.
@@ -96,6 +171,8 @@ def lemlist_source(
         "params": params,
         "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None) if config.paginate else SinglePagePaginator(),
     }
+    if config.data_selector:
+        endpoint_config["data_selector"] = config.data_selector
 
     use_incremental = config.supports_incremental and should_use_incremental_field
     if use_incremental:
@@ -113,12 +190,7 @@ def lemlist_source(
         }
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": LEMLIST_BASE_URL,
-            # lemlist uses HTTP Basic auth with an empty username and the API key as the password.
-            # Supplied via the framework auth config so the key is redacted from logs and errors.
-            "auth": {"type": "http_basic", "username": "", "password": api_key},
-        },
+        "client": _client_config(api_key),
         "resources": [
             cast(
                 EndpointResource,

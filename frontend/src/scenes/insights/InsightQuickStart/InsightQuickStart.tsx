@@ -2,6 +2,7 @@ import './InsightQuickStart.scss'
 
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconPlay, IconSparkles } from '@posthog/icons'
@@ -95,6 +96,7 @@ function InsightOptionCard({
     index,
 }: InsightOptionCardProps): JSX.Element {
     const [isHovered, setIsHovered] = useState(false)
+    const [previewFailed, setPreviewFailed] = useState(false)
 
     return (
         <div
@@ -112,18 +114,32 @@ function InsightOptionCard({
                 <div className="flex flex-col gap-3 h-full">
                     {preview && (
                         <div className="relative w-full aspect-video overflow-hidden bg-fill-secondary">
-                            <img
-                                src={isHovered ? preview.animated : preview.static}
-                                alt={`${name} preview`}
-                                className="w-full h-full object-contain object-top transition-opacity duration-200"
-                                loading="lazy"
-                            />
-                            <div
-                                className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 text-[10px] font-medium text-white transition-opacity duration-200 ${isHovered ? 'opacity-0' : 'opacity-100'}`}
-                            >
-                                <IconPlay className="w-3 h-3" />
-                                <span>Hover to play</span>
-                            </div>
+                            {previewFailed ? (
+                                <div className="w-full h-full flex items-center justify-center">
+                                    <Icon className={`text-5xl opacity-50 ${iconClassName}`} />
+                                </div>
+                            ) : (
+                                <>
+                                    <img
+                                        src={isHovered ? preview.animated : preview.static}
+                                        alt={`${name} preview`}
+                                        className="w-full h-full object-contain object-top transition-opacity duration-200"
+                                        loading="lazy"
+                                        onError={() => {
+                                            setPreviewFailed(true)
+                                            posthog.capture('insight quick start preview failed', {
+                                                insight_option: dataAttr,
+                                            })
+                                        }}
+                                    />
+                                    <div
+                                        className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 text-[10px] font-medium text-white transition-opacity duration-200 ${isHovered ? 'opacity-0' : 'opacity-100'}`}
+                                    >
+                                        <IconPlay className="w-3 h-3" />
+                                        <span>Hover to play</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
                     <div className="flex-1 flex flex-col gap-1">

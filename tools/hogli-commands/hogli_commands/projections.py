@@ -84,10 +84,25 @@ PROJECTIONS: tuple[Projection, ...] = (
         ),
     ),
     Projection(
-        name="mcp-oauth-scopes",
+        name="oauth-scopes",
         renderer="posthog/scopes_projection.py",
         inputs=("posthog/scopes.py",),
-        outputs=("services/mcp/src/lib/oauth-scopes.generated.ts",),
+        outputs=(
+            "services/mcp/src/lib/oauth-scopes.generated.ts",
+            "frontend/src/lib/oauthScopes.generated.ts",
+        ),
+    ),
+    Projection(
+        name="github-commands",
+        renderer="products/github_commands/backend/commands_projection.py",
+        inputs=(
+            "products/github_commands/backend/logic/schema.py",
+            "products/github_commands/backend/logic/parsing.py",
+        ),
+        outputs=(
+            "products/github_commands/commands.generated.json",
+            "products/github_commands/COMMANDS.generated.md",
+        ),
     ),
 )
 

@@ -5,7 +5,7 @@ from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
 from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
@@ -13,16 +13,8 @@ from products.workflows.backend.services.account_audience import (
     get_account_audience_page,
     get_account_group_type_name as _get_account_group_type_name,
 )
-from products.workflows.backend.services.audience_v2 import (
-    get_dedupe_audience_count_v2,
-    get_person_audience_count_v2,
-    use_audience_query_v2,
-)
-from products.workflows.backend.services.batch_audience import (
-    audience_page_size,
-    get_batch_audience_count,
-    get_batch_audience_person_ids,
-)
+from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
+from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 
 
@@ -36,25 +28,17 @@ def get_audience_size(
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
     # Preview matches the actual send: with dedup active, "affected" is the number of
-    # sends (unique emails + email-less persons), not the number of matching persons -
-    # the legacy person-count query is skipped entirely, "total" comes straight from
-    # the cached team-wide count it would have returned anyway. The applied key is
-    # echoed back so the frontend labels the count from the response instead of
-    # guessing whether the dedup actually ran.
+    # sends (unique emails + email-less persons), not the number of matching persons.
+    # The applied key is echoed back so the frontend labels the count from the response
+    # instead of guessing whether the dedup actually ran.
     applied_dedupe_key = None
-    audience_v2 = group_type_index is None and use_audience_query_v2(team)
-    if dedupe_key is not None and group_type_index is None:
-        if audience_v2:
-            blast_radius = get_dedupe_audience_count_v2(team, filters, dedupe_key)
-        else:
-            total = team.persons_seen_so_far
-            affected = min(get_batch_audience_count(team, filters, dedupe_key), total)
-            blast_radius = BlastRadiusResult(affected=affected, total=total)
-        applied_dedupe_key = dedupe_key
-    elif audience_v2:
-        blast_radius = get_person_audience_count_v2(team, filters)
-    else:
+    if group_type_index is not None:
         blast_radius = get_user_blast_radius(team, filters, group_type_index)
+    elif dedupe_key is not None:
+        blast_radius = get_dedupe_audience_count_v2(team, filters, dedupe_key)
+        applied_dedupe_key = dedupe_key
+    else:
+        blast_radius = get_person_audience_count_v2(team, filters)
 
     return AudienceSize(
         affected=blast_radius.affected,
@@ -83,9 +67,7 @@ def get_audience_person_page(
     dedupe_key: str | None,
 ) -> AudiencePage:
     team = Team.objects.get(id=team_id)
-    enumeration_settings = (
-        bounded_memory_settings() if group_type_index is None and use_audience_query_v2(team) else None
-    )
+    enumeration_settings = bounded_memory_settings() if group_type_index is None else None
     ids = get_batch_audience_person_ids(
         team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
     )

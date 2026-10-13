@@ -267,7 +267,12 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
     def test_task_from_a_report_notification_thread_lands_on_the_report(
         self, _name, from_report_thread, failure_stage, mock_slack_cls, _mock_execute_workflow
     ):
-        from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
+        from products.signals.backend.models import (
+            SignalReport,
+            SignalReportAction,
+            SignalReportArtefact,
+            SignalReportSlackThread,
+        )
         from products.signals.backend.slack_report_threads import record_report_slack_thread
 
         mock_slack_instance = MagicMock()
@@ -287,6 +292,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 integration_id=self.integration.id,
                 channel="C123",
                 thread_ts="1234.5678",
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
             )
 
         inputs = _make_inputs(self.integration.id, self.user.id)

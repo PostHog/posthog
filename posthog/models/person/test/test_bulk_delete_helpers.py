@@ -20,6 +20,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
+    tombstone_and_publish_persons,
 )
 from posthog.models.person.util import (
     TOMBSTONE_DELIVERY_TIMEOUT_SECONDS,
@@ -183,7 +184,7 @@ class DeletePersonsProfileTests(BaseTest):
     def test_a_failed_tombstone_rpc_counts_only_the_persons_it_did_not_commit(self, _name, committed, check_fails):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
 
-        def tombstone_then_fail(team_id, uuids):
+        def tombstone_then_fail(team_id, uuids, **_):
             if committed:
                 tombstone_persons_in_postgres(team_id, uuids)
             raise RuntimeError("personhog down")
@@ -280,6 +281,15 @@ class DeletePersonsProfileTests(BaseTest):
         ]
         assert result.errors == [p1.uuid, p2.uuid]
         assert get_active_fake().tombstone_queue == {}
+
+
+class TombstoneAndPublishPersonsTests(BaseTest):
+    def test_a_failed_clickhouse_publish_does_not_raise_and_stays_queued_for_the_sweep(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with patch("posthog.models.person.util.publish_person_tombstone", side_effect=RuntimeError("kafka down")):
+            assert tombstone_and_publish_persons(self.team.pk, [p]) == 1
+
+        assert list(get_active_fake().tombstone_queue) == [(self.team.pk, str(p.uuid))]
 
 
 class ProcessQueuedPersonDeletionTests(BaseTest):

@@ -1,6 +1,6 @@
-import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motion import MotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.motion.source import MotionSource
 
@@ -9,11 +9,11 @@ _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.moti
 
 class TestMotionSourceClass:
     def test_an_unknown_schema_fails_before_any_request_goes_out(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_motion_table"
+        result = SourceDriver(MotionSource(), MotionSourceConfig(api_key="key")).run("not_a_motion_table", [])
 
-        with pytest.raises(ValueError, match="Unknown Motion endpoint"):
-            MotionSource().source_for_pipeline(MotionSourceConfig(api_key="key"), mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Motion endpoint" in str(result.raised)
+        assert result.requests == []
 
     def test_the_job_context_reaches_the_transport(self) -> None:
         inputs = mock.MagicMock()

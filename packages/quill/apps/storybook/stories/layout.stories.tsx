@@ -135,16 +135,14 @@ const NavRail = (): React.ReactElement => (
 
 const Sidebar = (): React.ReactElement => (
     <aside className="flex w-[272px] shrink-0 flex-col gap-2 border-border border-r p-2">
-        <div className="flex items-center gap-1">
-            <Button left className="min-w-0 flex-1">
-                <FolderIcon />
-                <span className="truncate">posthog / code</span>
-                <ChevronsUpDownIcon className="ml-auto" />
-            </Button>
-            <Button size="icon" aria-label="New task">
-                <PlusIcon />
-            </Button>
-        </div>
+        <Button elevated variant="outline" size="lg" className="mb-1 w-full">
+            <PlusIcon /> New task
+        </Button>
+        <Button left className="w-full">
+            <FolderIcon />
+            <span className="truncate">posthog / code</span>
+            <ChevronsUpDownIcon className="ml-auto" />
+        </Button>
         <div className="flex flex-col gap-px [&_button]:w-full">
             <MenuLabel>Pinned</MenuLabel>
             <Button left>Rebuild the nav rail</Button>

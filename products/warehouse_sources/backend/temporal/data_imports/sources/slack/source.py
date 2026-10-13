@@ -2,8 +2,9 @@ from dataclasses import field
 from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
     from posthog.models.integration import Integration
+
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.dataclasses import frozen
 

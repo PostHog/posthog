@@ -6,6 +6,8 @@
 #   "opentelemetry-sdk~=1.27",
 #   "opentelemetry-exporter-otlp-proto-http~=1.27",
 # ]
+# [tool.ty.environment]
+# root = ["."]
 # ///
 """Emit OTLP traces for completed master workflow runs.
 
@@ -53,10 +55,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, TypedDict, cast
 
+import depot_scheduled_runs
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
@@ -75,12 +78,6 @@ INSTRUMENTATION_VERSION = "0.1.0"
 
 # Workflow file whose own run history is the watermark.
 SELF_WORKFLOW_FILE = "ci-master-run-traces.yml"
-# Workflows that cover master from a cron instead of from every push, scanned on their
-# `schedule` runs as well. ci-backend.yml runs only the per-commit checks on a master push
-# and its full test matrices hourly, so a push-only scan drops the heaviest CI workload in
-# the repo. Hand-synced with SCHEDULED_GATING_WORKFLOWS in ci-alerts-devex.yml, which reads
-# the same lanes for alerting.
-SCHEDULED_MASTER_WORKFLOWS = ("ci-backend.yml",)
 DEFAULT_LOOKBACK_HOURS = 6.0
 DEFAULT_MAX_RUNS = 200
 
@@ -129,7 +126,7 @@ class Step:
 
 @dataclass(frozen=True)
 class Job:
-    id: int
+    id: int | str
     name: str
     status: str
     conclusion: str
@@ -153,11 +150,11 @@ class Job:
 
 @dataclass(frozen=True)
 class WorkflowRun:
-    id: int
+    id: int | str
     attempt: int
     name: str
     path: str
-    workflow_id: int
+    workflow_id: int | str
     run_number: int
     event: str
     status: str
@@ -174,6 +171,7 @@ class WorkflowRun:
     end: datetime
     jobs: tuple[Job, ...] = ()
     dropped_jobs: int = 0
+    provider: str = "github"
 
     @property
     def duration_seconds(self) -> float:
@@ -286,11 +284,7 @@ def watermark(repo: str, token: str, *, lookback_hours: float, now: datetime, op
 def scan_runs(repo: str, token: str, since: datetime, *, opener: Any = None) -> list[dict]:
     """Completed master runs whose completion lands at or after `since`, newest first.
 
-    One scan per trigger event, because the API filters on a single event at a time. The
-    repo-wide scan covers push, and each workflow in SCHEDULED_MASTER_WORKFLOWS is scanned
-    for its `schedule` runs by workflow file. A repo-wide schedule scan would instead pull in
-    every unrelated cron in the repo, and the frequent ones would crowd real CI runs out of
-    the --max-runs cap.
+    GitHub supplies master pushes; scheduled Backend CI runs are read from Depot separately.
 
     The API can only filter on `created`, so widen the window by a day and narrow
     on `updated_at` — which for a completed run is when it finished.
@@ -309,10 +303,6 @@ def scan_runs(repo: str, token: str, since: datetime, *, opener: Any = None) -> 
         )
 
     paths = [f"repos/{repo}/actions/runs?{query('push')}"]
-    paths += [
-        f"repos/{repo}/actions/workflows/{workflow_file}/runs?{query('schedule')}"
-        for workflow_file in SCHEDULED_MASTER_WORKFLOWS
-    ]
     fresh = []
     for path in paths:
         for run in _paginate(path, token, "workflow_runs", opener=opener):
@@ -350,6 +340,49 @@ def fetch_run(repo: str, run_id: int, token: str, *, attempt: int = 0, opener: A
 
 
 # ---------- Parsing ----------
+
+
+def resource_id(value: object) -> int | str:
+    if not isinstance(value, (int, str)):
+        raise ValueError(f"Invalid CI resource identifier: {value!r}")
+    return value
+
+
+class DepotWorkflow(TypedDict):
+    workflow_id: str
+    workflow_path: str
+    status: str
+    created_at: str
+    started_at: str
+    finished_at: str
+
+
+class DepotRun(TypedDict):
+    run_id: str
+    repo: str
+    sha: str
+    trigger: str
+
+
+class DepotJob(TypedDict, total=False):
+    job_id: str
+    job_key: str
+    job_display_name: str
+    status: str
+    started_at: str
+    finished_at: str
+
+
+class DepotExecution(TypedDict):
+    execution: int
+
+
+class DepotShownWorkflow(TypedDict):
+    org_id: str
+    run: DepotRun
+    workflow: DepotWorkflow
+    jobs: list[DepotJob]
+    executions: list[DepotExecution]
 
 
 def parse_iso_utc(value: str) -> datetime | None:
@@ -424,7 +457,7 @@ def parse_job(raw: Mapping[str, Any]) -> Job | None:
     steps = [step for step in (parse_step(s, (start, end)) for s in raw.get("steps") or []) if step is not None]
     steps.sort(key=lambda step: step.number)
     return Job(
-        id=int(raw.get("id") or 0),
+        id=resource_id(raw.get("id") or 0),
         name=str(raw.get("name") or ""),
         status=str(raw.get("status") or ""),
         conclusion=str(raw.get("conclusion") or ""),
@@ -462,11 +495,11 @@ def parse_run(raw: Mapping[str, Any], raw_jobs: list[dict]) -> WorkflowRun | Non
     end = max((job.end for job in jobs), default=None) or parse_iso_utc(raw.get("updated_at") or "") or start
     start, end = clamp(start, end)
     return WorkflowRun(
-        id=int(raw.get("id") or 0),
+        id=resource_id(raw.get("id") or 0),
         attempt=int(raw.get("run_attempt") or 1),
         name=str(raw.get("name") or ""),
         path=str(raw.get("path") or ""),
-        workflow_id=int(raw.get("workflow_id") or 0),
+        workflow_id=resource_id(raw.get("workflow_id") or 0),
         run_number=int(raw.get("run_number") or 0),
         event=str(raw.get("event") or ""),
         status=str(raw.get("status") or ""),
@@ -486,10 +519,85 @@ def parse_run(raw: Mapping[str, Any], raw_jobs: list[dict]) -> WorkflowRun | Non
     )
 
 
+def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
+    context, workflow = shown["run"], shown["workflow"]
+    url = f"https://depot.dev/orgs/{shown['org_id']}/workflows/{workflow['workflow_id']}"
+    jobs = [
+        {
+            "id": job["job_id"],
+            "name": job.get("job_display_name") or job["job_key"],
+            "status": "completed",
+            "conclusion": depot_scheduled_runs.GATE_CONCLUSIONS.get(job["status"], job["status"]),
+            "html_url": f"{url}?job={job['job_id']}",
+            "created_at": job.get("started_at"),
+            "started_at": job.get("started_at"),
+            "completed_at": job.get("finished_at"),
+            "runner_name": "depot-ci",
+        }
+        for job in shown["jobs"]
+        if not job["job_key"].endswith(":_dynamicMatrix")
+    ]
+    run = parse_run(
+        {
+            "id": f"depot:{context['run_id']}",
+            "run_attempt": max((execution["execution"] for execution in shown["executions"]), default=1),
+            "name": "Backend CI",
+            "path": f".depot/workflows/{workflow['workflow_path'].removeprefix('.depot/workflows/')}",
+            "workflow_id": workflow["workflow_id"],
+            "event": context["trigger"],
+            "status": "completed",
+            "conclusion": depot_scheduled_runs.GATE_CONCLUSIONS[workflow["status"]],
+            "head_sha": context["sha"],
+            "head_branch": "master",
+            "repository": {"full_name": context["repo"]},
+            "html_url": url,
+            "created_at": workflow["created_at"],
+            "run_started_at": workflow["started_at"],
+            "updated_at": workflow["finished_at"],
+        },
+        jobs,
+    )
+    if run is None:
+        return None
+    finished = parse_iso_utc(workflow["finished_at"])
+    if finished is None:
+        raise ValueError("Completed Depot workflow has no finish timestamp")
+    return replace(run, provider="depot", end=max(run.end, finished))
+
+
+def collect_depot_runs(repo: str, since: datetime) -> Collection:
+    runs: list[WorkflowRun] = []
+    complete = True
+    created_floor = since - timedelta(days=1)
+    listed = depot_scheduled_runs.scheduled_workflows(sorted(depot_scheduled_runs.ENDED), 200, repo=repo)
+    for workflow in listed:
+        created = parse_iso_utc(workflow["created_at"])
+        if created is not None and created < created_floor:
+            break
+        try:
+            shown = cast(
+                DepotShownWorkflow,
+                json.loads(depot_scheduled_runs.depot("workflow", "show", workflow["workflow_id"], "--output", "json")),
+            )
+            finished = parse_iso_utc(shown["workflow"]["finished_at"])
+            if finished is None:
+                raise ValueError("Completed Depot workflow has no finish timestamp")
+            if finished < since:
+                continue
+            run = parse_depot_run(shown)
+            if run is None:
+                raise ValueError("Completed Depot workflow has no start timestamp")
+            runs.append(run)
+        except Exception:
+            logger.exception("could not read Depot workflow %s", workflow["workflow_id"])
+            complete = False
+    return Collection(runs=tuple(runs), complete=complete)
+
+
 # ---------- OTLP export ----------
 
 
-def deterministic_trace_id(run_id: int, run_attempt: int) -> int:
+def deterministic_trace_id(run_id: int | str, run_attempt: int) -> int:
     """One trace per run attempt. Distinct from report_test_timings.py's per-shard keys."""
     digest = hashlib.sha256(f"{run_id}:{run_attempt}:workflow-run".encode()).digest()
     return int.from_bytes(digest[:16], "big")  # OTLP trace IDs are 128-bit.
@@ -532,6 +640,7 @@ def run_resource_attributes(run: WorkflowRun) -> dict[str, str | int]:
     """
     attrs: dict[str, str | int] = {
         "service.name": SERVICE_NAME,
+        "ci.provider": run.provider,
         "ci.workflow": run.name,
         "ci.workflow_path": run.path,
         "ci.workflow_id": run.workflow_id,
@@ -783,6 +892,14 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collect
         run = parse_run(raw, raw_jobs)
         if run is not None:
             runs.append(run)
+    if not args.run_id:
+        try:
+            depot_runs = collect_depot_runs(args.repo, since)
+            runs.extend(depot_runs.runs)
+            complete = complete and depot_runs.complete
+        except Exception:
+            logger.exception("could not collect scheduled Depot runs")
+            complete = False
     return Collection(runs=tuple(runs), complete=complete)
 
 

@@ -48,7 +48,6 @@ class SQSProducer:
         """
         self.queue_url = queue_url
 
-        # Initialize SQS client
         self.sqs = boto3.client(
             "sqs",
             region_name=region_name,
@@ -70,14 +69,11 @@ class SQSProducer:
         Returns:
             dict: Response from SQS containing MessageId if successful, None if failed
         """
-        # Convert dict to JSON string
         if isinstance(message_body, dict):
             message_body = json.dumps(message_body)
 
-        # Prepare the send message parameters
         params = {"QueueUrl": self.queue_url, "MessageBody": message_body, "DelaySeconds": delay_seconds}
 
-        # Add message attributes if provided
         if message_attributes:
             formatted_attributes = self._format_message_attributes(message_attributes)
             if formatted_attributes:
@@ -87,7 +83,6 @@ class SQSProducer:
         if group_id:
             params["MessageGroupId"] = group_id
 
-            # Generate a deduplication ID if not provided
             if not deduplication_id:
                 deduplication_id = str(uuid.uuid4())
 
@@ -103,76 +98,6 @@ class SQSProducer:
             logger.exception(f"Error sending message: {e}")
             return None
 
-    # def send_message_batch(self, messages, delay_seconds=0):
-    #     """
-    #     Send multiple messages to the SQS queue in a single batch.
-
-    #     Args:
-    #         messages (list): List of message dicts to send
-    #         delay_seconds (int, optional): Default delay for messages (0-900)
-
-    #     Returns:
-    #         dict: Response from SQS containing successful and failed messages
-    #     """
-    #     # Check if we have messages to send
-    #     if not messages:
-    #         logger.warning("No messages to send in batch")
-    #         return None
-
-    #     # Prepare batch entries (maximum 10 per API call)
-    #     entries = []
-    #     for i, msg in enumerate(messages[:10]):
-    #         # Generate an ID for this message in the batch
-    #         entry_id = f"msg-{i}-{uuid.uuid4()}"
-
-    #         # Get message body
-    #         body = msg.get("body", {})
-    #         if isinstance(body, dict):
-    #             body = json.dumps(body)
-
-    #         # Create entry for this message
-    #         entry = {"Id": entry_id, "MessageBody": body, "DelaySeconds": msg.get("delay_seconds", delay_seconds)}
-
-    #         # Add message attributes if provided
-    #         attributes = msg.get("attributes")
-    #         if attributes:
-    #             formatted_attributes = self._format_message_attributes(attributes)
-    #             if formatted_attributes:
-    #                 entry["MessageAttributes"] = formatted_attributes
-
-    #         # For FIFO queues, add required parameters
-    #         group_id = msg.get("group_id")
-    #         if group_id:
-    #             entry["MessageGroupId"] = group_id
-
-    #             # Get or generate deduplication ID
-    #             dedup_id = msg.get("deduplication_id")
-    #             if not dedup_id:
-    #                 dedup_id = str(uuid.uuid4())
-
-    #             entry["MessageDeduplicationId"] = dedup_id
-
-    #         entries.append(entry)
-
-    #     try:
-    #         response = self.sqs.send_message_batch(QueueUrl=self.queue_url, Entries=entries)
-
-    #         # Log successful and failed messages
-    #         successful = response.get("Successful", [])
-    #         failed = response.get("Failed", [])
-
-    #         if successful:
-    #             logger.info(f"Successfully sent {len(successful)} messages in batch")
-
-    #         if failed:
-    #             logger.error(f"Failed to send {len(failed)} messages in batch: {failed}")
-
-    #         return response
-
-    #     except ClientError as e:
-    #         logger.exception(f"Error sending message batch: {e}")
-    #         return None
-
     def _format_message_attributes(self, attributes):
         """
         Format message attributes for the SQS API.
@@ -186,9 +111,8 @@ class SQSProducer:
         formatted_attributes = {}
 
         for key, value in attributes.items():
-            attribute_type = "String"  # Default type
+            attribute_type = "String"
 
-            # Determine the data type
             if isinstance(value, int):
                 attribute_type = "Number"
                 value = str(value)
@@ -206,7 +130,6 @@ class SQSProducer:
                 "BinaryValue": value if attribute_type == "Binary" else None,
             }
 
-            # Remove None values
             formatted_attributes[key] = {k: v for k, v in formatted_attributes[key].items() if v is not None}
 
         return formatted_attributes

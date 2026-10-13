@@ -1,14 +1,17 @@
 import { isSafeExternalUrl } from "@posthog/shared";
 import { type MarkedToken, marked, type Token, type Tokens } from "marked";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   type ColorValue,
+  Image,
   Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { splitImageRuns } from "@/lib/markdown";
 import { colors, fonts } from "@/lib/theme";
 
 interface MarkdownProps {
@@ -23,6 +26,7 @@ function openLink(href: string): void {
 function renderInline(
   tokens: Token[] | undefined,
   color: ColorValue,
+  linked = false,
 ): ReactNode[] {
   return (tokens ?? []).map((raw, index) => {
     const token = raw as MarkedToken;
@@ -31,19 +35,19 @@ function renderInline(
       case "strong":
         return (
           <Text key={key} style={{ fontFamily: fonts.sansSemi, color }}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "em":
         return (
           <Text key={key} style={{ fontFamily: fonts.sansItalic, color }}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "del":
         return (
           <Text key={key} style={styles.strike}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "codespan":
@@ -59,14 +63,26 @@ function renderInline(
             style={styles.link}
             onPress={() => openLink(token.href)}
           >
-            {renderInline(token.tokens, colors.accent)}
+            {renderInline(token.tokens, colors.accent, true)}
           </Text>
+        );
+      case "image":
+        return !linked && isSafeExternalUrl(token.href) ? (
+          <Text
+            key={key}
+            style={styles.link}
+            onPress={() => openLink(token.href)}
+          >
+            {token.text || token.href}
+          </Text>
+        ) : (
+          token.text
         );
       case "br":
         return "\n";
       case "text":
         return token.tokens ? (
-          <Text key={key}>{renderInline(token.tokens, color)}</Text>
+          <Text key={key}>{renderInline(token.tokens, color, linked)}</Text>
         ) : (
           token.text
         );
@@ -138,6 +154,72 @@ function List({ token, color }: { token: Tokens.List; color: ColorValue }) {
   );
 }
 
+interface ImageSize {
+  width: number;
+  height: number;
+}
+
+function MarkdownImage({ token }: { token: Tokens.Image }) {
+  const [size, setSize] = useState<ImageSize | null>(null);
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <Text
+        style={[styles.body, styles.link]}
+        onPress={() => openLink(token.href)}
+      >
+        {token.text || token.href}
+      </Text>
+    );
+  }
+  return (
+    <Pressable
+      onPress={() => openLink(token.href)}
+      accessibilityRole="imagebutton"
+      accessibilityLabel={token.text || undefined}
+    >
+      <Image
+        source={{ uri: token.href }}
+        onLoad={(event) => {
+          const { width, height } = event.nativeEvent.source;
+          if (width > 0 && height > 0) setSize({ width, height });
+        }}
+        onError={() => setFailed(true)}
+        style={[
+          styles.image,
+          size
+            ? { aspectRatio: size.width / size.height }
+            : styles.imagePending,
+        ]}
+      />
+    </Pressable>
+  );
+}
+
+function Paragraph({ tokens, color }: { tokens: Token[]; color: ColorValue }) {
+  const runs = splitImageRuns(tokens);
+  if (!runs.some((run) => run.kind === "image")) {
+    return (
+      <Text style={[styles.body, { color }]} selectable>
+        {renderInline(tokens, color)}
+      </Text>
+    );
+  }
+  return (
+    <View style={styles.runs}>
+      {runs.map((run, index) =>
+        run.kind === "image" ? (
+          <MarkdownImage key={`${index}-${run.token.href}`} token={run.token} />
+        ) : (
+          <Text key={String(index)} style={[styles.body, { color }]} selectable>
+            {renderInline(run.tokens, color)}
+          </Text>
+        ),
+      )}
+    </View>
+  );
+}
+
 function renderBlocks(
   tokens: Token[] | undefined,
   color: ColorValue,
@@ -189,9 +271,7 @@ function renderBlocks(
       case "paragraph":
       case "text":
         return (
-          <Text key={key} style={[styles.body, { color }]} selectable>
-            {renderInline(token.tokens, color)}
-          </Text>
+          <Paragraph key={key} tokens={token.tokens ?? []} color={color} />
         );
       default:
         return null;
@@ -250,6 +330,13 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   strike: { textDecorationLine: "line-through" },
+  runs: { gap: 8 },
+  image: {
+    width: "100%",
+    borderRadius: 16,
+    backgroundColor: colors.fill,
+  },
+  imagePending: { aspectRatio: 16 / 9 },
   link: { color: colors.accent, textDecorationLine: "underline" },
   table: {
     borderWidth: StyleSheet.hairlineWidth,

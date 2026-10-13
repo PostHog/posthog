@@ -123,6 +123,13 @@ function finalMessage(output: TaskRunDetailDTOApi['output'] | undefined): string
     return typeof message === 'string' && message.trim() ? message.trim() : null
 }
 
+/** What the session icon reads, from a task's latest run, for a page that has the task but not its work item. */
+export function sessionIconFields(
+    latestRun: { status?: string | null; environment?: string | null } | null | undefined
+): Pick<TodayWorkItem, 'kind' | 'status' | 'runEnvironment'> {
+    return { kind: 'session', status: latestRun?.status ?? null, runEnvironment: latestRun?.environment ?? null }
+}
+
 export function sessionItem(task: TaskListItemApi): TodayWorkItem {
     return {
         kind: 'session',
@@ -257,21 +264,6 @@ function unreadSessionActivity(activity: TaskActivityDTOApi[], sessionId?: strin
 
 export function unreadSessionIds(activity: TaskActivityDTOApi[]): Set<string> {
     return new Set(unreadSessionActivity(activity).map((row) => row.task_id as string))
-}
-
-export function unreadSpaceIds(activity: TaskActivityDTOApi[]): Set<string> {
-    return new Set(unreadSessionActivity(activity).flatMap((row) => (row.channel_id ? [row.channel_id] : [])))
-}
-
-export function unreadSessionCountsBySpace(activity: TaskActivityDTOApi[]): Record<string, number> {
-    const sessionsBySpace: Record<string, Set<string>> = {}
-    for (const row of unreadSessionActivity(activity)) {
-        if (row.channel_id) {
-            sessionsBySpace[row.channel_id] ??= new Set()
-            sessionsBySpace[row.channel_id].add(row.task_id as string)
-        }
-    }
-    return Object.fromEntries(Object.entries(sessionsBySpace).map(([spaceId, sessions]) => [spaceId, sessions.size]))
 }
 
 /**

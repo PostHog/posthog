@@ -58,7 +58,7 @@ class _SharedParserSnapshotExtension(AmberSnapshotExtension):
     """
 
     @classmethod
-    def _get_file_basename(cls, *, test_location: Any, index: Any) -> str:
+    def get_file_basename(cls, *, test_location: Any, index: Any) -> str:
         return "parser_ast"
 
     @classmethod

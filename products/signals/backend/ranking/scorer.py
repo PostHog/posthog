@@ -228,6 +228,9 @@ def score_reports(
 
     if persist:
         persist_scores(
-            team_id, [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score], capture=capture
+            team_id,
+            [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score],
+            capture=capture,
+            served_override=serving.served_override,
         )
     return outcomes
