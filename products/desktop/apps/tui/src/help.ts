@@ -46,6 +46,7 @@ export const HELP: HelpGroup[] = [
         does: "Focus the next pane, or the sidebar (Shift+Tab back)",
       },
       { keys: "↑ ↓", does: "Step through the sidebar's chats" },
+      { keys: "← →", does: "Fold or unfold the workspace a chat sits in" },
     ],
   },
   {

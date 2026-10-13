@@ -23,6 +23,7 @@ import {
 import type { PiControl } from "../models";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, optionSplitFor, shortcutFor } from "../shortcuts";
+import { workspaceOf } from "../sidebar";
 import type { Notice } from "./useNotice";
 import type { SearchState } from "./useSearch";
 import type { SettingsState } from "./useSettings";
@@ -169,14 +170,16 @@ export function useKeys({
       setLayout((current) => cycleFocus(current, key.shift ? -1 : 1));
       return;
     }
+    // ← and → fold and unfold the workspace of the row the cursor is on.
+    const fold = (): void => {
+      const workspaceId = workspaceOf(rows[selectedIndex]);
+      if (workspaceId) setCollapsed(workspaceId, key.leftArrow);
+    };
     if (!sidebarFocused) {
       // A sheet open on the pane takes the arrows, which also reach it through the raw key stream.
-      if (
-        navigating &&
-        (key.upArrow || key.downArrow) &&
-        !modalFor(workspace.focusedPaneId)
-      ) {
-        navigate(key.downArrow ? 1 : -1);
+      if (navigating && !modalFor(workspace.focusedPaneId)) {
+        if (key.upArrow || key.downArrow) navigate(key.downArrow ? 1 : -1);
+        if (key.leftArrow || key.rightArrow) fold();
       }
       if (key.pageUp) scrollPane(workspace.focusedPaneId, -10);
       if (key.pageDown) scrollPane(workspace.focusedPaneId, 10);
@@ -187,9 +190,7 @@ export function useKeys({
     } else if (key.downArrow || key.upArrow) {
       navigate(key.downArrow ? 1 : -1);
     } else if (key.leftArrow || key.rightArrow) {
-      const row = rows[selectedIndex];
-      if (row?.kind !== "workspace") return;
-      setCollapsed(row.workspaceId, key.leftArrow);
+      fold();
     } else if (key.return) {
       setNavigating(rows[selectedIndex]?.kind === "task");
       activate(selectedIndex);

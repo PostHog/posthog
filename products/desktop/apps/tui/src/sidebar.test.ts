@@ -18,6 +18,7 @@ import {
   selectionKey,
   sidebarRows,
   type WorkPage,
+  workspaceOf,
 } from "./sidebar";
 
 const task = (id: string, run?: Partial<TaskRun>): Task =>
@@ -240,14 +241,38 @@ describe("sidebarRows", () => {
     ]);
   });
 
-  it("hides a collapsed workspace's tasks", () => {
+  it("hides a collapsed workspace's tasks, and lets the cursor rest on its title instead", () => {
     const layout = openTask(
       splitFocused(openTask(initialLayout(), "a"), "row"),
       "b",
     );
-    expect(rowsFor(layout, page(), new Set([layout.workspaces[0].id]))).toEqual(
-      ["# Work", "Today", "", "> Workspace #1", "", "## All chats", "[empty]"],
-    );
+    const collapsed = new Set([layout.workspaces[0].id]);
+    expect(rowsFor(layout, page(), collapsed)).toEqual([
+      "# Work",
+      "Today",
+      "",
+      "> Workspace #1",
+      "",
+      "## All chats",
+      "[empty]",
+    ]);
+    const rows = sidebarRows({
+      layout,
+      work: page(),
+      collapsed,
+      working: new Set(),
+    });
+    expect(moveSelection(rows, 1, 1)).toBe(3);
+    // Expanded, the title only labels its chats, which the cursor walks instead.
+    const expanded = sidebarRows({
+      layout,
+      work: page(),
+      collapsed: new Set(),
+      working: new Set(),
+    });
+    expect(moveSelection(expanded, 1, 1)).toBe(4);
+    expect(workspaceOf(expanded[4])).toBe(layout.workspaces[0].id);
+    expect(workspaceOf(rows[3])).toBe(layout.workspaces[0].id);
   });
 
   it.each([
