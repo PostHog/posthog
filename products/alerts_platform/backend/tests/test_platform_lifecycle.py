@@ -175,7 +175,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             ("a_new_cadence_takes_the_source_schedule", False, 60, timedelta(minutes=-1), timedelta(minutes=34)),
         ]
     )
-    def test_a_second_copy_keeps_the_schedule_the_platform_owns(
+    def test_a_second_copy_keeps_what_the_platform_owns_until_the_copy_comes_back_on(
         self,
         _name: str,
         disabled_between: bool,
@@ -191,6 +191,11 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             schedule_restriction=quiet_hours,
             next_check_at=None if first_offset is None else self.cutoff + first_offset,
         )
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(legacy_configuration_id=legacy_id).update(consecutive_failures=3)
+            PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(
+                state="firing", firing_started_at=self.cutoff
+            )
         if disabled_between:
             disable_configurations(SourceKind.LOGS, team_id=self.team.id)
         self._copy(
@@ -202,7 +207,12 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         with team_scope(self.team.id):
             copied = PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id)
+            alert = PlatformAlert.objects.get(configuration=copied)
         assert copied.next_check_at == self.cutoff + expected_offset
+        # A copy that comes back on starts clean, as the source's own enable does.
+        assert (alert.state, alert.firing_started_at, copied.consecutive_failures) == (
+            ("not_firing", None, 0) if disabled_between else ("firing", self.cutoff, 3)
+        )
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()

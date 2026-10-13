@@ -336,13 +336,24 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             or any(existing[key] != defaults[key] for key in _CADENCE_FIELDS)
         ):
             defaults["next_check_at"] = upsert.next_check_at
+        # A copy that comes back on starts clean, as a source's own enable does. The state it was
+        # switched off in is stale, and a firing kept from then would end in a resolve for an
+        # episode nobody was told about.
+        revived = existing is not None and not existing["enabled"] and upsert.enabled
+        if revived:
+            defaults["consecutive_failures"] = 0
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
-        # State is left alone because a muted alert keeps tracking reality.
+        # Otherwise state is left alone, because a muted alert keeps tracking reality.
         alert.snooze_until = upsert.snooze_until
-        alert.save(update_fields=["snooze_until"])
+        update_fields = ["snooze_until"]
+        if revived:
+            alert.state = PlatformAlert.State.NOT_FIRING.value
+            alert.firing_started_at = None
+            update_fields += ["state", "firing_started_at"]
+        alert.save(update_fields=update_fields)
     return created
 
 
