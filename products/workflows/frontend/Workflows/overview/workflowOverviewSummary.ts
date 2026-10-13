@@ -1,3 +1,5 @@
+import { humanFriendlyDuration } from 'lib/utils/durations'
+
 import { getRegisteredTriggerTypes } from '../hogflows/registry/triggers/triggerTypeRegistry'
 import { FREQUENCY_OPTIONS, TTL_OPTIONS } from '../hogflows/steps/StepTrigger'
 import type { HogFlow } from '../hogflows/types'
@@ -61,8 +63,11 @@ export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_ma
     }
     const label = option?.label ?? 'Limited by a custom rule'
     const ttlSeconds = workflow.trigger_masking?.ttl ?? null
-    const ttl = ttlSeconds === null ? null : TTL_OPTIONS.find((o) => o.value === ttlSeconds)
-    const base = option?.fixedTtl || !ttl ? label : `${label} per ${ttl.label}`
+    const ttlLabel =
+        ttlSeconds === null
+            ? null
+            : (TTL_OPTIONS.find((o) => o.value === ttlSeconds)?.label ?? humanFriendlyDuration(ttlSeconds))
+    const base = option?.fixedTtl || !ttlLabel ? label : `${label} per ${ttlLabel}`
     // With a threshold of N, the 1st, (N + 1)th, (2N + 1)th... matching events start a run.
     const threshold = workflow.trigger_masking?.threshold ?? null
     return threshold && threshold > 1 ? `${base}, then again every ${threshold} matching events` : base

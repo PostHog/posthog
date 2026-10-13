@@ -33,6 +33,9 @@ export function metricsRangeFromSearchParams(searchParams: Record<string, unknow
     }
     if (typeof searchParams.date_to === 'string') {
         range.dateTo = searchParams.date_to
+    } else if (range.dateFrom) {
+        // A rolling range has no end date, so a stale one from an earlier URL must not survive the merge.
+        range.dateTo = undefined
     }
     const interval = INTERVALS.find((value) => value === searchParams.interval)
     if (interval) {
