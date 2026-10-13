@@ -1,8 +1,7 @@
 from posthog.test.base import BaseTest
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.models.plugin import PluginConfig
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.cdp.backend.templates.posthog.template_posthog import (
     TemplatePostHogMigrator,
     template as template_posthog,

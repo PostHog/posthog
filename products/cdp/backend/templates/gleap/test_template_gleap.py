@@ -1,6 +1,5 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.gleap.template_gleap import template as template_gleap
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 def create_inputs(**kwargs):
