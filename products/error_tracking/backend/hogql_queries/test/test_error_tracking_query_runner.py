@@ -729,6 +729,17 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ErrorTrackingIssue.objects.filter(id=issue_id).update(severity=severity)
         sync_issues_to_clickhouse(issue_ids=list(severities), team_id=self.team.pk)
 
+    def _severity_is_set_filter(self) -> PropertyGroupFilter:
+        return PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[ErrorTrackingIssueFilter(key="severity", value=True, operator=PropertyOperator.IS_SET)],
+                )
+            ],
+        )
+
     @parameterized.expand(
         [
             ("descending", "DESC", False),
@@ -750,15 +761,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ]
         filter_group = None
         if with_severity_filter:
-            filter_group = PropertyGroupFilter(
-                type=FilterLogicalOperator.AND_,
-                values=[
-                    PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND_,
-                        values=[ErrorTrackingIssueFilter(key="severity", value=True, operator=PropertyOperator.IS_SET)],
-                    )
-                ],
-            )
+            filter_group = self._severity_is_set_filter()
             by_descending_severity = [i for i in by_descending_severity if i != self.issue_id_five]
 
         expected = by_descending_severity if direction == "DESC" else list(reversed(by_descending_severity))
@@ -779,17 +782,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     def test_severity_ordering_is_total(self, _name: str, legacy_shape: bool, direction: str):
         # Most rows share a severity, and the paginator pages with LIMIT/OFFSET, so rows repeat and
         # drop between pages unless the tiebreakers make the order total in both directions.
-        filter_group = None
-        if legacy_shape:
-            filter_group = PropertyGroupFilter(
-                type=FilterLogicalOperator.AND_,
-                values=[
-                    PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND_,
-                        values=[ErrorTrackingIssueFilter(key="severity", value=True, operator=PropertyOperator.IS_SET)],
-                    )
-                ],
-            )
+        filter_group = self._severity_is_set_filter() if legacy_shape else None
 
         builder = ErrorTrackingQueryBuilder(
             query=ErrorTrackingQuery(
@@ -1797,8 +1790,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
 class TestSeverityRanking(TestCase):
     def test_ranking_covers_every_severity_level(self):
-        # A level the ranking omits gets rank 0 from `indexOf` and silently sorts as unset.
+        # A level the ranking omits gets rank 0 from `indexOf` and silently sorts as unset. The
+        # model enum is what reaches the `severity` column, the schema enum is what the API offers.
         self.assertEqual(set(SEVERITY_RANKING), {severity.value for severity in ErrorTrackingQueryIssueSeverity})
+        self.assertEqual(set(SEVERITY_RANKING), set(ErrorTrackingIssue.Severity.values))
 
 
 class TestSearchTokenizer(TestCase):

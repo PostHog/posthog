@@ -191,8 +191,8 @@ def order_by_exprs(query: ErrorTrackingQuery) -> list[ast.OrderExpr]:
     )
     # Four levels plus unset leave most rows sharing a rank. The paginator pages with LIMIT/OFFSET
     # over a re-run query, so rows move between pages and the infinite scroll repeats and drops
-    # them unless the order is total. `id` is the GROUP BY key of both query shapes, so adding it
-    # makes the order total.
+    # them unless the order is total. `last_seen` puts the most recently seen issue first within a
+    # rank, and `id` is the GROUP BY key of both query shapes, so adding it makes the order total.
     return [
         ast.OrderExpr(expr=severity_rank, order=direction),
         ast.OrderExpr(expr=ast.Field(chain=["last_seen"]), order="DESC"),
