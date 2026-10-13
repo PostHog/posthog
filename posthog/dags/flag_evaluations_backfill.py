@@ -68,6 +68,8 @@ _COPIED_COLUMNS = (
     "_timestamp",
 )
 
+_COPIED_COLUMN_LIST = ", ".join(_COPIED_COLUMNS)
+
 _COPIED_VALUES = ", ".join(
     FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR if column == "person_properties" else column for column in _COPIED_COLUMNS
 )
@@ -288,7 +290,7 @@ WHERE _timestamp < %(created_before)s
 """
     if dry_run:
         return select
-    return f"INSERT INTO {FLAG_EVALUATIONS_DATA_TABLE} ({', '.join(_COPIED_COLUMNS)}){select}"
+    return f"INSERT INTO {FLAG_EVALUATIONS_DATA_TABLE} ({_COPIED_COLUMN_LIST}){select}"
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -629,6 +631,8 @@ def flag_evaluations_backfill_job() -> None:
     """Copy $feature_flag_called history from events into flag_evaluations, one op per shard.
 
     Safe to re-run over the same window: the anti-join inserts only rows that are missing.
+    A re-run does not rewrite a stored row, so it does not fill person columns on rows that an
+    earlier copy or the Kafka path wrote. Delete those rows before the run to copy them again.
     """
     plan = plan_flag_evaluations_backfill()
     shards = get_backfill_shards(plan=plan)
