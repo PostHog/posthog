@@ -18,7 +18,7 @@ from products.metrics.backend.models import (
 )
 from products.metrics.backend.suggested_dashboards.analysis import analyze_team, bank_revision
 from products.metrics.backend.suggested_dashboards.discovery import teams_to_analyze
-from products.metrics.backend.suggested_dashboards.generation import generation_key
+from products.metrics.backend.suggested_dashboards.generation import finish_generation, generation_key
 from products.metrics.backend.suggested_dashboards.spec import EvaluationAnswer
 
 QUEUE_METRICS = ["queue_depth", "queue_wait_seconds", "queue_dropped_total", "queue_retries_total"]
@@ -158,6 +158,29 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert "Queue depth now" in approved.json()["panel_titles"]
         assert Dashboard.objects_including_soft_deleted.get(id=preview_id).deleted
         self.start_analysis.assert_called_once_with(self.team.id, force=True)
+
+    @parameterized.expand(
+        [
+            ("ready_for_review", ["queue_depth"], "pending_review", None),
+            ("no_panel_passed", [], "failed", "No drafted panel passed the query checks."),
+        ]
+    )
+    def test_finishing_a_generation_sends_one_event_with_the_review_link(
+        self, _name: str, metrics: list[str], expected_status: str, expected_error: str | None
+    ) -> None:
+        template = _template("generated-queue", "generating", *metrics, source="generated")
+        template.source_team_id = self.team.id
+        template.save(update_fields=["source_team_id"])
+
+        with patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture") as background:
+            finish_generation(str(template.id))
+
+        background.return_value.assert_called_once()
+        event = background.return_value.call_args.kwargs
+        assert event["event"] == "metrics dashboard generated"
+        assert (event["properties"]["status"], event["properties"]["error"]) == (expected_status, expected_error)
+        assert event["properties"]["review_url"].endswith(f"/metrics/dashboard-review/{template.id}")
+        assert event["groups"]["project"] == str(self.team.uuid)
 
     def test_a_curated_template_cannot_be_rejected(self) -> None:
         self.user.is_staff = True

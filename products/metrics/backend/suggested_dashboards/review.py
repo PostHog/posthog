@@ -7,6 +7,7 @@ import uuid
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 
 from products.dashboards.backend.facade.dashboard_creation import delete_unlisted_dashboard, read_dashboard_tiles
@@ -27,6 +28,14 @@ class NoPanelsWithData(Exception):
 
 def _panels(template: MetricsDashboardTemplate) -> list[TemplatePanel]:
     return [TemplatePanel.model_validate(panel) for panel in template.panels or []]
+
+
+def _capture_reviewed(user: User, template: MetricsDashboardTemplate) -> None:
+    report_user_action(
+        user,
+        "metrics dashboard template reviewed",
+        {"template_id": str(template.id), "template_source": template.source, "decision": template.status},
+    )
 
 
 def _drop_preview(template: MetricsDashboardTemplate) -> None:
@@ -85,6 +94,7 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
         locked.reviewed_by = user
         locked.reviewed_at = timezone.now()
         locked.save()
+    _capture_reviewed(user, locked)
     return locked
 
 
@@ -100,6 +110,7 @@ def reject(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboar
         locked.save()
         # Suggestions that a team has not acted on go away with the template.
         MetricsDashboardSuggestion.objects.unscoped().filter(template_id=locked.id, dashboard_id__isnull=True).delete()
+    _capture_reviewed(user, locked)
     return locked
 
 
@@ -111,7 +122,7 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
     catalog = MetricCatalog.load(team)
     catalog.look_up(team, template.metric_names)
     try:
-        created, _ = create_dashboard(
+        created, built = create_dashboard(
             team=team,
             user=user,
             name=template.name,
@@ -135,5 +146,17 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
         raise NoPanelsWithData("This project no longer sends the metrics of this dashboard.")
     MetricsDashboardSuggestion.objects.for_team(team.id).filter(id=suggestion.id).update(
         dashboard_id=created.id, updated_at=timezone.now()
+    )
+    report_user_action(
+        user,
+        "metrics suggested dashboard created",
+        {
+            "template_id": str(template.id),
+            "template_source": template.source,
+            "dashboard_id": created.id,
+            "coverage": suggestion.coverage,
+            "dropped_panel_count": len(built.dropped),
+        },
+        team=team,
     )
     return created.id
