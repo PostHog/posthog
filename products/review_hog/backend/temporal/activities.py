@@ -134,6 +134,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
+    post_failure_comment,
 )
 from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
 from products.review_hog.backend.reviewer.tools.coordinator_review import (
@@ -141,7 +142,12 @@ from products.review_hog.backend.reviewer.tools.coordinator_review import (
     CoordinatorUnit,
     coordinator_prompt,
 )
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    add_pr_reaction,
+    github_api_request,
+    remove_pr_reaction,
+)
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
     PRFilter,
@@ -197,6 +203,7 @@ from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCoun
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.stamphog.backend.facade.tasks import request_rereview_after_external_review
 from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.facade.run_config import ReasoningEffort
@@ -588,6 +595,8 @@ class RecordTurnMarkerInput:
     flash_reasoning_effort: str
     review_design: str = REVIEW_DESIGN_PIPELINE
     coordinator: bool = False
+    # None in payloads from before the field existed.
+    publishes: bool | None = None
 
 
 @frozen
@@ -642,6 +651,30 @@ class StatusCommentInput:
     review_design: str = REVIEW_DESIGN_PIPELINE
     # The failed turn, for the failure edit. None in payloads from before the field existed.
     run_index: int | None = None
+    # False when Temporal retries the turn after this failure. A Standard turn posts its failure
+    # comment only on the last attempt, so a retry that succeeds leaves no stale notice on the PR.
+    last_attempt: bool = True
+    # A Standard run that started before the reactions patch has a status comment to mark as failed.
+    uses_status_comment: bool = True
+
+
+@frozen
+class ReviewReactionInput:
+    """The 👀 a publishing turn keeps on the PR while it runs. `reaction_id` is set only for the removal."""
+
+    team_id: int
+    repository: str
+    pr_number: int
+    reaction_id: int | None = None
+
+
+@frozen
+class TurnEndedInput:
+    """A review turn on a PR head that reached completed or failed, for the stamphog nudge."""
+
+    repository: str
+    pr_number: int
+    head_sha: str
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -755,7 +788,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     if pr_number is not None:
         fetched = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
-        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=single_agent)
+        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=True)
         if fetched.pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
@@ -824,6 +857,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_files=fetched.pr_files,
         review_design=design_choice.design,
         merge_base_sha=fetched.merge_base_sha,
+        skipped_paths=fetched.skipped_paths,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
     # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
@@ -1063,6 +1097,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             flash_reasoning_effort=input.flash_reasoning_effort,
             review_design=input.review_design,
             coordinator=input.coordinator,
+            publishes=input.publishes,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -2408,7 +2443,14 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
         raise _wait_for_github_reset(error) from error
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
+def _fail_run(
+    team_id: int,
+    report_id: str,
+    review_mode: str = REVIEW_MODE_FULL,
+    run_index: int | None = None,
+    last_attempt: bool = True,
+    uses_status_comment: bool = True,
+) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
@@ -2429,21 +2471,96 @@ def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL,
         review_mode=review_mode,
         head_sha=report.head_sha,
     )
-    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
+    # A Standard turn has no status comment to mark as failed, so it says so in a comment of its own.
+    if review_mode == REVIEW_MODE_FLASH and not uses_status_comment:
+        if last_attempt:
+            post_failure_comment(team_id, report_id, review_mode=review_mode)
+    else:
+        fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def fail_status_comment_activity(input: StatusCommentInput) -> None:
-    """Return the dead run's report to rest and rewrite the status comment as failed.
+    """Return the dead run's report to rest and tell the PR: the status comment of a Deep turn shows
+    the failure, and a Standard turn posts one failure comment per head.
 
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
     await database_sync_to_async(_fail_run, thread_sensitive=False)(
-        input.team_id, input.report_id, input.review_mode, input.run_index
+        input.team_id,
+        input.report_id,
+        input.review_mode,
+        input.run_index,
+        input.last_attempt,
+        input.uses_status_comment,
     )
+
+
+# --- The PR's "review in progress" reaction ----------------------------------------------------------
+
+
+def _add_eyes_reaction(input: ReviewReactionInput) -> int | None:
+    try:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+    except Exception:
+        logger.warning("No GitHub auth for %s; skipping the review reaction", input.repository, exc_info=True)
+        return None
+    return add_pr_reaction(input.repository, input.pr_number, "eyes", token=token, installation_id=installation_id)
+
+
+def _remove_eyes_reaction(input: ReviewReactionInput) -> None:
+    if input.reaction_id is None:
+        return
+    try:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+    except Exception:
+        logger.warning("No GitHub auth for %s; leaving the review reaction", input.repository, exc_info=True)
+        return
+    remove_pr_reaction(
+        input.repository, input.pr_number, input.reaction_id, token=token, installation_id=installation_id
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def add_review_reaction_activity(input: ReviewReactionInput) -> int | None:
+    """Put a 👀 on the PR while the turn runs, the way other review bots do. Returns the reaction id.
+
+    The 👀 is a cue for people. Stamphog reads the review state from `head_review_status.py`.
+    Fail-open: never raises.
+    """
+    return await database_sync_to_async(_add_eyes_reaction, thread_sensitive=False)(input)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def remove_review_reaction_activity(input: ReviewReactionInput) -> None:
+    """Remove the turn's 👀 by the id the add returned. Raises only on a transient GitHub error, so Temporal retries it."""
+    await database_sync_to_async(_remove_eyes_reaction, thread_sensitive=False)(input)
+
+
+def _nudge_stamphog(input: TurnEndedInput) -> None:
+    request_rereview_after_external_review(
+        repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def nudge_stamphog_activity(input: TurnEndedInput) -> None:
+    """Tell stamphog that the turn on this head ended, so a stamphog WAIT for it can run again.
+
+    Stamphog waits only a few minutes for a running review, and a Deep review takes longer.
+    Stamphog decides whether to act. A dispatch error raises, so Temporal retries it. The workflow
+    catches the final failure, because a lost nudge must never fail the review.
+    """
+    await database_sync_to_async(_nudge_stamphog, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

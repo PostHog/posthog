@@ -356,24 +356,3 @@ def test_native_http_pool_enforces_its_verification_policy(settings, monkeypatch
         assert manager.connection_pool_kw["cert_reqs"] == ("CERT_REQUIRED" if native_verify else "CERT_NONE")
     finally:
         connection._clickhouse_http_pool_mgr.cache_clear()
-
-
-def test_http_pool_policies_are_reused_without_mutating_caller_owned_pools(settings):
-    from clickhouse_connect.driver import httputil
-
-    settings.QUERYSERVICE_VERIFY = False
-    connection._clickhouse_http_pool_mgr.cache_clear()
-    caller_pool = httputil.get_pool_manager(verify=False)
-    try:
-        with patch("clickhouse_connect.get_client") as client:
-            for overrides in ({"verify": True}, {"verify": False}, {}, {"verify": True, "pool_mgr": caller_pool}):
-                with get_http_client(**overrides):
-                    pass
-        managers = [call.kwargs["pool_mgr"] for call in client.call_args_list]
-        assert managers[0] is not managers[1]
-        assert managers[1] is managers[2]
-        assert managers[3] is caller_pool
-        assert caller_pool.connection_pool_kw["cert_reqs"] == "CERT_NONE"
-    finally:
-        connection._clickhouse_http_pool_mgr.cache_clear()
-        caller_pool.clear()

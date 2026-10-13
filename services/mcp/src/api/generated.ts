@@ -53907,6 +53907,35 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    export interface GroupTypeCreateDetailDashboard {
+      /** Index of the group type that gets the detail dashboard. */
+      group_type_index: number;
+    }
+
+    export interface GroupTypeMetadataUpdate {
+      /** Index of the group type to update. */
+      group_type_index: number;
+      /**
+         * Singular display name of the group type.
+         * @maxLength 400
+         * @nullable
+         */
+      name_singular?: string | null;
+      /**
+         * Plural display name of the group type.
+         * @maxLength 400
+         * @nullable
+         */
+      name_plural?: string | null;
+    }
+
+    export interface GroupTypeSetDefaultColumns {
+      /** Index of the group type to update. */
+      group_type_index: number;
+      /** Columns that the groups list of this group type shows by default. */
+      default_columns: string[];
+    }
+
     /**
      * Value to set. Any JSON value other than null.
      */
@@ -74970,6 +74999,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     */
+    export type TaskClientProvenanceEnum = typeof TaskClientProvenanceEnum[keyof typeof TaskClientProvenanceEnum];
+
+
+    export const TaskClientProvenanceEnum = {
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -75029,6 +75072,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
     }
 
     /**
@@ -75093,6 +75142,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -80802,27 +80857,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    export interface PatchedGroupType {
-      readonly group_type?: string;
-      readonly group_type_index?: number;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name_singular?: string | null;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name_plural?: string | null;
-      /** @nullable */
-      detail_dashboard?: number | null;
-      /** @nullable */
-      default_columns?: string[] | null;
-      /** @nullable */
-      created_at?: string | null;
     }
 
     /**
@@ -108810,6 +108844,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -110002,6 +110042,12 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** First-party PostHog client that created this task.
+       *
+       * * `posthog_desktop` - PostHog Desktop
+       * * `posthog_mobile` - PostHog Mobile
+       * * `posthog_web` - PostHog Web */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the run could not start. */
       run_error?: string;
       /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -129416,6 +129462,8 @@ export namespace Schemas {
      * Filter by the client that created the task
      *
      * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance;
@@ -129570,6 +129618,8 @@ export namespace Schemas {
 
     export const TasksListClientProvenance = {
       PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
