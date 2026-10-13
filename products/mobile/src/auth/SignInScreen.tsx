@@ -5,7 +5,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 import { useDemoMode } from '@/demo/demoMode'
 import { toError } from '@/lib/errors'
 import { useAsyncAction } from '@/lib/useAsyncAction'
-import { LogoMark } from '@/ui/icons/LogoMark'
+import { PostHogLogo } from '@/ui/icons/PostHogLogo'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { colors, layout, radii, type } from '@/ui/tokens'
@@ -77,10 +77,7 @@ export function SignInScreen(): ReactElement {
             testID="sign-in-screen"
         >
             <View style={styles.intro}>
-                <LogoMark variant="large" />
-                <Text style={styles.title} accessibilityRole="header">
-                    PostHog
-                </Text>
+                <PostHogLogo height={28} />
                 <Text style={styles.sub}>Triage your inbox and hand reports to the PostHog agent.</Text>
             </View>
             <View style={styles.form}>
@@ -216,15 +213,10 @@ const styles = StyleSheet.create({
     intro: {
         alignItems: 'flex-start',
     },
-    title: {
-        ...type.screenTitle,
-        color: colors.ink,
-        marginTop: 16,
-    },
     sub: {
         ...type.body,
         color: colors.muted,
-        marginTop: 8,
+        marginTop: 16,
     },
     form: {
         marginTop: 36,

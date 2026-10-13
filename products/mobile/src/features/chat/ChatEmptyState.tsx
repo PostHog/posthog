@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
-import { LogoMark } from '@/ui/icons/LogoMark'
+import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, prettyWrap, radii, type } from '@/ui/tokens'
 
@@ -40,7 +40,7 @@ export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: Chat
     const copy = copyFor(reportCount)
     return (
         <View style={styles.container} testID="chat-empty">
-            <LogoMark variant="large" />
+            <PostHogLogomark height={28} />
             <Text style={styles.title}>{copy.title}</Text>
             <Text style={[styles.sub, prettyWrap]}>{copy.sub}</Text>
             <View style={styles.chips}>

@@ -74,8 +74,10 @@ npx expo-doctor
 
 The app icon, adaptive icon, favicon and the iOS 26 `app.icon` bundle are copies of the
 PostHog Desktop mobile host's logomark assets.
-`splash-icon.png` is a placeholder (the three-bar mark) written by `pnpm assets`
-(`scripts/generate-placeholder-assets.mjs`). Final splash artwork is pending.
+`splash-icon.png` is the gradient logomark from [brand.posthog.com](https://brand.posthog.com/logo),
+rendered from `frontend/src/assets/posthog-icon.svg` with `rsvg-convert -w 1040`.
+The in-app logomark and landscape lockup (`src/ui/icons/PostHogLogomark.tsx`, `PostHogLogo.tsx`)
+are the same brand geometry ported to `react-native-svg`.
 
 ## Docs
 

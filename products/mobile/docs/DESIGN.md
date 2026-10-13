@@ -60,7 +60,7 @@ All values live in `src/ui/tokens.ts`. Styles use `StyleSheet.create` with these
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
 | `BackChip` | `ui/BackChip.tsx` | Report and Settings back button |
 | `StateView`, `LoadingView` | `ui/StateView.tsx` | Empty and error screens with a next action; loading spinner |
-| `LogoMark` | `ui/icons/LogoMark.tsx` | Three bars as views, `small` and `large` |
+| `PostHogLogomark`, `PostHogLogo` | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height` |
 | Icons | `ui/icons/*.tsx` | One component per glyph, ported from the prototype's SVG paths |
 
 ## Screens and states

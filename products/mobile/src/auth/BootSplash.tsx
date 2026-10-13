@@ -1,13 +1,13 @@
 import type { ReactElement } from 'react'
 import { StyleSheet, View } from 'react-native'
 
-import { LogoMark } from '@/ui/icons/LogoMark'
+import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { colors } from '@/ui/tokens'
 
 export function BootSplash(): ReactElement {
     return (
         <View style={styles.screen} accessibilityLabel="Loading PostHog" testID="boot-splash">
-            <LogoMark variant="large" />
+            <PostHogLogomark height={65} />
         </View>
     )
 }

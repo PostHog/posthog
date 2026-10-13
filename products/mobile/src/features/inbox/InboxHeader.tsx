@@ -2,8 +2,8 @@ import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { FadeEdge } from '@/ui/FadeEdge'
-import { LogoMark } from '@/ui/icons/LogoMark'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
+import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { RefreshIcon } from '@/ui/icons/RefreshIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -31,7 +31,7 @@ export function InboxHeader({ onRefresh, refreshing, onOpenMenu }: InboxHeaderPr
         <View style={[styles.header, { paddingTop: topOffset(insets, HEADER_TOP) }]}>
             <FadeEdge direction="down" solid={HEADER_SOLID} />
             <View style={styles.titleGroup}>
-                <LogoMark />
+                <PostHogLogomark height={18} />
                 <Text style={styles.title} accessibilityRole="header">
                     Inbox
                 </Text>

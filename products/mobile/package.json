@@ -23,8 +23,7 @@
         "submit:ios": "eas submit --profile production --platform ios",
         "submit:android": "eas submit --profile production --platform android",
         "update:preview": "eas update --channel preview --environment preview --auto",
-        "update:production": "eas update --channel production --environment production --auto",
-        "assets": "node scripts/generate-placeholder-assets.mjs"
+        "update:production": "eas update --channel production --environment production --auto"
     },
     "expo": {
         "autolinking": {
